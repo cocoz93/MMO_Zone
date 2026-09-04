@@ -5,6 +5,7 @@
 #include <mutex>
 #include <algorithm>
 #include <stdexcept>
+#include <new>          // [Belt 추가] std::nothrow — 원본은 다른 헤더에 업혀 통과하고 있었다
 
 
 // 템플릿 기본 매개변수(Default Template Argument)
@@ -31,11 +32,11 @@ class CRingBufferT
 {
 public:
     explicit CRingBufferT()
-        : _capacity(0)
+        : _buffer(nullptr)          // [Belt] 초기화 순서를 선언 순서와 맞춤 (-Wreorder)
+        , _capacity(0)
         , _readPos(0)
         , _writePos(0)
         , _submitPos(0)
-        , _buffer(nullptr)
         , _ownsBuffer(true)
     {
     }
@@ -43,11 +44,11 @@ public:
     // 즉시 할당 편의 생성자 — capacity>0면 Init로 버퍼 확보 (클라 등 풀링 불필요한 곳).
     //   서버 세션 풀은 무인자 ctor(빈) + Init() 사용. 두 생성자는 오버로드라 무충돌.
     explicit CRingBufferT(size_t capacity)
-        : _capacity(0)
+        : _buffer(nullptr)          // [Belt] 초기화 순서를 선언 순서와 맞춤 (-Wreorder)
+        , _capacity(0)
         , _readPos(0)
         , _writePos(0)
         , _submitPos(0)
-        , _buffer(nullptr)
         , _ownsBuffer(true)
     {
         Init(capacity);
@@ -63,6 +64,15 @@ public:
     {
         if (capacity == 0)
             return false;
+
+        // [Belt 추가] 재호출 방어 — 원본은 두 번 부르면 이전 버퍼가 샜다.
+        //   재초기화를 허용하되(용량 변경) 위치는 전부 0으로 되돌린다.
+        if (_buffer != nullptr && _ownsBuffer)
+            delete[] _buffer;
+        _buffer = nullptr;
+        _readPos = 0;
+        _writePos = 0;
+        _submitPos = 0;
 
         _buffer = new (std::nothrow) char[capacity];
         if (_buffer == nullptr)
