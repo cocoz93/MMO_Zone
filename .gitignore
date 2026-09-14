@@ -114,6 +114,7 @@ CONTRIBUTING.md
 CLAUDE.md
 .claude
 AGENTS.md
+.mcp.json
 *.pdf
 LanServer_StressT12est_20191125.exe
 
