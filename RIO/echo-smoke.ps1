@@ -20,7 +20,7 @@
 param([ValidateSet('RIO', 'IOCP')] [string]$ExpectTransport = 'RIO',
       [int]$CompletionBatch = -1)
 $ErrorActionPreference = 'Stop'
-$bin     = 'C:\Users\USER\Desktop\MyGit\MMO\Run\bin'
+$bin     = Join-Path (Split-Path $PSScriptRoot -Parent) 'Run\bin'
 $srvExe  = Join-Path $bin 'MMOServer.exe'
 $srvIni  = Join-Path $bin 'MMOServerConfig.ini'
 $echoIni = Join-Path $bin 'EchoStressConfig.ini'
