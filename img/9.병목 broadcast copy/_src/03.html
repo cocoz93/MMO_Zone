@@ -58,7 +58,7 @@
 </head>
 <body>
   <div class="card">
-    <div class="title">같은 칸이면 볼 것도 같다 &mdash; <span class="r">이어붙여 1번</span>에 준다</div>
+    <div class="title">같은 칸이면 볼 것도 같다 &mdash; <span class="r">이어붙여 한 번</span>에 준다</div>
     <div class="sub">플레이어 A와 B가 같은 칸에 있으면 <b>보는 9칸이 완전히 같다</b> &rarr; 받을 내용도 같으니 한 덩어리를 돌려 쓴다</div>
 
     <div class="stage">
@@ -73,10 +73,10 @@
       <!-- RIGHT : concat + fan -->
       <div>
         <span class="colhead r">방법 &mdash; 이어붙여 돌려 쓰기</span>
-        <div class="stagelabel">9칸에서 온 조각 54개</div>
+        <div class="stagelabel">9칸에서 온 조각 45개</div>
         <svg id="fan" width="640" height="262" viewBox="0 0 640 262"></svg>
-        <div class="anchorline">한 명당 <b>54회 &rarr; 1회</b></div>
-        <div class="bignum"><span class="g">27만</span><span class="u">&rarr;</span><span class="n">5천</span><span class="u">회 / tick</span><span class="pct">&minus;98%</span></div>
+        <div class="anchorline">한 명당 <b>45회 &rarr; 1회</b></div>
+        <div class="bignum"><span class="g">18만</span><span class="u">&rarr;</span><span class="n">4천</span><span class="u">회 / 틱</span><span class="pct">&minus;98%</span></div>
       </div>
     </div>
 
@@ -90,7 +90,7 @@
       <div class="pbox"><div class="t">커널 전송</div><div class="s">그대로</div></div>
     </div>
 
-    <div class="foot">그래서 <b>나가는 바이트는 −2.6%</b>인데 <b>게임루프 CPU는 −64%</b> &mdash; 줄인 건 준비 절차지 짐이 아니다</div>
+    <div class="foot"><b>토글 USE_BROADCAST_BUNDLE</b> · 동접 4,000 A/B &nbsp;|&nbsp; <b>나가는 바이트는 −2.6%</b>인데 <b>게임루프 CPU는 −64%</b> &mdash; 줄인 건 준비 절차지 짐이 아니다</div>
   </div>
 
 <script>
@@ -120,9 +120,9 @@ function player(cx,cy,name,fill){
 player(mx-15,my,'A','#d7263d');
 player(mx+15,my,'B','#7c8597');
 
-/* ---------- RIGHT : 54 fragments -> one strip -> residents ---------- */
+/* ---------- RIGHT : 45 fragments -> one strip -> residents ---------- */
 var fan=document.getElementById('fan');
-var FN=18, FW=22, FH=14, FY=4, FGAP=25;             // 18 shown, stands for 54
+var FN=18, FW=22, FH=14, FY=4, FGAP=25;             // 18 shown, stands for 45
 var FX0=(640-((FN-1)*FGAP+FW))/2;
 var STRIP={x:110,y:100,w:420,h:38,cx:320};
 var PN=12, PR=9, PCY=224, PGAP=44;

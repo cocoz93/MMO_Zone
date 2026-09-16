@@ -55,7 +55,7 @@
 </head>
 <body>
   <div class="card">
-    <div class="title">한 사람에게 <span class="r">한 틱에 54번</span> &mdash; 소식이 생길 때마다 따로 배달</div>
+    <div class="title">한 사람에게 <span class="r">한 틱에 45번</span> &mdash; 소식이 생길 때마다 따로 배달</div>
     <div class="sub">플레이어 A가 보는 범위는 <b>자기 칸 + 이웃 8칸</b>. 그 9칸에서 누가 움직일 때마다 A 앞으로 한 번씩 간다</div>
 
     <div class="stage">
@@ -63,7 +63,7 @@
       <div>
         <span class="colhead">A가 보는 9칸</span>
         <svg id="map" width="470" height="330" viewBox="0 0 470 330"></svg>
-        <div class="gridcap">선 하나 = <b>배달 1회</b> &middot; 9칸에서 온 조각 54개</div>
+        <div class="gridcap">선 하나 = <b>배달 1회</b> &middot; 9칸에서 온 조각 45개</div>
       </div>
 
       <!-- RIGHT : one delivery -->
@@ -78,13 +78,13 @@
         </div>
 
         <div class="anchorbox">
-          <div class="anchorline">한 명당 <b>54회</b> &times; 동접 <b>5,000명</b></div>
-          <div class="bignum"><span class="n">27만</span><span class="u">회 / tick</span><span class="pct">tick의 65%</span></div>
+          <div class="anchorline">한 명당 <b>45회</b> &times; 동접 <b>4,000명</b></div>
+          <div class="bignum"><span class="n">18만</span><span class="u">회 / tick</span><span class="pct">tick의 66%</span></div>
         </div>
       </div>
     </div>
 
-    <div class="foot">동접 5000 &middot; 섹터 20칸 &middot; 틱 40 ms &mdash; 계측 이름은 <b>broadcast copy</b>지만 실체는 <b>호출 고정비</b></div>
+    <div class="foot">동접 4,000 &middot; 섹터 20칸 &middot; 틱 40 ms &mdash; 계측 이름은 <b>broadcast copy</b>지만 실체는 <b>호출 고정비</b></div>
   </div>
 
 <script>
@@ -104,14 +104,17 @@ for(var r=0;r<3;r++)for(var c=0;c<3;c++){
 }
 map.appendChild(gCell);
 
-// fragments: 6 per cell = 54, arranged 3x2 inside the cell, avoiding the center player
+// fragments: 45 total across the 9 cells, arranged 3x2 inside each cell, avoiding the center player
+// counts differ per cell on purpose — 45 is the per-person average (18만 / 4,000), not 9 x 5
+var FRAG=[5,4,6,5,5,6,4,5,5];   // sums to 45; index = r*3+c, center cell (4) holds A
 var gLine=el('g',{stroke:'#aab4c4','stroke-width':0.9,opacity:0.62});
 var gFrag=el('g',{fill:'#8e99ac'});
 var FW=16,FH=10;
 for(var r=0;r<3;r++)for(var c=0;c<3;c++){
   var ox=GX+c*CELL, oy=GY+r*CELL;
   var mid=(r===1&&c===1);       // center cell holds A — fragments spread to clear the marker
-  for(var i=0;i<6;i++){
+  var n=FRAG[r*3+c];
+  for(var i=0;i<n;i++){
     var fc=i%3, fr=(i/3)|0;
     // normal cells keep the pair tight in the middle; the center cell spreads apart to clear A
     var fx=ox+16+fc*22, fy=oy+(mid ? (fr===0?12:CELL-22) : (fr===0?32:52));

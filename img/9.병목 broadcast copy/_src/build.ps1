@@ -3,12 +3,17 @@
 #
 # logical size x DSF4 = final resolution (high-res for PPT, Pretendard embedded):
 #   01 : 940x680   -> 3760x2720   (01_ceiling_sweep.png)
-#   02 : 1200x626  -> 4800x2504   (02_cause_54calls.png)
+#   02 : 1200x626  -> 4800x2504   (02_cause_45calls.png)
 #   03 : 1200x736  -> 4800x2944   (03_receiver_batching.png)
 #   04 : 1060x680  -> 4240x2720   (04_ab_result.png)
+#   05 : 1200x760  -> 4800x3040   (05_serialize_9x.png)
+#   06 : 1200x750  -> 4800x3000   (06_two_axes.png)
 # 02/03 were replaced 2026-08-08: the old pair showed only "how much" (donut + abstract fanout).
 # The new pair shows "what happens" — one player's 9 cells, then why one blob can be shared.
 # Retired sources kept as *_retired_*.html.
+# 2026-09-11: numbers unified on the 동접 4,000 A/B set (45 calls/person, 18만/tick). The 동접 5,000
+# figures (54, 27만) now live only in the ceiling-sweep section of the article. 06 is new — it shows
+# the two sector axes (where items are staged vs. which cell scrapes them).
 $dir = $PSScriptRoot
 
 $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
@@ -44,9 +49,11 @@ function Render($name, $w, $h, $out) {
 
 Write-Host "[build] using: $chrome"
 Render "01" 940 680 "01_ceiling_sweep.png"
-Render "02" 1200 626 "02_cause_54calls.png"
+Render "02" 1200 626 "02_cause_45calls.png"
 Render "03" 1200 736 "03_receiver_batching.png"
 Render "04" 1060 680 "04_ab_result.png"
+Render "05" 1200 760 "05_serialize_9x.png"
+Render "06" 1200 750 "06_two_axes.png"
 Remove-Item $render -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $profileDir -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "[build] done."

@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face{font-family:'Pretendard';
+    src:url('fonts/PretendardVariable.woff2') format('woff2');
+    font-weight:100 900;font-style:normal;font-display:block}
+  :root{
+    --bg:#eef1f5; --card:#ffffff; --ink:#1f2330; --muted:#7c8597;
+    --red:#d7263d; --slate:#566072; --pill-gray:#e9edf3;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;width:1200px;height:760px;overflow:hidden;background:var(--bg);
+    font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;text-rendering:optimizeLegibility}
+  .card{position:absolute;top:24px;left:24px;width:1152px;height:712px;background:var(--card);
+    border:1px solid #eef0f3;border-radius:30px;box-shadow:0 1px 3px rgba(30,40,70,.05),0 14px 44px rgba(30,40,70,.075);
+    padding:28px 56px 0}
+  .title{font-size:37px;font-weight:800;color:var(--ink);letter-spacing:-.6px;line-height:1.08}
+  .title .r{color:var(--red)}
+  .sub{margin-top:9px;font-size:19px;font-weight:500;color:var(--muted)}
+  .sub b{color:#3a4254;font-weight:700}
+  .sub .key{color:var(--red);font-weight:700}
+
+  .stage{margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:start}
+  .colhead{font-size:17px;font-weight:800;color:var(--slate);letter-spacing:-.3px;
+    background:var(--pill-gray);border-radius:999px;padding:6px 16px;display:inline-block}
+  .colhead.r{background:var(--red);color:#fff}
+  .stagelabel{margin-top:7px;font-size:15.5px;font-weight:600;color:#8089a0;letter-spacing:-.2px;text-align:center}
+
+  svg{font-family:inherit;display:block}
+  .cap{margin-top:4px;font-size:17px;color:#8089a0;font-weight:500;text-align:center;line-height:1.35}
+  .cap b{color:#3a4254;font-weight:700}
+  .cap.r b{color:var(--red);font-weight:800}
+
+  .bignum{margin-top:8px;display:flex;align-items:baseline;justify-content:center;gap:8px;
+    font-weight:800;letter-spacing:-1px}
+  .bignum .n{font-size:44px;color:#aab4c4}
+  .bignum.r .n{color:var(--red)}
+  .bignum .u{font-size:18px;font-weight:700;color:#8089a0}
+
+  .anchor{position:absolute;left:56px;right:56px;bottom:64px;text-align:center;
+    font-size:21px;font-weight:600;color:#8089a0;letter-spacing:-.3px}
+  .anchor b{color:var(--red);font-weight:800}
+  .anchor .g{color:#6b7484;font-weight:800}
+
+  .foot{position:absolute;left:56px;right:56px;bottom:15px;padding-top:11px;border-top:1px solid #eef0f3;
+    font-size:16px;color:#9aa3b2;font-weight:500;text-align:center}
+  .foot b{color:#6b7484;font-weight:700}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="title">9칸을 한 장으로 못 묶는 이유 &mdash; <span class="r">만드는 쪽이 9배</span>가 된다</div>
+    <div class="sub">수신 섹터마다 <b>보이는 조합이 달라</b> 패킷을 공유할 수 없다 &nbsp;&nbsp;|&nbsp;&nbsp; <span class="key">빨강 조각 = 이동자 E의 좌표</span></div>
+
+    <div class="stage">
+      <!-- LEFT : source-cell bundling, one packet shared by nine -->
+      <div>
+        <span class="colhead">지금 &mdash; 소스 1칸 기준</span>
+        <div class="stagelabel">한 장을 만들어, 받는 섹터 아홉 칸이 나눠 쓴다</div>
+        <svg id="one" width="498" height="340" viewBox="0 0 498 340"></svg>
+        <div class="cap">아홉 칸이 <b>같은 한 장</b>을 돌려 쓴다</div>
+        <div class="bignum"><span class="n">1회</span><span class="u">직렬화 &middot; 이동자당</span></div>
+      </div>
+
+      <!-- RIGHT : receiver-9cell bundling, nine packets each carrying E again -->
+      <div>
+        <span class="colhead r">넓히면 &mdash; 수신자 9칸 기준</span>
+        <div class="stagelabel">받는 섹터 아홉 칸에 각각 한 장씩 만든다</div>
+        <svg id="nine" width="498" height="340" viewBox="0 0 498 340"></svg>
+        <div class="cap r">같은 <b>E의 좌표가 아홉 장</b>에 각각 들어간다</div>
+        <div class="bignum r"><span class="n">9회</span><span class="u">직렬화 &middot; 이동자당</span></div>
+      </div>
+    </div>
+
+    <div class="anchor">받는 쪽 호출 <span class="g">9 &rarr; 1</span> 을 얻는 대가로, 만드는 쪽이 <b>1 &rarr; 9</b></div>
+
+    <div class="foot">게다가 패킷 한 장은 <b>직렬화 버퍼 한 장(엔트리 100개)</b>이 상한 &mdash; 9칸을 한데 묶으면 그 상한에 훨씬 일찍 부딪힌다</div>
+  </div>
+
+<script>
+var NS='http://www.w3.org/2000/svg';
+function el(t,a){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);return e;}
+function txt(p,x,y,s,w,f,anchor){
+  var t=el('text',{x:x,y:y,'font-size':s,'font-weight':w,fill:f,'text-anchor':anchor||'middle'});
+  p.appendChild(t); return t;
+}
+
+/* Both panels share one skeleton: packets on top, the same 3x3 receiver grid below.
+   Only the packet count changes, so the number of RED fragments is the whole message. */
+var CELL=68, GX=(498-CELL*3)/2, GY=112;
+var NAMES=['A','B','C','D','E','F','G','H','I'];
+var PY=22, PH=56;                       // packet row
+function cellCenter(i){ return {x:GX+(i%3)*CELL+CELL/2, y:GY+((i/3)|0)*CELL+CELL/2}; }
+
+/* Cell labels sit in the top-left corner so the centre stays clear for lines and the player. */
+function grid(svg){
+  for(var r=0;r<3;r++)for(var c=0;c<3;c++){
+    var mid=(r===1&&c===1);
+    svg.appendChild(el('rect',{x:GX+c*CELL,y:GY+r*CELL,width:CELL,height:CELL,rx:8,
+      fill:mid?'#fdeaee':'#f4f6fa',stroke:mid?'#f2b8c3':'#dde3ec','stroke-width':1.6}));
+    txt(svg,GX+c*CELL+10,GY+r*CELL+22,15,800,mid?'#e08a97':'#aab4c4','start')
+      .textContent=NAMES[r*3+c];
+  }
+}
+// the mover sits in the middle cell -- drawn last so the fan lines pass behind it
+function mover(svg){
+  var m=cellCenter(4);
+  svg.appendChild(el('circle',{cx:m.x,cy:m.y,r:13,fill:'#d7263d'}));
+  txt(svg,m.x,m.y+6,16,800,'#fff').textContent='E';
+}
+
+/* one packet body: a white card holding `grays`+1 fragments, the first one red (= player E) */
+function packet(svg,x,y,w,h,grays,fw){
+  svg.appendChild(el('rect',{x:x,y:y,width:w,height:h,rx:9,fill:'#fff',
+    stroke:'#c3cad6','stroke-width':2}));
+  var n=1+grays, fh=11, g=4;
+  var total=n*fh+(n-1)*g, top=y+(h-total)/2;
+  for(var k=0;k<n;k++)
+    svg.appendChild(el('rect',{x:x+(w-fw)/2,y:top+k*(fh+g),width:fw,height:fh,rx:3,
+      fill:k===0?'#d7263d':'#cfd6e0'}));
+}
+
+/* ---------- LEFT : one packet, nine lines fanning out ---------- */
+var one=document.getElementById('one');
+var OW=196, OX=(498-OW)/2, OCX=249;
+grid(one);
+// lines sit ON TOP of the grid, faint, so it is visible that all nine cells are fed
+var gl=el('g',{stroke:'#8e99ac','stroke-width':1.4,opacity:.42});
+for(var i=0;i<9;i++){var p=cellCenter(i);
+  gl.appendChild(el('line',{x1:OCX,y1:PY+PH,x2:p.x,y2:p.y}));}
+one.appendChild(gl);
+var gd=el('g',{fill:'#8e99ac',opacity:.5});
+for(var i=0;i<9;i++){ if(i===4) continue;      // the middle cell already shows the mover
+  var p=cellCenter(i);
+  gd.appendChild(el('circle',{cx:p.x,cy:p.y,r:3.4}));}
+one.appendChild(gd);
+mover(one);
+// the single packet is drawn wide, fragments side by side so the red one reads at a glance
+one.appendChild(el('rect',{x:OX,y:PY,width:OW,height:PH,rx:10,fill:'#fff',
+  stroke:'#c3cad6','stroke-width':2}));
+var FW=38, FH=22, FGAP=8, FX=OX+(OW-(4*FW+3*FGAP))/2, FY=PY+(PH-FH)/2;
+for(var f=0;f<4;f++)
+  one.appendChild(el('rect',{x:FX+f*(FW+FGAP),y:FY,width:FW,height:FH,rx:4,
+    fill:f===0?'#d7263d':'#cfd6e0'}));
+txt(one,OCX,PY-8,15,800,'#c3cad6').textContent='E칸 한 장';
+
+/* ---------- RIGHT : nine packets, labelled A~I to match the grid below ---------- */
+var nine=document.getElementById('nine');
+var PW=44, PGAP=6.75, PX0=(498-(9*PW+8*PGAP))/2;
+var GRAYS=[2,1,2,1,2,1,2,2,1];   // a different mix per sector = the packets cannot be shared
+for(var i=0;i<9;i++){
+  var px=PX0+i*(PW+PGAP);
+  txt(nine,px+PW/2,PY-8,14.5,800,'#b9c2cf').textContent=NAMES[i];
+  packet(nine,px,PY,PW,PH,GRAYS[i],28);
+}
+grid(nine);
+mover(nine);
+txt(nine,249,PY+PH+26,16,700,'#d7263d').textContent='아홉 장 — 빨강이 아홉 번 다시 쓰인다';
+</script>
+</body>
+</html>
