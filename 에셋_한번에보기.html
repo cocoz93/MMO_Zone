@@ -1,0 +1,147 @@
+<meta charset="utf-8">
+<title>웹클라 LPC 에셋</title>
+<style>
+  body{margin:0;padding:16px 24px 40px;background:#1d1e21;color:#ddd;font:14px/1.55 "Malgun Gothic","Apple SD Gothic Neo",sans-serif}
+  h1{font-size:20px;margin:0 0 4px}
+  h2{font-size:16px;margin:30px 0 8px;padding-bottom:4px;border-bottom:1px solid #3a3c42}
+  h3{font-size:13px;margin:14px 0 6px;color:#9aa0a8;font-weight:normal}
+  .sub{color:#9aa0a8;font-size:13px;margin:0 0 6px}
+  .grid{display:flex;flex-wrap:wrap;gap:8px}
+  .cell{width:136px;padding:4px 4px 6px;background:#2a2c31;border:1px solid #393c43;border-radius:4px;text-align:center;cursor:pointer}
+  .cell:hover{border-color:#8a93a0}
+  .spr{width:128px;height:128px;margin:0 auto;image-rendering:pixelated;background-repeat:no-repeat;background-size:1152px 512px;background-position:0 -256px}
+  .walk{animation:walk .9s steps(8) infinite}
+  @keyframes walk{from{background-position-x:-128px}to{background-position-x:-1152px}}
+  .key{font:12px Consolas,monospace;color:#c9ced6;word-break:break-all}
+  .lbl{font-size:12px;color:#c9ced6}
+  .tag{display:inline-block;margin-top:2px;padding:0 6px;border-radius:3px;font-size:11px}
+  .no{background:#4d2626;color:#f3b4b4}
+  .ok{background:#20432d;color:#a9dfbb}
+  #viewer{display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);max-width:96vw;padding:10px;background:#26282d;border:1px solid #5b606a;border-radius:6px;box-shadow:0 8px 40px #000c;z-index:9}
+  #viewer img{display:block;width:1152px;max-width:100%;image-rendering:pixelated;background:#1d1e21}
+  .sheet{position:relative;display:inline-block;margin:0 20px 14px 0;vertical-align:top}
+  .sheet .pic{position:relative}
+  .sheet img{display:block;image-rendering:pixelated;background:#2a2c31}
+  .box{position:absolute;border:2px dashed #7ee0a0;box-sizing:border-box}
+  .box span{position:absolute;left:2px;top:2px;padding:0 3px;background:#000b;font-size:11px;color:#7ee0a0;white-space:nowrap}
+</style>
+
+<h1>MMO 웹클라에 들어간 LPC 에셋</h1>
+<p class="sub" id="sum"></p>
+<p class="sub">그림 파일: WebClient/assets/lpc_layers.js · assetsB.js (이 페이지는 그 파일을 그대로 읽어 보여줌) · 그림은 2배 확대 · 칸을 누르면 시트 전체(4방향×9프레임)가 뜸</p>
+
+<h2>1. 게임 화면에 나오는 모습 — 부위를 겹친 결과</h2>
+<p class="sub">서버는 캐릭터 종류를 저장하지 않음 → 클라가 플레이어 번호로 조합을 고름(live.html의 comboFor 그대로). 번호 1~24 예시</p>
+<div class="grid" id="combos"></div>
+<h3>한 캐릭터의 4방향 (동작은 걷기 하나뿐)</h3>
+<div class="grid" id="dirs"></div>
+
+<h2>2. 캐릭터 부위 — lpc_layers.js</h2>
+<div id="parts"></div>
+
+<h2>3. 바닥·소품 — assetsB.js</h2>
+<p class="sub">초록 점선 = 게임이 실제로 잘라 쓰는 칸</p>
+<div id="tiles"></div>
+
+<h2>4. 완성 캐릭터 시트 — assetsB.js</h2>
+<div id="full"></div>
+
+<p class="sub" style="margin-top:30px">크레딧(WebClient/README.md 기준): LPC — Sharm · Redshrike · Mandi Paugh · William.Thompsonj (CC-BY-SA) / Universal LPC Spritesheet Character Generator (CC-BY-SA)</p>
+
+<div id="viewer"><div class="key" id="vname"></div><img id="vimg" alt=""></div>
+
+<script src="WebClient/assets/assetsB.js"></script>
+<script src="WebClient/assets/lpc_layers.js"></script>
+<script>
+// ---- live.html:67-84 그대로 ----
+const MBODY=['b_light','b_olive','b_amber','b_bronze','b_brown','b_green','b_zombie'];
+const MHEAD=['hd_light','hd_olive','hd_amber','hd_bronze','hd_brown','hd_green','hd_zombie'];
+const MHAIR=['h_plain','h_spiked','h_afro','h_bedhead','h_long','h_messy1','h_mop','h_parted'];
+const MSHIRT=['t_red','t_forest','t_purple','t_yellow','t_teal','t_slate'];
+const MPANTS=['l_blue','l_brown','l_charcoal','l_teal','l_navy','l_leather'];
+const FBODY=['b_fem','bf_olive','bf_amber','bf_bronze'];
+const FHEAD=['hd_f_light','hd_f_olive','hd_f_amber','hd_f_bronze'];
+const FHAIR=['hf_ponytail','hf_long','hf_braid','hf_bangslong','hf_pixie'];
+const FSHIRT=['tf_teal','tf_rose','tf_purple','tf_navy'];
+const FPANTS=['lf_navy','lf_rose','lf_brown','lf_teal'];
+function ihash(id,n){ let x=(((id>>>0)*2654435761) ^ (n*40503))>>>0; x^=x>>>15; x=(x*2246822519)>>>0; x^=x>>>13; return x>>>0; }
+function comboFor(id){ id=id>>>0;
+  if(ihash(id,1)%12===0) return {key:'k', L:['b_skeleton']};
+  if(ihash(id,2)%100<30){ const b=ihash(id,3)%FBODY.length,h=ihash(id,4)%FHAIR.length,s=ihash(id,5)%FSHIRT.length,p=ihash(id,6)%FPANTS.length;
+    return {key:'f'+b+h+s+p, L:[FBODY[b],FHEAD[b],FPANTS[p],FSHIRT[s],FHAIR[h]]}; }
+  const b=ihash(id,3)%MBODY.length,h=ihash(id,4)%MHAIR.length,s=ihash(id,5)%MSHIRT.length,p=ihash(id,6)%MPANTS.length;
+  return {key:'m'+b+h+s+p, L:[MBODY[b],MHEAD[b],MPANTS[p],MSHIRT[s],MHAIR[h]]};
+}
+// ---- 여기부터 목록 페이지 ----
+const LP=window.LPC||{}, IM=window.IMG||{};
+const USED=new Set([...MBODY,...MHEAD,...MHAIR,...MSHIRT,...MPANTS,...FBODY,...FHEAD,...FHAIR,...FSHIRT,...FPANTS,'b_skeleton']);
+const $=id=>document.getElementById(id);
+const el=(tag,cls,html)=>{const e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e;};
+const bgOf=names=>names.slice().reverse().map(n=>`url("${LP[n]}")`).join(',');   // CSS는 앞에 적은 게 위 → 뒤집기
+function sprite(names,row,walk){ const s=el('div','spr'+(walk?' walk':'')); s.style.backgroundImage=bgOf(names); s.style.backgroundPositionY=(-row*128)+'px'; return s; }
+function openSheet(title,uri){ $('vname').textContent=title; $('vimg').src=uri; $('viewer').style.display='block'; }
+$('viewer').onclick=()=>{ $('viewer').style.display='none'; };
+
+// 1. 조합 예시
+for(let id=1; id<=24; id++){
+  const c=comboFor(id), cell=el('div','cell');
+  cell.append(sprite(c.L,2,true), el('div','key','#'+id), el('div','lbl', c.key==='k'?'해골':(c.key[0]==='f'?'여':'남')));
+  cell.title=c.L.join(' + ');
+  $('combos').append(cell);
+}
+let demoId=1; while(comboFor(demoId).key[0]!=='m') demoId++;   // 해골은 앞뒤 구분이 안 돼서 사람으로
+const demo=comboFor(demoId);
+$('dirs').previousElementSibling.textContent=`한 캐릭터(#${demoId})의 4방향 — 동작은 걷기 하나뿐`;
+['위','왼쪽','아래','오른쪽'].forEach((d,row)=>{ const cell=el('div','cell'); cell.append(sprite(demo.L,row,true), el('div','lbl',d)); $('dirs').append(cell); });
+
+// 2. 부위
+const GROUPS=[
+  ['몸',        [['남',MBODY],['여',FBODY],['해골',['b_skeleton']]]],
+  ['머리(얼굴)', [['남',MHEAD],['여',FHEAD]]],
+  ['머리카락',   [['남',MHAIR],['여',FHAIR]]],
+  ['상의',      [['남',MSHIRT],['여',FSHIRT]]],
+  ['하의',      [['남',MPANTS],['여',FPANTS]]],
+];
+const listed=new Set(GROUPS.flatMap(g=>g[1].flatMap(s=>s[1])));
+const rest=Object.keys(LP).filter(k=>!listed.has(k));
+if(rest.length) GROUPS.push(['코드 목록에 없는 것', [['',rest]]]);
+for(const [gname,subs] of GROUPS){
+  const n=subs.reduce((a,s)=>a+s[1].length,0);
+  $('parts').append(el('h3',null,`${gname} — ${n}장`));
+  const grid=el('div','grid');
+  for(const [sname,keys] of subs) for(const k of keys){
+    const cell=el('div','cell');
+    cell.append(LP[k]?sprite([k],2,false):el('div','spr','없음'), el('div','key',k), el('div','lbl',sname));
+    cell.append(el('span','tag '+(USED.has(k)?'ok':'no'), USED.has(k)?'사용':'안 씀'));
+    cell.onclick=()=>openSheet(k+' — 줄: 위 / 왼쪽 / 아래 / 오른쪽',LP[k]);
+    grid.append(cell);
+  }
+  $('parts').append(grid);
+}
+
+// 3. 바닥·소품 (live.html drawGround·drawProp 이 자르는 좌표)
+const TILES=[
+  ['grass','잔디',[[0,160,96,32,'바닥 칸 3개']]],
+  ['dirt','흙',null],
+  ['watergrass','물가',null],
+  ['treetop','나무',[[0,0,96,96,'bush(둥근 나무)'],[96,0,96,96,'bush(둥근 나무)'],[0,96,96,128,'pine(소나무)'],[96,96,96,128,'pine(소나무)']]],
+  ['rock','바위',[[0,0,32,32,''],[32,0,32,32,'']]],
+];
+function sheetBox(key,title,boxes,scale){
+  const wrap=el('div','sheet'), pic=el('div','pic'), img=new Image();
+  img.onload=()=>{ img.style.width=img.naturalWidth*scale+'px'; img.style.height=img.naturalHeight*scale+'px'; cap.querySelector('.key').textContent=`${key} · ${img.naturalWidth}×${img.naturalHeight}`; };
+  img.src=IM[key]; pic.append(img);
+  for(const [x,y,w,h,t] of boxes||[]){ const b=el('div','box'); Object.assign(b.style,{left:x*scale+'px',top:y*scale+'px',width:w*scale+'px',height:h*scale+'px'}); if(t)b.append(el('span',null,t)); pic.append(b); }
+  const cap=el('div',null,`<span class="key">${key}</span> <span class="lbl">${title}</span> <span class="tag ${boxes?'ok':'no'}">${boxes?'사용':'안 씀'}</span>`);
+  wrap.append(pic,cap); return wrap;
+}
+for(const [k,t,boxes] of TILES) $('tiles').append(sheetBox(k,t,boxes,2));
+
+// 4. 완성 캐릭터 시트
+for(const k of ['sara','princess','soldier']){ const w=sheetBox(k,'',null,1); w.style.cursor='pointer'; w.onclick=()=>openSheet(k+' — 줄: 위 / 왼쪽 / 아래 / 오른쪽',IM[k]); $('full').append(w); }
+
+// 요약 (센 값)
+const nL=Object.keys(LP).length, uL=Object.keys(LP).filter(k=>USED.has(k)).length;
+const nT=TILES.length, uT=TILES.filter(t=>t[2]).length;
+$('sum').textContent=`캐릭터 부위 ${nL}장 중 ${uL}장 사용 · 바닥·소품 ${nT}장 중 ${uT}장 사용 · 완성 캐릭터 시트 3장은 안 씀`;
+</script>
