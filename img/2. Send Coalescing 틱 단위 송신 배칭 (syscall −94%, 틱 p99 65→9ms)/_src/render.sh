@@ -5,7 +5,7 @@ set -e
 CHROME="/c/Program Files/Google/Chrome/Application/chrome.exe"
 SRCDIR="$(cd "$(dirname "$0")" && pwd)"
 OUTDIR="$(dirname "$SRCDIR")"
-TMP="/c/Users/USER/AppData/Local/Temp/claude/C--Users-USER-Desktop-MyGit-MMO/6b452e49-eb78-4a8c-8a26-00c8b902376b/scratchpad"
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP"
 
 names=("$@")

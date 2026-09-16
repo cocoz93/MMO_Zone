@@ -74,7 +74,7 @@
 </head>
 <body>
   <div class="card">
-    <div class="title">동접 <span class="r">200 → ~5,000</span> — 병목 추적의 기록</div>
+    <div class="title">동접 <span class="r">200 → 7,200</span> — 병목 추적의 기록</div>
     <div class="uline"></div>
     <div class="sub">병목을 잡으면 다음 병목이 나타난다 — 모든 단계 <b>추측이 아닌 실측(A/B)</b>으로</div>
 
@@ -119,30 +119,31 @@
         <div class="bar"><i style="width:80%"></i></div>
         <div class="bn">게임루프 팬아웃 병목</div>
         <div class="pill">진입/이탈·수신섹터 묶음</div>
-        <div class="rx"><span>진입/이탈 <b>−68%</b></span><span>복사 <b>−88%</b></span></div>
+        <div class="rx"><span>진입/이탈 <b>−68%</b></span><span>호출 <b>−98%</b></span></div>
       </div>
       <div class="arr"><span class="shaft"></span><span class="head"></span></div>
 
       <div class="st top">
         <div class="stepno">5</div>
-        <div class="cap">동접 — 실측 상한</div>
-        <div class="num">5,000</div>
+        <div class="cap">동접 — 실측 한계</div>
+        <div class="num">7,200</div>
         <div class="bar"><i style="width:100%"></i></div>
-        <div class="bn">송신워커 포화</div>
-        <div class="pill">SendWorker ×3</div>
-        <div class="rx"><span>병목 해소</span><span class="ceil">천장 = <b>게임루프</b></span></div>
+        <div class="bn">통보 팬아웃 → 송신큐</div>
+        <div class="pill">통보 digest · 좌표 9B</div>
+        <div class="rx"><span>tick p99 <b>59.7→19.9ms</b></span><span>송신 <b>−21%</b></span></div>
       </div>
     </div>
 
     <div class="negline">
-      <span class="lead">음성 결과도 기록한다</span>
-      <span><span class="tag rj">기각</span>LockFree 전환 <b>−10%</b></span>
-      <span><span class="tag rj">기각</span>SO_SNDBUF=0 <b>+75%</b></span>
+      <span class="lead">안 된 결과도 기록한다</span>
+      <span><span class="tag rj">기각</span>락프리 큐 전환 <b>10% 저하</b></span>
+      <span><span class="tag rj">기각</span>SO_SNDBUF=0 <b>전체 CPU +75%</b></span>
       <span><span class="tag rj">기각</span>코어격리 <b>천장 불변</b></span>
+      <span><span class="tag rj">기각</span>송신워커 K4·K5 <b>이득 없음</b></span>
       <span class="fb"><span class="tag fd">규명</span>1,500 붕괴 = 회선 <b>474Mbps</b></span>
     </div>
 
-    <div class="foot">개인 R&D · <b>C++ IOCP MMO 서버 직접 설계·구현</b> · Prometheus/Grafana 계측 · loopback 실측 A/B — 상세: Notion 「MMO 게임서버 구현」</div>
+    <div class="foot">개인 R&D · <b>C++ IOCP MMO 서버 직접 설계·구현</b> · Prometheus/Grafana 계측 · loopback·WAN 실측 A/B — 상세: Notion 「MMO 게임서버 구현」</div>
   </div>
 </body>
 </html>
