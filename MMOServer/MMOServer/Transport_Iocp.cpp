@@ -7,7 +7,7 @@
 
 #if !USE_RIO_TRANSPORT
 
-#include "../../Shared/Common/ErrorLog.h"
+#include <Common/ErrorLog.h>
 #include <chrono>
 #include <algorithm>
 #include <cassert>

@@ -1,8 +1,8 @@
 ﻿#include "GameServer.h"
 #include "Player.h"
-#include "../../Shared/Protocol/Protocol.h"
+#include <Protocol/Protocol.h>
 #include "SerialBuffer.h"
-#include "../../Shared/Common/ErrorLog.h"
+#include <Common/ErrorLog.h>
 #include "CoreAffinity.h"
 #include <iostream>
 #include <chrono>

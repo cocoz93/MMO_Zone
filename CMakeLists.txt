@@ -71,6 +71,7 @@ add_library(ServerBaseLib STATIC
 target_include_directories(ServerBaseLib PUBLIC
     ${SRV_DIR}                 # 프로젝트 헤더 (IOCPServer.h 등)
     ${SRV_DIR}/ThirdParty      # spdlog·fmt·httplib (헤더온리 번들)
+    ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Common/…> <Protocol/…> <RingBuffer.h>
     ${LOCKFREE_DIR}            # 형제 저장소 — <LockFree/…> 로 열린다
 )
 
@@ -210,6 +211,7 @@ add_executable(lockfree_headers_check
 target_include_directories(lockfree_headers_check PRIVATE
     ${SRV_DIR}
     ${SRV_DIR}/ThirdParty
+    ${CMAKE_CURRENT_SOURCE_DIR}/Shared
     ${LOCKFREE_DIR}
 )
 target_compile_features(lockfree_headers_check PRIVATE cxx_std_17)

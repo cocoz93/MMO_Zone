@@ -34,7 +34,7 @@
 #include "Platform/Platform.h"    // Platform::GetExecutableDir
 #include "Common.h"
 #include "MapManager.h"
-#include "../../Shared/Common/ErrorLog.h"
+#include <Common/ErrorLog.h>
 
 struct ServerConfig
 {

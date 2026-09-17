@@ -8,7 +8,7 @@
 #if USE_RIO_TRANSPORT
 
 #include "Crash/CrashDump.h"   // CRASH 매크로 (CQ 오염 시 즉사+덤프)
-#include "../../Shared/Common/ErrorLog.h"
+#include <Common/ErrorLog.h>
 #include <chrono>
 #include <algorithm>
 #include <cassert>

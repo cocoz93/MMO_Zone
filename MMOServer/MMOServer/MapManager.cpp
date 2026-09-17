@@ -1,5 +1,5 @@
 ﻿#include "MapManager.h"
-#include "../../Shared/Protocol/Protocol.h"
+#include <Protocol/Protocol.h>
 #include <random>
 
 // ==========================================================================

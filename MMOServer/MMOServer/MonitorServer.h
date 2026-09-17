@@ -34,7 +34,7 @@
 #include "Platform/Platform.h"
 #include "ThirdParty/httplib.h"
 #include "MonitorManager.h"
-#include "../../Shared/Common/ErrorLog.h"
+#include <Common/ErrorLog.h>
 #include "CoreAffinity.h"
 
 class CMonitorServer

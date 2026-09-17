@@ -15,7 +15,7 @@
 
 #ifndef _WIN32
 
-#include "../../Shared/Common/ErrorLog.h"
+#include <Common/ErrorLog.h>
 #include "CoreAffinity.h"
 
 #include <sys/epoll.h>

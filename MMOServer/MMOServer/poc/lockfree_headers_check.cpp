@@ -6,7 +6,7 @@
 //   모든 멤버 함수를 컴파일시켜야 이식 누락이 드러난다.
 //   (CLockFreeQueue는 PlacementNew=true를 static_assert로 막으므로 조합에서 제외)
 //
-#include "../LockFreeConfig.h"
+#include "LockFreeConfig.h"
 
 struct LfCheckPayload
 {

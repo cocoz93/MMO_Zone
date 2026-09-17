@@ -11,9 +11,9 @@
 #include <cstring>      // strlen (SaveKind.sql 길이)
 #include <chrono>
 
-#include "../MonitorManager.h"
-#include "../../../Shared/Common/ErrorLog.h"
-#include "../CoreAffinity.h"
+#include "MonitorManager.h"
+#include <Common/ErrorLog.h>
+#include "CoreAffinity.h"
 
 #pragma comment(lib, "libmysql.lib")
 

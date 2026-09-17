@@ -16,8 +16,8 @@
 #include "ServerConfig.h"
 #include "CoreAffinity.h"       // 게임스레드 코어 격리 마스크 주입
 #include "Platform/Platform.h"   // affinity·종료 시그널 격리
-#include "../../Shared/Common/Logger.h"
-#include "../../Shared/Common/ErrorLog.h"
+#include <Common/Logger.h>
+#include <Common/ErrorLog.h>
 
 std::atomic<bool> running{true};
 std::mutex mtx;

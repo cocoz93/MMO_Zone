@@ -1,7 +1,7 @@
 ﻿#include "IOCPServer.h"
 #include "Crash/CrashDump.h"   // CRASH 매크로 (RIO CQ 오염 시 즉사+덤프)
 #include "Platform/Platform.h"   // 플랫폼 격리 경계 (타이머 해상도 등)
-#include "../../Shared/Common/ErrorLog.h"
+#include <Common/ErrorLog.h>
 #include <iostream>
 #include <chrono>
 #include <algorithm>

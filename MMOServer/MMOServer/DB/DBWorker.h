@@ -12,7 +12,7 @@
 //        잡은 값 타입 스냅샷이라 플레이어 삭제 후 실행돼도 안전(수명 무관).
 // ==========================================================================
 
-#include "../BuildConfig.h"
+#include "BuildConfig.h"
 
 #include <cstdint>
 #include <string>
