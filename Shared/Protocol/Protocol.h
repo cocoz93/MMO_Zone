@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include <cstdint>
+#include "NetHeader.h"   // MsgHeader · EchoMsgHeader (전송 계층이 공유하는 와이어 헤더)
 
 // 패킷 타입 (혼용 방지를 위해 L7 Msg로 표기)
 enum class MsgType : uint16_t
@@ -77,19 +78,9 @@ enum class MsgType : uint16_t
     S2C_DELETE_PLAYER_BATCH // 서버 → 클라이언트: 시야 이탈 상대 묶음 (mover 전용, DELETE N개→1패킷)
 };
 
-// 패킷 헤더 (모든 패킷 공통)
+// 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
+//   게임 패킷 정의를 보지 않게 하려는 것. 이 파일이 NetHeader.h 를 include하므로 사용처는 그대로다.
 #pragma pack(push, 1)
-struct MsgHeader
-{
-    uint16_t size;        // 패킷 전체 크기 (헤더 포함)
-    MsgType type;         // 패킷 타입
-};
-
-// 에코 테스트용 헤더 (GameCodiEchoTest 더미 클라이언트 호환)
-struct EchoMsgHeader
-{
-    uint16_t size;        // 페이로드 크기 (헤더 미포함)
-};
 
 // NetWorkLib_EchoTest: MsgHeader(4byte) + uint64_t 에코 값
 constexpr uint16_t ECHO_BODY_SIZE  = static_cast<uint16_t>(sizeof(uint64_t));

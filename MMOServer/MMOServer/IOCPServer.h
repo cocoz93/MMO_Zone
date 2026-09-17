@@ -22,7 +22,7 @@
 
 #include "../../Shared/RingBuffer.h"
 #include "SerialBuffer.h"
-#include "../../Shared/Protocol/Protocol.h"
+#include "../../Shared/Protocol/NetHeader.h"   // 와이어 헤더만 — 게임 패킷 정의(Protocol.h)는 보지 않는다
 #include "LockFreeConfig.h"      // 락프리 스택/큐 (형제 저장소 MyGit\LockFree 참조)
 #if USE_RIO_TRANSPORT
 #include "RioApi.h"      // RIO 함수 테이블 + 등록 슬랩 (전송 교체 경로 전용)
