@@ -124,8 +124,7 @@ else()
 endif()
 
 target_include_directories(ServerNetworkLib PUBLIC
-    ${CORE_NET}                          # "IOCPServer.h" · "RioApi.h" · "NetIoModel.h"
-    ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Protocol/NetHeader.h> — 와이어 규약은 클라와 공유
+    ${CORE_NET}                          # "IOCPServer.h" · "RioApi.h" · "NetIoModel.h" · "NetHeader.h"
 )
 
 target_link_libraries(ServerNetworkLib PUBLIC ServerBaseLib)
@@ -152,8 +151,9 @@ add_executable(MMOServer ${GAME_SOURCES})
 target_link_libraries(MMOServer PRIVATE ServerNetworkLib)
 
 target_include_directories(MMOServer PRIVATE
-    ${SRV_DIR}                 # "BuildConfig.h" 등 게임 헤더 (DB/ 하위에서도 이름만으로 열린다)
-    ${MYSQL_DIR}/include       # MySQL C API (DBWorker 전용)
+    ${SRV_DIR}                           # "BuildConfig.h" 등 게임 헤더 (DB/ 하위에서도 이름만으로 열린다)
+    ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Protocol/Protocol.h> — 게임 패킷 정의 (클라와 공유)
+    ${MYSQL_DIR}/include                 # MySQL C API (DBWorker 전용)
 )
 
 if(MSVC)
@@ -188,7 +188,8 @@ add_executable(mmo_server ${GAME_SOURCES})
 target_link_libraries(mmo_server PRIVATE ServerNetworkLib mysqlclient)
 
 target_include_directories(mmo_server PRIVATE
-    ${SRV_DIR}                 # "BuildConfig.h" 등 게임 헤더 (DB/ 하위에서도 이름만으로 열린다)
+    ${SRV_DIR}                           # "BuildConfig.h" 등 게임 헤더 (DB/ 하위에서도 이름만으로 열린다)
+    ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Protocol/Protocol.h> — 게임 패킷 정의 (클라와 공유)
     /usr/include/mysql
 )
 

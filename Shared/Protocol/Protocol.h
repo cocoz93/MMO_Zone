@@ -1,7 +1,9 @@
 ﻿#pragma once
 
 #include <cstdint>
-#include "NetHeader.h"   // MsgHeader · EchoMsgHeader (전송 계층이 공유하는 와이어 헤더)
+// 와이어 헤더는 서버 코어가 갖는다 — "패킷 앞 2바이트가 길이다"는 전송 계층이 정하는 규약이라
+//   게임이 바뀌어도 안 바뀐다. 이 파일이 include 하므로 클라·게임 사용처는 수정 불필요.
+#include "../../ServerCore/Network/NetHeader.h"   // MsgHeader · EchoMsgHeader
 
 // 패킷 타입 (혼용 방지를 위해 L7 Msg로 표기)
 enum class MsgType : uint16_t
