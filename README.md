@@ -42,7 +42,7 @@ C++17 · Windows IOCP · Registered I/O · WinSock · MySQL · Prometheus · Gra
 | 락프리 정확성 | 경합 창을 µs로 증폭해 확률적 결함 재현 | [LockFree 저장소](https://github.com/cocoz93/LockFree) |
 
 <details>
-<summary><b>⚙️ 빌드</b> — LockFree 저장소를 나란히 + MySQL 8.0 (x64 전용)</summary>
+<summary><b>⚙️ 빌드</b> — LockFree 저장소 + MySQL 8.0 (x64 전용)</summary>
 
 ### LockFree 저장소가 필요합니다
 
@@ -58,10 +58,7 @@ C++17 · Windows IOCP · Registered I/O · WinSock · MySQL · Prometheus · Gra
 ```
 
 다른 자리에 뒀다면 CMake 에 알려주면 됩니다 — 경로는 소스가 아니라 빌드계가 갖고 있습니다.
-
-```
-cmake -S . -B build-vs -DLOCKFREE_DIR=<LockFree_Test 경로>
-```
+아래 「CMake 로 빌드」의 **구성 명령에 `-DLOCKFREE_DIR=<LockFree_Test 경로>` 를 덧붙이세요.**
 
 폴더가 없으면 **구성 단계에서** 멈춥니다(예전엔 컴파일까지 가서 `C1083` 이 났고 원인이 안 보였습니다).
 
