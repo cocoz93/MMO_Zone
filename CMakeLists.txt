@@ -19,19 +19,21 @@ set(CORE_BASE ${CMAKE_CURRENT_SOURCE_DIR}/ServerCore/Base)       # 토대 계층
 set(CORE_NET  ${CMAKE_CURRENT_SOURCE_DIR}/ServerCore/Network)    # 전송 계층
 
 # ─────────────────────────────────────────────────────────────
-#  LockFree 저장소 위치 — 형제 저장소(github.com/cocoz93/LockFree)
+#  LockFree 저장소 위치 — 이 저장소의 서브모듈 (github.com/cocoz93/LockFree)
 #    소스에 상대경로를 박지 않는다. 박으면 폴더 배치가 코드에 들어가서
 #    옮기는 순간 C1083으로 죽고, 원인이 에러 메시지에 안 보인다.
-#    다른 자리에 두려면 -DLOCKFREE_DIR=<경로> 로 넘길 것.
+#    다른 자리에 둔 사본을 쓰려면 -DLOCKFREE_DIR=<경로> 로 넘길 것.
+#    ※ ServerCore 도 같은 이름의 캐시 변수를 쓴다. 여기서 먼저 정하므로
+#      서브모듈 쪽 기본값(형제 폴더)은 적용되지 않는다 — 의도한 동작이다.
 # ─────────────────────────────────────────────────────────────
-set(LOCKFREE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../LockFree/LockFree_Test"
+set(LOCKFREE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/LockFree/LockFree_Test"
     CACHE PATH "LockFree 저장소의 LockFree_Test 디렉터리")
 
 if(NOT EXISTS "${LOCKFREE_DIR}/LockFree/LockFreeQueue.h")
     message(FATAL_ERROR
-        "LockFree 저장소를 찾을 수 없습니다: ${LOCKFREE_DIR}\n"
-        "  git clone https://github.com/cocoz93/LockFree  (이 저장소와 나란히)\n"
-        "  또는 -DLOCKFREE_DIR=<LockFree_Test 경로>")
+        "LockFree 서브모듈이 비어 있습니다: ${LOCKFREE_DIR}\n"
+        "  git submodule update --init\n"
+        "  또는 다른 사본을 쓰려면 -DLOCKFREE_DIR=<LockFree_Test 경로>")
 endif()
 
 # DB 워커는 MySQL 서버가 있어야 뜬다. 4단계(네트워크 뼈대) 검증에는 불필요하므로

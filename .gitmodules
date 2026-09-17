@@ -1,3 +1,6 @@
 [submodule "ServerCore"]
 	path = ServerCore
 	url = https://github.com/cocoz93/ServerCore.git
+[submodule "LockFree"]
+	path = LockFree
+	url = https://github.com/cocoz93/LockFree.git
