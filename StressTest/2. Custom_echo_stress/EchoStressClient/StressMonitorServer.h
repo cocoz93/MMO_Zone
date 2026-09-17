@@ -24,7 +24,7 @@
 #include <cstdio>
 
 
-#include "../../../MMOServer/MMOServer/ThirdParty/httplib.h"
+#include "../../../ServerCore/Base/ThirdParty/httplib.h"
 #include "Stats.h"
 
 class StressMonitorServer

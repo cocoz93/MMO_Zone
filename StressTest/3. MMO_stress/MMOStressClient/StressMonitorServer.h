@@ -11,7 +11,7 @@
 #include <cstdio>
 #include <climits>
 
-#include "../../../MMOServer/MMOServer/ThirdParty/httplib.h"
+#include "../../../ServerCore/Base/ThirdParty/httplib.h"
 #include "MMOStats.h"
 
 class StressMonitorServer

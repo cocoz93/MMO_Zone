@@ -132,7 +132,11 @@ Monitoring/*
 !Monitoring/*.ps1
 !Monitoring/*.json
 !Monitoring/README.md
-ThirdParty/
+
+# ThirdParty(spdlog·cpp-httplib)는 git 에 담는다 — 헤더온리 1.9MB 이고 버전이 고정이라
+#   제외해 봐야 "클론하면 빌드가 안 된다"는 함정만 남는다. 서버 코어를 떼어내면
+#   소비자마다 그 함정이 반복되므로 리포에 넣어 클론 한 번으로 빌드되게 한다.
+#   (spdlog MIT · cpp-httplib MIT — 재배포 가능)
 
 
 # 상위 .gitignore의 [Bb]in/ 규칙이 Run/bin/까지 무시하므로 예외 처리

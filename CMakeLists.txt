@@ -72,7 +72,7 @@ add_library(ServerBaseLib STATIC
 
 target_include_directories(ServerBaseLib PUBLIC
     ${CORE_BASE}               # <RingBuffer.h> · <Common/…> · "Platform/Platform.h"
-    ${SRV_DIR}/ThirdParty      # spdlog·fmt·httplib (헤더온리 번들 — git 에 없음)
+    ${CORE_BASE}/ThirdParty    # spdlog·fmt·httplib (헤더온리 번들 — 리포에 담겨 있다)
     ${LOCKFREE_DIR}            # 형제 저장소 — <LockFree/…> 로 열린다
 )
 
@@ -220,7 +220,7 @@ add_executable(lockfree_headers_check
 )
 target_include_directories(lockfree_headers_check PRIVATE
     ${CORE_BASE}
-    ${SRV_DIR}/ThirdParty
+    ${CORE_BASE}/ThirdParty
     ${LOCKFREE_DIR}
 )
 target_compile_features(lockfree_headers_check PRIVATE cxx_std_17)
