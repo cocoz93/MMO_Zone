@@ -34,19 +34,29 @@ if not defined MSBUILD (
 echo [MSBuild] %MSBUILD%
 echo.
 
-REM === 솔루션 경로 ===
-set "SLN_SERVER=%~dp0..\MMOServer\MMOServer.sln"
+REM === cmake 탐색 (서버는 CMake 정본, 클라 3종은 아직 vcxproj) ===
+set "CMK=cmake"
+where cmake >nul 2>nul || set "CMK=%ProgramFiles%\CMake\bin\cmake.exe"
+if not exist "%CMK%" if "%CMK%" neq "cmake" (
+    echo [ERROR] cmake not found! ^(winget install Kitware.CMake^)
+    goto :ERROR
+)
+echo [cmake] %CMK%
+echo.
+
+REM === 솔루션 경로 (서버는 CMake 빌드 트리) ===
+set "BUILD_SERVER=%~dp0..\build-vs"
 set "SLN_GAMECLIENT=%~dp0..\GameClient\GameClient.sln"
 set "SLN_ECHO=%~dp0..\StressTest\2. Custom_echo_stress\EchoStressClient.sln"
 set "SLN_MMO=%~dp0..\StressTest\3. MMO_stress\MMOStressClient.sln"
 
 if /I "%TARGET%"=="all" (
-    call :BUILD "MMOServer"      "%SLN_SERVER%"     || goto :ERROR
+    call :BUILD_SERVER                                 || goto :ERROR
     call :BUILD "GameClient"       "%SLN_GAMECLIENT%" || goto :ERROR
     call :BUILD "EchoStressClient" "%SLN_ECHO%"       || goto :ERROR
     call :BUILD "MMOStressClient"  "%SLN_MMO%"        || goto :ERROR
 ) else if /I "%TARGET%"=="server" (
-    call :BUILD "MMOServer" "%SLN_SERVER%" || goto :ERROR
+    call :BUILD_SERVER || goto :ERROR
 ) else if /I "%TARGET%"=="gameclient" (
     call :BUILD "GameClient" "%SLN_GAMECLIENT%" || goto :ERROR
 ) else if /I "%TARGET%"=="echo" (
@@ -75,6 +85,27 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 echo   - %~1 OK
+exit /b 0
+
+REM === 서버 빌드 서브루틴: CMake 정본 (vcxproj/sln 은 생성물) ===
+REM  주의: 괄호 블록 안에서 %ERRORLEVEL% 은 블록 진입 시점 값으로 고정된다.
+REM        반드시 `if errorlevel N` 키워드 형식을 쓸 것 (그쪽은 실시간 평가)
+:BUILD_SERVER
+echo   - Building MMOServer ...
+if exist "%BUILD_SERVER%\MMO.sln" goto :BUILD_SERVER_COMPILE
+echo     ^(configure^) %BUILD_SERVER%
+"%CMK%" -S "%~dp0.." -B "%BUILD_SERVER%" -G "Visual Studio 17 2022" -A x64
+if errorlevel 1 (
+    echo [ERROR] MMOServer configure failed!
+    exit /b 1
+)
+:BUILD_SERVER_COMPILE
+"%CMK%" --build "%BUILD_SERVER%" --config Release
+if errorlevel 1 (
+    echo [ERROR] MMOServer build failed!
+    exit /b 1
+)
+echo   - MMOServer OK
 exit /b 0
 
 :ERROR

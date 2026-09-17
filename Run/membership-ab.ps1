@@ -45,7 +45,7 @@ $Root      = Split-Path $RunDir -Parent
 $Mon       = Join-Path $Root "Monitoring"
 $SrvIni    = Join-Path $Bin "MMOServerConfig.ini"
 $BuildCfg  = Join-Path $Root "MMOServer\MMOServer\BuildConfig.h"
-$ServerSln = Join-Path $Root "MMOServer\MMOServer.sln"
+$ServerBuild = Join-Path $Root "build-vs"   # CMake 빌드 트리 (vcxproj/sln 은 생성물)
 $OutDir    = Join-Path $Mon "metrics_out"
 
 # INI 편집: CP949(ANSI). BOM이 생기면 GetPrivateProfile이 첫 섹션을 못 읽으므로 Default 유지.
@@ -75,14 +75,19 @@ function ToNum([string]$s) {
                            [Globalization.CultureInfo]::InvariantCulture, [ref]$d)) { $d } else { $null }
 }
 
-# MSBuild 탐색(vswhere) 후 서버만 Release x64 빌드. (.IOCP_build.bat은 pause가 있어 무인용으론 MSBuild 직접 호출)
+# 서버만 Release x64 빌드 — CMake 정본이라 cmake --build 로 부른다.
+#   (.IOCP_build.bat은 pause가 있어 무인용으론 쓰지 않는다)
 function Build-Server {
-    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
-    if (-not (Test-Path $vswhere)) { throw "vswhere.exe 없음 (VS 2017+ 필요)" }
-    $msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
-    if (-not $msbuild) { throw "MSBuild 탐색 실패" }
-    Write-Host "    빌드: $ServerSln (Release x64)" -ForegroundColor DarkGray
-    & $msbuild $ServerSln /p:Configuration=Release /p:Platform=x64 /m /nologo /v:minimal
+    $cmake = (Get-Command cmake -ErrorAction SilentlyContinue).Source
+    if (-not $cmake) { $cmake = Join-Path $env:ProgramFiles "CMake\bin\cmake.exe" }
+    if (-not (Test-Path $cmake)) { throw "cmake 없음 (winget install Kitware.CMake)" }
+    if (-not (Test-Path (Join-Path $ServerBuild "MMO.sln"))) {
+        Write-Host "    구성: $ServerBuild" -ForegroundColor DarkGray
+        & $cmake -S $Root -B $ServerBuild -G "Visual Studio 17 2022" -A x64
+        if ($LASTEXITCODE -ne 0) { throw "서버 구성 실패 ($Define=$val)" }
+    }
+    Write-Host "    빌드: $ServerBuild (Release x64)" -ForegroundColor DarkGray
+    & $cmake --build $ServerBuild --config Release
     if ($LASTEXITCODE -ne 0) { throw "서버 빌드 실패 ($Define=$val)" }
 }
 
