@@ -20,13 +20,15 @@ C++17 · Windows IOCP · Registered I/O · WinSock · MySQL · Prometheus · Gra
 ## 📂 구조
 | 폴더 | 설명 |
 |------|------|
-| `MMOServer/` | 서버 본체 — 네트워크·게임 로직 |
+| `ServerCore/Base/` | 토대 계층 — 링버퍼·직렬화·락프리 설정·코어 친화도·로거·플랫폼 경계 |
+| `ServerCore/Network/` | 전송 계층 — 수용·세션·전송 팔(IOCP / RIO / epoll). 게임 로직을 모른다 |
+| `MMOServer/` | 게임 계층 — 존·섹터·플레이어·DB 워커 |
 | `StressTest/` | 부하 하네스 + **전송 무결성 오라클** |
 | `RIO/` | Registered I/O 전환 실험 — 게이트 스모크 · IOCP↔RIO A/B |
 | `GameClient/` | 콘솔 클라이언트 |
 | `WebClient/` | 브라우저 클라이언트 — **서버 무수정**, WS↔TCP 릴레이 |
 | `Monitoring/` | 계측 설정 + A/B 수집·비교 스크립트 |
-| `Shared/` · `Run/` | 공용 코드 · 실행 스크립트 |
+| `Shared/` · `Run/` | 서버·클라가 함께 쓰는 와이어 규약 · 실행 스크립트 |
 | `img/` | 성능 실험 인포그래픽 **소스** (완성본은 위 투어·노션에서) |
 
 ## ✅ 검증
