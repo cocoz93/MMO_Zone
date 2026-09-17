@@ -87,4 +87,3 @@
 #ifndef USE_DB_WORKER            // 빌드 시스템이 먼저 정하면 그 값을 따른다(리눅스 검증용)
 #define USE_DB_WORKER 1
 #endif
-
