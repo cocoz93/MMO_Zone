@@ -66,19 +66,21 @@ public:
             return false;
 
         // [Belt 추가] 재호출 방어 — 원본은 두 번 부르면 이전 버퍼가 샜다.
-        //   재초기화를 허용하되(용량 변경) 위치는 전부 0으로 되돌린다.
+        //   강한 실패 보장: 새 버퍼를 "먼저" 확보하고, 성공했을 때만 기존 것을 버린다.
+        //   할당이 실패하면 기존 링이 그대로 살아 있어 stale-capacity 상태가 생기지 않는다.
+        char* newBuffer = new (std::nothrow) char[capacity];
+        if (newBuffer == nullptr)
+            return false;
+
+        std::lock_guard<LockPolicy> guard(_lock);   // 재Init을 라이브 연산과 직렬화(MT UAF 방지)
         if (_buffer != nullptr && _ownsBuffer)
             delete[] _buffer;
-        _buffer = nullptr;
+
+        _buffer = newBuffer;
+        _capacity = capacity;
         _readPos = 0;
         _writePos = 0;
         _submitPos = 0;
-
-        _buffer = new (std::nothrow) char[capacity];
-        if (_buffer == nullptr)
-            return false;
-
-        _capacity = capacity;
         _ownsBuffer = true;
         return true;
     }
@@ -94,6 +96,7 @@ public:
         //   빌린 버퍼(_ownsBuffer=false)는 남의 것이라 절대 건드리지 않는다.
         //   현 호출부(Transport_Rio.cpp:73)는 Init와 배타적이라 해제할 것이 없지만,
         //   호출 규약에만 기대지 않도록 헤더에서 막아 둔다.
+        std::lock_guard<LockPolicy> guard(_lock);   // 교체를 라이브 연산과 직렬화(MT UAF 방지)
         if (_buffer != nullptr && _ownsBuffer)
             delete[] _buffer;
 
@@ -175,7 +178,13 @@ public:
             std::memcpy(static_cast<char*>(data) + firstRead, _buffer, secondRead);
         }
 
+        // read ≤ submit ≤ write 불변식 유지 — 소비가 제출 경계를 지나치면 경계도 함께 끌고 간다.
+        //   지나친 채로 두면 랩 공식이 "제출량 ≈ 한 바퀴"로 오판해 ConsumeSubmitted가 write를 넘는다.
+        //   submit API를 안 쓰는 사용자는 submit==read로 따라올 뿐이라 무영향.
+        const size_t submitted = GetSubmittedSize_Internal();
         _readPos = (_readPos + size) % _capacity;
+        if (size > submitted)
+            _submitPos = _readPos;
 
         _lock.unlock();
         return size;
@@ -233,7 +242,11 @@ public:
             return 0;
         }
 
+        // read ≤ submit ≤ write 불변식 유지 — Dequeue와 동일한 경계 클램프.
+        const size_t submitted = GetSubmittedSize_Internal();
         _readPos = (_readPos + size) % _capacity;
+        if (size > submitted)
+            _submitPos = _readPos;
 
         _lock.unlock();
         return size;
@@ -316,7 +329,9 @@ public:
     {
         _lock.lock();
         size_t result;
-        if (_writePos >= _readPos)
+        if (_capacity == 0)             // 미초기화/실패 링 — 언더플로로 SIZE_MAX가 나가는 것을 막는다
+            result = 0;
+        else if (_writePos >= _readPos)
             result = (_readPos == 0) ? _capacity - _writePos - 1 : _capacity - _writePos;
         else
             result = _readPos - _writePos - 1;
@@ -488,6 +503,8 @@ private:
 
     size_t GetFreeSize_Internal() const
     {
+        if (_capacity == 0)            // 미초기화/실패 링 — 가드식 자체의 언더플로(0 >= SIZE_MAX)를 차단
+            return 0;
         size_t dataSize = GetDataSize_Internal();
         if (dataSize >= _capacity - 1)
             return 0;
