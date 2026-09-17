@@ -66,9 +66,11 @@ cmake -S . -B build-vs -DLOCKFREE_DIR=<LockFree_Test 경로>
 폴더가 없으면 **구성 단계에서** 멈춥니다(예전엔 컴파일까지 가서 `C1083` 이 났고 원인이 안 보였습니다).
 
 ```
-CMake Error: LockFree 저장소를 찾을 수 없습니다: C:/nonexistent/LockFree_Test
-  git clone https://github.com/cocoz93/LockFree  (이 저장소와 나란히)
-  또는 -DLOCKFREE_DIR=<LockFree_Test 경로>
+CMake Error at CMakeLists.txt:31 (message):
+  LockFree 저장소를 찾을 수 없습니다: C:/nonexistent/LockFree_Test
+
+    git clone https://github.com/cocoz93/LockFree  (이 저장소와 나란히)
+    또는 -DLOCKFREE_DIR=<LockFree_Test 경로>
 ```
 
 ### MySQL 8.0

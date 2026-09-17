@@ -23,7 +23,7 @@
 #include <cstdio>
 #include <cstring>
 
-#include "../../MMOServer/MMOServer/RioApi.h"   // 본서버용 로더/슬랩을 그대로 소비 (헤더 검증 겸용)
+#include "../../ServerCore/Network/RioApi.h"   // 본서버용 로더/슬랩을 그대로 소비 (헤더 검증 겸용)
 
 #pragma comment(lib, "ws2_32.lib")
 
