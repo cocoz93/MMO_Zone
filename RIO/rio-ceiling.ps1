@@ -45,7 +45,7 @@ $Bin    = Join-Path $Root "Run\bin"
 $Mon    = Join-Path $Root "Monitoring"
 $SrvIni = Join-Path $Bin "MMOServerConfig.ini"
 $StrIni = Join-Path $Bin "MMOStressConfig.ini"
-$BCfg   = Join-Path $Root "MMOServer\MMOServer\BuildConfig.h"
+$BCfg   = Join-Path $Root "ServerCore\Base\CoreConfig.h"
 $OutDir = Join-Path $Mon "metrics_out"
 $Csv    = Join-Path $OutDir "window_metrics.csv"
 

@@ -13,7 +13,7 @@
 // ==========================================================================
 #pragma once
 
-#include "BuildConfig.h"   // USE_RIO_TRANSPORT 분기 (include 순서 의존 제거 — 반드시 직접 include)
+#include <CoreConfig.h>    // USE_RIO_TRANSPORT 분기 (include 순서 의존 제거 — 반드시 직접 include)
 
 #ifdef _WIN32
 #include <WinSock2.h>   // httplib(Windows 소켓) — winsock2를 windows.h보다 먼저
