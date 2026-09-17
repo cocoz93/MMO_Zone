@@ -16,6 +16,22 @@ set(MYSQL_DIR "C:/Program Files/MySQL/MySQL Server 8.0" CACHE PATH "MySQL instal
 
 set(SRV_DIR ${CMAKE_CURRENT_SOURCE_DIR}/MMOServer/MMOServer)
 
+# ─────────────────────────────────────────────────────────────
+#  LockFree 저장소 위치 — 형제 저장소(github.com/cocoz93/LockFree)
+#    소스에 상대경로를 박지 않는다. 박으면 폴더 배치가 코드에 들어가서
+#    옮기는 순간 C1083으로 죽고, 원인이 에러 메시지에 안 보인다.
+#    다른 자리에 두려면 -DLOCKFREE_DIR=<경로> 로 넘길 것.
+# ─────────────────────────────────────────────────────────────
+set(LOCKFREE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../LockFree/LockFree_Test"
+    CACHE PATH "LockFree 저장소의 LockFree_Test 디렉터리")
+
+if(NOT EXISTS "${LOCKFREE_DIR}/LockFree/LockFreeQueue.h")
+    message(FATAL_ERROR
+        "LockFree 저장소를 찾을 수 없습니다: ${LOCKFREE_DIR}\n"
+        "  git clone https://github.com/cocoz93/LockFree  (이 저장소와 나란히)\n"
+        "  또는 -DLOCKFREE_DIR=<LockFree_Test 경로>")
+endif()
+
 # DB 워커는 MySQL 서버가 있어야 뜬다. 4단계(네트워크 뼈대) 검증에는 불필요하므로
 #   리눅스 타겟에서는 기본 꺼 둔다. 5단계 실동작에서 -DMMO_USE_DB=ON으로 켠다.
 #   ※ 라이브러리 정의보다 먼저 와야 한다 — 매크로를 세 타겟에 똑같이 걸어야 ODR이 깨지지 않는다.
@@ -55,6 +71,7 @@ add_library(ServerBaseLib STATIC
 target_include_directories(ServerBaseLib PUBLIC
     ${SRV_DIR}                 # 프로젝트 헤더 (IOCPServer.h 등)
     ${SRV_DIR}/ThirdParty      # spdlog·fmt·httplib (헤더온리 번들)
+    ${LOCKFREE_DIR}            # 형제 저장소 — <LockFree/…> 로 열린다
 )
 
 target_compile_features(ServerBaseLib PUBLIC cxx_std_17)
@@ -193,6 +210,7 @@ add_executable(lockfree_headers_check
 target_include_directories(lockfree_headers_check PRIVATE
     ${SRV_DIR}
     ${SRV_DIR}/ThirdParty
+    ${LOCKFREE_DIR}
 )
 target_compile_features(lockfree_headers_check PRIVATE cxx_std_17)
 set_target_properties(lockfree_headers_check PROPERTIES

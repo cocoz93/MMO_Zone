@@ -42,10 +42,12 @@ C++17 · Windows IOCP · Registered I/O · WinSock · MySQL · Prometheus · Gra
 <details>
 <summary><b>⚙️ 빌드</b> — LockFree 저장소를 나란히 + MySQL 8.0 (x64 전용)</summary>
 
-### LockFree 저장소가 나란히 있어야 합니다
+### LockFree 저장소가 필요합니다
 
 락프리 자료구조는 사본을 두지 않고 [**LockFree 저장소**](https://github.com/cocoz93/LockFree)를 **직접 참조**합니다.
 사본을 뒀다가 양쪽이 갈라져 결함 수정이 서버에 반영되지 않은 적이 있어 없앴습니다.
+
+기본값은 **나란히 둔 형제 폴더**입니다.
 
 ```
 <부모폴더>/
@@ -53,12 +55,18 @@ C++17 · Windows IOCP · Registered I/O · WinSock · MySQL · Prometheus · Gra
 └─ LockFree/    ← https://github.com/cocoz93/LockFree
 ```
 
-연결은 프로젝트 설정이 아니라 소스에 있습니다 — `MMOServer/MMOServer/LockFreeConfig.h` 한 파일이
-상대경로로 저장소 헤더를 직접 include 합니다. 폴더가 없으면 이렇게 실패합니다:
+다른 자리에 뒀다면 CMake 에 알려주면 됩니다 — 경로는 소스가 아니라 빌드계가 갖고 있습니다.
 
 ```
-LockFreeConfig.h(45,10): error C1083: 포함 파일을 열 수 없습니다.
-                         '../../../LockFree/LockFree_Test/LockFree/InternalFreeList.h'
+cmake -S . -B build-vs -DLOCKFREE_DIR=<LockFree_Test 경로>
+```
+
+폴더가 없으면 **구성 단계에서** 멈춥니다(예전엔 컴파일까지 가서 `C1083` 이 났고 원인이 안 보였습니다).
+
+```
+CMake Error: LockFree 저장소를 찾을 수 없습니다: C:/nonexistent/LockFree_Test
+  git clone https://github.com/cocoz93/LockFree  (이 저장소와 나란히)
+  또는 -DLOCKFREE_DIR=<LockFree_Test 경로>
 ```
 
 ### MySQL 8.0
