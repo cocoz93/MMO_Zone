@@ -1,6 +1,6 @@
 //
 #include "GameInstance.h"
-#include "../Shared/Common/ErrorLog.h"
+#include "../ServerCore/Base/Common/ErrorLog.h"
 #include <iostream>
 
 int main()

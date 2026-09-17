@@ -14,7 +14,9 @@ endif()
 # MySQL 8.0 설치 경로 (필요 시 -DMYSQL_DIR=... 로 override)
 set(MYSQL_DIR "C:/Program Files/MySQL/MySQL Server 8.0" CACHE PATH "MySQL install dir")
 
-set(SRV_DIR ${CMAKE_CURRENT_SOURCE_DIR}/MMOServer/MMOServer)
+set(SRV_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/MMOServer/MMOServer)   # 게임 계층
+set(CORE_BASE ${CMAKE_CURRENT_SOURCE_DIR}/ServerCore/Base)       # 토대 계층
+set(CORE_NET  ${CMAKE_CURRENT_SOURCE_DIR}/ServerCore/Network)    # 전송 계층
 
 # ─────────────────────────────────────────────────────────────
 #  LockFree 저장소 위치 — 형제 저장소(github.com/cocoz93/LockFree)
@@ -62,16 +64,15 @@ endif()
 #    매크로가 갈리지 않는다(갈리면 구조체 레이아웃이 달라져 조용히 깨진다).
 # ═════════════════════════════════════════════════════════════
 add_library(ServerBaseLib STATIC
-    ${SRV_DIR}/SerialBuffer.cpp
-    ${SRV_DIR}/LockFreeConfig.cpp
-    ${SRV_DIR}/CoreAffinity.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Shared/Common/Logger.cpp
+    ${CORE_BASE}/SerialBuffer.cpp
+    ${CORE_BASE}/LockFreeConfig.cpp
+    ${CORE_BASE}/CoreAffinity.cpp
+    ${CORE_BASE}/Common/Logger.cpp
 )
 
 target_include_directories(ServerBaseLib PUBLIC
-    ${SRV_DIR}                 # 프로젝트 헤더 (IOCPServer.h 등)
-    ${SRV_DIR}/ThirdParty      # spdlog·fmt·httplib (헤더온리 번들)
-    ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Common/…> <Protocol/…> <RingBuffer.h>
+    ${CORE_BASE}               # <RingBuffer.h> · <Common/…> · "Platform/Platform.h"
+    ${SRV_DIR}/ThirdParty      # spdlog·fmt·httplib (헤더온리 번들 — git 에 없음)
     ${LOCKFREE_DIR}            # 형제 저장소 — <LockFree/…> 로 열린다
 )
 
@@ -112,19 +113,30 @@ endif()
 #    전송 팔만 플랫폼별로 갈린다 — Windows는 IOCP/RIO, Linux는 epoll.
 # ═════════════════════════════════════════════════════════════
 add_library(ServerNetworkLib STATIC
-    ${SRV_DIR}/IOCPServer.cpp
+    ${CORE_NET}/IOCPServer.cpp
 )
 
 if(WIN32)
     target_sources(ServerNetworkLib PRIVATE
-        ${SRV_DIR}/Transport_Iocp.cpp   # 완료포트 팔 (RIO 빌드에서는 빈 번역단위)
-        ${SRV_DIR}/Transport_Rio.cpp    # RIO 팔 (IOCP 빌드에서는 빈 번역단위)
+        ${CORE_NET}/Transport_Iocp.cpp   # 완료포트 팔 (RIO 빌드에서는 빈 번역단위)
+        ${CORE_NET}/Transport_Rio.cpp    # RIO 팔 (IOCP 빌드에서는 빈 번역단위)
     )
 else()
     target_sources(ServerNetworkLib PRIVATE
-        ${SRV_DIR}/Transport_Epoll.cpp
+        ${CORE_NET}/Transport_Epoll.cpp
     )
 endif()
+
+target_include_directories(ServerNetworkLib PUBLIC
+    ${CORE_NET}                          # "IOCPServer.h" · "RioApi.h" · "NetIoModel.h"
+    ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Protocol/NetHeader.h> — 와이어 규약은 클라와 공유
+    ${SRV_DIR}                           # "BuildConfig.h" — 아직 게임 쪽에 있다(미결, 아래 주석)
+)
+
+# ⚠ 계층 분리가 여기서 하나 덜 됐다 — ServerNetworkLib 이 ${SRV_DIR}(게임)을 본다.
+#   IOCPServer.h:3 이 BuildConfig.h 를 include 하는데, 그 파일에 코어 토글
+#   (USE_LOCKFREE_SENDQ·USE_SEND_COALESCING)과 게임 실험 토글(USE_MEMBERSHIP_DIGEST 등)이
+#   섞여 있다. 가르려면 A/B 실측 사슬을 건드려야 해서 승격(4단계) 때 함께 정한다.
 
 target_link_libraries(ServerNetworkLib PUBLIC ServerBaseLib)
 
@@ -206,12 +218,11 @@ set_target_properties(epoll_echo_poc PROPERTIES
 #   이식 상태를 지키는 회귀 방지 타겟. 헤더는 형제 저장소를 본다(LockFreeConfig.h).
 add_executable(lockfree_headers_check
     ${SRV_DIR}/poc/lockfree_headers_check.cpp
-    ${SRV_DIR}/LockFreeConfig.cpp
+    ${CORE_BASE}/LockFreeConfig.cpp
 )
 target_include_directories(lockfree_headers_check PRIVATE
-    ${SRV_DIR}
+    ${CORE_BASE}
     ${SRV_DIR}/ThirdParty
-    ${CMAKE_CURRENT_SOURCE_DIR}/Shared
     ${LOCKFREE_DIR}
 )
 target_compile_features(lockfree_headers_check PRIVATE cxx_std_17)

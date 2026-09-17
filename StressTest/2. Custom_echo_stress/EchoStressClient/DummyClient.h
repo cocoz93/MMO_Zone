@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <deque>
 #include <string>
-#include "../../../Shared/RingBuffer.h"
+#include "../../../ServerCore/Base/RingBuffer.h"
 #include "../../../Shared/Protocol/Protocol.h"
 
 struct ThreadStats;
