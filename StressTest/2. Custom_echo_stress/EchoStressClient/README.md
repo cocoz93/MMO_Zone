@@ -11,4 +11,4 @@ IOCP 서버 네트워크 라이브러리의 무결성을 검증하기 위한 에
 
 ## 상세 문서
 
-[Notion - EchoDummy 네트워크 로직 무결성 검증](https://www.notion.so/EchoDummy-35316a0b9f5980f59229e65aac0493f2)
+[Notion - EchoDummy 네트워크 로직 무결성 검증](https://feline-vacation-d6d.notion.site/36216a0b9f5981f9a769d38222a820b7)
