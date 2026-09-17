@@ -19,6 +19,30 @@ echo   MMO Build (Release x64) - target: %TARGET%
 echo ============================================
 echo.
 
+REM === 서브모듈 검사 — ServerCore · LockFree 는 별도 저장소다 ===
+REM  빈 폴더로 빌드하면 한참 컴파일하다 C1083 이 나고 원인이 안 보인다. 여기서 먼저 막는다.
+if not exist "%~dp0..\ServerCore\CMakeLists.txt" (
+    echo [ERROR] ServerCore 서브모듈이 비었습니다.
+    echo         git submodule update --init
+    goto :ERROR
+)
+if not exist "%~dp0..\LockFree\LockFree_Test\LockFree\LockFreeQueue.h" (
+    echo [ERROR] LockFree 서브모듈이 비었습니다.
+    echo         git submodule update --init
+    goto :ERROR
+)
+REM  코어를 고쳐 놓고 안 올린 상태면 경고만 — 고치는 중일 수 있으니 빌드는 막지 않는다.
+REM  ※ `git submodule status` 의 + 로는 부족하다. 그건 "서브모듈 안에서 커밋까지 했는데
+REM    포인터를 안 옮긴" 경우만 잡고, 정작 흔한 "파일만 고친" 상태는 못 본다(2026-09-17 실측).
+REM    git status 의 둘째 글자로 둘 다 잡는다 —  m = 내용 수정,  M = 다른 커밋
+git -C "%~dp0.." status --porcelain -- ServerCore LockFree 2>nul | findstr /r "^.[mM]" >nul && (
+    echo [WARN] 서브모듈에 안 올린 변경이 있습니다.
+    echo        코어를 고쳤다면: 그 폴더에서 git checkout main - 커밋 - push
+    echo        그 다음 여기서 git add ^<폴더^> 로 포인터를 옮기세요.
+    echo        ^(MMO_Zone 에서 커밋해도 코어 내용은 담기지 않습니다^)
+    echo.
+)
+
 REM === MSBuild 탐색 (vswhere: VS 에디션/버전/설치경로 무관) ===
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 if not exist "%VSWHERE%" (
