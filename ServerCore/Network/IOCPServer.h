@@ -1,6 +1,6 @@
 ﻿#pragma once
 
-#include "BuildConfig.h"  // USE_LOCKFREE_SENDQ 등 빌드 토글 (가장 먼저 include)
+#include <CoreConfig.h>   // USE_LOCKFREE_SENDQ 등 전송 토글 (가장 먼저 include)
 
 #ifdef _WIN32
 // WinSock2는 Windows.h보다 먼저 와야 한다(구버전 winsock.h가 딸려와 sockaddr이 재정의된다).
@@ -306,7 +306,7 @@ private:
 //TODO: 모드별 설계..
 
 // 송신 디스패치 시점 — 호출부는 의도만 표시하고, Deferred의 실제 지연 여부는
-// USE_SEND_COALESCING(BuildConfig.h)이 결정한다. (coalescing off면 Deferred도 즉시 송신)
+// USE_SEND_COALESCING(CoreConfig.h)이 결정한다. (coalescing off면 Deferred도 즉시 송신)
 //   Immediate : 즉시 PostSend (echo·워커 등 단발 송신)
 //   Deferred  : 묶어 보내도 되는 게임루프 송신 → 틱 끝 FlushPendingSends에서 일괄
 enum class SendFlush { Immediate, Deferred };
@@ -329,12 +329,14 @@ public:
     // 반환: enqueue 성공 true / 실패(세션무효·ABA·큐오버플로) false — 송신 메트릭은 호출자가 집계 (broadcast 배치)
     bool RequestSendMsg(int64_t sessionId, CSerialBuffer* pMsg, SendFlush flush = SendFlush::Immediate);
 
-#if USE_BROADCAST_BUNDLE
-    // [digest] raw 바이트 송신 — RequestSendMsg의 링버퍼 경로에서 버퍼 소유권(ref 소비)만 뺀 변형.
-    // digest(패킷 여러 개를 연접한 바이트열)를 세션당 "핀 1회 + 링 적재 1회"로 넣는다.
+    // raw 바이트 송신 — RequestSendMsg의 링버퍼 경로에서 버퍼 소유권(ref 소비)만 뺀 변형.
+    // 연접된 바이트열을 세션당 "핀 1회 + 링 적재 1회"로 넣는다.
     // 소유권 없음: 링이 즉시 복사하므로 data는 호출 동안만 유효하면 됨. 송신은 Deferred(틱 끝 flush) 고정.
+    //
+    // 항상 제공한다 — 게임 토글(USE_BROADCAST_BUNDLE)로 켜고 끄던 것을 걷어냈다.
+    // 전송 계층은 "누가 이걸 쓰는가"를 알 필요가 없고, 알면 게임 쪽 헤더에 묶인다.
+    // 안 쓰는 빌드에서는 호출자가 없어 그냥 안 불릴 뿐이다.
     bool RequestSendRaw(int64_t sessionId, const char* data, int size);
-#endif
 
     bool RequestDisconnectSession(int64_t sessionId);
 

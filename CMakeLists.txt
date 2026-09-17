@@ -100,10 +100,6 @@ if(MSVC)
 endif()
 
 if(UNIX)
-    # DB 워커 스위치는 헤더에서 분기하므로 세 타겟에 똑같이 걸려야 한다(PUBLIC)
-    target_compile_definitions(ServerBaseLib PUBLIC
-        $<$<NOT:$<BOOL:${MMO_USE_DB}>>:USE_DB_WORKER=0>
-    )
     target_link_libraries(ServerBaseLib PUBLIC pthread)
 endif()
 
@@ -130,13 +126,7 @@ endif()
 target_include_directories(ServerNetworkLib PUBLIC
     ${CORE_NET}                          # "IOCPServer.h" · "RioApi.h" · "NetIoModel.h"
     ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Protocol/NetHeader.h> — 와이어 규약은 클라와 공유
-    ${SRV_DIR}                           # "BuildConfig.h" — 아직 게임 쪽에 있다(미결, 아래 주석)
 )
-
-# ⚠ 계층 분리가 여기서 하나 덜 됐다 — ServerNetworkLib 이 ${SRV_DIR}(게임)을 본다.
-#   IOCPServer.h:3 이 BuildConfig.h 를 include 하는데, 그 파일에 코어 토글
-#   (USE_LOCKFREE_SENDQ·USE_SEND_COALESCING)과 게임 실험 토글(USE_MEMBERSHIP_DIGEST 등)이
-#   섞여 있다. 가르려면 A/B 실측 사슬을 건드려야 해서 승격(4단계) 때 함께 정한다.
 
 target_link_libraries(ServerNetworkLib PUBLIC ServerBaseLib)
 
@@ -162,6 +152,7 @@ add_executable(MMOServer ${GAME_SOURCES})
 target_link_libraries(MMOServer PRIVATE ServerNetworkLib)
 
 target_include_directories(MMOServer PRIVATE
+    ${SRV_DIR}                 # "BuildConfig.h" 등 게임 헤더 (DB/ 하위에서도 이름만으로 열린다)
     ${MYSQL_DIR}/include       # MySQL C API (DBWorker 전용)
 )
 
@@ -197,7 +188,14 @@ add_executable(mmo_server ${GAME_SOURCES})
 target_link_libraries(mmo_server PRIVATE ServerNetworkLib mysqlclient)
 
 target_include_directories(mmo_server PRIVATE
+    ${SRV_DIR}                 # "BuildConfig.h" 등 게임 헤더 (DB/ 하위에서도 이름만으로 열린다)
     /usr/include/mysql
+)
+
+# DB 워커 스위치는 게임 토글이다 — 코어 라이브러리가 아니라 게임 타겟에 건다.
+#   BuildConfig.h 가 #ifndef 가드로 받으므로 여기서 정하면 그 값이 이긴다.
+target_compile_definitions(mmo_server PRIVATE
+    $<$<NOT:$<BOOL:${MMO_USE_DB}>>:USE_DB_WORKER=0>
 )
 
 set_target_properties(mmo_server PROPERTIES

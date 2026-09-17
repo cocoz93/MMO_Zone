@@ -317,7 +317,7 @@ bool CIOCPServer::SetSocketOptions(SOCKET socket)
 
 #if USE_ZERO_SNDBUF
     // [실험] 커널 송신버퍼 0 → WSASend 시 커널 복사(③) 제거, 유저버퍼에서 직접 송신(zero-copy).
-    //        ③가 미미하다는 가정의 실측 검증용 (BuildConfig.h 토글).
+    //        ③가 미미하다는 가정의 실측 검증용 (CoreConfig.h 토글).
     //   커널이 요청을 받아들였는지 반드시 되읽어 확인한다 — setsockopt이 성공을 돌려줘도 스택이
     //   값을 그대로 쓴다는 보장은 없다. 확인 없이 재면 실험 팔이 안 걸린 A/A 를 A/B 로 착각한다.
     int sndBufSize = 0;
@@ -983,10 +983,9 @@ bool CIOCPServer::RequestSendMsg(int64_t sessionId, CSerialBuffer* pMsg, [[maybe
     return true;
 }
 
-#if USE_BROADCAST_BUNDLE
-// [digest] raw 바이트 송신 — 세션 핀/검증(3-step)은 RequestSendMsg와 동일, 차이는 두 가지뿐:
-//   ① CSerialBuffer가 아닌 raw 포인터를 받아 ref 소비가 없다 (digest는 호출자 소유의 연접 버퍼)
-//   ② 항상 Deferred (digest는 틱 끝에서만 호출 → 직후 FlushPendingSends가 묶어 송신)
+// raw 바이트 송신 — 세션 핀/검증(3-step)은 RequestSendMsg와 동일, 차이는 두 가지뿐:
+//   ① CSerialBuffer가 아닌 raw 포인터를 받아 ref 소비가 없다 (호출자 소유의 연접 버퍼)
+//   ② 항상 Deferred (틱 끝에서만 호출되는 전제 → 직후 FlushPendingSends가 묶어 송신)
 // 송신 메트릭(_sendPackets/_sendEnqueuedBytes)은 호출자가 집계 (RequestSendMsg와 동일 계약).
 bool CIOCPServer::RequestSendRaw(int64_t sessionId, const char* data, int size)
 {
@@ -1022,7 +1021,6 @@ bool CIOCPServer::RequestSendRaw(int64_t sessionId, const char* data, int size)
     IOCountDecrement(session);
     return true;
 }
-#endif // USE_BROADCAST_BUNDLE
 
 // [coalescing] 게임 루프가 틱 끝에 1회 호출 — 이번 틱에 송신 데이터가 쌓인 세션을 한 번에 flush.
 // PostSend가 내부에서 AcquireSession/_disconnecting을 재검증하므로 dirty 등록 후 세션이 끊겨도 안전.
