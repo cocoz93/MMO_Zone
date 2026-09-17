@@ -66,10 +66,21 @@ LockFreeConfig.h(45,10): error C1083: 포함 파일을 열 수 없습니다.
 `BuildConfig.h` 의 `USE_DB_WORKER` 가 **기본 1**이라 `libmysql` 이 필요합니다.
 DB 없이 빌드하려면 그 값을 **0** 으로 바꾸세요.
 
-### 솔루션으로 빌드
+### CMake 로 빌드
 
-**`MMOServer/MMOServer.sln`** 으로 빌드하세요. `.vcxproj` 만 빌드하면 실행 파일이 `Run/bin/` 이 아닌
-곳에 생겨 실행 스크립트가 예전 바이너리를 씁니다. (x64 전용 — 128비트 CAS를 써서 Win32는 빌드되지 않습니다)
+서버는 **CMake 가 정본**입니다. `.vcxproj` · `.sln` 은 CMake 가 만들어내는 생성물이라 손으로 고치지 마세요.
+
+```
+cmake -S . -B build-vs -G "Visual Studio 17 2022" -A x64
+cmake --build build-vs --config Release
+```
+
+`Run/.IOCP_build.bat` 이 위 두 줄을 대신 해 줍니다(클라 3종은 아직 각자의 `.sln` 을 씁니다).
+산출물은 `Run/bin/` 에 떨어지고, 실행 배치들이 거기를 봅니다.
+
+- **cmake 3.28.3** — `winget install Kitware.CMake --version 3.28.3`. 리눅스(WSL Ubuntu 24.04) 기본값과 맞춘 버전입니다
+- **x64 전용** — 128비트 CAS를 써서 Win32는 빌드되지 않습니다
+- 리눅스는 `cmake -B build-linux -G Ninja -DCMAKE_CXX_COMPILER=g++-13` 후 `cmake --build build-linux`
 
 </details>
 
