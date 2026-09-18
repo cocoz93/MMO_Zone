@@ -87,3 +87,12 @@
 #ifndef USE_DB_WORKER            // 빌드 시스템이 먼저 정하면 그 값을 따른다(리눅스 검증용)
 #define USE_DB_WORKER 1
 #endif
+
+// 전투 컨텐츠 — HP·공격·피해·죽음·부활 (판정은 서버, 클라는 그리기만)
+//   CActor 계층 위에 얹는 첫 컨텐츠. 웹 클라와 언리얼 클라가 같은 패킷을 그대로 받아쓴다.
+//   1: 전투 활성 — C2S_ATTACK 처리 + S2C_ATTACK/DAMAGE/DEATH/RESPAWN/ACTOR_STATS 송신 [기본]
+//   0: 전투 경로가 컴파일에서 빠짐 — 실측 기준선과 같은 바이너리
+//   주의: 1로 켠 채 부하 더미를 돌리려면 더미가 새 S2C 타입을 알아야 한다.
+//         DummyClient::GetPacketSize가 모르는 타입에 0을 돌려주면 packetParseFail → Disconnect라
+//         전투 패킷이 섹터에 뿌려지는 순간 더미가 전부 떨어진다.
+#define USE_COMBAT 1
