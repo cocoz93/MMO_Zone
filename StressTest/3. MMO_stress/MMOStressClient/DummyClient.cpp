@@ -223,6 +223,14 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     case MsgType::S2C_SYNC_POSITION:      return sizeof(MSG_S2C_SYNC_POSITION);
     case MsgType::S2C_ZONE_CHANGE_OK:     return sizeof(MSG_S2C_ZONE_CHANGE_OK);
     case MsgType::S2C_ZONE_CHANGE_FAIL:   return sizeof(MSG_S2C_ZONE_CHANGE_FAIL);
+    // USE_COMBAT: 전투 패킷 — 더미는 내용을 쓰지 않지만 크기는 알아야 한다.
+    //   모르는 타입이면 아래 default가 0을 돌려주고, 0은 packetParseFail → Disconnect라
+    //   전투 패킷이 섹터에 뿌려지는 순간 더미가 전부 떨어진다.
+    case MsgType::S2C_ATTACK:             return sizeof(MSG_S2C_ATTACK);
+    case MsgType::S2C_DAMAGE:             return sizeof(MSG_S2C_DAMAGE);
+    case MsgType::S2C_DEATH:              return sizeof(MSG_S2C_DEATH);
+    case MsgType::S2C_RESPAWN:            return sizeof(MSG_S2C_RESPAWN);
+    case MsgType::S2C_ACTOR_STATS:        return sizeof(MSG_S2C_ACTOR_STATS);
     default: return 0;
     }
 }
