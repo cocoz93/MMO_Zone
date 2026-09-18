@@ -56,7 +56,7 @@ public:
 
     // 전체 채널 Tick
     void TickAll(float deltaTime, std::vector<SectorChangeInfo>& outSectorChanges,
-                 std::vector<CPlayer*>& outClampedPlayers);
+                 std::vector<CCharacter*>& outClampedCharacters);
 
     int32_t GetMaxPlayersPerChannel() const { return _config.maxPlayersPerChannel; }
 
@@ -103,7 +103,7 @@ public:
 
     // 전체 존 Tick — 섹터 변경 및 경계 클램핑 수집
     void TickAll(float deltaTime, std::vector<SectorChangeInfo>& outSectorChanges,
-                 std::vector<CPlayer*>& outClampedPlayers);
+                 std::vector<CCharacter*>& outClampedCharacters);
 
     // 현재 맵을 제외한 랜덤 맵 ID 반환 (-1이면 선택 불가)
     int32_t GetRandomMapId(int32_t excludeMapId) const;

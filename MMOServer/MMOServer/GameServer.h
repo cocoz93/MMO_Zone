@@ -94,7 +94,7 @@ private:
     void TickRespawn();
 
     // 부활 대기열에서 빼기 — 퇴장 경로가 반드시 부른다. 안 부르면 다음 틱이 해제된 포인터를 밟는다.
-    void RemoveFromDeadActors(CPlayer* player);
+    void RemoveFromDeadActors(CCharacter* player);
 #endif
 
 #if USE_DB_WORKER
@@ -107,11 +107,11 @@ private:
 #endif
 
     // 섹터 변경 시 시야 진입/이탈 브로드캐스트
-    void ProcessSectorChange(CZone* zone, CPlayer* player,
+    void ProcessSectorChange(CZone* zone, CCharacter* player,
                              int32_t oldSectorX, int32_t oldSectorY);
 
     // 섹터 변경 대기열에 추가 (중복 플레이어는 최초 출발 섹터만 유지)
-    void PushSectorChange(CPlayer* player, int32_t oldSectorX, int32_t oldSectorY);
+    void PushSectorChange(CCharacter* player, int32_t oldSectorX, int32_t oldSectorY);
 
     // 같은 틱에 함께 이동한 쌍 보정 — 틱 끝 일괄 통보가 구조적으로 놓치는 CREATE/DELETE를 보충.
     //   ProcessSectorChange는 이탈/진입 섹터의 "틱 끝 시점" 주민을 읽는데, 상대도 같은 틱에
@@ -120,8 +120,8 @@ private:
     void FixSameTickMoverPairs();
 
     // 존 입장/퇴장 브로드캐스트 (주변 상호 CREATE/DELETE 통보)
-    void BroadcastEnterZone(CZone* zone, CPlayer* player, SpawnReason reason);
-    void BroadcastLeaveZone(CZone* zone, CPlayer* player);
+    void BroadcastEnterZone(CZone* zone, CCharacter* player, SpawnReason reason);
+    void BroadcastLeaveZone(CZone* zone, CCharacter* player);
 
     // ── 플레이어 ID 발급 + 표시 속성 ──
 
@@ -134,20 +134,20 @@ private:
 
     // 단일 플레이어에게 패킷 전송 (CSerialBuffer — 소유권 1을 소비)
     // 빌더가 반환한 RefCount=1 버퍼를 넘기면, 송신 후 SubRef로 소유권을 회수한다.
-    void SendPacket(CPlayer* target, CSerialBuffer* pMsg);
+    void SendPacket(CCharacter* target, CSerialBuffer* pMsg);
 
     // 주변 브로드캐스트 (CSerialBuffer — 빌더 RefCount=1 버퍼를 소비)
-    void BroadcastAroundSector(CZone* zone, CPlayer* player, CSerialBuffer* pMsg, bool excludeSelf = true);
+    void BroadcastAroundSector(CZone* zone, CCharacter* player, CSerialBuffer* pMsg, bool excludeSelf = true);
 
     // ── 이동 알림 헬퍼 ──
     // 이동 시작/정지/동기화 통보의 "묶음(dirty 마킹) ↔ 즉시 브로드캐스트" 분기를 한 곳에 흡수.
     // 호출부는 의도만 표시, 실제 경로는 USE_SECTOR_AGGREGATION이 결정 (동작 불변).
-    void NotifyMoveStart(CZone* zone, CPlayer* player);
-    void NotifyMoveStop(CZone* zone, CPlayer* player, bool excludeSelf);
-    void NotifyMoveSync(CZone* zone, CPlayer* player);
+    void NotifyMoveStart(CZone* zone, CCharacter* player);
+    void NotifyMoveStop(CZone* zone, CCharacter* player, bool excludeSelf);
+    void NotifyMoveSync(CZone* zone, CCharacter* player);
 
     // ── 섹터 묶음 경로 (USE_SECTOR_AGGREGATION) ──
-    void MarkMoveDirty(CPlayer* player);   // 즉시 브로드캐스트 대신 dirty 등록 (중복 방지)
+    void MarkMoveDirty(CCharacter* player);   // 즉시 브로드캐스트 대신 dirty 등록 (중복 방지)
     void FlushSectorUpdates();             // 틱 끝: dirty를 섹터별로 묶어 주변에 송신
     // 섹터 좌표 기준 주변 9섹터에 묶음 패킷 전송 (BroadcastAroundSector의 소유권/계측 패턴 복제)
     void BroadcastSectorPacket(CZone* zone, int32_t sectorX, int32_t sectorY, CSerialBuffer* pMsg);
@@ -172,24 +172,26 @@ private:
     // BroadcastSectorPacket의 소유권/계측 패턴을 (주변 9섹터가 아닌) 임의 섹터 배열 버전으로 확장. 버퍼 소유권 1을 소비.
     void FanoutToSectors(CZone* zone,
                          const CSectorManager::SectorPos* sectors, int32_t sectorCount,
-                         CSerialBuffer* pMsg, CPlayer* exclude);
+                         CSerialBuffer* pMsg, CCharacter* exclude);
 #if USE_MEMBERSHIP_DIGEST
     // [Phase 4] 아웃바운드 멤버십을 직송 보류로 등록 (+자기 섹터 점프 폴백). 버퍼 소유권 1을 소비.
     void RegisterOutboundToSectors(CZone* zone, int32_t zoneId,
                                    const CSectorManager::SectorPos* sectors, int32_t sectorCount,
-                                   CSerialBuffer* pMsg, CPlayer* exclude);
+                                   CSerialBuffer* pMsg, CCharacter* exclude);
 #endif
 #endif
 
     // 패킷별 전송 함수 (Fill + Send)
     void SendZoneInfo(CPlayer* target, CZone* zone);
     void SendCreateMyPlayer(CPlayer* target);
-    void SendCreateOtherPlayer(CPlayer* target, CPlayer* player, SpawnReason reason = SpawnReason::NORMAL);
-    void SendDeletePlayer(CPlayer* target, CPlayer* player);
+    // target(받는 쪽)과 who(그려질 대상)가 같은 타입이라 이름으로 가른다 — 몬스터가 섹터를 옮기면 who 가 몬스터다.
+    //   target 이 몬스터(세션 -1)여도 SendPacket 의 세션 가드가 걸러 아무것도 안 나간다.
+    void SendCreateOtherPlayer(CCharacter* target, CCharacter* who, SpawnReason reason = SpawnReason::NORMAL);
+    void SendDeletePlayer(CCharacter* target, CCharacter* who);
 #if USE_MEMBERSHIP_INBOUND_BUNDLE
     // [Phase 2] 인바운드 멤버십 배치 — 상대 목록을 배치 상한씩 잘라 mover 1명에게 송신 (엔트리당 _membershipSends 1 집계)
-    void SendCreatePlayerBatch(CPlayer* target, CPlayer* const* others, int count);
-    void SendDeletePlayerBatch(CPlayer* target, CPlayer* const* others, int count);
+    void SendCreatePlayerBatch(CCharacter* target, CCharacter* const* others, int count);
+    void SendDeletePlayerBatch(CCharacter* target, CCharacter* const* others, int count);
 #endif
     void SendSyncPosition(CPlayer* target);
     void SendZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex);
@@ -198,11 +200,11 @@ private:
 #if USE_COMBAT
     // 스탯 통보 — CREATE 계열에 HP 자리가 없어 뒤따라 보낸다.
     //   호출처 9곳이 아니라 CREATE 송신 함수 3곳 안에서 부른다(갈래를 3으로 닫으려고).
-    void SendActorStats(CPlayer* target, const CActor* actor);
+    void SendActorStats(CCharacter* target, const CCharacter* actor);
 #endif
 
     // 벽 방향 검증 — 경계 위치에서 벽 쪽 이동 차단
-    bool IsBlockedByWall(CZone* zone, CPlayer* player, Direction dir);
+    bool IsBlockedByWall(CZone* zone, CCharacter* player, Direction dir);
 
     // C2S_MOVE_START 좌표 수용의 이동량 예산 검사 — 경과분 적립 후 통과하면 소비까지 수행.
     // 반환 false면 수용하지 않고 서버 좌표를 유지한다(기존 범위초과 경로와 동일한 처리).
@@ -273,21 +275,21 @@ private:
 
     // 섹터 변경 배치 처리용 대기열 (프레임 내 수집 → 틱 후 일괄 처리)
     std::vector<SectorChangeInfo> _pendingSectorChanges;
-    std::unordered_set<CPlayer*> _sectorChangedSet;  // 이미 기록된 플레이어 필터
+    std::unordered_set<CCharacter*> _sectorChangedSet;  // 이미 기록된 플레이어 필터
 
     // 프레임 재사용 버퍼 (힙 할당 방지 — clear()로 capacity 유지)
-    std::vector<CPlayer*> _broadcastBuffer;       // BroadcastAroundSector 전용
-    std::vector<CPlayer*> _eventAroundBuffer;     // 접속/해제/존이동 전용
+    std::vector<CCharacter*> _broadcastBuffer;       // BroadcastAroundSector 전용
+    std::vector<CCharacter*> _eventAroundBuffer;     // 접속/해제/존이동 전용
     std::vector<SectorChangeInfo> _tickSectorChanges;
-    std::vector<CPlayer*> _tickClampedPlayers;
+    std::vector<CCharacter*> _tickClampedPlayers;
 #if USE_COMBAT
     // 공격 후보 버퍼는 두지 않는다 — 사거리가 걸치는 섹터의 주민 목록을 참조로 훑어 복사가 없다.
-    //   (처음엔 GetAroundPlayers 가 벡터를 요구해 _attackTargetBuffer 를 뒀었다)
+    //   (처음엔 GetAroundCharacters 가 벡터를 요구해 _attackTargetBuffer 를 뒀었다)
 
-    // 죽어서 부활을 기다리는 플레이어. 여기만 틱 너머로 포인터를 든다 —
+    // 죽어서 부활을 기다리는 캐릭터. 여기만 틱 너머로 포인터를 든다 —
     //   퇴장 경로(BroadcastLeaveZone·OnDisconnected)가 반드시 회수해야 한다.
     //   같은 규율이 이미 dirtyMovers·_sectorChangedSet·_pendingSectorChanges에 있다.
-    std::vector<CPlayer*> _deadActors;
+    std::vector<CCharacter*> _deadActors;
 #endif
 
     // ── 섹터 아웃박스 ── 틱-지연 배칭 상태를 한 덩어리로 응집.
@@ -296,7 +298,7 @@ private:
     struct SectorOutbox
     {
         // USE_SECTOR_AGGREGATION: 이번 틱 이동/sync로 상태가 바뀐 플레이어 (틱 끝에 섹터별 묶음 송신)
-        std::vector<CPlayer*> dirtyMovers;
+        std::vector<CCharacter*> dirtyMovers;
 
 #if USE_BROADCAST_BUNDLE
         // USE_BROADCAST_BUNDLE: 존별 섹터 그리드에 이번 틱 보류물(번들+채팅)을 모았다가 틱 끝 digest로 배포.
@@ -330,12 +332,12 @@ private:
 
 #if USE_MEMBERSHIP_INBOUND_BUNDLE
     // USE_MEMBERSHIP_INBOUND_BUNDLE: 인바운드 멤버십 배치 수집 전용 (ProcessSectorChange 내 수집→직렬화→송신 완결, 이월 없음)
-    std::vector<CPlayer*> _membershipInboundBuffer;
+    std::vector<CCharacter*> _membershipInboundBuffer;
 #endif
 
     // 비용종류별 계측 — 틱 내 누적 후 틱 끝 1회 모니터 반영 (단일 게임루프 스레드 전용 → 누적 자체엔 원자연산 불필요)
     // BroadcastAroundSector가 network/game_logic/broadcast_sync 어느 단계에서 호출돼도 이 멤버에 합산된다.
-    int64_t _tickBroadcastGatherUs = 0;   // GetAroundPlayers 주변 모으기
+    int64_t _tickBroadcastGatherUs = 0;   // GetAroundCharacters 주변 모으기
     int64_t _tickBroadcastEnqueueUs = 0;  // 수신자별 처리(복사 포함)
     int64_t _tickMembershipSends = 0;     // 멤버십 변경 복사(BroadcastAroundSector 밖 경로) 송신 횟수
     int64_t _tickMembershipUs = 0;        // 멤버십 송신(ProcessSectorChange 구간) 시간 — 틱 끝 _membershipCostUs로 반영

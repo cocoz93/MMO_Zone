@@ -4,21 +4,16 @@
 #include <string>
 #include <random>
 
-#include "Actor.h"   // CActor · Direction · MoveState
+#include "Character.h"   // CCharacter ← CActor · Direction · MoveState
 
-// CPlayer — 사람이 조종하는 액터.
-//   좌표·섹터·방향·스탯처럼 "월드에 있는 것이면 다 갖는 것"은 CActor에 있다.
-//   여기 남은 것은 세션·계정·표시 속성처럼 몬스터에게는 말이 안 되는 것뿐이다.
-class CPlayer : public CActor
+// CPlayer — 사람이 조종하는 캐릭터.
+//   좌표·섹터·이동은 CActor 에, HP·표시·조종 세션은 CCharacter 에 있다.
+//   여기 남은 것은 계정·이동 예산·운영자처럼 "사람이 붙어 있어야" 말이 되는 것뿐이다.
+class CPlayer : public CCharacter
 {
-    friend class CGameServer;  // 경계 계층만 _sessionId 접근 허용
-
 public:
     CPlayer();
     ~CPlayer() override;
-
-    uint8_t _displayChar; // 표시 문자 (ASCII: A-Z, a-z, 0-9)
-    uint8_t _colorIndex;  // 색상 인덱스 (0-6)
 
     bool _isAdmin;        // 운영자 여부
 
@@ -33,7 +28,4 @@ public:
     //   초기값 0 + 프레임 0 = 첫 수용 시 경과가 커서 상한까지 적립됨(스폰 직후 만충과 동일).
     float    _moveBudget = 0.0f;       // 남은 예산 (타일)
     uint64_t _moveBudgetFrame = 0;     // 마지막 적립 프레임 (CGameServer::_frameCount 기준)
-
-private:
-    int64_t _sessionId;   // 네트워크 세션 ID (CGameServer만 접근)
 };

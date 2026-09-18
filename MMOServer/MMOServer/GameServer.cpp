@@ -109,7 +109,7 @@ namespace
         return buf;
     }
 
-    CSerialBuffer* MakeCreateOtherPlayer(CPlayer* player, SpawnReason reason)
+    CSerialBuffer* MakeCreateOtherPlayer(CCharacter* player, SpawnReason reason)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_CREATE_OTHER_PLAYER::TYPE);
@@ -268,14 +268,14 @@ namespace
     // 섹터 묶음 — dirty 플레이어 [0,count)의 최종 상태(위치·방향·이동상태)를 직렬화.
     // 스칼라 시퀀스(<<)라 SetData 불필요. count는 선기록(백패치 불필요).
     // 좌표는 float 그대로가 아니라 눈금(QuantizePos)으로 싣는다 — 필드 순서는 SectorUpdateEntry와 같아야 한다.
-    CSerialBuffer* MakeSectorUpdates(CPlayer** players, int count)
+    CSerialBuffer* MakeSectorUpdates(CCharacter** players, int count)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_SECTOR_UPDATES::TYPE);
         *buf << static_cast<uint16_t>(count);
         for (int i = 0; i < count; ++i)
         {
-            CPlayer* p = players[i];
+            CCharacter* p = players[i];
             *buf << static_cast<int>(p->_actorId);
             *buf << static_cast<uint16_t>(QuantizePos(p->_x));
             *buf << static_cast<uint16_t>(QuantizePos(p->_y));
@@ -293,14 +293,14 @@ namespace
 #if USE_MEMBERSHIP_INBOUND_BUNDLE
     // [Phase 2] 인바운드 멤버십 묶음 — 상대 [0,count)의 생성 정보를 배치 1패킷으로 직렬화.
     // 필드 순서는 MakeCreateOtherPlayer 바디와 동일 (클라가 엔트리를 기존 CREATE 이벤트로 분해).
-    CSerialBuffer* MakeCreatePlayerBatch(CPlayer* const* players, int count)
+    CSerialBuffer* MakeCreatePlayerBatch(CCharacter* const* players, int count)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_CREATE_PLAYER_BATCH::TYPE);
         *buf << static_cast<uint16_t>(count);
         for (int i = 0; i < count; ++i)
         {
-            CPlayer* p = players[i];
+            CCharacter* p = players[i];
             *buf << static_cast<int>(p->_actorId);
             *buf << static_cast<uint8_t>(p->_direction);
             *buf << static_cast<uint8_t>(p->_moveState);
@@ -318,7 +318,7 @@ namespace
     }
 
     // [Phase 2] 인바운드 멤버십 묶음 — 상대 [0,count)의 playerId를 배치 1패킷으로 직렬화.
-    CSerialBuffer* MakeDeletePlayerBatch(CPlayer* const* players, int count)
+    CSerialBuffer* MakeDeletePlayerBatch(CCharacter* const* players, int count)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_DELETE_PLAYER_BATCH::TYPE);
@@ -591,7 +591,7 @@ void CGameServer::GameLoopThread()
         // 3) 섹터 변경 배치 처리 (RecvMoveStop + TickAll 병합 → 삽입 시 중복 차단)
         for (const auto& change : _tickSectorChanges)
         {
-            PushSectorChange(change.player, change.oldSectorX, change.oldSectorY);
+            PushSectorChange(change.character, change.oldSectorX, change.oldSectorY);
         }
 
         // [계측] 멤버십(섹터이동 CREATE/DELETE) 송신 시간 — 구간 1쌍으로만 측정.
@@ -600,14 +600,14 @@ void CGameServer::GameLoopThread()
         for (const auto& change : _pendingSectorChanges)
         {
             // 출발 섹터 == 현재 섹터이면 원위치 복귀 → 브로드캐스트 불필요
-            if (change.oldSectorX == change.player->_sectorX &&
-                change.oldSectorY == change.player->_sectorY)
+            if (change.oldSectorX == change.character->_sectorX &&
+                change.oldSectorY == change.character->_sectorY)
                 continue;
 
-            CZone* zone = _mapManager.GetZone(change.player->_zoneId);
+            CZone* zone = _mapManager.GetZone(change.character->_zoneId);
             if (zone != nullptr)
             {
-                ProcessSectorChange(zone, change.player,
+                ProcessSectorChange(zone, change.character,
                                     change.oldSectorX, change.oldSectorY);
             }
         }
@@ -621,10 +621,13 @@ void CGameServer::GameLoopThread()
         _sectorChangedSet.clear();
 
         // 3-1) 맵 경계 클램핑으로 정지된 플레이어에게 MOVE_STOP 브로드캐스트
-        for (CPlayer* player : _tickClampedPlayers)
+        for (CCharacter* player : _tickClampedPlayers)
         {
 #if USE_DB_WORKER
-            player->_dbDirty = true;   // 경계 클램프로 위치 변경 → 저장 대상
+            // 세션이 붙은 캐릭터는 CPlayer 뿐이다(Character.h [세션]) — 그 전제로 내려 캐스팅한다.
+            //   몬스터가 들어와 전제가 흔들리면 여기가 첫 사고 지점. 타입 태그가 생기면 그것으로 바꾼다.
+            if (player->_sessionId != -1)
+                static_cast<CPlayer*>(player)->_dbDirty = true;   // 경계 클램프로 위치 변경 → 저장 대상
 #endif
             CZone* zone = _mapManager.GetZone(player->_zoneId);
             if (zone != nullptr)
@@ -647,7 +650,7 @@ void CGameServer::GameLoopThread()
             _syncFrameCount = 0;
             _mapManager.ForEachZone([&](CZone* zone)
             {
-                for (CPlayer* player : zone->GetPlayers())
+                for (CCharacter* player : zone->GetCharacters())
                 {
                     if (player->_moveState != MoveState::MOVING)
                         continue;
@@ -881,7 +884,8 @@ void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
         return;
     }
 
-    // 경계 계층: sessionId → CPlayer* 변환 (이후 컨텐츠 로직은 CPlayer*만 사용)
+    // 경계 계층: sessionId → CPlayer* 변환은 여기 한 번뿐 — 이후 컨텐츠 로직은 세션 ID 를 다시 쓰지 않는다.
+    //   핸들러(RecvXxx)는 CPlayer* 를 받고, 브로드캐스트·섹터 쪽은 CCharacter* 로 받는다(몬스터도 같은 길).
     CPlayer* player = FindPlayer(sessionId);
     if (player == nullptr)
     {
@@ -1032,10 +1036,10 @@ void CGameServer::RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg)
                 int32_t oldSectorX = player->_sectorX;
                 int32_t oldSectorY = player->_sectorY;
 
-                zone->GetSectorManager().RemovePlayer(player, oldSectorX, oldSectorY);
+                zone->GetSectorManager().RemoveCharacter(player, oldSectorX, oldSectorY);
                 player->_sectorX = newSectorX;
                 player->_sectorY = newSectorY;
-                zone->GetSectorManager().AddPlayer(player, newSectorX, newSectorY);
+                zone->GetSectorManager().AddCharacter(player, newSectorX, newSectorY);
 
                 PushSectorChange(player, oldSectorX, oldSectorY);
             }
@@ -1102,10 +1106,10 @@ void CGameServer::RecvMoveStop(CPlayer* player, CSerialBuffer* pMsg)
         int32_t oldSectorY = player->_sectorY;
 
         // 섹터 데이터 갱신
-        zone->GetSectorManager().RemovePlayer(player, oldSectorX, oldSectorY);
+        zone->GetSectorManager().RemoveCharacter(player, oldSectorX, oldSectorY);
         player->_sectorX = newSectorX;
         player->_sectorY = newSectorY;
-        zone->GetSectorManager().AddPlayer(player, newSectorX, newSectorY);
+        zone->GetSectorManager().AddCharacter(player, newSectorX, newSectorY);
 
         // 시야 진입/이탈 — 대기열에 추가 (틱 끝에 배치 처리)
         PushSectorChange(player, oldSectorX, oldSectorY);
@@ -1184,7 +1188,7 @@ uint8_t CGameServer::CalcColorIndex(int32_t playerId)
 // ── 패킷 전송 추상화 ──
 // 단일 플레이어에게 패킷 전송 (CSerialBuffer — 소유권 1을 소비)
 // 빌더가 반환한 RefCount=1 버퍼를 넘기면, 송신 후 SubRef로 소유권을 회수한다.
-void CGameServer::SendPacket(CPlayer* target, CSerialBuffer* pMsg)
+void CGameServer::SendPacket(CCharacter* target, CSerialBuffer* pMsg)
 {
     if (target->_sessionId != -1)
     {
@@ -1201,15 +1205,15 @@ void CGameServer::SendPacket(CPlayer* target, CSerialBuffer* pMsg)
 }
 
 // 주변 브로드캐스트 (CSerialBuffer — 빌더 RefCount=1 버퍼를 소비)
-void CGameServer::BroadcastAroundSector(CZone* zone, CPlayer* player, CSerialBuffer* pMsg, bool excludeSelf)
+void CGameServer::BroadcastAroundSector(CZone* zone, CCharacter* player, CSerialBuffer* pMsg, bool excludeSelf)
 {
     // [계측] 비용종류별 — gather(주변 모으기) / enqueue(수신자별 복사) 구간을 호출당 2~3회 now()로 분리.
     //   per-call 측정이라 오버헤드가 수신자 수가 아닌 호출 수에 비례. 누적은 틱 끝 1회만 원자반영.
     auto _measGatherT0 = std::chrono::steady_clock::now();
 
     _broadcastBuffer.clear();
-    CPlayer* exclude = excludeSelf ? player : nullptr;
-    zone->GetSectorManager().GetAroundPlayers(
+    CCharacter* exclude = excludeSelf ? player : nullptr;
+    zone->GetSectorManager().GetAroundCharacters(
         player->_sectorX, player->_sectorY, _broadcastBuffer, exclude);
 
     auto _measGatherT1 = std::chrono::steady_clock::now();
@@ -1222,7 +1226,7 @@ void CGameServer::BroadcastAroundSector(CZone* zone, CPlayer* player, CSerialBuf
     // 유효 타겟(세션 보유) 수 선카운트 → 타겟별 AddRef를 1회 배치 AddRef로 압축 (원자연산 N→1)
     // 단일 게임루프 스레드 내 호출이라 두 패스 사이 _sessionId 변동 없음 → 카운트 정합 보장
     size_t validCount = 0;
-    for (CPlayer* other : _broadcastBuffer)
+    for (CCharacter* other : _broadcastBuffer)
     {
         if (other->_sessionId != -1)
             ++validCount;
@@ -1234,7 +1238,7 @@ void CGameServer::BroadcastAroundSector(CZone* zone, CPlayer* player, CSerialBuf
     // 송신 메트릭은 타겟별 원자증가 대신 성공분을 지역 누적 후 1회 반영 (원자연산 N→1)
     const int dataSize = pMsg->GetDataSize();
     size_t sentPkts = 0;
-    for (CPlayer* other : _broadcastBuffer)
+    for (CCharacter* other : _broadcastBuffer)
     {
         if (other->_sessionId == -1)
             continue;
@@ -1258,7 +1262,7 @@ void CGameServer::BroadcastAroundSector(CZone* zone, CPlayer* player, CSerialBuf
 // ── 이동 알림 헬퍼 ──
 // 묶음 모드(USE_SECTOR_AGGREGATION)면 dirty 마킹만, 아니면 즉시 주변 브로드캐스트.
 // 호출부의 #if/#else 산재를 이 3개로 흡수 (OFF 경로 바이트·동작 불변).
-void CGameServer::NotifyMoveStart(CZone* zone, CPlayer* player)
+void CGameServer::NotifyMoveStart(CZone* zone, CCharacter* player)
 {
 #if USE_SECTOR_AGGREGATION
     MarkMoveDirty(player);
@@ -1269,7 +1273,7 @@ void CGameServer::NotifyMoveStart(CZone* zone, CPlayer* player)
 #endif
 }
 
-void CGameServer::NotifyMoveStop(CZone* zone, CPlayer* player, bool excludeSelf)
+void CGameServer::NotifyMoveStop(CZone* zone, CCharacter* player, bool excludeSelf)
 {
 #if USE_SECTOR_AGGREGATION
     MarkMoveDirty(player);
@@ -1280,7 +1284,7 @@ void CGameServer::NotifyMoveStop(CZone* zone, CPlayer* player, bool excludeSelf)
 #endif
 }
 
-void CGameServer::NotifyMoveSync(CZone* zone, CPlayer* player)
+void CGameServer::NotifyMoveSync(CZone* zone, CCharacter* player)
 {
 #if USE_SECTOR_AGGREGATION
     MarkMoveDirty(player);
@@ -1305,26 +1309,26 @@ void CGameServer::SendCreateMyPlayer(CPlayer* target)
 #endif
 }
 
-void CGameServer::SendCreateOtherPlayer(CPlayer* target, CPlayer* player, SpawnReason reason)
+void CGameServer::SendCreateOtherPlayer(CCharacter* target, CCharacter* who, SpawnReason reason)
 {
     ++_tickMembershipSends;   // 멤버십 변경 복사 집계 (BroadcastAroundSector 밖 경로)
-    SendPacket(target, MakeCreateOtherPlayer(player, reason));
+    SendPacket(target, MakeCreateOtherPlayer(who, reason));
 #if USE_COMBAT
-    SendActorStats(target, player);
+    SendActorStats(target, who);
 #endif
 }
 
-void CGameServer::SendDeletePlayer(CPlayer* target, CPlayer* player)
+void CGameServer::SendDeletePlayer(CCharacter* target, CCharacter* who)
 {
     ++_tickMembershipSends;   // 멤버십 변경 복사 집계 (BroadcastAroundSector 밖 경로)
-    SendPacket(target, MakeDeletePlayer(player->_actorId));
+    SendPacket(target, MakeDeletePlayer(who->_actorId));
 }
 
 #if USE_MEMBERSHIP_INBOUND_BUNDLE
 // [Phase 2] 인바운드 멤버십 배치 송신 — 상대 목록을 배치 상한씩 잘라 mover 1명에게 송신.
 // _membershipSends는 OFF의 개별 SendXxx 호출당 1과 동일하게 엔트리당 1 집계 (A/B 통제지표 불변).
 // count=0이면 아무것도 안 보냄 — OFF의 빈 루프와 동일.
-void CGameServer::SendCreatePlayerBatch(CPlayer* target, CPlayer* const* others, int count)
+void CGameServer::SendCreatePlayerBatch(CCharacter* target, CCharacter* const* others, int count)
 {
     _tickMembershipSends += count;
     for (int i = 0; i < count; i += CREATE_PLAYER_BATCH_MAX_ENTRIES)
@@ -1341,7 +1345,7 @@ void CGameServer::SendCreatePlayerBatch(CPlayer* target, CPlayer* const* others,
 #endif
 }
 
-void CGameServer::SendDeletePlayerBatch(CPlayer* target, CPlayer* const* others, int count)
+void CGameServer::SendDeletePlayerBatch(CCharacter* target, CCharacter* const* others, int count)
 {
     _tickMembershipSends += count;
     for (int i = 0; i < count; i += DELETE_PLAYER_BATCH_MAX_ENTRIES)
@@ -1525,7 +1529,7 @@ void CGameServer::RecvAdminLogin(CPlayer* player, CSerialBuffer* pMsg)
 // 전투 (USE_COMBAT)
 //
 // 판정은 namespace Combat이 하고, 여기서는 그 결과를 세계에 적용한다 —
-//   송신 · 부활 대기열 등록 · 지표 올리기. 판정 쪽은 CActor 둘만 알고 존·섹터·송신을 모른다.
+//   송신 · 부활 대기열 등록 · 지표 올리기. 판정 쪽은 CCharacter 둘만 알고 존·섹터·송신을 모른다.
 //
 // [수신자 범위의 한계] 전투 패킷은 전부 "공격자 주변 9섹터"에 뿌린다. 사거리가 1.5타일이라
 //   맞은 쪽은 반드시 그 안에 있다. 다만 맞은 쪽 주변 구경꾼 중 공격자 9섹터 밖인 사람은 못 본다 —
@@ -1568,7 +1572,7 @@ void CGameServer::RecvAttack(CPlayer* player, CSerialBuffer* pMsg)
     // ── 3) 앞 한 칸에서 대상 고르기 — 사거리·정면 중 가장 가까운 하나 ──
     //   사거리(1.5타일)가 실제로 걸치는 섹터만 훑는다. 섹터가 20타일이라 대부분 1개이고,
     //   섹터 경계에 서 있을 때만 2~4개가 된다.
-    //   GetAroundPlayers(3×3)를 쓰지 않는 이유 — 그건 브로드캐스트용이라 60×60타일을 모으고,
+    //   GetAroundCharacters(3×3)를 쓰지 않는 이유 — 그건 브로드캐스트용이라 60×60타일을 모으고,
     //   후보를 벡터에 전부 복사까지 한다(SectorManager.cpp:111). 1.5타일 판정에 그 범위를
     //   뒤지면 동접이 커질수록 게임 루프(단일 코어)만 손해다. 여기서는 참조로 훑어 복사가 0이다.
     const CSectorManager& sectors = zone->GetSectorManager();
@@ -1577,7 +1581,7 @@ void CGameServer::RecvAttack(CPlayer* player, CSerialBuffer* pMsg)
     const int32_t sy0 = sectors.CalcSectorY(player->_y - Combat::ATTACK_RANGE);
     const int32_t sy1 = sectors.CalcSectorY(player->_y + Combat::ATTACK_RANGE);
 
-    CPlayer* target = nullptr;
+    CCharacter* target = nullptr;
     float bestDistSq = 0.0f;
     bool  sawDeadInRange = false;   // 사거리 안에 있긴 했는데 시체였다 — "아무도 없었다"와 다르다
 
@@ -1585,10 +1589,10 @@ void CGameServer::RecvAttack(CPlayer* player, CSerialBuffer* pMsg)
     {
         for (int32_t sx = sx0; sx <= sx1; ++sx)
         {
-            for (CPlayer* candidate : sectors.GetSectorPlayers(sx, sy))
+            for (CCharacter* candidate : sectors.GetSectorCharacters(sx, sy))
             {
                 if (candidate == player)
-                    continue;   // GetAroundPlayers 의 exclude 인자를 대신한다
+                    continue;   // GetAroundCharacters 의 exclude 인자를 대신한다
 
                 float distSq = 0.0f;
                 if (!Combat::IsInAttackRange(*player, *candidate, distSq))
@@ -1646,7 +1650,7 @@ void CGameServer::TickRespawn()
 
     for (size_t i = 0; i < _deadActors.size(); )
     {
-        CPlayer* dead = _deadActors[i];
+        CCharacter* dead = _deadActors[i];
 
         if (!Combat::IsRespawnDue(*dead, _frameCount))
         {
@@ -1675,7 +1679,7 @@ void CGameServer::TickRespawn()
 // 부활 대기열에서 빼기 — 퇴장 경로가 부른다.
 //   _isDead로 미리 거르지 않는다. 플래그와 대기열이 어긋나는 경로가 나중에 생겨도
 //   여기서 조용히 새지 않게 하려는 것이고, 대기열 길이는 "지금 죽어 있는 수"라 훑는 비용이 없다.
-void CGameServer::RemoveFromDeadActors(CPlayer* player)
+void CGameServer::RemoveFromDeadActors(CCharacter* player)
 {
     if (_deadActors.empty())
         return;
@@ -1685,7 +1689,7 @@ void CGameServer::RemoveFromDeadActors(CPlayer* player)
         _deadActors.end());
 }
 
-void CGameServer::SendActorStats(CPlayer* target, const CActor* actor)
+void CGameServer::SendActorStats(CCharacter* target, const CCharacter* actor)
 {
     SendPacket(target, MakeActorStats(actor->_actorId, actor->_hp, actor->_maxHp));
 }
@@ -1705,7 +1709,7 @@ void CGameServer::SendZoneChangeFail(CPlayer* target, uint8_t reason)
 // 벽 방향 검증 — 경계 위치에서 벽 쪽 이동 차단 (클라이언트 IsBlockedByWall과 동일)
 // ==========================================================================
 
-bool CGameServer::IsBlockedByWall(CZone* zone, CPlayer* player, Direction dir)
+bool CGameServer::IsBlockedByWall(CZone* zone, CCharacter* player, Direction dir)
 {
     float maxX = static_cast<float>(zone->GetMapWidth()) - 1.0f;
     float maxY = static_cast<float>(zone->GetMapHeight()) - 1.0f;
@@ -1772,27 +1776,27 @@ namespace
 // 존 입장/퇴장 브로드캐스트
 // ==========================================================================
 
-void CGameServer::BroadcastEnterZone(CZone* zone, CPlayer* player, SpawnReason reason)
+void CGameServer::BroadcastEnterZone(CZone* zone, CCharacter* player, SpawnReason reason)
 {
     _eventAroundBuffer.clear();
-    zone->GetSectorManager().GetAroundPlayers(
+    zone->GetSectorManager().GetAroundCharacters(
         player->_sectorX, player->_sectorY, _eventAroundBuffer, player);
 
-    for (CPlayer* other : _eventAroundBuffer)
+    for (CCharacter* other : _eventAroundBuffer)
     {
         SendCreateOtherPlayer(other, player, reason);  // 기존 플레이어에게 신규 플레이어 생성
         SendCreateOtherPlayer(player, other);           // 신규 플레이어에게 기존 플레이어 생성
     }
 }
 
-void CGameServer::BroadcastLeaveZone(CZone* zone, CPlayer* player)
+void CGameServer::BroadcastLeaveZone(CZone* zone, CCharacter* player)
 {
     // 현재 섹터 기준 주변 DELETE
     _eventAroundBuffer.clear();
-    zone->GetSectorManager().GetAroundPlayers(
+    zone->GetSectorManager().GetAroundCharacters(
         player->_sectorX, player->_sectorY, _eventAroundBuffer, player);
 
-    for (CPlayer* other : _eventAroundBuffer)
+    for (CCharacter* other : _eventAroundBuffer)
     {
         SendDeletePlayer(other, player);
     }
@@ -1803,7 +1807,7 @@ void CGameServer::BroadcastLeaveZone(CZone* zone, CPlayer* player)
     {
         for (const auto& change : _pendingSectorChanges)
         {
-            if (change.player != player)
+            if (change.character != player)
                 continue;
 
             // 이전 섹터 전용 = old 주변에만 있고 현재 주변에는 없는 섹터
@@ -1820,9 +1824,9 @@ void CGameServer::BroadcastLeaveZone(CZone* zone, CPlayer* player)
 
             for (int32_t i = 0; i < addedCount; ++i)
             {
-                const auto& players = zone->GetSectorManager().GetSectorPlayers(
+                const auto& players = zone->GetSectorManager().GetSectorCharacters(
                     added[i].x, added[i].y);
-                for (CPlayer* other : players)
+                for (CCharacter* other : players)
                 {
                     SendDeletePlayer(other, player);
                 }
@@ -1852,7 +1856,7 @@ void CGameServer::BroadcastLeaveZone(CZone* zone, CPlayer* player)
         {
             for (const auto& change : _pendingSectorChanges)
             {
-                if (change.player == player)
+                if (change.character == player)
                 {
                     leaverOldX = change.oldSectorX;
                     leaverOldY = change.oldSectorY;
@@ -1863,7 +1867,7 @@ void CGameServer::BroadcastLeaveZone(CZone* zone, CPlayer* player)
 
         for (const auto& change : _pendingSectorChanges)
         {
-            CPlayer* mover = change.player;
+            CCharacter* mover = change.character;
             if (mover == player || mover->_zoneId != player->_zoneId)
                 continue;   // 대기열은 서버 전역 — 섹터 좌표는 존마다 별개 격자라 같은 존만 비교
             if (change.oldSectorX == mover->_sectorX && change.oldSectorY == mover->_sectorY)
@@ -1884,7 +1888,7 @@ void CGameServer::BroadcastLeaveZone(CZone* zone, CPlayer* player)
     _sectorChangedSet.erase(player);
     _pendingSectorChanges.erase(
         std::remove_if(_pendingSectorChanges.begin(), _pendingSectorChanges.end(),
-            [player](const SectorChangeInfo& c) { return c.player == player; }),
+            [player](const SectorChangeInfo& c) { return c.character == player; }),
         _pendingSectorChanges.end());
 
 #if USE_COMBAT
@@ -1900,7 +1904,7 @@ void CGameServer::BroadcastLeaveZone(CZone* zone, CPlayer* player)
 // 섹터 변경 대기열 삽입 — 같은 플레이어는 최초 출발 섹터만 기록
 // ==========================================================================
 
-void CGameServer::PushSectorChange(CPlayer* player, int32_t oldSectorX, int32_t oldSectorY)
+void CGameServer::PushSectorChange(CCharacter* player, int32_t oldSectorX, int32_t oldSectorY)
 {
     if (!_sectorChangedSet.insert(player).second)
         return;  // 이미 기록됨 → 최초 출발 섹터 유지
@@ -1939,7 +1943,7 @@ void CGameServer::FixSameTickMoverPairs()
 
     for (size_t i = 0; i < count; ++i)
     {
-        CPlayer* a = _pendingSectorChanges[i].player;
+        CCharacter* a = _pendingSectorChanges[i].character;
         const int32_t aOldX = _pendingSectorChanges[i].oldSectorX;
         const int32_t aOldY = _pendingSectorChanges[i].oldSectorY;
         if (aOldX == a->_sectorX && aOldY == a->_sectorY)
@@ -1947,7 +1951,7 @@ void CGameServer::FixSameTickMoverPairs()
 
         for (size_t j = i + 1; j < count; ++j)
         {
-            CPlayer* b = _pendingSectorChanges[j].player;
+            CCharacter* b = _pendingSectorChanges[j].character;
             if (a->_zoneId != b->_zoneId)
                 continue;   // 대기열은 서버 전역 — 섹터 좌표는 존마다 별개 격자라 같은 존만 비교
 
@@ -1992,7 +1996,7 @@ void CGameServer::FixSameTickMoverPairs()
 // 섹터 변경 브로드캐스트
 // ==========================================================================
 
-void CGameServer::ProcessSectorChange(CZone* zone, CPlayer* player,
+void CGameServer::ProcessSectorChange(CZone* zone, CCharacter* player,
                                       int32_t oldSectorX, int32_t oldSectorY)
 {
     CSectorManager::SectorPos added[CSectorManager::MAX_AROUND_SECTORS];
@@ -2028,8 +2032,8 @@ void CGameServer::ProcessSectorChange(CZone* zone, CPlayer* player,
         _membershipInboundBuffer.clear();
         for (int32_t i = 0; i < removedCount; ++i)
         {
-            const auto& players = zone->GetSectorManager().GetSectorPlayers(removed[i].x, removed[i].y);
-            for (CPlayer* other : players)
+            const auto& players = zone->GetSectorManager().GetSectorCharacters(removed[i].x, removed[i].y);
+            for (CCharacter* other : players)
                 _membershipInboundBuffer.push_back(other);
         }
         SendDeletePlayerBatch(player, _membershipInboundBuffer.data(),
@@ -2038,8 +2042,8 @@ void CGameServer::ProcessSectorChange(CZone* zone, CPlayer* player,
         // 인바운드: "상대를 삭제"는 상대마다 내용이 달라 개별 송신
         for (int32_t i = 0; i < removedCount; ++i)
         {
-            const auto& players = zone->GetSectorManager().GetSectorPlayers(removed[i].x, removed[i].y);
-            for (CPlayer* other : players)
+            const auto& players = zone->GetSectorManager().GetSectorCharacters(removed[i].x, removed[i].y);
+            for (CCharacter* other : players)
                 SendDeletePlayer(player, other);   // 나에게 상대를 삭제
         }
 #endif
@@ -2074,8 +2078,8 @@ void CGameServer::ProcessSectorChange(CZone* zone, CPlayer* player,
         _membershipInboundBuffer.clear();
         for (int32_t i = 0; i < addedCount; ++i)
         {
-            const auto& players = zone->GetSectorManager().GetSectorPlayers(added[i].x, added[i].y);
-            for (CPlayer* other : players)
+            const auto& players = zone->GetSectorManager().GetSectorCharacters(added[i].x, added[i].y);
+            for (CCharacter* other : players)
             {
                 if (other == player)
                     continue;  // 멀티섹터 점프 시 자기 자신 방지
@@ -2088,8 +2092,8 @@ void CGameServer::ProcessSectorChange(CZone* zone, CPlayer* player,
         // 인바운드: "상대를 생성"은 상대마다 내용이 달라 개별 송신
         for (int32_t i = 0; i < addedCount; ++i)
         {
-            const auto& players = zone->GetSectorManager().GetSectorPlayers(added[i].x, added[i].y);
-            for (CPlayer* other : players)
+            const auto& players = zone->GetSectorManager().GetSectorCharacters(added[i].x, added[i].y);
+            for (CCharacter* other : players)
             {
                 if (other == player)
                     continue;  // 멀티섹터 점프 시 자기 자신 방지
@@ -2102,8 +2106,8 @@ void CGameServer::ProcessSectorChange(CZone* zone, CPlayer* player,
     // 이탈 섹터 — 상호 DELETE
     for (int32_t i = 0; i < removedCount; ++i)
     {
-        const auto& players = zone->GetSectorManager().GetSectorPlayers(removed[i].x, removed[i].y);
-        for (CPlayer* other : players)
+        const auto& players = zone->GetSectorManager().GetSectorCharacters(removed[i].x, removed[i].y);
+        for (CCharacter* other : players)
         {
             SendDeletePlayer(other, player);  // 상대에게 나를 삭제
             SendDeletePlayer(player, other);   // 나에게 상대를 삭제
@@ -2113,8 +2117,8 @@ void CGameServer::ProcessSectorChange(CZone* zone, CPlayer* player,
     // 진입 섹터 — 상호 CREATE
     for (int32_t i = 0; i < addedCount; ++i)
     {
-        const auto& players = zone->GetSectorManager().GetSectorPlayers(added[i].x, added[i].y);
-        for (CPlayer* other : players)
+        const auto& players = zone->GetSectorManager().GetSectorCharacters(added[i].x, added[i].y);
+        for (CCharacter* other : players)
         {
             if (other == player)
                 continue;  // 멀티섹터 점프 시 자기 자신 방지
@@ -2132,14 +2136,14 @@ void CGameServer::ProcessSectorChange(CZone* zone, CPlayer* player,
 // 두 패스 사이 세션 변동 없음(단일 게임루프 스레드) → 카운트 정합 보장. _membershipSends는 OFF와 동일하게 타겟당 1 집계.
 void CGameServer::FanoutToSectors(CZone* zone,
                                   const CSectorManager::SectorPos* sectors, int32_t sectorCount,
-                                  CSerialBuffer* pMsg, CPlayer* exclude)
+                                  CSerialBuffer* pMsg, CCharacter* exclude)
 {
     // 1패스: 유효 타겟(세션 보유, exclude 제외) 선카운트
     size_t validCount = 0;
     for (int32_t i = 0; i < sectorCount; ++i)
     {
-        const auto& players = zone->GetSectorManager().GetSectorPlayers(sectors[i].x, sectors[i].y);
-        for (CPlayer* other : players)
+        const auto& players = zone->GetSectorManager().GetSectorCharacters(sectors[i].x, sectors[i].y);
+        for (CCharacter* other : players)
         {
             if (other == exclude || other->_sessionId == -1)
                 continue;
@@ -2155,8 +2159,8 @@ void CGameServer::FanoutToSectors(CZone* zone,
     size_t sentPkts = 0;
     for (int32_t i = 0; i < sectorCount; ++i)
     {
-        const auto& players = zone->GetSectorManager().GetSectorPlayers(sectors[i].x, sectors[i].y);
-        for (CPlayer* other : players)
+        const auto& players = zone->GetSectorManager().GetSectorCharacters(sectors[i].x, sectors[i].y);
+        for (CCharacter* other : players)
         {
             if (other == exclude)
                 continue;
@@ -2185,7 +2189,7 @@ void CGameServer::FanoutToSectors(CZone* zone,
 // 그 1개 섹터를 기존 FanoutToSectors(개별 송신, exclude 지원)로 폴백해 와이어 내용을 보존한다.
 void CGameServer::RegisterOutboundToSectors(CZone* zone, int32_t zoneId,
                                             const CSectorManager::SectorPos* sectors, int32_t sectorCount,
-                                            CSerialBuffer* pMsg, CPlayer* exclude)
+                                            CSerialBuffer* pMsg, CCharacter* exclude)
 {
     for (int32_t i = 0; i < sectorCount; ++i)
     {
@@ -2213,7 +2217,7 @@ void CGameServer::RegisterOutboundToSectors(CZone* zone, int32_t zoneId,
 // 즉시 브로드캐스트 대신 dirty 등록 — 같은 플레이어는 틱당 1회만.
 // 묶음은 틱 끝 최종 상태를 읽으므로 여기선 등록만 (상태는 호출 직전에 이미 갱신됨).
 // → 배출: 틱 끝 FlushSectorUpdates(BUNDLE off) / FlushSectorSends(BUNDLE on)에서 _sectorOutbox.dirtyMovers 소비.
-void CGameServer::MarkMoveDirty(CPlayer* player)
+void CGameServer::MarkMoveDirty(CCharacter* player)
 {
     if (player->_moveDirty)
         return;
@@ -2233,7 +2237,7 @@ void CGameServer::FlushSectorUpdates()
 
     // (zoneId, sectorY, sectorX)로 정렬 → 같은 섹터가 연속 구간이 되어 그룹 단위로 처리
     std::sort(_sectorOutbox.dirtyMovers.begin(), _sectorOutbox.dirtyMovers.end(),
-        [](CPlayer* a, CPlayer* b)
+        [](CCharacter* a, CCharacter* b)
         {
             if (a->_zoneId != b->_zoneId)   return a->_zoneId < b->_zoneId;
             if (a->_sectorY != b->_sectorY) return a->_sectorY < b->_sectorY;
@@ -2244,7 +2248,7 @@ void CGameServer::FlushSectorUpdates()
     size_t i = 0;
     while (i < total)
     {
-        CPlayer* head = _sectorOutbox.dirtyMovers[i];
+        CCharacter* head = _sectorOutbox.dirtyMovers[i];
         const int32_t zoneId = head->_zoneId;
         const int32_t sx = head->_sectorX;
         const int32_t sy = head->_sectorY;
@@ -2275,7 +2279,7 @@ void CGameServer::FlushSectorUpdates()
     }
 
     // dirty 리셋 (다음 틱 이월 없음)
-    for (CPlayer* p : _sectorOutbox.dirtyMovers)
+    for (CCharacter* p : _sectorOutbox.dirtyMovers)
         p->_moveDirty = false;
     _sectorOutbox.dirtyMovers.clear();
 
@@ -2288,14 +2292,14 @@ void CGameServer::FlushSectorUpdates()
 void CGameServer::BroadcastSectorPacket(CZone* zone, int32_t sectorX, int32_t sectorY, CSerialBuffer* pMsg)
 {
     _broadcastBuffer.clear();
-    zone->GetSectorManager().GetAroundPlayers(sectorX, sectorY, _broadcastBuffer, nullptr);
+    zone->GetSectorManager().GetAroundCharacters(sectorX, sectorY, _broadcastBuffer, nullptr);
 
     _monitor._gameLoop._broadcastCalls.Inc();
     _monitor._gameLoop._broadcastTargets.Add(static_cast<int64_t>(_broadcastBuffer.size()));
 
     // 유효 타겟(세션 보유) 선카운트 → 배치 AddRef (원자연산 N→1)
     size_t validCount = 0;
-    for (CPlayer* other : _broadcastBuffer)
+    for (CCharacter* other : _broadcastBuffer)
     {
         if (other->_sessionId != -1)
             ++validCount;
@@ -2305,7 +2309,7 @@ void CGameServer::BroadcastSectorPacket(CZone* zone, int32_t sectorX, int32_t se
 
     const int dataSize = pMsg->GetDataSize();
     size_t sentPkts = 0;
-    for (CPlayer* other : _broadcastBuffer)
+    for (CCharacter* other : _broadcastBuffer)
     {
         if (other->_sessionId == -1)
             continue;
@@ -2398,7 +2402,7 @@ void CGameServer::FlushSectorSends()
     if (!_sectorOutbox.dirtyMovers.empty())
     {
         std::sort(_sectorOutbox.dirtyMovers.begin(), _sectorOutbox.dirtyMovers.end(),
-            [](CPlayer* a, CPlayer* b)
+            [](CCharacter* a, CCharacter* b)
             {
                 if (a->_zoneId != b->_zoneId)   return a->_zoneId < b->_zoneId;
                 if (a->_sectorY != b->_sectorY) return a->_sectorY < b->_sectorY;
@@ -2409,7 +2413,7 @@ void CGameServer::FlushSectorSends()
         size_t i = 0;
         while (i < total)
         {
-            CPlayer* head = _sectorOutbox.dirtyMovers[i];
+            CCharacter* head = _sectorOutbox.dirtyMovers[i];
             const int32_t zoneId = head->_zoneId;
             const int32_t sx = head->_sectorX;
             const int32_t sy = head->_sectorY;
@@ -2435,7 +2439,7 @@ void CGameServer::FlushSectorSends()
             i = j;
         }
 
-        for (CPlayer* p : _sectorOutbox.dirtyMovers)
+        for (CCharacter* p : _sectorOutbox.dirtyMovers)
             p->_moveDirty = false;
         _sectorOutbox.dirtyMovers.clear();
     }
@@ -2490,7 +2494,7 @@ void CGameServer::FlushSectorSends()
         const int32_t ry = r.second / zp.countX;
         const int32_t rx = r.second % zp.countX;
 
-        const std::vector<CPlayer*>& residents = zone->GetSectorManager().GetSectorPlayers(rx, ry);
+        const std::vector<CCharacter*>& residents = zone->GetSectorManager().GetSectorCharacters(rx, ry);
         if (residents.empty())
             continue;   // 주민 없으면 연접 비용도 생략
 
@@ -2535,7 +2539,7 @@ void CGameServer::FlushSectorSends()
 #else
         targets += static_cast<int64_t>(residents.size()) * itemCount;
 #endif
-        for (CPlayer* other : residents)
+        for (CCharacter* other : residents)
         {
             if (other->_sessionId == -1)
                 continue;

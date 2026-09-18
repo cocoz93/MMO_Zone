@@ -10,8 +10,8 @@
 // [사용 흐름]
 //  Init(mapWidth, mapHeight, sectorSize) → 존 생성 시 호출 (INI에서 로드된 값)
 //  CalcSectorX/Y()    → 월드 좌표에서 섹터 좌표 계산
-//  AddPlayer/Remove   → 섹터에 플레이어 등록/해제
-//  GetAroundPlayers() → 브로드캐스트 대상 수집
+//  AddCharacter/Remove   → 섹터에 캐릭터 등록/해제 (플레이어·몬스터 공통 — vector<CCharacter*>)
+//  GetAroundCharacters() → 브로드캐스트 대상 수집
 //  GetSectorDiff()    → 섹터 변경 시 시야 진입/이탈 섹터 계산 (CREATE/DELETE용)
 // ==========================================================================
 #pragma once
@@ -19,7 +19,7 @@
 #include <cstdint>
 #include <vector>
 
-class CPlayer;
+class CCharacter;
 
 class CSectorManager
 {
@@ -34,18 +34,18 @@ public:
     int32_t CalcSectorX(float worldX) const;
     int32_t CalcSectorY(float worldY) const;
 
-    // 플레이어 등록/해제
-    void AddPlayer(CPlayer* player, int32_t sectorX, int32_t sectorY);
-    void RemovePlayer(CPlayer* player, int32_t sectorX, int32_t sectorY);
+    // 캐릭터 등록/해제
+    void AddCharacter(CCharacter* player, int32_t sectorX, int32_t sectorY);
+    void RemoveCharacter(CCharacter* player, int32_t sectorX, int32_t sectorY);
 
-    // 단일 섹터의 플레이어 목록
-    const std::vector<CPlayer*>& GetSectorPlayers(int32_t sectorX, int32_t sectorY) const;
+    // 단일 섹터의 캐릭터 목록
+    const std::vector<CCharacter*>& GetSectorCharacters(int32_t sectorX, int32_t sectorY) const;
 
-    // 주변 9섹터(본인 섹터 포함) 플레이어 수집
-    // exclude가 지정되면 해당 플레이어는 제외
-    void GetAroundPlayers(int32_t sectorX, int32_t sectorY,
-                          std::vector<CPlayer*>& outPlayers,
-                          CPlayer* exclude = nullptr) const;
+    // 주변 9섹터(본인 섹터 포함) 캐릭터 수집
+    // exclude가 지정되면 해당 캐릭터는 제외
+    void GetAroundCharacters(int32_t sectorX, int32_t sectorY,
+                          std::vector<CCharacter*>& outCharacters,
+                          CCharacter* exclude = nullptr) const;
 
     // 섹터 이동 시 새로 시야에 들어온/나간 섹터 목록 계산
     // oldSector 주변에는 있었지만 newSector 주변에는 없는 섹터 → outRemoved
@@ -68,8 +68,8 @@ private:
     bool IsValidSector(int32_t sectorX, int32_t sectorY) const;
 
     // 평탄화 인덱스 접근 헬퍼
-    std::vector<CPlayer*>& SectorAt(int32_t y, int32_t x) { return _sectors[y * _sectorCountX + x]; }
-    const std::vector<CPlayer*>& SectorAt(int32_t y, int32_t x) const { return _sectors[y * _sectorCountX + x]; }
+    std::vector<CCharacter*>& SectorAt(int32_t y, int32_t x) { return _sectors[y * _sectorCountX + x]; }
+    const std::vector<CCharacter*>& SectorAt(int32_t y, int32_t x) const { return _sectors[y * _sectorCountX + x]; }
 
     // 주변 9섹터 좌표 수집 (경계 클램핑 포함, 고정 배열)
     // outSectors: 최대 9개, outCount: 실제 개수
@@ -81,8 +81,8 @@ private:
     int32_t _sectorCountY;
 
     // 2D 그리드 (평탄화): SectorAt(y, x)로 접근
-    std::vector<std::vector<CPlayer*>> _sectors;
+    std::vector<std::vector<CCharacter*>> _sectors;
 
-    // GetSectorPlayers에서 범위 밖 요청 시 반환할 빈 벡터
-    static const std::vector<CPlayer*> EMPTY_SECTOR;
+    // GetSectorCharacters에서 범위 밖 요청 시 반환할 빈 벡터
+    static const std::vector<CCharacter*> EMPTY_SECTOR;
 };

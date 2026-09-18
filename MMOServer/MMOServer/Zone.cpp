@@ -1,5 +1,5 @@
 ﻿#include "Zone.h"
-#include "Player.h"
+#include "Character.h"
 #include <algorithm>
 #include <random>
 
@@ -13,8 +13,8 @@ CZone::CZone()
 
 CZone::~CZone()
 {
-    // CPlayer의 생명주기는 CGameServer가 관리
-    _playerList.clear();
+    // CCharacter의 생명주기는 CGameServer가 관리
+    _characterList.clear();
 }
 
 bool CZone::Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHeight, int32_t sectorSize)
@@ -29,7 +29,7 @@ bool CZone::Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHei
     return true;
 }
 
-bool CZone::EnterZone(CPlayer* player)
+bool CZone::EnterZone(CCharacter* player)
 {
     if (player == nullptr)
         return false;
@@ -45,39 +45,39 @@ bool CZone::EnterZone(CPlayer* player)
     // 섹터 좌표 계산 및 등록
     player->_sectorX = _sectorManager.CalcSectorX(player->_x);
     player->_sectorY = _sectorManager.CalcSectorY(player->_y);
-    _sectorManager.AddPlayer(player, player->_sectorX, player->_sectorY);
+    _sectorManager.AddCharacter(player, player->_sectorX, player->_sectorY);
 
     // 플레이어 목록에 추가
-    player->_listIndex = static_cast<int32_t>(_playerList.size());
-    _playerList.push_back(player);
+    player->_listIndex = static_cast<int32_t>(_characterList.size());
+    _characterList.push_back(player);
 
     return true;
 }
 
-void CZone::LeaveZone(CPlayer* player)
+void CZone::LeaveZone(CCharacter* player)
 {
     if (player == nullptr)
         return;
 
     // 섹터 해제
-    _sectorManager.RemovePlayer(player, player->_sectorX, player->_sectorY);
+    _sectorManager.RemoveCharacter(player, player->_sectorX, player->_sectorY);
 
     // 순회용 리스트에서 O(1) 삭제 (swap-and-pop, 인덱스 캐시 활용)
     int32_t idx = player->_listIndex;
-    if (idx >= 0 && idx < static_cast<int32_t>(_playerList.size()))
+    if (idx >= 0 && idx < static_cast<int32_t>(_characterList.size()))
     {
-        CPlayer* back = _playerList.back();
-        _playerList[idx] = back;
+        CCharacter* back = _characterList.back();
+        _characterList[idx] = back;
         back->_listIndex = idx;
-        _playerList.pop_back();
+        _characterList.pop_back();
     }
     player->_listIndex = -1;
 }
 
 void CZone::Tick(float deltaTime, std::vector<SectorChangeInfo>& outSectorChanges,
-                 std::vector<CPlayer*>& outClampedPlayers)
+                 std::vector<CCharacter*>& outClampedCharacters)
 {
-    for (CPlayer* player : _playerList)
+    for (CCharacter* player : _characterList)
     {
         if (player->_moveState != MoveState::MOVING)
             continue;
@@ -104,7 +104,7 @@ void CZone::Tick(float deltaTime, std::vector<SectorChangeInfo>& outSectorChange
         if (clamped)
         {
             player->_moveState = MoveState::IDLE;
-            outClampedPlayers.push_back(player);
+            outClampedCharacters.push_back(player);
         }
 
         // 섹터 변경 판정
@@ -117,10 +117,10 @@ void CZone::Tick(float deltaTime, std::vector<SectorChangeInfo>& outSectorChange
             int32_t oldSectorY = player->_sectorY;
 
             // 섹터 데이터 갱신
-            _sectorManager.RemovePlayer(player, oldSectorX, oldSectorY);
+            _sectorManager.RemoveCharacter(player, oldSectorX, oldSectorY);
             player->_sectorX = newSectorX;
             player->_sectorY = newSectorY;
-            _sectorManager.AddPlayer(player, newSectorX, newSectorY);
+            _sectorManager.AddCharacter(player, newSectorX, newSectorY);
 
             outSectorChanges.push_back({ player, oldSectorX, oldSectorY });
         }

@@ -3,7 +3,7 @@
 namespace Combat
 {
 
-AttackReject CanAttack(const CActor& attacker, uint64_t frame)
+AttackReject CanAttack(const CCharacter& attacker, uint64_t frame)
 {
     if (attacker._isDead)
         return AttackReject::DEAD_SELF;
@@ -18,7 +18,7 @@ AttackReject CanAttack(const CActor& attacker, uint64_t frame)
     return AttackReject::NONE;
 }
 
-bool IsInAttackRange(const CActor& attacker, const CActor& target, float& outDistSq)
+bool IsInAttackRange(const CCharacter& attacker, const CCharacter& target, float& outDistSq)
 {
     const float dx = target._x - attacker._x;
     const float dy = target._y - attacker._y;
@@ -47,7 +47,7 @@ bool IsInAttackRange(const CActor& attacker, const CActor& target, float& outDis
     return true;
 }
 
-bool ApplyDamage(CActor& target, int32_t damage, int32_t& outRemainHp)
+bool ApplyDamage(CCharacter& target, int32_t damage, int32_t& outRemainHp)
 {
     target._hp -= damage;
     if (target._hp < 0)
@@ -57,7 +57,7 @@ bool ApplyDamage(CActor& target, int32_t damage, int32_t& outRemainHp)
     return target._hp == 0;
 }
 
-bool IsRespawnDue(const CActor& actor, uint64_t frame)
+bool IsRespawnDue(const CCharacter& actor, uint64_t frame)
 {
     if (!actor._isDead)
         return false;
@@ -65,7 +65,7 @@ bool IsRespawnDue(const CActor& actor, uint64_t frame)
     return (frame - actor._deathFrame) >= RESPAWN_DELAY_FRAMES;
 }
 
-void Respawn(CActor& actor)
+void Respawn(CCharacter& actor)
 {
     actor._hp = actor._maxHp;
     actor._isDead = false;

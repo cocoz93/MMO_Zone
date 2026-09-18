@@ -7,7 +7,7 @@
 //
 // [왜 떼어냈나]
 //  GameServer.cpp는 이미 2,000줄이 넘고 실험 토글이 수십 곳이다. 판정까지 거기 넣으면
-//  컨텐츠와 실험이 한 파일에서 섞인다. 여기는 CActor 둘만 알면 되는 순수 계산이라 떼어낼 수 있다.
+//  컨텐츠와 실험이 한 파일에서 섞인다. 여기는 CCharacter 둘만 알면 되는 순수 계산이라 떼어낼 수 있다.
 //
 // [계층 경계]
 //  CPlayer·CZone·CSerialBuffer를 모른다. 그래서 대상 "목록"도 받지 않는다 —
@@ -17,7 +17,7 @@
 
 #include <cstdint>
 
-#include "Actor.h"
+#include "Character.h"
 
 namespace Combat
 {
@@ -43,20 +43,20 @@ namespace Combat
 
     // 휘두를 수 있나 — 쿨타임과 자기 생사만 본다. 대상은 아직 안 본다.
     //   그래서 돌아올 수 있는 값은 NONE·COOLDOWN·DEAD_SELF 셋뿐이다.
-    AttackReject CanAttack(const CActor& attacker, uint64_t frame);
+    AttackReject CanAttack(const CCharacter& attacker, uint64_t frame);
 
     // target이 attacker의 사거리 안이면서 정면에 있나. 맞으면 outDistSq에 거리제곱을 담는다.
     //   생사는 보지 않는다 — 시체를 걸러내는 건 호출자 몫이다(거부 사유를
     //   no_target / dead_target 으로 갈라야 해서, 여기서 조용히 빼면 그 구분이 사라진다).
-    bool IsInAttackRange(const CActor& attacker, const CActor& target, float& outDistSq);
+    bool IsInAttackRange(const CCharacter& attacker, const CCharacter& target, float& outDistSq);
 
     // 피해 적용 — 남은 HP를 outRemainHp에 담고, 이 타격으로 죽었으면 true.
     //   _isDead·_deathFrame 기록과 부활 대기열 등록은 호출자 몫이다(대기열이 CGameServer에 있다).
-    bool ApplyDamage(CActor& target, int32_t damage, int32_t& outRemainHp);
+    bool ApplyDamage(CCharacter& target, int32_t damage, int32_t& outRemainHp);
 
     // 부활할 때가 됐나 (살아 있으면 항상 false)
-    bool IsRespawnDue(const CActor& actor, uint64_t frame);
+    bool IsRespawnDue(const CCharacter& actor, uint64_t frame);
 
     // 제자리 만피 부활 — 좌표는 건드리지 않는다. 부활 지점을 옮기려면 호출자가 좌표를 정하고 부른다.
-    void Respawn(CActor& actor);
+    void Respawn(CCharacter& actor);
 }
