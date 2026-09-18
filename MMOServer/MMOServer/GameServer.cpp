@@ -97,7 +97,7 @@ namespace
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_CREATE_MY_PLAYER::TYPE);
-        *buf << static_cast<int>(target->_playerId);
+        *buf << static_cast<int>(target->_actorId);
         *buf << static_cast<uint8_t>(target->_direction);
         *buf << static_cast<uint8_t>(target->_displayChar);
         *buf << static_cast<uint8_t>(target->_colorIndex);
@@ -113,7 +113,7 @@ namespace
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_CREATE_OTHER_PLAYER::TYPE);
-        *buf << static_cast<int>(player->_playerId);
+        *buf << static_cast<int>(player->_actorId);
         *buf << static_cast<uint8_t>(player->_direction);
         *buf << static_cast<uint8_t>(player->_moveState);
         *buf << static_cast<uint8_t>(player->_displayChar);
@@ -143,7 +143,7 @@ namespace
         BeginPacket(buf, MSG_S2C_ZONE_CHANGE_OK::TYPE);
         *buf << static_cast<int>(mapId);
         *buf << static_cast<int>(channelIndex);
-        *buf << static_cast<int>(target->_playerId);
+        *buf << static_cast<int>(target->_actorId);
         *buf << static_cast<uint8_t>(target->_displayChar);
         *buf << static_cast<uint8_t>(target->_colorIndex);
         *buf << static_cast<uint8_t>(target->_direction);
@@ -211,7 +211,7 @@ namespace
         for (int i = 0; i < count; ++i)
         {
             CPlayer* p = players[i];
-            *buf << static_cast<int>(p->_playerId);
+            *buf << static_cast<int>(p->_actorId);
             *buf << static_cast<uint16_t>(QuantizePos(p->_x));
             *buf << static_cast<uint16_t>(QuantizePos(p->_y));
             *buf << static_cast<uint8_t>(PackDirState(static_cast<uint8_t>(p->_direction),
@@ -236,7 +236,7 @@ namespace
         for (int i = 0; i < count; ++i)
         {
             CPlayer* p = players[i];
-            *buf << static_cast<int>(p->_playerId);
+            *buf << static_cast<int>(p->_actorId);
             *buf << static_cast<uint8_t>(p->_direction);
             *buf << static_cast<uint8_t>(p->_moveState);
             *buf << static_cast<uint8_t>(p->_displayChar);
@@ -259,7 +259,7 @@ namespace
         BeginPacket(buf, MSG_S2C_DELETE_PLAYER_BATCH::TYPE);
         *buf << static_cast<uint16_t>(count);
         for (int i = 0; i < count; ++i)
-            *buf << static_cast<int>(players[i]->_playerId);
+            *buf << static_cast<int>(players[i]->_actorId);
         FinalizePacket(buf);
         assert(buf->GetDataSize() ==
             static_cast<int>(offsetof(MSG_S2C_DELETE_PLAYER_BATCH, entries) + count * sizeof(DeletePlayerBatchEntry)));
@@ -719,9 +719,9 @@ void CGameServer::OnConnected(int64_t sessionId)
 
     // 플레이어 생성 + ID/표시 속성 부여 (CGameServer가 생명주기 소유)
     CPlayer* player = new CPlayer();
-    player->_playerId = AllocPlayerId();
-    player->_displayChar = CalcDisplayChar(player->_playerId);
-    player->_colorIndex = CalcColorIndex(player->_playerId);
+    player->_actorId = AllocPlayerId();
+    player->_displayChar = CalcDisplayChar(player->_actorId);
+    player->_colorIndex = CalcColorIndex(player->_actorId);
     if (!zone->EnterZone(player))
     {
         delete player;
@@ -739,7 +739,7 @@ void CGameServer::OnConnected(int64_t sessionId)
 
 #if USE_DB_WORKER
     // 1단계 임시: playerId를 계정 식별자로 사용 (2단계는 접속 핸드셰이크로 수신)
-    player->_accountId = player->_playerId;
+    player->_accountId = player->_actorId;
     player->_dbDirty   = true;   // 접속 위치를 첫 주기에 저장(신규 행 INSERT 유도)
 #endif
 
@@ -1051,12 +1051,12 @@ void CGameServer::RecvChat(CPlayer* player, CSerialBuffer* pMsg)
     // [digest] 즉시 브로드캐스트 대신 보류 등록 — 틱 끝 digest에 합류 (실송신 시점은 기존과 동일한 틱 끝 flush).
     // 소스 섹터는 수신 시점 좌표로 고정 → 기존(즉시 배포)의 AOI 의미 보존.
     RegisterSectorItem(zone, player->_zoneId, player->_sectorX, player->_sectorY,
-        MakeChat(player->_playerId, player->_displayChar, player->_colorIndex,
+        MakeChat(player->_actorId, player->_displayChar, player->_colorIndex,
             recvMsg.message, msgLen));
 #else
     // 본인 포함 브로드캐스트 (송신 함수가 소유권 소비)
     BroadcastAroundSector(zone, player,
-        MakeChat(player->_playerId, player->_displayChar, player->_colorIndex,
+        MakeChat(player->_actorId, player->_displayChar, player->_colorIndex,
             recvMsg.message, msgLen), false);
 #endif
 }
@@ -1171,7 +1171,7 @@ void CGameServer::NotifyMoveStart(CZone* zone, CPlayer* player)
     MarkMoveDirty(player);
 #else
     BroadcastAroundSector(zone, player,
-        MakeMoveStart(player->_playerId, static_cast<uint8_t>(player->_direction),
+        MakeMoveStart(player->_actorId, static_cast<uint8_t>(player->_direction),
             player->_x, player->_y));
 #endif
 }
@@ -1182,7 +1182,7 @@ void CGameServer::NotifyMoveStop(CZone* zone, CPlayer* player, bool excludeSelf)
     MarkMoveDirty(player);
 #else
     BroadcastAroundSector(zone, player,
-        MakeMoveStop(player->_playerId, static_cast<uint8_t>(player->_direction),
+        MakeMoveStop(player->_actorId, static_cast<uint8_t>(player->_direction),
             player->_x, player->_y), excludeSelf);
 #endif
 }
@@ -1193,7 +1193,7 @@ void CGameServer::NotifyMoveSync(CZone* zone, CPlayer* player)
     MarkMoveDirty(player);
 #else
     BroadcastAroundSector(zone, player,
-        MakeSyncPosition(player->_playerId, player->_x, player->_y), false);
+        MakeSyncPosition(player->_actorId, player->_x, player->_y), false);
 #endif
 }
 
@@ -1216,7 +1216,7 @@ void CGameServer::SendCreateOtherPlayer(CPlayer* target, CPlayer* player, SpawnR
 void CGameServer::SendDeletePlayer(CPlayer* target, CPlayer* player)
 {
     ++_tickMembershipSends;   // 멤버십 변경 복사 집계 (BroadcastAroundSector 밖 경로)
-    SendPacket(target, MakeDeletePlayer(player->_playerId));
+    SendPacket(target, MakeDeletePlayer(player->_actorId));
 }
 
 #if USE_MEMBERSHIP_INBOUND_BUNDLE
@@ -1246,7 +1246,7 @@ void CGameServer::SendDeletePlayerBatch(CPlayer* target, CPlayer* const* others,
 
 void CGameServer::SendSyncPosition(CPlayer* target)
 {
-    SendPacket(target, MakeSyncPosition(target->_playerId, target->_x, target->_y));
+    SendPacket(target, MakeSyncPosition(target->_actorId, target->_x, target->_y));
 }
 
 void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
@@ -1726,10 +1726,10 @@ void CGameServer::ProcessSectorChange(CZone* zone, CPlayer* player,
         // [Phase 4] 아웃바운드: "나를 삭제" 1개 빌드 → 이탈 섹터들에 직송 등록 (주민 열람 없음, 배포는 틱 끝 digest)
         //           player는 이탈 섹터에 없어(현재 섹터는 새 AOI 소속) exclude 불필요 = 폴백 경로 없음
         RegisterOutboundToSectors(zone, player->_zoneId, removed, removedCount,
-                                  MakeDeletePlayer(player->_playerId), nullptr);
+                                  MakeDeletePlayer(player->_actorId), nullptr);
 #else
         // 아웃바운드: "나를 삭제" 1개 빌드 → 이탈 섹터 전원에게 팬아웃 (player는 이탈 섹터에 없어 exclude 불필요)
-        FanoutToSectors(zone, removed, removedCount, MakeDeletePlayer(player->_playerId), nullptr);
+        FanoutToSectors(zone, removed, removedCount, MakeDeletePlayer(player->_actorId), nullptr);
 #endif
 
 #if USE_MEMBERSHIP_INBOUND_BUNDLE

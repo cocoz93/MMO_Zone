@@ -4,59 +4,23 @@
 #include <string>
 #include <random>
 
-// 4방향
-enum class Direction : uint8_t
-{
-    NONE = 0,
-    UP,          // ↑
-    DOWN,        // ↓
-    LEFT,        // ←
-    RIGHT        // →
-};
+#include "Actor.h"   // CActor · Direction · MoveState
 
-// 이동 상태
-enum class MoveState : uint8_t
-{
-    IDLE = 0,
-    MOVING
-};
-
-class CPlayer
+// CPlayer — 사람이 조종하는 액터.
+//   좌표·섹터·방향·스탯처럼 "월드에 있는 것이면 다 갖는 것"은 CActor에 있다.
+//   여기 남은 것은 세션·계정·표시 속성처럼 몬스터에게는 말이 안 되는 것뿐이다.
+class CPlayer : public CActor
 {
     friend class CGameServer;  // 경계 계층만 _sessionId 접근 허용
 
 public:
     CPlayer();
-    ~CPlayer();
+    ~CPlayer() override;
 
-    int32_t _playerId;    // S2C 패킷 전용 엔티티 식별자 (서버 내부는 CPlayer*로 식별)
     uint8_t _displayChar; // 표시 문자 (ASCII: A-Z, a-z, 0-9)
     uint8_t _colorIndex;  // 색상 인덱스 (0-6)
 
-    // 월드 좌표
-    float _x;
-    float _y;
-
-    // 섹터 좌표
-    int32_t _sectorX;
-    int32_t _sectorY;
-
-    Direction _direction;
-    MoveState _moveState;
-    int32_t _speed;
-
-    int32_t _zoneId;      // 소속 존 ID (-1: 미배정)
     bool _isAdmin;        // 운영자 여부
-
-    // 델타 동기화: 마지막 위치 동기화 시점의 좌표
-    float _lastSyncX;
-    float _lastSyncY;
-
-    int32_t _listIndex = -1;  // Zone::_playerList 내 인덱스 (O(1) 삭제용)
-    int32_t _sectorIndex = -1;  // 현재 소속 섹터 벡터 내 인덱스 (O(1) 삭제용 — _listIndex와 동일 패턴)
-
-    // USE_SECTOR_AGGREGATION: 이번 틱 섹터 묶음 dirty 등록 여부 (중복 방지, 틱 끝 리셋)
-    bool _moveDirty = false;
 
     // USE_DB_WORKER: 계정 식별자 (1단계는 스폰 시 서버가 임시 부여, 2단계는 접속 핸드셰이크로 수신)
     int64_t _accountId = 0;
@@ -72,4 +36,4 @@ public:
 
 private:
     int64_t _sessionId;   // 네트워크 세션 ID (CGameServer만 접근)
-};
+};
