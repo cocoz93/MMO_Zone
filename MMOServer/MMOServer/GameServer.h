@@ -28,8 +28,10 @@
 
 #include "NetIoModel.h"   // 컴파일타임 I/O 모델 별칭 (IOCP/epoll) — IOCPServer.h를 여기서 흡수
 #include <Protocol/Protocol.h>   // 게임 패킷 정의 — 전에는 IOCPServer.h를 통해 딸려왔다
+#include "BuildConfig.h"   // USE_COMBAT 등 실험·컨텐츠 토글 — 간접 포함에 기대지 않고 직접 읽는다
 #include "MapManager.h"
 #include "Player.h"
+#include "Combat.h"        // 전투 판정 (순수 함수 — 송신·존·섹터를 모른다)
 #include "MonitorManager.h"
 #include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
 #include "Common.h"
@@ -81,6 +83,19 @@ private:
     void RecvChat(CPlayer* player, CSerialBuffer* pMsg);
     void RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg);
     void RecvAdminLogin(CPlayer* player, CSerialBuffer* pMsg);
+
+#if USE_COMBAT
+    // ── 전투 (USE_COMBAT) ──
+    // 판정은 namespace Combat이 하고, 여기서는 그 결과를 세계에 적용한다
+    //   (송신 · 부활 대기열 등록 · 지표 올리기).
+    void RecvAttack(CPlayer* player, CSerialBuffer* pMsg);
+
+    // 부활 대기자 훑기 — 틱마다 1회. 존 전체를 돌지 않으려고 죽은 것만 따로 들고 있는다.
+    void TickRespawn();
+
+    // 부활 대기열에서 빼기 — 퇴장 경로가 반드시 부른다. 안 부르면 다음 틱이 해제된 포인터를 밟는다.
+    void RemoveFromDeadActors(CPlayer* player);
+#endif
 
 #if USE_DB_WORKER
     // DB 저장 파이프라인 (dirty flag 기반 비동기 위치 저장)
@@ -180,6 +195,12 @@ private:
     void SendZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex);
     void SendZoneChangeFail(CPlayer* target, uint8_t reason);
 
+#if USE_COMBAT
+    // 스탯 통보 — CREATE 계열에 HP 자리가 없어 뒤따라 보낸다.
+    //   호출처 9곳이 아니라 CREATE 송신 함수 3곳 안에서 부른다(갈래를 3으로 닫으려고).
+    void SendActorStats(CPlayer* target, const CActor* actor);
+#endif
+
     // 벽 방향 검증 — 경계 위치에서 벽 쪽 이동 차단
     bool IsBlockedByWall(CZone* zone, CPlayer* player, Direction dir);
 
@@ -259,6 +280,15 @@ private:
     std::vector<CPlayer*> _eventAroundBuffer;     // 접속/해제/존이동 전용
     std::vector<SectorChangeInfo> _tickSectorChanges;
     std::vector<CPlayer*> _tickClampedPlayers;
+#if USE_COMBAT
+    std::vector<CPlayer*> _attackTargetBuffer;    // 공격 후보 전용 — _broadcastBuffer를 빌려 쓰면
+                                                  //   브로드캐스트 도중 재진입해 그 목록을 덮는다
+
+    // 죽어서 부활을 기다리는 플레이어. 여기만 틱 너머로 포인터를 든다 —
+    //   퇴장 경로(BroadcastLeaveZone·OnDisconnected)가 반드시 회수해야 한다.
+    //   같은 규율이 이미 dirtyMovers·_sectorChangedSet·_pendingSectorChanges에 있다.
+    std::vector<CPlayer*> _deadActors;
+#endif
 
     // ── 섹터 아웃박스 ── 틱-지연 배칭 상태를 한 덩어리로 응집.
     //   생산(틱 중): MarkMoveDirty / RegisterSectorItem  →  배출(틱 끝): FlushSectorUpdates / FlushSectorSends

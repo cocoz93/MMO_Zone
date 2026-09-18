@@ -137,6 +137,71 @@ namespace
         return buf;
     }
 
+#if USE_COMBAT
+    // ── 전투 (USE_COMBAT) ──
+    //   필드 순서는 Protocol.h의 구조체와 글자 그대로 같아야 한다. 아래 assert가 크기만 보므로
+    //   순서가 뒤바뀌어도 크기가 같으면 안 걸린다 — 고칠 때 구조체를 나란히 열고 볼 것.
+
+    CSerialBuffer* MakeAttack(int32_t attackerId, uint8_t direction)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_ATTACK::TYPE);
+        *buf << static_cast<int>(attackerId);
+        *buf << static_cast<uint8_t>(direction);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_ATTACK));
+        return buf;
+    }
+
+    CSerialBuffer* MakeDamage(int32_t targetId, int32_t attackerId, int32_t damage, int32_t remainHp)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_DAMAGE::TYPE);
+        *buf << static_cast<int>(targetId);
+        *buf << static_cast<int>(attackerId);
+        *buf << static_cast<int>(damage);
+        *buf << static_cast<int>(remainHp);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_DAMAGE));
+        return buf;
+    }
+
+    CSerialBuffer* MakeDeath(int32_t targetId)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_DEATH::TYPE);
+        *buf << static_cast<int>(targetId);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_DEATH));
+        return buf;
+    }
+
+    CSerialBuffer* MakeRespawn(int32_t targetId, float x, float y, int32_t hp)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_RESPAWN::TYPE);
+        *buf << static_cast<int>(targetId);
+        *buf << x;
+        *buf << y;
+        *buf << static_cast<int>(hp);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_RESPAWN));
+        return buf;
+    }
+
+    CSerialBuffer* MakeActorStats(int32_t actorId, int32_t hp, int32_t maxHp)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_ACTOR_STATS::TYPE);
+        *buf << static_cast<int>(actorId);
+        *buf << static_cast<int>(hp);
+        *buf << static_cast<int>(maxHp);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_ACTOR_STATS));
+        return buf;
+    }
+#endif // USE_COMBAT
+
     CSerialBuffer* MakeZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
@@ -568,6 +633,11 @@ void CGameServer::GameLoopThread()
             }
         }
 
+#if USE_COMBAT
+        // 3-2) 부활 대기자 훑기 (게임 로직 페이즈에 계상 — 브로드캐스트를 동반한다)
+        TickRespawn();
+#endif
+
         auto phaseT3 = Clock::now();
 
         // 4) 주기적 위치 동기화 (MOVING 플레이어 → 주변 브로드캐스트)
@@ -769,6 +839,13 @@ void CGameServer::OnDisconnected(int64_t sessionId)
     // 경계 매핑 해제 (zone 유무와 무관하게 반드시 수행)
     _sessionSlots[CSession::ExtractIndex(sessionId)] = nullptr;
 
+#if USE_COMBAT
+    // 부활 대기열 회수 — 위 BroadcastLeaveZone이 이미 하지만, zone == nullptr 분기는 그걸 건너뛴다.
+    //   그 상태로 죽어 있을 수는 없어도, 아래 delete 뒤에 대기열이 그 주소를 들고 있으면
+    //   다음 틱이 해제된 메모리를 밟는다. 두 번 불러도 무해하므로 zone 유무와 무관하게 여기서도 뺀다.
+    RemoveFromDeadActors(player);
+#endif
+
 #if USE_DB_WORKER
     // 로그아웃 최종 저장 (스냅샷은 값 복사라 직후 delete 안전)
     if (_dbWorker)
@@ -834,6 +911,12 @@ void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
         RecvAdminLogin(player, pMsg);
         break;
 
+#if USE_COMBAT
+    case MsgType::C2S_ATTACK:
+        RecvAttack(player, pMsg);
+        break;
+#endif
+
     default:
         // C2S_HEARTBEAT 등 — 게임 로직 처리 불필요 (타임아웃 갱신은 IOCPServer 수신 시점에서 처리)
         break;
@@ -852,6 +935,10 @@ uint16_t CGameServer::GetExpectedSize(MsgType type)
     case MsgType::C2S_CHAT:         return sizeof(MsgHeader) + sizeof(ChatChar); // 가변 길이: 최소 1글자
     case MsgType::C2S_ZONE_CHANGE:  return sizeof(MSG_C2S_ZONE_CHANGE);
     case MsgType::C2S_HEARTBEAT:    return sizeof(MSG_C2S_HEARTBEAT);
+#if USE_COMBAT
+    // 이 줄을 빠뜨리면 0이 돌아가 위 OnReceived가 패킷을 조용히 버린다(로그 없음, _packetErrors만 증가).
+    case MsgType::C2S_ATTACK:       return sizeof(MSG_C2S_ATTACK);
+#endif
     case MsgType::C2S_ADMIN_LOGIN:  return sizeof(MSG_C2S_ADMIN_LOGIN);
     default:                        return 0;
     }
@@ -863,6 +950,11 @@ uint16_t CGameServer::GetExpectedSize(MsgType type)
 
 void CGameServer::RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg)
 {
+#if USE_COMBAT
+    if (player->_isDead)
+        return;   // 시체는 안 움직인다 — 부활 전까지 조작을 막는다
+#endif
+
     CZone* zone = _mapManager.GetZone(player->_zoneId);
     if (zone == nullptr)
         return;
@@ -1206,12 +1298,20 @@ void CGameServer::SendZoneInfo(CPlayer* target, CZone* zone)
 void CGameServer::SendCreateMyPlayer(CPlayer* target)
 {
     SendPacket(target, MakeCreateMyPlayer(target));
+#if USE_COMBAT
+    // 본인 HP — MSG_S2C_CREATE_MY_PLAYER에도 HP 자리가 없다.
+    //   여기를 빠뜨리면 남의 막대는 뜨는데 내 막대만 안 뜬다.
+    SendActorStats(target, target);
+#endif
 }
 
 void CGameServer::SendCreateOtherPlayer(CPlayer* target, CPlayer* player, SpawnReason reason)
 {
     ++_tickMembershipSends;   // 멤버십 변경 복사 집계 (BroadcastAroundSector 밖 경로)
     SendPacket(target, MakeCreateOtherPlayer(player, reason));
+#if USE_COMBAT
+    SendActorStats(target, player);
+#endif
 }
 
 void CGameServer::SendDeletePlayer(CPlayer* target, CPlayer* player)
@@ -1232,6 +1332,13 @@ void CGameServer::SendCreatePlayerBatch(CPlayer* target, CPlayer* const* others,
         int chunk = (std::min)(count - i, CREATE_PLAYER_BATCH_MAX_ENTRIES);
         SendPacket(target, MakeCreatePlayerBatch(others + i, chunk));
     }
+#if USE_COMBAT
+    // 배치 경로에도 스탯을 붙인다 — CREATE 배치에는 HP 자리가 없다.
+    //   이 함수는 USE_MEMBERSHIP_INBOUND_BUNDLE 안이라 눈에 잘 안 띄지만 현재 켜져 있어 실제로 돈다.
+    //   ★ 반드시 CREATE 뒤에 — 먼저 보내면 클라가 아직 모르는 액터의 스탯이라 그냥 버린다.
+    for (int i = 0; i < count; ++i)
+        SendActorStats(target, others[i]);
+#endif
 }
 
 void CGameServer::SendDeletePlayerBatch(CPlayer* target, CPlayer* const* others, int count)
@@ -1252,6 +1359,11 @@ void CGameServer::SendSyncPosition(CPlayer* target)
 
 void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
 {
+#if USE_COMBAT
+    if (player->_isDead)
+        return;   // 죽은 채로 존을 옮기면 부활 대기열이 옛 존을 가리킨 채 남는다
+#endif
+
     int64_t sessionId = player->_sessionId;
     if (sessionId == -1)
         return;
@@ -1407,6 +1519,161 @@ void CGameServer::RecvAdminLogin(CPlayer* player, CSerialBuffer* pMsg)
         SendPacket(player, MakeAdminLoginFail());
     }
 }
+
+#if USE_COMBAT
+// ==========================================================================
+// 전투 (USE_COMBAT)
+//
+// 판정은 namespace Combat이 하고, 여기서는 그 결과를 세계에 적용한다 —
+//   송신 · 부활 대기열 등록 · 지표 올리기. 판정 쪽은 CActor 둘만 알고 존·섹터·송신을 모른다.
+//
+// [수신자 범위의 한계] 전투 패킷은 전부 "공격자 주변 9섹터"에 뿌린다. 사거리가 1.5타일이라
+//   맞은 쪽은 반드시 그 안에 있다. 다만 맞은 쪽 주변 구경꾼 중 공격자 9섹터 밖인 사람은 못 본다 —
+//   섹터가 타일 여러 개라 실제로 겹치지 않는 경우가 드물고, 어긋나도 다음 CREATE 때
+//   S2C_ACTOR_STATS로 HP가 다시 맞춰진다. 이번 범위에서는 여기까지만 한다.
+// ==========================================================================
+
+void CGameServer::RecvAttack(CPlayer* player, CSerialBuffer* pMsg)
+{
+    (void)pMsg;   // C2S_ATTACK은 바디가 없다 — 방향은 서버가 들고 있고, 대상도 서버가 고른다
+
+    CZone* zone = _mapManager.GetZone(player->_zoneId);
+    if (zone == nullptr)
+        return;
+
+    // ── 1) 휘두를 수 있나 (쿨타임·자기 생사) ──
+    switch (Combat::CanAttack(*player, _frameCount))
+    {
+    case Combat::AttackReject::COOLDOWN:
+        _gameMonitor._combat._attacksRejectedCooldown.Inc();
+        return;
+
+    case Combat::AttackReject::DEAD_SELF:
+        _gameMonitor._combat._attacksRejectedDeadSelf.Inc();
+        return;
+
+    default:
+        break;   // NONE — 통과
+    }
+
+    player->_lastAttackFrame = _frameCount;
+
+    // ── 2) 휘두른 모션은 대상 유무와 무관하게 보낸다 (헛스윙도 그려야 한다) ──
+    //   그래서 _attacksTotal은 "맞힌 수"가 아니라 "휘두른 수"다. 헛스윙은 여기서도 오르고
+    //   아래 rejected{no_target}에서도 오른다 — 두 값의 뜻이 다르므로 겹치는 것이 맞다.
+    _gameMonitor._combat._attacksTotal.Inc();
+    BroadcastAroundSector(zone, player,
+        MakeAttack(player->_actorId, static_cast<uint8_t>(player->_direction)), false);
+
+    // ── 3) 앞 한 칸에서 대상 고르기 — 사거리·정면 중 가장 가까운 하나 ──
+    _attackTargetBuffer.clear();
+    zone->GetSectorManager().GetAroundPlayers(player->_sectorX, player->_sectorY,
+                                              _attackTargetBuffer, player);
+
+    CPlayer* target = nullptr;
+    float bestDistSq = 0.0f;
+    bool  sawDeadInRange = false;   // 사거리 안에 있긴 했는데 시체였다 — "아무도 없었다"와 다르다
+
+    for (CPlayer* candidate : _attackTargetBuffer)
+    {
+        float distSq = 0.0f;
+        if (!Combat::IsInAttackRange(*player, *candidate, distSq))
+            continue;
+
+        if (candidate->_isDead)
+        {
+            sawDeadInRange = true;
+            continue;
+        }
+
+        if (target == nullptr || distSq < bestDistSq)
+        {
+            target = candidate;
+            bestDistSq = distSq;
+        }
+    }
+
+    if (target == nullptr)
+    {
+        if (sawDeadInRange)
+            _gameMonitor._combat._attacksRejectedDeadTarget.Inc();
+        else
+            _gameMonitor._combat._attacksRejectedNoTarget.Inc();
+        return;
+    }
+
+    // ── 4) 피해 적용 ──
+    int32_t remainHp = 0;
+    const bool died = Combat::ApplyDamage(*target, player->_attackPower, remainHp);
+
+    BroadcastAroundSector(zone, player,
+        MakeDamage(target->_actorId, player->_actorId, player->_attackPower, remainHp), false);
+
+    if (!died)
+        return;
+
+    // ── 5) 죽음 ──
+    target->_isDead     = true;
+    target->_deathFrame = _frameCount;
+    target->_moveState  = MoveState::IDLE;   // 시체가 계속 걸어가지 않게
+    _deadActors.push_back(target);
+    _gameMonitor._combat._deathsTotal.Inc();
+
+    BroadcastAroundSector(zone, player, MakeDeath(target->_actorId), false);
+}
+
+// 부활 대기자 훑기 — 틱마다 1회. 죽은 것만 따로 들고 있어 존 전체를 돌지 않는다.
+void CGameServer::TickRespawn()
+{
+    if (_deadActors.empty())
+        return;
+
+    for (size_t i = 0; i < _deadActors.size(); )
+    {
+        CPlayer* dead = _deadActors[i];
+
+        if (!Combat::IsRespawnDue(*dead, _frameCount))
+        {
+            ++i;
+            continue;
+        }
+
+        Combat::Respawn(*dead);
+        _gameMonitor._combat._respawnsTotal.Inc();
+
+        CZone* zone = _mapManager.GetZone(dead->_zoneId);
+        if (zone != nullptr)
+        {
+            // 본인 포함 — 자기 부활을 자기가 알아야 클라가 조작을 다시 연다
+            BroadcastAroundSector(zone, dead,
+                MakeRespawn(dead->_actorId, dead->_x, dead->_y, dead->_hp), false);
+        }
+
+        // 순서가 뜻을 갖지 않는 대기열이라 뒤엣것과 바꿔치기로 O(1) 제거.
+        //   i를 올리지 않는다 — 방금 당겨온 것을 아직 안 봤다.
+        _deadActors[i] = _deadActors.back();
+        _deadActors.pop_back();
+    }
+}
+
+// 부활 대기열에서 빼기 — 퇴장 경로가 부른다.
+//   _isDead로 미리 거르지 않는다. 플래그와 대기열이 어긋나는 경로가 나중에 생겨도
+//   여기서 조용히 새지 않게 하려는 것이고, 대기열 길이는 "지금 죽어 있는 수"라 훑는 비용이 없다.
+void CGameServer::RemoveFromDeadActors(CPlayer* player)
+{
+    if (_deadActors.empty())
+        return;
+
+    _deadActors.erase(
+        std::remove(_deadActors.begin(), _deadActors.end(), player),
+        _deadActors.end());
+}
+
+void CGameServer::SendActorStats(CPlayer* target, const CActor* actor)
+{
+    SendPacket(target, MakeActorStats(actor->_actorId, actor->_hp, actor->_maxHp));
+}
+#endif // USE_COMBAT
 
 void CGameServer::SendZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex)
 {
@@ -1604,6 +1871,12 @@ void CGameServer::BroadcastLeaveZone(CZone* zone, CPlayer* player)
             [player](const SectorChangeInfo& c) { return c.player == player; }),
         _pendingSectorChanges.end());
 
+#if USE_COMBAT
+    // 부활 대기열에서도 제거 — 위 대기열들과 같은 이유다(틱 끝 TickRespawn dangling 방지).
+    //   죽은 채로 퇴장·존이동하는 경우가 실제 경로다(부활 3초 안에 창을 닫으면 여기로 온다).
+    RemoveFromDeadActors(player);
+#endif
+
     zone->LeaveZone(player);
 }
 
@@ -1764,9 +2037,20 @@ void CGameServer::ProcessSectorChange(CZone* zone, CPlayer* player,
         //           1칸 이동은 진입 섹터에 자신이 없고, 멀티섹터 점프로 자기 현재 섹터가 끼면 그 섹터만 개별 폴백
         RegisterOutboundToSectors(zone, player->_zoneId, added, addedCount,
                                   MakeCreateOtherPlayer(player, SpawnReason::NORMAL), player);
+#if USE_COMBAT
+        // ★ 이 경로는 SendCreateOtherPlayer 를 안 거치고 빌더를 직접 쓴다 — 스탯도 여기서 따로 실어야 한다.
+        //   빠뜨렸더니 "내 HP 막대는 뜨는데 남의 것만 안 뜨는" 증상이 실제로 났다(라이브 캡처로 잡음).
+        //   반드시 CREATE 뒤에 등록할 것 — 먼저 가면 클라가 아직 모르는 액터의 스탯이라 버린다.
+        RegisterOutboundToSectors(zone, player->_zoneId, added, addedCount,
+                                  MakeActorStats(player->_actorId, player->_hp, player->_maxHp), player);
+#endif
 #else
         // 아웃바운드: "나를 생성" 1개 빌드 → 진입 섹터 전원에게 팬아웃 (자기 자신 제외)
         FanoutToSectors(zone, added, addedCount, MakeCreateOtherPlayer(player, SpawnReason::NORMAL), player);
+#if USE_COMBAT
+        FanoutToSectors(zone, added, addedCount,
+                        MakeActorStats(player->_actorId, player->_hp, player->_maxHp), player);
+#endif
 #endif
 
 #if USE_MEMBERSHIP_INBOUND_BUNDLE
