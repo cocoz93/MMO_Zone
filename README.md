@@ -31,6 +31,27 @@ C++17 · Windows IOCP · Registered I/O · WinSock · MySQL · Prometheus · Gra
 | `Shared/` · `Run/` | 서버·클라가 함께 쓰는 와이어 규약 · 실행 스크립트 |
 | `img/` | 성능 실험 인포그래픽 **소스** (완성본은 위 투어·노션에서) |
 
+## 🧩 서버 코어 분리
+
+`ServerCore/` 와 `LockFree/` 는 폴더가 아니라 **별도 저장소**입니다 — 이 리포가 담는 건 커밋 해시 한 줄입니다.
+
+```mermaid
+flowchart TD
+    M["<b>MMOServer</b><br/>존 · 섹터 · 플레이어 · DB"]
+    B["<b>MO_Belt</b><br/>벨트스크롤"]
+    N["<b>ServerCore/Network</b><br/>수용 · 세션 · 전송 팔"]
+    S["<b>ServerCore/Base</b><br/>링버퍼 · 직렬화<br/>락프리 · 로거"]
+    M --> N
+    B --> S
+    N --> S
+```
+
+같은 `RingBuffer.h` 사본 세 벌이 조용히 갈라진 뒤로, **코어는 ServerCore 에서만 고칩니다.**
+클론 뒤 `git submodule update --init` 한 번.
+
+- 어떻게 나눴나 · 코어 고치는 법 — [ServerCore README](https://github.com/cocoz93/ServerCore)
+- 서브모듈 · 서브트리 · 별도리포 비교 — [노션](https://feline-vacation-d6d.notion.site/3de16a0b9f5980ae96ceeed0dd5679a9)
+
 ## ✅ 검증
 성능 수치와 별개로, **동작이 맞는지**는 아래로 확인합니다.
 
