@@ -36,7 +36,7 @@ C++17 · Windows IOCP · Registered I/O · WinSock · MySQL · Prometheus · Gra
 `ServerCore/` 와 `LockFree/` 는 폴더가 아니라 **별도 저장소**입니다 — 이 리포가 담는 건 커밋 해시 한 줄입니다.
 
 ```mermaid
-flowchart TD
+flowchart BT
     M["<b>MMOServer</b><br/>존 · 섹터 · 플레이어 · DB"]
     B["<b>MO_Belt</b><br/>벨트스크롤"]
     N["<b>ServerCore/Network</b><br/>수용 · 세션 · 전송 팔"]
