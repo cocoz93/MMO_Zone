@@ -36,13 +36,13 @@ C++17 · Windows IOCP · Registered I/O · WinSock · MySQL · Prometheus · Gra
 `ServerCore/` 와 `LockFree/` 는 폴더가 아니라 **별도 저장소**입니다 — 이 리포가 담는 건 커밋 해시 한 줄입니다.
 
 ```
-ServerCore/Base      링버퍼 · 직렬화 · 락프리 · 로거        ← 별도 저장소
+ServerCore/Base      링버퍼 · 직렬화 · 락프리 · 로거
    ▲   ▲
-   │   └── MO_Belt          벨트스크롤 (다른 게임)
+   │   └── MO_Belt — 벨트스크롤 (다른 게임)
    │
-ServerCore/Network   수용 · 세션 · 전송 팔                 ← 별도 저장소
+ServerCore/Network   수용 · 세션 · 전송 팔
    ▲
-   └── MMOServer           존 · 섹터 · 플레이어 · DB        ← 이 리포
+   └── MMOServer — 존 · 섹터 · 플레이어 · DB
 ```
 
 같은 `RingBuffer.h` 사본 세 벌이 조용히 갈라진 뒤로, **코어는 ServerCore 에서만 고칩니다.**
