@@ -1566,30 +1566,46 @@ void CGameServer::RecvAttack(CPlayer* player, CSerialBuffer* pMsg)
         MakeAttack(player->_actorId, static_cast<uint8_t>(player->_direction)), false);
 
     // ── 3) 앞 한 칸에서 대상 고르기 — 사거리·정면 중 가장 가까운 하나 ──
-    _attackTargetBuffer.clear();
-    zone->GetSectorManager().GetAroundPlayers(player->_sectorX, player->_sectorY,
-                                              _attackTargetBuffer, player);
+    //   사거리(1.5타일)가 실제로 걸치는 섹터만 훑는다. 섹터가 20타일이라 대부분 1개이고,
+    //   섹터 경계에 서 있을 때만 2~4개가 된다.
+    //   GetAroundPlayers(3×3)를 쓰지 않는 이유 — 그건 브로드캐스트용이라 60×60타일을 모으고,
+    //   후보를 벡터에 전부 복사까지 한다(SectorManager.cpp:111). 1.5타일 판정에 그 범위를
+    //   뒤지면 동접이 커질수록 게임 루프(단일 코어)만 손해다. 여기서는 참조로 훑어 복사가 0이다.
+    const CSectorManager& sectors = zone->GetSectorManager();
+    const int32_t sx0 = sectors.CalcSectorX(player->_x - Combat::ATTACK_RANGE);
+    const int32_t sx1 = sectors.CalcSectorX(player->_x + Combat::ATTACK_RANGE);
+    const int32_t sy0 = sectors.CalcSectorY(player->_y - Combat::ATTACK_RANGE);
+    const int32_t sy1 = sectors.CalcSectorY(player->_y + Combat::ATTACK_RANGE);
 
     CPlayer* target = nullptr;
     float bestDistSq = 0.0f;
     bool  sawDeadInRange = false;   // 사거리 안에 있긴 했는데 시체였다 — "아무도 없었다"와 다르다
 
-    for (CPlayer* candidate : _attackTargetBuffer)
+    for (int32_t sy = sy0; sy <= sy1; ++sy)
     {
-        float distSq = 0.0f;
-        if (!Combat::IsInAttackRange(*player, *candidate, distSq))
-            continue;
-
-        if (candidate->_isDead)
+        for (int32_t sx = sx0; sx <= sx1; ++sx)
         {
-            sawDeadInRange = true;
-            continue;
-        }
+            for (CPlayer* candidate : sectors.GetSectorPlayers(sx, sy))
+            {
+                if (candidate == player)
+                    continue;   // GetAroundPlayers 의 exclude 인자를 대신한다
 
-        if (target == nullptr || distSq < bestDistSq)
-        {
-            target = candidate;
-            bestDistSq = distSq;
+                float distSq = 0.0f;
+                if (!Combat::IsInAttackRange(*player, *candidate, distSq))
+                    continue;
+
+                if (candidate->_isDead)
+                {
+                    sawDeadInRange = true;
+                    continue;
+                }
+
+                if (target == nullptr || distSq < bestDistSq)
+                {
+                    target = candidate;
+                    bestDistSq = distSq;
+                }
+            }
         }
     }
 

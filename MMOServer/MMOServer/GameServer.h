@@ -281,8 +281,8 @@ private:
     std::vector<SectorChangeInfo> _tickSectorChanges;
     std::vector<CPlayer*> _tickClampedPlayers;
 #if USE_COMBAT
-    std::vector<CPlayer*> _attackTargetBuffer;    // 공격 후보 전용 — _broadcastBuffer를 빌려 쓰면
-                                                  //   브로드캐스트 도중 재진입해 그 목록을 덮는다
+    // 공격 후보 버퍼는 두지 않는다 — 사거리가 걸치는 섹터의 주민 목록을 참조로 훑어 복사가 없다.
+    //   (처음엔 GetAroundPlayers 가 벡터를 요구해 _attackTargetBuffer 를 뒀었다)
 
     // 죽어서 부활을 기다리는 플레이어. 여기만 틱 너머로 포인터를 든다 —
     //   퇴장 경로(BroadcastLeaveZone·OnDisconnected)가 반드시 회수해야 한다.
