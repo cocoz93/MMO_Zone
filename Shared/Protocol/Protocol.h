@@ -77,7 +77,17 @@ enum class MsgType : uint16_t
     // 멤버십 인바운드 묶음 (USE_MEMBERSHIP_INBOUND_BUNDLE)
     //--------------------------------------------------
     S2C_CREATE_PLAYER_BATCH,// 서버 → 클라이언트: 시야 진입 상대 묶음 (mover 전용, CREATE N개→1패킷)
-    S2C_DELETE_PLAYER_BATCH // 서버 → 클라이언트: 시야 이탈 상대 묶음 (mover 전용, DELETE N개→1패킷)
+    S2C_DELETE_PLAYER_BATCH,// 서버 → 클라이언트: 시야 이탈 상대 묶음 (mover 전용, DELETE N개→1패킷)
+
+    //--------------------------------------------------
+    // 전투 (USE_COMBAT)
+    //--------------------------------------------------
+    C2S_ATTACK,             // 클라이언트 → 서버: 공격 (대상은 서버가 "앞 한 칸"으로 고른다)
+    S2C_ATTACK,             // 서버 → 클라이언트: 공격 모션 (대상이 없는 헛스윙도 보낸다)
+    S2C_DAMAGE,             // 서버 → 클라이언트: 피해 적용 결과
+    S2C_DEATH,              // 서버 → 클라이언트: 죽음
+    S2C_RESPAWN,            // 서버 → 클라이언트: 부활
+    S2C_ACTOR_STATS         // 서버 → 클라이언트: 스탯 통보 (CREATE 직후 — 본인·시야 진입 상대)
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -469,6 +479,79 @@ struct MSG_S2C_ERROR
     char message[256];
 
     MSG_S2C_ERROR() : header{ sizeof(*this), TYPE }, message{} {}
+};
+
+//==================================================
+// 전투 (USE_COMBAT)
+//==================================================
+// 기존 구조체에는 한 필드도 넣지 않는다 — Protocol.h 한 벌을 콘솔·부하·웹·언리얼 네 클라가
+//   같이 쓰므로, 구조가 바뀌면 넷을 같이 고쳐야 하고 옛 실행파일은 조용히 깨진다.
+//   그래서 HP 통보도 CREATE에 얹지 않고 별도 타입(S2C_ACTOR_STATS)으로 뒤따라 보낸다.
+
+// C2S: 공격 (페이로드 없음 — 방향은 서버가 알고 있고, 대상은 서버가 "앞 한 칸"으로 고른다)
+struct MSG_C2S_ATTACK
+{
+    MsgHeader header;
+};
+
+// S2C: 공격 모션 — 대상이 없어도(헛스윙) 보낸다. 클라가 휘두르는 그림을 그리는 용도.
+struct MSG_S2C_ATTACK
+{
+    static constexpr MsgType TYPE = MsgType::S2C_ATTACK;
+    MsgHeader header;
+    int32_t attackerId;
+    uint8_t direction;    // Direction enum (휘두른 방향)
+
+    MSG_S2C_ATTACK() : header{ sizeof(*this), TYPE }, attackerId(0), direction(0) {}
+};
+
+// S2C: 피해 적용 결과
+struct MSG_S2C_DAMAGE
+{
+    static constexpr MsgType TYPE = MsgType::S2C_DAMAGE;
+    MsgHeader header;
+    int32_t targetId;
+    int32_t attackerId;
+    int32_t damage;
+    int32_t remainHp;     // 적용 후 남은 체력. 0이면 S2C_DEATH가 뒤따른다
+
+    MSG_S2C_DAMAGE() : header{ sizeof(*this), TYPE }, targetId(0), attackerId(0), damage(0), remainHp(0) {}
+};
+
+// S2C: 죽음
+struct MSG_S2C_DEATH
+{
+    static constexpr MsgType TYPE = MsgType::S2C_DEATH;
+    MsgHeader header;
+    int32_t targetId;
+
+    MSG_S2C_DEATH() : header{ sizeof(*this), TYPE }, targetId(0) {}
+};
+
+// S2C: 부활 (제자리·만피). 좌표를 싣는 건 나중에 부활 지점이 바뀌어도 와이어가 그대로이게 하려는 것.
+struct MSG_S2C_RESPAWN
+{
+    static constexpr MsgType TYPE = MsgType::S2C_RESPAWN;
+    MsgHeader header;
+    int32_t targetId;
+    float x;
+    float y;
+    int32_t hp;
+
+    MSG_S2C_RESPAWN() : header{ sizeof(*this), TYPE }, targetId(0), x(0), y(0), hp(0) {}
+};
+
+// S2C: 스탯 통보 — CREATE 계열에 HP 자리가 없어서 뒤따라 보낸다.
+//   시야에 들어온 상대뿐 아니라 본인에게도 보낸다(MSG_S2C_CREATE_MY_PLAYER에도 HP가 없다).
+struct MSG_S2C_ACTOR_STATS
+{
+    static constexpr MsgType TYPE = MsgType::S2C_ACTOR_STATS;
+    MsgHeader header;
+    int32_t actorId;
+    int32_t hp;
+    int32_t maxHp;
+
+    MSG_S2C_ACTOR_STATS() : header{ sizeof(*this), TYPE }, actorId(0), hp(0), maxHp(0) {}
 };
 
 #pragma pack(pop)
