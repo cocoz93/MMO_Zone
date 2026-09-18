@@ -12,6 +12,7 @@
 #include "NetIoModel.h"   // kNetIoModelName — 활성 네트워크 I/O 모델 이름(부팅 로그용)
 #include "MapManager.h"
 #include "MonitorManager.h"
+#include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
 #include "MonitorServer.h"
 #include "ServerConfig.h"
 #include "CoreAffinity.h"       // 게임스레드 코어 격리 마스크 주입
@@ -73,12 +74,13 @@ int main()
     SLOG_INFO("Port: {}", config.port);
     SLOG_INFO("Max Clients: {}", config.maxClients);
 
-    CMonitorManager monitor;
+    CMonitorManager monitor;       // 코어 지표 (네트워크·세션·워커)
+    CGameMonitor    gameMonitor;   // 게임 컨텐츠 지표 (전투) — 코어와 독립
     std::unique_ptr<CMonitorServer> monitorSvr;
     if (config.monitorEnabled)
-        monitorSvr = std::make_unique<CMonitorServer>(monitor, config.monitorPort);
+        monitorSvr = std::make_unique<CMonitorServer>(monitor, gameMonitor, config.monitorPort);
 
-    CGameServer server(monitor);
+    CGameServer server(monitor, gameMonitor);
 
     if (!server.Init(config.mode, config.port, config.maxClients,
                      config.maps.data(), static_cast<int32_t>(config.maps.size()),

@@ -31,6 +31,7 @@
 #include "MapManager.h"
 #include "Player.h"
 #include "MonitorManager.h"
+#include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
 #include "Common.h"
 #include "DB/DBWorker.h"
 
@@ -39,7 +40,7 @@ class CSerialBuffer;
 class CGameServer
 {
 public:
-    explicit CGameServer(CMonitorManager& monitor);
+    CGameServer(CMonitorManager& monitor, CGameMonitor& gameMonitor);
     ~CGameServer();
 
     // 에코 테스트 모드 초기화
@@ -192,7 +193,8 @@ private:
 private:
     ServerMode _mode;
 
-    CMonitorManager& _monitor;
+    CMonitorManager& _monitor;       // 코어 지표 — 배치 송신 경로에서 코어 대신 세는 자리가 있어 게임도 참조한다
+    CGameMonitor&    _gameMonitor;   // 게임 컨텐츠 지표 (전투)
     std::unique_ptr<NetIoModel> _network;
     CMapManager _mapManager;
 

@@ -3,11 +3,12 @@
 //
 // [책임]
 //  - 별도 스레드에서 경량 HTTP 서버 구동
-//  - GET /metrics → CMonitorManager 지표를 Prometheus 텍스트 형식으로 노출
+//  - GET /metrics → 코어(CMonitorManager)와 게임(CGameMonitor) 지표를
+//    Prometheus 텍스트 형식으로 한 벌에 합쳐 노출
 //  - IOCP 워커와 간섭 없이 읽기 전용으로 동작
 //
 // [사용법]
-//  CMonitorServer monitorSvr(monitor, 9090);
+//  CMonitorServer monitorSvr(monitor, gameMonitor, 9090);
 //  monitorSvr.Start();   // HTTP 스레드 시작
 //  monitorSvr.Stop();    // 종료 + join
 // ==========================================================================
@@ -34,14 +35,15 @@
 #include "Platform/Platform.h"
 #include "ThirdParty/httplib.h"
 #include "MonitorManager.h"
+#include "GameMonitor.h"   // 게임 컨텐츠 지표 — 저장소는 둘이고, 노출만 여기서 한 벌로 합친다
 #include <Common/ErrorLog.h>
 #include "CoreAffinity.h"
 
 class CMonitorServer
 {
 public:
-    explicit CMonitorServer(CMonitorManager& monitor, int port = 9090)
-        : _monitor(monitor), _port(port) {}
+    CMonitorServer(CMonitorManager& monitor, CGameMonitor& gameMonitor, int port = 9090)
+        : _monitor(monitor), _gameMonitor(gameMonitor), _port(port) {}
 
     ~CMonitorServer() { Stop(); }
 
@@ -259,6 +261,9 @@ private:
         WriteTickHistogram(ss);
         WriteHandleLatencyHistogram(ss);
 
+        // ── 게임 컨텐츠 지표 (저장소가 코어와 별개 — CGameMonitor) ──
+        WriteCombatCounters(ss);
+
         // ── 워커 스레드 카운터 ──
         WriteWorkerCounters(ss);
 
@@ -422,6 +427,33 @@ private:
         ss << "mmo_handle_latency_seconds_count " << handleCount << "\n\n";
     }
 
+    // 전투 지표 — 유일하게 _gameMonitor(게임 저장소)를 읽는 자리다.
+    //   USE_COMBAT=0 이어도 계수기는 남아 0으로 노출된다. 조건부로 감추지 않는 이유는
+    //   USE_COMBAT 이 BuildConfig.h 에 있어 이 헤더가 그걸 안 읽으면 #if 가 조용히 0이 되고,
+    //   그러면 "전투가 꺼진 것"과 "노출을 빠뜨린 것"이 화면에서 똑같아 보이기 때문이다.
+    void WriteCombatCounters(std::ostringstream& ss)
+    {
+        WriteCounter(ss, "mmo_attacks_total",
+                     "Attacks that passed cooldown/range checks and actually swung",
+                     _gameMonitor._combat._attacksTotal);
+
+        // 거부는 사유별로 가른다 — 한 통에 담으면 제일 흔한 하나가 나머지를 삼켜서
+        //   "헛스윙이 많은 건지 쿨타임에 막힌 건지"를 못 읽는다. 라벨 방식은 mmo_send_flush_backlog 와 같다.
+        ss << "# HELP mmo_attacks_rejected_total Attacks rejected, split by reason\n";
+        ss << "# TYPE mmo_attacks_rejected_total counter\n";
+        ss << "mmo_attacks_rejected_total{reason=\"cooldown\"} "    << _gameMonitor._combat._attacksRejectedCooldown   << "\n";
+        ss << "mmo_attacks_rejected_total{reason=\"dead_self\"} "   << _gameMonitor._combat._attacksRejectedDeadSelf   << "\n";
+        ss << "mmo_attacks_rejected_total{reason=\"no_target\"} "   << _gameMonitor._combat._attacksRejectedNoTarget   << "\n";
+        ss << "mmo_attacks_rejected_total{reason=\"dead_target\"} " << _gameMonitor._combat._attacksRejectedDeadTarget << "\n\n";
+
+        WriteCounter(ss, "mmo_deaths_total",
+                     "Actors whose HP dropped to zero",
+                     _gameMonitor._combat._deathsTotal);
+        WriteCounter(ss, "mmo_respawns_total",
+                     "Respawns after death (trails deaths by at most one)",
+                     _gameMonitor._combat._respawnsTotal);
+    }
+
     void WriteWorkerCounters(std::ostringstream& ss)
     {
         int64_t workerCount = _monitor._workerThreadCount;
@@ -542,7 +574,8 @@ private:
     }
 
 private:
-    CMonitorManager& _monitor;
+    CMonitorManager& _monitor;       // 코어 지표 저장소 (ServerCore)
+    CGameMonitor&    _gameMonitor;   // 게임 컨텐츠 지표 저장소 — 코어와 별개 객체
     int _port;
     std::atomic<bool> _stopFlag{false};
     std::unique_ptr<httplib::Server> _svr;

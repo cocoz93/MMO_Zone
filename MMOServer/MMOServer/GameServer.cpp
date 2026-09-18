@@ -268,9 +268,10 @@ namespace
 #endif
 }
 
-CGameServer::CGameServer(CMonitorManager& monitor)
+CGameServer::CGameServer(CMonitorManager& monitor, CGameMonitor& gameMonitor)
     : _mode(ServerMode::GameServer)
     , _monitor(monitor)
+    , _gameMonitor(gameMonitor)
     , _running(false)
 {
 }
