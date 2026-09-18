@@ -13,7 +13,10 @@
     C2S_HEARTBEAT:1014,
     C2S_ADMIN_LOGIN:1015, S2C_ADMIN_LOGIN_OK:1016, S2C_ADMIN_LOGIN_FAIL:1017,
     S2C_ERROR:1018,
-    S2C_SECTOR_UPDATES:1019, S2C_CREATE_PLAYER_BATCH:1020, S2C_DELETE_PLAYER_BATCH:1021
+    S2C_SECTOR_UPDATES:1019, S2C_CREATE_PLAYER_BATCH:1020, S2C_DELETE_PLAYER_BATCH:1021,
+    // 전투 (USE_COMBAT) — 번호가 한 칸만 밀려도 조용히 엉뚱한 패킷을 읽으므로 Protocol.h 와 나란히 볼 것
+    C2S_ATTACK:1022, S2C_ATTACK:1023, S2C_DAMAGE:1024, S2C_DEATH:1025,
+    S2C_RESPAWN:1026, S2C_ACTOR_STATS:1027
   };
   const NAME = Object.fromEntries(Object.entries(MSG).map(([k,v])=>[v,k]));
   const DIR = { NONE:0, UP:1, DOWN:2, LEFT:3, RIGHT:4 };  // Player.h
@@ -92,6 +95,19 @@
         const sub = new Uint8Array(dv.buffer, dv.byteOffset + o, size - 4);
         p.message = new TextDecoder('ascii').decode(sub).replace(/\u0000+$/,''); break;
       }
+      // ---- 전투 (USE_COMBAT) — 필드 순서는 Protocol.h 의 구조체 그대로 ----
+      case MSG.S2C_ATTACK:                       // 헛스윙도 온다 (휘두르는 그림용)
+        p.attackerId=dv.getInt32(o,true); p.direction=dv.getUint8(o+4); break;
+      case MSG.S2C_DAMAGE:
+        p.targetId=dv.getInt32(o,true); p.attackerId=dv.getInt32(o+4,true);
+        p.damage=dv.getInt32(o+8,true); p.remainHp=dv.getInt32(o+12,true); break;
+      case MSG.S2C_DEATH:
+        p.targetId=dv.getInt32(o,true); break;
+      case MSG.S2C_RESPAWN:
+        p.targetId=dv.getInt32(o,true);
+        p.x=dv.getFloat32(o+4,true); p.y=dv.getFloat32(o+8,true); p.hp=dv.getInt32(o+12,true); break;
+      case MSG.S2C_ACTOR_STATS:                  // CREATE 에 HP 자리가 없어 뒤따라 오는 것
+        p.actorId=dv.getInt32(o,true); p.hp=dv.getInt32(o+4,true); p.maxHp=dv.getInt32(o+8,true); break;
       default: break; // ZONE_CHANGE_OK/FAIL, ADMIN_* etc. — not needed for the view
     }
     return p;
@@ -121,6 +137,8 @@
   function hdr(size, type){ const b=new ArrayBuffer(size); const d=new DataView(b); d.setUint16(0,size,true); d.setUint16(2,type,true); return {b,d}; }
   const enc = {
     heartbeat(){ return hdr(4, MSG.C2S_HEARTBEAT).b; },
+    // 바디 없음 — 방향은 서버가 들고 있고, 대상도 서버가 "앞 한 칸"으로 고른다
+    attack(){ return hdr(4, MSG.C2S_ATTACK).b; },
     moveStart(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_START); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     moveStop(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_STOP); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     // C2S_CHAT: header + wchar_t[] UTF-16LE, 널 종단 포함, (len+1)*2 바이트만 전송 (서버가 header.size로 역산)

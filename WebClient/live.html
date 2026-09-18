@@ -19,7 +19,7 @@
 </head>
 <body>
 <div class="stage"><canvas id="v"></canvas><div class="conn" id="conn">연결 중…</div>
-<input id="chatbox" class="chatbox" maxlength="200" autocomplete="off" placeholder="Enter로 채팅 입력 · WASD로 이동"></div>
+<input id="chatbox" class="chatbox" maxlength="200" autocomplete="off" placeholder="Enter로 채팅 입력 · WASD로 이동 · Space로 공격"></div>
 <script src="proto.js"></script>
 <script src="assets/assetsB.js"></script>
 <script src="assets/lpc_layers.js"></script>
@@ -57,6 +57,12 @@ let self = null;                            // {id,x,y,dir,moveState,disp,color,
 const others = new Map();                   // id -> {x,y,dir,moveState,disp,color, rx,ry, chat,chatT}
 const chatLog = [];                         // {disp,msg}
 const BUBBLE_LIFE = 7;                       // 말풍선 표시 시간(초) — 캐릭터별 1개(전역 큐 없음)
+// 전투 표시 시간(초). 서버 쿨타임이 0.48초라 휘두름은 그보다 짧아야 연타가 끊겨 보인다.
+const HIT_LIFE = 0.5;                        // 피격 점멸 + 데미지 숫자
+const SWING_LIFE = 0.18;                     // 휘두르는 호
+const SPAWN_LIFE = 0.6;                      // 부활 섬광
+// 전투 필드 기본값 — CREATE 와 부활 양쪽에서 같은 모양으로 만들려고 한 곳에 둔다
+const COMBAT_INIT = () => ({ hp:null, maxHp:null, hitT:0, hitDmg:0, swingT:0, spawnT:0, dead:false });
 const stat = { count:{}, rate:{}, bytes:0, kbps:0, connected:false };
 function bump(name,n){ stat.count[name]=(stat.count[name]||0)+(n===undefined?1:n); }
 setInterval(()=>{ stat.rate=stat.count; stat.count={}; stat.kbps=stat.bytes/1024; stat.bytes=0; }, 1000);
@@ -105,11 +111,11 @@ function onPacket(p){
   switch(p.type){
     case P.MSG.S2C_ZONE_INFO: ZONE={mapWidth:p.mapWidth,mapHeight:p.mapHeight,sectorSize:p.sectorSize}; break;
     case P.MSG.S2C_CREATE_MY_PLAYER:
-      self={id:p.playerId,x:p.x,y:p.y,dir:p.direction,moveState:0,disp:p.displayChar,color:p.colorIndex,speed:p.speed,rx:p.x,ry:p.y}; break;
+      self={id:p.playerId,x:p.x,y:p.y,dir:p.direction,moveState:0,disp:p.displayChar,color:p.colorIndex,speed:p.speed,rx:p.x,ry:p.y,...COMBAT_INIT()}; break;
     case P.MSG.S2C_CREATE_OTHER_PLAYER: bump('ENTER');
-      others.set(p.playerId,{x:p.x,y:p.y,dir:p.direction,moveState:p.moveState,speed:p.speed||30,disp:p.displayChar,color:p.colorIndex,rx:p.x,ry:p.y,chat:null,chatT:0}); break;
+      others.set(p.playerId,{x:p.x,y:p.y,dir:p.direction,moveState:p.moveState,speed:p.speed||30,disp:p.displayChar,color:p.colorIndex,rx:p.x,ry:p.y,chat:null,chatT:0,...COMBAT_INIT()}); break;
     case P.MSG.S2C_CREATE_PLAYER_BATCH: bump('ENTER', p.count);
-      p.entries.forEach(e=>others.set(e.playerId,{x:e.x,y:e.y,dir:e.direction,moveState:e.moveState,speed:e.speed||30,disp:e.displayChar,color:e.colorIndex,rx:e.x,ry:e.y,chat:null,chatT:0})); break;
+      p.entries.forEach(e=>others.set(e.playerId,{x:e.x,y:e.y,dir:e.direction,moveState:e.moveState,speed:e.speed||30,disp:e.displayChar,color:e.colorIndex,rx:e.x,ry:e.y,chat:null,chatT:0,...COMBAT_INIT()})); break;
     case P.MSG.S2C_DELETE_PLAYER: bump('LEAVE'); others.delete(p.playerId); break;
     case P.MSG.S2C_DELETE_PLAYER_BATCH: bump('LEAVE', p.count); p.entries.forEach(e=>others.delete(e.playerId)); break;
     case P.MSG.S2C_SECTOR_UPDATES:
@@ -128,7 +134,36 @@ function onPacket(p){
       const who = others.get(p.playerId);
       if(who){ who.chat=txt; who.chatT=BUBBLE_LIFE; }   // 캐릭터별 말풍선(밀려남 없음)
       break; }
+
+    // ---- 전투 (USE_COMBAT) ----
+    // 서버가 판정한 결과만 그린다 — 클라는 HP를 스스로 깎지 않는다(권위는 서버).
+    case P.MSG.S2C_ACTOR_STATS: {
+      // CREATE 계열에 HP 자리가 없어 뒤따라 오는 것. 본인 것도 온다.
+      const a=actorOf(p.actorId); if(a){ a.hp=p.hp; a.maxHp=p.maxHp; }
+      break; }
+    case P.MSG.S2C_ATTACK: {
+      const a=actorOf(p.attackerId);
+      if(a){ a.dir=p.direction; a.swingT=SWING_LIFE; }   // 헛스윙도 온다 — 휘두르는 호를 그린다
+      break; }
+    case P.MSG.S2C_DAMAGE: {
+      const a=actorOf(p.targetId);
+      if(a){ a.hp=p.remainHp; a.hitT=HIT_LIFE; a.hitDmg=p.damage; }
+      break; }
+    case P.MSG.S2C_DEATH: {
+      const a=actorOf(p.targetId);
+      if(a){ a.dead=true; a.hp=0; a.moveState=0; }
+      break; }
+    case P.MSG.S2C_RESPAWN: {
+      const a=actorOf(p.targetId);
+      if(a){ a.dead=false; a.hp=p.hp; a.x=p.x; a.y=p.y; a.rx=p.x; a.ry=p.y; a.moveState=0; a.spawnT=SPAWN_LIFE; }
+      break; }
   }
+}
+// 전투 패킷은 대상이 나일 수도 남일 수도 있다 — 한 곳에서 고른다.
+//   갈래를 호출부마다 쓰면 다섯 자리 중 하나를 빠뜨리기 쉽다.
+function actorOf(id){
+  if(self && id===self.id) return self;
+  return others.get(id) || null;
 }
 
 // ---- input: drive MY avatar on the real server (WASD / arrows) ----
@@ -147,8 +182,17 @@ function sendMove(){
     ws.send(P.enc.moveStart(d, self.x, self.y)); }
   else if(moving){ moving=false; self.moveState=0; ws.send(P.enc.moveStop(lastDir, self.x, self.y)); }
 }
+// 스페이스 = 공격. 쿨타임(서버 0.48초)은 서버가 막으므로 클라는 누른 만큼 보낸다 —
+//   막힌 건 mmo_attacks_rejected_total{reason="cooldown"} 으로 세진다.
+//   눌러 두면 브라우저가 키 반복을 보내므로 e.repeat 로 자동 연타만 거른다.
+function sendAttack(){
+  if(!self || !ws || ws.readyState!==1) return;
+  if(self.dead) return;                       // 시체는 못 때린다 (서버도 dead_self 로 막지만 헛 요청을 줄인다)
+  ws.send(P.enc.attack());
+}
 if(!SNAP){
   addEventListener('keydown',e=>{ if(typing())return; const k=e.key.toLowerCase();
+    if(k===' '||e.code==='Space'){ if(!e.repeat) sendAttack(); e.preventDefault(); return; }
     if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k)){ if(!keys.has(k)){keys.add(k); sendMove();} e.preventDefault(); }});
   addEventListener('keyup',e=>{ if(typing())return; const k=e.key.toLowerCase(); if(keys.delete(k)) sendMove(); });
   // Enter=채팅 열기, 채팅창 내 Enter=전송/Esc=취소
@@ -215,16 +259,100 @@ function drawChar(o,isMe,t){
   const frame=(o.moveState===1)?(1+Math.floor(t*8+(o.id||0))%8):0;
   shadow(px,py,0.75*ZOOM);
   ctx.imageSmoothingEnabled=false;
-  ctx.drawImage(sheet, frame*64, 0, 64,64, px-dw/2, py-dh*0.92, dw,dh);
+
+  if(o.swingT>0) drawSwing(o,px,py);      // 휘두른 호는 캐릭터 뒤에 (앞에 두면 몸을 가린다)
+
+  // 피격이면 붉게 물들이고 흔든다. 시체는 흐리게.
+  //   점멸(알파)만으로는 정지 화면에서 맞은 티가 거의 안 났다 — 실제로 캡처해 보고 알았다.
+  const hit=o.hitT>0;
+  ctx.save();
+  if(o.dead) ctx.globalAlpha=0.32;
+  const shake = hit ? Math.sin(o.hitT*55)*2.5 : 0;
+  const dx=px-dw/2+shake, dy=py-dh*0.92;
+  if(hit && !o.dead) drawTinted(sheet, frame, dx, dy, dw, dh, 0.25+0.5*(o.hitT/HIT_LIFE));
+  else ctx.drawImage(sheet, frame*64, 0, 64,64, dx, dy, dw,dh);
+  ctx.restore();
+
+  if(o.spawnT>0) drawSpawnRing(o,px,py);
+
   // nametag = server's authoritative display char
   const ny=py-dh*0.92-4, tag=String.fromCharCode(o.disp||63);
   ctx.font='600 12px '+MONO; ctx.textAlign='center';
   const nw=ctx.measureText(tag).width+12;
-  ctx.fillStyle=isMe?'rgba(40,90,60,.92)':'rgba(18,26,18,.72)'; rr(px-nw/2,ny-14,nw,15,4); ctx.fill();
-  ctx.fillStyle=isMe?'#bff0c9':'#eaf3e0'; ctx.fillText(tag,px,ny-2.5);
-  if(isMe){ const ay=ny-20+Math.sin(t*3)*3; ctx.fillStyle='#ffd84d'; ctx.strokeStyle='rgba(90,70,0,.5)'; ctx.lineWidth=1;
+  ctx.fillStyle = o.dead ? 'rgba(80,24,24,.85)' : (isMe?'rgba(40,90,60,.92)':'rgba(18,26,18,.72)');
+  rr(px-nw/2,ny-14,nw,15,4); ctx.fill();
+  ctx.fillStyle = o.dead ? '#f0b8b8' : (isMe?'#bff0c9':'#eaf3e0'); ctx.fillText(tag,px,ny-2.5);
+
+  drawHpBar(o,px,ny-22);                  // 이름표 위
+
+  // 내 캐릭터 화살표 — HP 막대와 겹치지 않게 그 위로
+  if(isMe){ const ay=ny-36+Math.sin(t*3)*3; ctx.fillStyle='#ffd84d'; ctx.strokeStyle='rgba(90,70,0,.5)'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(px,ay+9); ctx.lineTo(px-6,ay); ctx.lineTo(px+6,ay); ctx.closePath(); ctx.fill(); ctx.stroke(); }
   ctx.textAlign='left';
+  drawDamage(o,px,py);                    // 숫자는 맨 위 (이름표·막대에 안 가리게)
+}
+
+// ---- 전투 표시 ----
+// 피격 붉은 물들이기 — 오프스크린에 한 프레임만 그리고 source-atop 으로 색을 덮는다.
+//   캔버스에 바로 덮으면 배경까지 물드므로 반드시 별도 캔버스를 거쳐야 한다.
+//   시트 캐시를 한 벌 더 만들지 않는 이유 = 피격은 0.5초짜리라 캐시가 거의 적중하지 않는다.
+const TINT = document.createElement('canvas'); TINT.width=64; TINT.height=64;
+const tctx = TINT.getContext('2d');
+function drawTinted(sheet, frame, dx, dy, dw, dh, amt){
+  tctx.clearRect(0,0,64,64);
+  tctx.imageSmoothingEnabled=false;
+  tctx.drawImage(sheet, frame*64,0,64,64, 0,0,64,64);
+  tctx.globalCompositeOperation='source-atop';          // 그려진 픽셀 위에만 색이 얹힌다
+  tctx.fillStyle='rgba(255,64,48,'+Math.min(0.85,amt)+')';
+  tctx.fillRect(0,0,64,64);
+  tctx.globalCompositeOperation='source-over';
+  ctx.drawImage(TINT, 0,0,64,64, dx,dy,dw,dh);
+}
+// HP 는 서버가 S2C_ACTOR_STATS / S2C_DAMAGE 로만 준다. 값이 없으면 안 그린다 —
+//   0 으로 두면 "아직 안 왔다"와 "죽었다"가 화면에서 똑같아 보인다.
+function drawHpBar(o,px,y){
+  if(o.hp==null || o.maxHp==null || o.maxHp<=0) return;   // == 로 undefined 도 함께 거른다
+  // 폭을 월드 단위(1타일)에 맞춘다 — 고정 px 로 두면 사거리 안에서 싸울 때
+  //   옆 사람 막대와 맞붙어 하나처럼 보인다(공격 사거리가 1.5타일이라 늘 붙어 싸운다).
+  //   1.2타일로 뒀더니 딱 맞닿아 구분이 안 됐다 → 1타일로 줄이고 테두리를 세웠다.
+  const w=Math.max(18, Math.round(1.0*ZOOM)), h=5, x=px-w/2;
+  const r=Math.max(0,Math.min(1,o.hp/o.maxHp));
+  ctx.fillStyle='rgba(0,0,0,.85)'; ctx.fillRect(x-2,y-2,w+4,h+4);
+  ctx.fillStyle='rgba(28,38,28,.95)'; ctx.fillRect(x,y,w,h);
+  ctx.fillStyle = r>0.5 ? '#54d46e' : r>0.25 ? '#e6c24a' : '#e2574a';
+  ctx.fillRect(x,y,w*r,h);
+}
+function drawDamage(o,px,py){
+  if(o.hitT<=0 || !o.hitDmg) return;
+  const k=1-o.hitT/HIT_LIFE;                       // 0 → 1 로 진행
+  const y=py-3.0*ZOOM*0.92-30-k*20;                // 위로 떠오른다
+  const dx=px+16;                                  // 살짝 오른쪽 — 내 캐릭터 화살표와 겹치지 않게
+  ctx.save();
+  ctx.globalAlpha=Math.max(0,1-k*k);
+  ctx.font='700 16px '+MONO; ctx.textAlign='center';
+  ctx.lineWidth=3; ctx.strokeStyle='rgba(0,0,0,.75)';
+  ctx.strokeText('-'+o.hitDmg,dx,y);
+  ctx.fillStyle='#ff6f5c'; ctx.fillText('-'+o.hitDmg,dx,y);
+  ctx.restore(); ctx.textAlign='left';
+}
+function drawSwing(o,px,py){
+  const k=o.swingT/SWING_LIFE;                     // 1 → 0
+  const v=dvec(o.dir); if(v.x===0 && v.y===0) return;
+  const cy=py-1.1*ZOOM;
+  const a0=Math.atan2(v.y,v.x);
+  ctx.save();
+  ctx.globalAlpha=k*0.9;
+  ctx.strokeStyle='#f2f7ea'; ctx.lineWidth=3.5; ctx.lineCap='round';
+  ctx.beginPath(); ctx.arc(px+v.x*0.5*ZOOM, cy+v.y*0.5*ZOOM, 1.0*ZOOM, a0-0.75, a0+0.75); ctx.stroke();
+  ctx.restore();
+}
+function drawSpawnRing(o,px,py){
+  const k=1-o.spawnT/SPAWN_LIFE;                   // 0 → 1 로 퍼진다
+  ctx.save();
+  ctx.globalAlpha=(1-k)*0.85;
+  ctx.strokeStyle='#dff6e4'; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.arc(px, py-1.0*ZOOM, 0.5*ZOOM + k*2.2*ZOOM, 0, 7); ctx.stroke();
+  ctx.restore();
 }
 // 현재 폰트 기준 픽셀 폭에 맞게 말줄임(…) — 한글 폭 때문에 글자수 잘림은 부정확
 function fitText(s, maxW){ s=s||''; if(ctx.measureText(s).width<=maxW) return s;
@@ -390,8 +518,14 @@ function step(dt,t){
     cam.x = ZONE.mapWidth  > hw*2 ? Math.max(hw, Math.min(ZONE.mapWidth -hw, self.rx)) : ZONE.mapWidth/2;
     cam.y = ZONE.mapHeight > hh*2 ? Math.max(hh, Math.min(ZONE.mapHeight-hh, self.ry)) : ZONE.mapHeight/2;
   }
-  if(self && self.chat){ self.chatT-=dt; if(self.chatT<=0)self.chat=null; }
-  others.forEach(o=>{ advance(o,dt,Math.min(1,dt*9)); if(o.chat){o.chatT-=dt; if(o.chatT<=0)o.chat=null;} });
+  if(self){ decayCombat(self,dt); if(self.chat){ self.chatT-=dt; if(self.chatT<=0)self.chat=null; } }
+  others.forEach(o=>{ advance(o,dt,Math.min(1,dt*9)); decayCombat(o,dt); if(o.chat){o.chatT-=dt; if(o.chatT<=0)o.chat=null;} });
+}
+// 전투 표시 타이머 감쇠 — 셋을 한 곳에서 줄인다(자리를 나누면 하나를 빠뜨려 표시가 안 꺼진다)
+function decayCombat(o,dt){
+  if(o.hitT>0)   o.hitT  =Math.max(0,o.hitT-dt);
+  if(o.swingT>0) o.swingT=Math.max(0,o.swingT-dt);
+  if(o.spawnT>0) o.spawnT=Math.max(0,o.spawnT-dt);
 }
 function render(t){
   ctx.clearRect(0,0,W,H);
@@ -445,10 +579,13 @@ async function boot(){
   resize(); await loadAssets(); checkLayers();
   if(SNAP){
     // headless verification: load a real snapshot, render one frame, expose PNG
-    const snap = await fetch('snapshot.json').then(r=>r.json());
+    // 전투 확인용 스냅샷을 따로 두려고 파일명을 열어 둔다 (?snap&file=snapshot-combat.json)
+    const snap = await fetch(q.get('file') || 'snapshot.json').then(r=>r.json());
     ZONE = snap.zone || ZONE;
-    if(snap.self){ self={...snap.self, rx:snap.self.x, ry:snap.self.y}; cam.x=self.rx; cam.y=self.ry; }
-    (snap.players||[]).forEach(o=>others.set(o.id,{...o, rx:o.x, ry:o.y, chat:null,chatT:0}));
+    // COMBAT_INIT 을 먼저 깔고 스냅샷 값으로 덮는다 — 안 깔면 hp 가 undefined 라
+    //   막대 자리만 그려지고 채움이 NaN 으로 사라진다(라이브에서는 CREATE 가 깔아 준다).
+    if(snap.self){ self={...COMBAT_INIT(), ...snap.self, rx:snap.self.x, ry:snap.self.y}; cam.x=self.rx; cam.y=self.ry; }
+    (snap.players||[]).forEach(o=>others.set(o.id,{...COMBAT_INIT(), ...o, rx:o.x, ry:o.y, chat:null,chatT:0}));
     (snap.chats||[]).forEach((c)=>{ chatLog.push({disp:c.disp,msg:c.msg}); const o=others.get(c.id); if(o){o.chat=c.msg;o.chatT=BUBBLE_LIFE;} });
     stat.connected=true; stat.rate={S2C_SECTOR_UPDATES:24,ENTER:2,LEAVE:1,S2C_CHAT:3}; stat.kbps=6.4;
     render(1.0);

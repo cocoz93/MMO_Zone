@@ -1,0 +1,31 @@
+{
+  "_note": "전투 표시 확인용 스냅샷 (?snap&file=snapshot-combat.json). 한 프레임에 상태를 다 몰아 넣어 눈으로 대조한다 — 만피·반피·빈사·시체·피격중·휘두르는 중·부활 직후",
+  "zone": { "mapWidth": 120, "mapHeight": 120, "sectorSize": 20 },
+  "self": { "id": 101, "x": 60, "y": 58, "dir": 4, "moveState": 0, "disp": 87, "color": 0, "speed": 30,
+            "hp": 70, "maxHp": 100, "swingT": 0.18 },
+
+  "players": [
+    { "id": 102, "x": 61.2, "y": 58, "dir": 3, "moveState": 0, "disp": 66, "color": 1, "speed": 30,
+      "hp": 40, "maxHp": 100, "hitT": 0.42, "hitDmg": 10 },
+
+    { "id": 205, "x": 55, "y": 54, "dir": 2, "moveState": 0, "disp": 67, "color": 2, "speed": 30,
+      "hp": 100, "maxHp": 100 },
+
+    { "id": 309, "x": 65, "y": 54, "dir": 1, "moveState": 1, "disp": 68, "color": 3, "speed": 30,
+      "hp": 55, "maxHp": 100 },
+
+    { "id": 413, "x": 52, "y": 60, "dir": 2, "moveState": 0, "disp": 69, "color": 4, "speed": 30,
+      "hp": 15, "maxHp": 100 },
+
+    { "id": 517, "x": 68, "y": 61, "dir": 3, "moveState": 0, "disp": 70, "color": 5, "speed": 30,
+      "hp": 0, "maxHp": 100, "dead": true },
+
+    { "id": 621, "x": 58, "y": 63, "dir": 2, "moveState": 0, "disp": 71, "color": 6, "speed": 30,
+      "hp": 100, "maxHp": 100, "spawnT": 0.45 },
+
+    { "id": 733, "x": 63, "y": 51, "dir": 2, "moveState": 1, "disp": 72, "color": 0, "speed": 30,
+      "hp": 85, "maxHp": 100 }
+  ],
+
+  "chats": []
+}
