@@ -6,13 +6,14 @@
   html,body{margin:0;background:#12211a;font-family:system-ui,"Malgun Gothic",sans-serif;color:#e7f0e7}
   .stage{position:relative;width:100vw;height:100vh;overflow:hidden;background:#2f5a3a}
   canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;touch-action:none;cursor:pointer}
-  .conn{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:5;
+  .conn{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:5;box-sizing:border-box;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
     font-size:13px;padding:6px 14px;border-radius:20px;background:rgba(8,14,10,.8);border:1px solid rgba(255,255,255,.12)}
   .conn.ok{color:#8fe6a2;border-color:rgba(120,220,150,.4)}
   .conn.bad{color:#e88;border-color:rgba(220,120,120,.4)}
   .chatbox{position:absolute;left:14px;bottom:14px;width:400px;height:32px;z-index:6;
     background:rgba(10,16,12,.82);border:1px solid rgba(150,200,150,.25);border-radius:8px;
-    color:#eaf3e0;font:13px system-ui,"Malgun Gothic",sans-serif;padding:0 12px;outline:none}
+    color:#eaf3e0;font:13px system-ui,"Malgun Gothic",sans-serif;padding:0 12px;outline:none;text-overflow:ellipsis}
   .chatbox:focus{border-color:rgba(120,220,150,.6);background:rgba(12,20,14,.96)}
   .chatbox::placeholder{color:rgba(200,220,200,.4)}
 </style>
@@ -23,6 +24,7 @@
 <script src="proto.js"></script>
 <script src="assets/assetsB.js"></script>
 <script src="assets/lpc_layers.js"></script>
+<script src="assets/monsters.js"></script>
 <script>
 (()=>{
 "use strict";
@@ -43,12 +45,38 @@ const IMG = {};
 // ---- world / camera ----
 let ZONE = { mapWidth:120, mapHeight:120, sectorSize:20 };
 let ZOOM = 20;                              // px per world unit
+// 게임 화면 = 캔버스 가운데의 정사각형, 한 변 VIEW_ROWS 칸(기본 30) — 창 크기·브라우저 확대와 상관없이 같은 넓이를 본다.
+//   서버의 유효범위(내 섹터 ±1)는 정사각형이고, 섹터 끝에 서 있으면 그쪽으로는 섹터 한 칸(기본 20)만 받는다.
+//   그래서 화면 절반이 섹터 한 칸보다 작아야 화면 끝이 비지 않는다 — 30칸이면 절반 15 < 섹터 20 (유효범위 60 = 화면의 2배).
+//   창 전체를 게임 화면으로 쓰면 가로가 62~96칸이 되어 유효범위 60칸을 넘는다 — 좌우 끝에 서버가 안 알려 주는 구역이 생긴다.
+//   서버 값을 화면에 맞춰 키우는 대신(섹터 32·맵 128까지 가 봤다) 화면을 서버 값에 맞춘 것이다.
+//   기본 30칸 = 사용자가 확대 150%에서 보던 세로 넓이(약 31칸)이고, 캐릭터 키는 화면 높이의 약 8%다.
+//   창이 가로로 길면 좌우가 여백으로 남고 HUD(이름표·채팅·서버 정보·레이더)가 거기 놓인다.
+//   ?rows=N 한 변 칸 수 · ?wide 창 전체를 게임 화면으로(세로 N칸 고정) · ?rows=0 예전처럼 1칸 20px 고정(창 전체)
+const VIEW_ROWS = q.has('rows') ? Math.max(0, Number(q.get('rows')) || 0) : 30;
+const VIEW_WIDE = q.has('wide');
 let W=0,H=0,DPR=1;
+let VX=0,VY=0,VW=0,VH=0;                    // 게임 화면(월드가 그려지는 영역) — 캔버스 px. 그 바깥은 여백
+let CHAT_W=400;                             // 채팅 패널·입력창 폭 — 왼쪽 여백이 좁으면 거기에 맞춰 줄인다
 function resize(){
   DPR=Math.min(2,devicePixelRatio||1);
   const r=cv.getBoundingClientRect();
   W=Math.round(r.width)||innerWidth; H=Math.round(r.height)||innerHeight;
   cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR); ctx.setTransform(DPR,0,0,DPR,0,0);
+  if (VIEW_WIDE || VIEW_ROWS < 8) { VX=0; VY=0; VW=W; VH=H; }                       // 창 전체
+  else { VW=VH=Math.min(W,H); VX=Math.round((W-VW)/2); VY=Math.round((H-VH)/2); }   // 가운데 정사각형
+  if (VIEW_ROWS >= 8) ZOOM = VH / VIEW_ROWS;      // 8칸 미만은 받지 않는다(너무 확대돼 조작이 안 된다)
+  // 왼쪽 여백에 패널 하나는 들어가는데(250px) 400px 에는 못 미치면 채팅을 여백 폭으로 줄인다.
+  //   여백이 그보다 좁으면(세로로 긴 창 등) 예전처럼 게임 화면 위에 400px 로 얹는다.
+  CHAT_W = (VX>=250 && VX<428) ? VX-28 : 400;
+  chatbox.style.width = (CHAT_W-26)+'px';         // 입력창을 패널과 같은 폭으로(좌우 패딩 12×2 + 테두리 1×2 를 뺀다)
+  // 연결 표시 — 왼쪽 여백이 있으면 이름표(14~72px) 아래로 옮긴다. 위 가운데에 두면 작아진 게임 화면의 윗부분을 가린다
+  //   (확대 150%에서 화면 폭의 40%를 덮었다). 여백이 없으면 예전처럼 위 가운데.
+  const side = VX>=250;
+  connEl.style.left      = side ? '14px' : '';
+  connEl.style.top       = side ? '84px' : '';
+  connEl.style.transform = side ? 'none' : '';
+  connEl.style.maxWidth  = side ? (VX-28)+'px' : '';
 }
 new ResizeObserver(resize).observe(cv); resize();
 
@@ -93,7 +121,28 @@ function comboFor(id){ id=id>>>0;
 const SHEETC = new Map();                            // '조합키:행' -> 구운 캔버스(576x64)
 const SHEET_CACHE_MAX = 256;                         // 576×64×4B ≈ 147KB × 256 ≈ 37MB 상한
 function rowOf(dir){ return dir===1?0 : dir===3?1 : dir===4?3 : 2; }  // UP/LEFT/RIGHT else DOWN
-function sheetFor(o,row){ const c=comboFor(o.id||0), k=c.key+':'+row;
+
+// ---- 몬스터 ----
+// 서버는 새 패킷을 파지 않고 CREATE 의 displayChar 에 예약값을 실어 몬스터 종류를 알린다
+//   (Protocol.h DISPLAY_MONSTER_BASE). 사람은 'A'~'Z','a'~'z','0'~'9' 만 받으므로 0x20 미만이면 몬스터다.
+//   시트 규격이 사람(LPC 9열)과 달라(뱀 7열) 조합 캐시와 따로 굽는다 — 종류×방향이라 몇 장뿐이다.
+const MONIMG = {};                                   // kind -> Image (MON 전역에서 적재)
+const DISPLAY_KIND = { 0x01:'snake' };               // Protocol.h DISPLAY_SNAKE
+const MONSHEET = new Map();                          // 'kind:행' -> 구운 캔버스(cols*64 x 64) — 상한 불필요(종류×4장)
+function monMeta(o){
+  if(!(o.disp>0 && o.disp<0x20)) return null;
+  const k=DISPLAY_KIND[o.disp];
+  return (k && window.MON_META && MON_META[k]) ? Object.assign({kind:k}, MON_META[k]) : null;
+}
+function monSheetFor(meta,row){ const k=meta.kind+':'+row;
+  const hit=MONSHEET.get(k); if(hit) return hit;
+  const im=MONIMG[meta.kind]; if(!im) return null;
+  const w=meta.cols*64, cv=document.createElement('canvas'); cv.width=w; cv.height=64;
+  cv.getContext('2d').drawImage(im, 0,row*64,w,64, 0,0,w,64);
+  MONSHEET.set(k,cv); return cv; }
+
+function sheetFor(o,row){ const m=monMeta(o); if(m) return monSheetFor(m,row);
+  const c=comboFor(o.id||0), k=c.key+':'+row;
   const hit=SHEETC.get(k);
   if(hit){ SHEETC.delete(k); SHEETC.set(k,hit); return hit; }                          // 재삽입 = 최근 사용 갱신
   const cv=document.createElement('canvas'); cv.width=576; cv.height=64; const cx=cv.getContext('2d');
@@ -213,8 +262,8 @@ function sendChat(text){
 // ---- camera ----
 const cam={x:60,y:60};
 let aoiValid=0;   // 내 유효 섹터(AOI ±1 중 월드 내) 개수 — drawSectorGrid가 계산, drawHUD가 표시
-const sx = wx => (wx-cam.x)*ZOOM + W/2;
-const sy = wy => (wy-cam.y)*ZOOM + H/2;
+const sx = wx => (wx-cam.x)*ZOOM + VX + VW/2;   // 기준점 = 게임 화면의 중심(캔버스 중심이 아니다)
+const sy = wy => (wy-cam.y)*ZOOM + VY + VH/2;
 
 // ---- decorative props (client-only eye candy, keyed to world) ----
 const hash=(i,j)=>{let h=(i*73856093)^(j*19349663);h=(h^(h>>13))*1274126177;return((h^(h>>16))>>>0);};
@@ -226,8 +275,8 @@ function drawGround(){
   ctx.imageSmoothingEnabled=false;
   const g=IMG.grass; if(!g) return;
   const step=2; // world units per grass cell
-  const u0=Math.floor((cam.x - W/2/ZOOM)/step)*step - step, u1=cam.x + W/2/ZOOM + step;
-  const v0=Math.floor((cam.y - H/2/ZOOM)/step)*step - step, v1=cam.y + H/2/ZOOM + step;
+  const u0=Math.floor((cam.x - VW/2/ZOOM)/step)*step - step, u1=cam.x + VW/2/ZOOM + step;
+  const v0=Math.floor((cam.y - VH/2/ZOOM)/step)*step - step, v1=cam.y + VH/2/ZOOM + step;
   const cell=[[32,160],[64,160],[0,160]];
   for(let u=u0;u<=u1;u+=step)for(let v=v0;v<=v1;v+=step){
     const h=hash(u/step|0,v/step|0), c=cell[h%3];
@@ -236,8 +285,8 @@ function drawGround(){
 }
 function propsInView(){
   const out=[]; const step=5;
-  const u0=Math.floor((cam.x-W/2/ZOOM)/step)*step-step, u1=cam.x+W/2/ZOOM+step;
-  const v0=Math.floor((cam.y-H/2/ZOOM)/step)*step-step, v1=cam.y+H/2/ZOOM+step;
+  const u0=Math.floor((cam.x-VW/2/ZOOM)/step)*step-step, u1=cam.x+VW/2/ZOOM+step;
+  const v0=Math.floor((cam.y-VH/2/ZOOM)/step)*step-step, v1=cam.y+VH/2/ZOOM+step;
   for(let u=u0;u<=u1;u+=step)for(let v=v0;v<=v1;v+=step){
     const h=hash((u/step|0)+900,(v/step|0)+900);
     let kind=null; if(h%11===0)kind='pine'; else if(h%11===1)kind='bush'; else if(h%23===5)kind='rock';
@@ -253,10 +302,15 @@ function drawProp(pr){
 }
 
 function drawChar(o,isMe,t){
-  const sheet=sheetFor(o, rowOf(o.dir)); if(!sheet) return;
+  const row=rowOf(o.dir);
+  const sheet=sheetFor(o, row); if(!sheet) return;
   const px=sx(o.rx), py=sy(o.ry);
-  const H0=3.0*ZOOM, dw=H0, dh=H0;
-  const frame=(o.moveState===1)?(1+Math.floor(t*8+(o.id||0))%8):0;
+  const H0=3.0*ZOOM, dw=H0, dh=H0;   // 몬스터도 같은 크기 — 시트 여백이 이미 뱀을 사람의 0.69배로 만든다
+  const mon=monMeta(o);
+  // 걷기 프레임: 사람은 LPC 9열 중 1~8, 몬스터는 메타의 walk 목록을 돈다(뱀 0~3)
+  const frame = mon
+    ? (o.moveState===1 ? mon.walk[Math.floor(t*8+(o.id||0))%mon.walk.length] : mon.walk[0])
+    : ((o.moveState===1)?(1+Math.floor(t*8+(o.id||0))%8):0);
   shadow(px,py,0.75*ZOOM);
   ctx.imageSmoothingEnabled=false;
 
@@ -268,15 +322,19 @@ function drawChar(o,isMe,t){
   ctx.save();
   if(o.dead) ctx.globalAlpha=0.32;
   const shake = hit ? Math.sin(o.hitT*55)*2.5 : 0;
-  const dx=px-dw/2+shake, dy=py-dh*0.92;
+  // 발 위치: 사람은 칸 바닥(y=62)에 발이 닿아 0.92, 뱀은 발 끝이 y=47 이라 그대로 두면 15px 뜬다 → 메타의 footAdj(0.69)
+  const dx=px-dw/2+shake, dy=py-dh*(mon ? mon.footAdj : 0.92);
   if(hit && !o.dead) drawTinted(sheet, frame, dx, dy, dw, dh, 0.25+0.5*(o.hitT/HIT_LIFE));
   else ctx.drawImage(sheet, frame*64, 0, 64,64, dx, dy, dw,dh);
   ctx.restore();
 
   if(o.spawnT>0) drawSpawnRing(o,px,py);
 
-  // nametag = server's authoritative display char
-  const ny=py-dh*0.92-4, tag=String.fromCharCode(o.disp||63);
+  // nametag = server's authoritative display char (몬스터는 글리프가 없는 제어문자라 종류 이름을 찍는다)
+  //   높이는 "머리 끝 위 같은 간격" — 사람 머리 끝은 칸 안 y=12, 몬스터는 방향(행)마다 top 이 달라
+  //   그만큼 내린다(뱀은 옆을 볼 때 머리가 6px 낮다).
+  const ny = mon ? dy + dh*(mon.top[row]-12)/64 - 4 : py-dh*0.92-4;
+  const tag = mon ? mon.label : String.fromCharCode(o.disp||63);
   ctx.font='600 12px '+MONO; ctx.textAlign='center';
   const nw=ctx.measureText(tag).width+12;
   ctx.fillStyle = o.dead ? 'rgba(80,24,24,.85)' : (isMe?'rgba(40,90,60,.92)':'rgba(18,26,18,.72)');
@@ -359,7 +417,7 @@ function fitText(s, maxW){ s=s||''; if(ctx.measureText(s).width<=maxW) return s;
   let t=s; while(t.length>1 && ctx.measureText(t+'…').width>maxW) t=t.slice(0,-1); return t+'…'; }
 function drawBubble(o){
   const a=Math.max(0,Math.min(1,o.chatT/0.6));   // 마지막 0.6초만 페이드아웃
-  const px=sx(o.rx), py=Math.max(30, sy(o.ry)-3.0*ZOOM*0.92-18);
+  const px=sx(o.rx), py=Math.max(VY+30, sy(o.ry)-3.0*ZOOM*0.92-18);   // 게임 화면 위쪽으로 넘치지 않게
   ctx.font='13px '+SANS; const txt=fitText(o.chat,230); const w=ctx.measureText(txt).width+20;
   ctx.globalAlpha=a; ctx.fillStyle='rgba(255,255,255,.96)'; rr(px-w/2,py-24,w,26,8); ctx.fill();
   ctx.beginPath(); ctx.moveTo(px-6,py+1); ctx.lineTo(px+6,py+1); ctx.lineTo(px,py+9); ctx.closePath(); ctx.fill();
@@ -370,12 +428,12 @@ function drawBubble(o){
 // ---- server-internals overlays ----
 function drawSectorGrid(t){
   const s=ZONE.sectorSize;
-  const u0=Math.floor((cam.x-W/2/ZOOM)/s)*s, u1=cam.x+W/2/ZOOM+s;
-  const v0=Math.floor((cam.y-H/2/ZOOM)/s)*s, v1=cam.y+H/2/ZOOM+s;
+  const u0=Math.floor((cam.x-VW/2/ZOOM)/s)*s, u1=cam.x+VW/2/ZOOM+s;
+  const v0=Math.floor((cam.y-VH/2/ZOOM)/s)*s, v1=cam.y+VH/2/ZOOM+s;
   // 격자 (약간 더 진하게)
   ctx.strokeStyle='rgba(55,230,214,.24)'; ctx.lineWidth=1; ctx.beginPath();
-  for(let u=u0;u<=u1;u+=s){ const p=sx(u); ctx.moveTo(p,0); ctx.lineTo(p,H); }
-  for(let v=v0;v<=v1;v+=s){ const p=sy(v); ctx.moveTo(0,p); ctx.lineTo(W,p); }
+  for(let u=u0;u<=u1;u+=s){ const p=sx(u); ctx.moveTo(p,VY); ctx.lineTo(p,VY+VH); }
+  for(let v=v0;v<=v1;v+=s){ const p=sy(v); ctx.moveTo(VX,p); ctx.lineTo(VX+VW,p); }
   ctx.stroke();
   // 월드 경계
   ctx.strokeStyle='rgba(15,35,20,.6)'; ctx.lineWidth=3;
@@ -404,8 +462,8 @@ function drawSectorGrid(t){
 // 덮어 읽을 수 없어지므로(소나무에 '(AOI ±1)' 이 가려지는 것을 캡처로 확인), 월드 위에 따로 올린다.
 function drawSectorLabels(){
   const s=ZONE.sectorSize;
-  const u0=Math.floor((cam.x-W/2/ZOOM)/s)*s, u1=cam.x+W/2/ZOOM+s;
-  const v0=Math.floor((cam.y-H/2/ZOOM)/s)*s, v1=cam.y+H/2/ZOOM+s;
+  const u0=Math.floor((cam.x-VW/2/ZOOM)/s)*s, u1=cam.x+VW/2/ZOOM+s;
+  const v0=Math.floor((cam.y-VH/2/ZOOM)/s)*s, v1=cam.y+VH/2/ZOOM+s;
   ctx.fillStyle='rgba(130,205,215,.32)'; ctx.font='10px '+MONO; ctx.textAlign='left';
   for(let u=u0;u<=u1;u+=s)for(let v=v0;v<=v1;v+=s){
     if(u<0||v<0||u>=ZONE.mapWidth||v>=ZONE.mapHeight) continue;
@@ -416,9 +474,10 @@ function drawSectorLabels(){
   ctx.fillStyle='rgba(160,250,238,.95)'; ctx.font='600 11px '+MONO;
   ctx.fillText('내 섹터 '+cs+','+rs, sx(cs*s)+6, sy(rs*s)+16);
   // 화면 밖으로 밀리면 안쪽으로 붙인다 (좁은 창에서 왼쪽이 잘리던 문제)
+  //   기준은 캔버스가 아니라 게임 화면이다 — 유효범위(60)가 화면(30)보다 커서 이 라벨은 늘 화면 왼쪽 위 모서리에 붙는다.
   ctx.fillStyle='rgba(120,240,225,.85)'; ctx.font='600 10px '+MONO;
   ctx.fillText('유효 섹터 '+aoiValid+'개 (AOI ±1)',
-    Math.max(6, sx((cs-1)*s)+6), Math.max(12, sy((rs-1)*s)-6));
+    Math.max(VX+6, sx((cs-1)*s)+6), Math.max(VY+12, sy((rs-1)*s)-6));
 }
 function panel(x,y,w,h){ ctx.fillStyle='rgba(10,16,12,.76)'; rr(x,y,w,h,10); ctx.fill(); ctx.strokeStyle='rgba(150,200,150,.16)'; ctx.lineWidth=1; ctx.stroke(); }
 function drawHUD(){
@@ -432,7 +491,7 @@ function drawHUD(){
   ctx.fillStyle='rgba(180,210,180,.7)'; ctx.font='11px '+SANS; ctx.fillText('AOI 실시간', 220, 54); ctx.textAlign='left';
 
   // SERVER INTERNALS panel (top-right, teal = server's-eye)
-  const pw=232, ph=155, px=W-14-pw, py=14;
+  const pw=232, ph=195, px=W-14-pw, py=14;
   ctx.fillStyle='rgba(6,14,18,.8)'; rr(px,py,pw,ph,10); ctx.fill();
   ctx.strokeStyle='rgba(55,230,214,.28)'; ctx.lineWidth=1; ctx.stroke();
   ctx.fillStyle='rgba(150,245,235,.9)'; ctx.font='600 11px '+MONO; ctx.textAlign='left';
@@ -440,6 +499,10 @@ function drawHUD(){
   ctx.strokeStyle='rgba(55,230,214,.15)'; ctx.beginPath(); ctx.moveTo(px+12,py+24); ctx.lineTo(px+pw-12,py+24); ctx.stroke();
   const r=stat.rate||{}, rows=[
     ['접속', stat.connected?'● 연결됨':'○ 끊김'],
+    // 크기 셋은 작은 것부터 — 화면 < 유효범위 < 맵 이어야 한다(화면이 유효범위보다 크면 화면 끝이 빈다)
+    ['화면', Math.round(VW/ZOOM)+'×'+Math.round(VH/ZOOM)+'칸'],
+    ['유효범위', (ZONE.sectorSize*3)+'×'+(ZONE.sectorSize*3)+'칸'],
+    ['맵', ZONE.mapWidth+'×'+ZONE.mapHeight+'칸'],
     ['내 좌표', self?('('+self.x.toFixed(1)+', '+self.y.toFixed(1)+')'):'-'],
     ['내 섹터', self?sectorOf(self.x,self.y):'-'],
     ['유효 섹터', self?(aoiValid+'개'):'-'],
@@ -487,7 +550,7 @@ function drawHUD(){
   // '주변' 채팅이다 — 서버가 채팅을 존 전체가 아니라 AOI(내 섹터 ±1)로만 뿌린다
   // (CGameServer::HandleChat → BroadcastAroundSector / RegisterSectorItem). '전체'로 적으면
   // 5,000명 전원 브로드캐스트로 읽혀 오히려 설계를 깎아먹는다.
-  const bw=400, bh=172, bx=14, by=H-52-bh;
+  const bw=CHAT_W, bh=172, bx=14, by=H-52-bh;   // 폭은 resize() 가 왼쪽 여백에 맞춰 정한다
   panel(bx,by,bw,bh);
   ctx.fillStyle='rgba(180,225,180,.9)'; ctx.font='600 12px '+SANS; ctx.fillText('주변 채팅', bx+14, by+20);
   ctx.strokeStyle='rgba(150,200,150,.14)'; ctx.beginPath(); ctx.moveTo(bx+14,by+27); ctx.lineTo(bx+bw-14,by+27); ctx.stroke();
@@ -514,7 +577,7 @@ function advance(o,dt,k){
 }
 function step(dt,t){
   if(self){ advance(self,dt,Math.min(1,dt*20));   // 내 캐릭터는 더 즉각적으로
-    const hw=W/2/ZOOM, hh=H/2/ZOOM;               // 카메라를 맵 경계 안으로 클램프
+    const hw=VW/2/ZOOM, hh=VH/2/ZOOM;               // 카메라를 맵 경계 안으로 클램프
     cam.x = ZONE.mapWidth  > hw*2 ? Math.max(hw, Math.min(ZONE.mapWidth -hw, self.rx)) : ZONE.mapWidth/2;
     cam.y = ZONE.mapHeight > hh*2 ? Math.max(hh, Math.min(ZONE.mapHeight-hh, self.ry)) : ZONE.mapHeight/2;
   }
@@ -529,22 +592,32 @@ function decayCombat(o,dt){
 }
 function render(t){
   ctx.clearRect(0,0,W,H);
+  // 여백(게임 화면 바깥)은 어두운 바탕으로 깔고, 월드는 게임 화면 안으로만 그린다(clip).
+  const margin = VW<W || VH<H;
+  if(margin){ ctx.fillStyle='#0f1913'; ctx.fillRect(0,0,W,H); }
+  ctx.save(); ctx.beginPath(); ctx.rect(VX,VY,VW,VH); ctx.clip();
   drawGround();
   drawSectorGrid(t);
   // depth-sorted props + players
+  //   유효범위(60)가 화면(30)보다 넓어서 받은 캐릭터의 대부분은 화면 밖에 있다 — 화면 밖 5칸까지만 그린다
+  //   (5칸 = 스프라이트 키 3칸 + 그 위의 이름표·HP 막대·화살표가 걸칠 수 있는 폭).
+  const hw=VW/2/ZOOM+5, hh=VH/2/ZOOM+5;
+  const near=o=>Math.abs(o.rx-cam.x)<=hw && Math.abs(o.ry-cam.y)<=hh;
   const view=[];
   propsInView().forEach(pr=>view.push({y:pr.y,kind:'prop',pr}));
-  others.forEach((o,id)=>view.push({y:o.ry,kind:'char',o:Object.assign(o,{id}),isMe:false}));
+  others.forEach((o,id)=>{ if(near(o)) view.push({y:o.ry,kind:'char',o:Object.assign(o,{id}),isMe:false}); });
   if(self) view.push({y:self.ry,kind:'char',o:self,isMe:true});
   view.sort((a,b)=>a.y-b.y);
   for(const it of view){ if(it.kind==='prop') drawProp(it.pr); else drawChar(it.o,it.isMe,t); }
-  others.forEach(o=>{ if(o.chat) drawBubble(o); });
+  others.forEach(o=>{ if(o.chat && near(o)) drawBubble(o); });
   if(self && self.chat) drawBubble(self);
   // AOI vignette
-  const s=ZONE.sectorSize, vg=ctx.createRadialGradient(W/2,H/2,1.4*s*ZOOM,W/2,H/2,2.6*s*ZOOM);
+  const s=ZONE.sectorSize, vcx=VX+VW/2, vcy=VY+VH/2, vg=ctx.createRadialGradient(vcx,vcy,1.4*s*ZOOM,vcx,vcy,2.6*s*ZOOM);
   vg.addColorStop(0,'rgba(18,33,22,0)'); vg.addColorStop(1,'rgba(10,18,13,.6)');
-  ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle=vg; ctx.fillRect(VX,VY,VW,VH);
   drawSectorLabels();   // 월드 위 (나무·캐릭터에 가리지 않게), 비네트 뒤라 흐려지지도 않게
+  ctx.restore();
+  if(margin){ ctx.strokeStyle='rgba(150,200,150,.28)'; ctx.lineWidth=1; ctx.strokeRect(VX+.5,VY+.5,VW-1,VH-1); }   // 게임 화면 테두리
   drawHUD();
 }
 
@@ -566,7 +639,7 @@ const hb=setInterval(()=>{ if(ws&&ws.readyState===1) ws.send(P.enc.heartbeat());
 function loadAssets(){
   const load=(dict,store)=>Object.keys(dict||{}).map(n=>new Promise(res=>{const im=new Image();
     im.onload=()=>{store[n]=im;res();}; im.onerror=()=>{console.warn('[asset] 로드 실패:',n); res();}; im.src=dict[n];}));
-  return Promise.all([...load(window.IMG,IMG), ...load(window.LPC,LAYER)]);   // 타일(IMG) + LPC 레이어(LAYER)
+  return Promise.all([...load(window.IMG,IMG), ...load(window.LPC,LAYER), ...load(window.MON,MONIMG)]);   // 타일(IMG) + LPC 레이어(LAYER) + 몬스터(MONIMG)
 }
 // 조합이 쓰는 레이어가 실제로 다 실렸는지 확인. 하나라도 없으면 sheetFor 가 조용히 건너뛰어
 // 그 부위가 통째로 안 그려진다(머리 레이어 누락으로 얼굴이 안 보이던 사고와 같은 형태).
