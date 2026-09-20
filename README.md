@@ -152,5 +152,5 @@ CSV는 `Monitoring/metrics_out/` 에, 비교는 Δ%와 판정을 함께 출력�
 
 ## 📄 라이선스
 
-코드는 MIT — [LICENSE](LICENSE)
+코드는 © 2026 주우진 · 저작권 보유. 열람용으로 공개합니다.
 `WebClient/assets/` 의 픽셀 스프라이트·타일은 [LPC](https://github.com/sanderfrenken/Universal-LPC-Spritesheet-Character-Generator) 기여자 저작물로 **CC-BY-SA** 입니다(재배포 시 같은 조건). 개별 크레딧은 [WebClient/README.md](WebClient/README.md).
