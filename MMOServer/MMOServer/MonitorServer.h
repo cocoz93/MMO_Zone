@@ -452,6 +452,29 @@ private:
         WriteCounter(ss, "mmo_respawns_total",
                      "Respawns after death (trails deaths by at most one)",
                      _gameMonitor._combat._respawnsTotal);
+
+#if USE_MONSTER
+        // 위 값들은 "플레이어만" 센다 — 몬스터를 섞으면 기존 A/B 실측의 기준선이 오염된다.
+        //   공격은 때린 쪽, 죽음·부활은 당한 쪽 기준으로 갈린다(GameMonitor.h 참조).
+        WriteCounter(ss, "mmo_monster_attacks_total",
+                     "Attacks swung by monsters",
+                     _gameMonitor._monster._attacksTotal);
+        WriteCounter(ss, "mmo_monster_attacks_rejected_total",
+                     "Monster attacks rejected (should stay near zero: AI checks cooldown/range first)",
+                     _gameMonitor._monster._attacksRejected);
+        WriteCounter(ss, "mmo_monster_deaths_total",
+                     "Monsters whose HP dropped to zero",
+                     _gameMonitor._monster._deathsTotal);
+        WriteCounter(ss, "mmo_monster_respawns_total",
+                     "Monster respawns after death",
+                     _gameMonitor._monster._respawnsTotal);
+        WriteCounter(ss, "mmo_monster_think_total",
+                     "Monster AI decisions actually run (zero means AI is not ticking)",
+                     _gameMonitor._monster._thinkCalls);
+        WriteCounter(ss, "mmo_monster_state_transitions_total",
+                     "Monster AI state changes (one state swallowing others shows up as a stall here)",
+                     _gameMonitor._monster._stateTransitions);
+#endif
     }
 
     void WriteWorkerCounters(std::ostringstream& ss)

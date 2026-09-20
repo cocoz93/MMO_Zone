@@ -150,6 +150,16 @@ struct MSG_S2C_MOVE_STOP
 // 스폰 / 삭제
 //==================================================
 
+// 표시 문자(displayChar)의 예약 구간 — 몬스터는 새 패킷을 파지 않고 이 값으로 종류를 알린다.
+//   플레이어는 서버가 'A'~'Z','a'~'z','0'~'9' 62 종만 부여하므로(CalcDisplayChar)
+//   0x20 미만이 통째로 비어 있다. 여기에 몬스터 종류를 싣는다.
+//   ★ 이렇게 하면 CREATE 패킷의 구조·크기·필드 순서가 한 바이트도 안 바뀐다.
+//     새 타입을 파면 네 클라(콘솔·부하더미·웹·언리얼)에 전부 case 를 넣어야 하고,
+//     부하 더미는 모르는 타입에 크기 0 을 돌려줘 연결을 끊는다(DummyClient::GetPacketSize).
+//   몬스터 이름·레벨처럼 실을 자리가 없는 정보가 필요해지면 그때 전용 패킷을 판다.
+constexpr uint8_t DISPLAY_MONSTER_BASE = 0x01;   // 0x01~0x0F = 몬스터 종류
+constexpr uint8_t DISPLAY_SNAKE        = 0x01;   // 뱀
+
 // S2C: 내 캐릭터 생성 (접속 직후)
 struct MSG_S2C_CREATE_MY_PLAYER
 {

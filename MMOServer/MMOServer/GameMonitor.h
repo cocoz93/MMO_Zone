@@ -16,6 +16,7 @@
 // ==========================================================================
 #pragma once
 
+#include "BuildConfig.h"      // USE_MONSTER — 몬스터 카운터 묶음을 토글 안에 둔다
 #include "MonitorManager.h"   // Counter — 원자 카운터 타입만 빌려 쓴다 (코어 지표는 참조하지 않음)
 
 class CGameMonitor
@@ -47,4 +48,29 @@ public:
         Counter _deathsTotal;               // HP가 0 이하로 떨어진 횟수
         Counter _respawnsTotal;             // 부활 횟수 (deaths와 같거나 1 적은 것이 정상)
     } _combat;
+
+#if USE_MONSTER
+    // ══════════════════════════════════════════════════════════════
+    // 몬스터 (USE_MONSTER)
+    //
+    // ★ 위 _combat 과 나누는 이유 — 위 값들은 기존 A/B 실측의 기준선이다.
+    //   몬스터를 같은 통에 섞으면 USE_MONSTER=0/1 사이에서 "같은 이름의 두 값이
+    //   다른 것을 세는" 상태가 되어 비교가 성립하지 않는다.
+    //
+    // ★ 가르는 기준이 둘이다 — 공격은 때린 쪽, 죽음·부활은 당한 쪽으로 간다.
+    //   죽음을 때린 쪽으로 가르면 "플레이어가 뱀을 죽인 것"이 플레이어 죽음으로 세어진다.
+    // ══════════════════════════════════════════════════════════════
+    struct alignas(64) MonsterCounters
+    {
+        Counter _attacksTotal;      // 몬스터가 휘두른 공격
+        Counter _attacksRejected;   // 몬스터 공격이 거부된 수 — 사유를 안 가른다.
+                                    //   AI 가 쿨타임·사거리를 먼저 보고 시도하므로 거의 0 이어야 한다.
+                                    //   0 이 아니게 되면 그 전제가 깨진 것이고, 그때 사유별로 가른다.
+        Counter _deathsTotal;       // 몬스터가 죽은 횟수
+        Counter _respawnsTotal;     // 몬스터가 되살아난 횟수
+
+        Counter _stateTransitions;  // AI 상태 전이 총수 — 한 상태가 나머지를 삼키면 여기가 먼저 멈춘다
+        Counter _thinkCalls;        // 판단을 실제로 돌린 횟수 (0 이면 AI 가 아예 안 도는 것)
+    } _monster;
+#endif
 };

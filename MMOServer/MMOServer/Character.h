@@ -14,10 +14,16 @@
 //
 // [세션] _sessionId 는 "이 캐릭터를 조종하는 세션"이다. 조종하는 세션이 없으면(몬스터·NPC) -1.
 //        CPlayer 가 아니라 여기 두는 이유 — 섹터를 도는 송신 코드가 이미 _sessionId == -1 을
-//        "못 보냄"으로 거르고 있어서(CGameServer 의 세션 가드 8곳), 이 필드가 여기 있으면
+//        "못 보냄"으로 거르고 있어서(CGameServer 의 세션 가드들 — _sessionId 로 grep), 이 필드가 여기 있으면
 //        그 가드가 그대로 몬스터 필터가 된다. 순회마다 종류를 묻는 분기를 새로 넣을 필요가 없다.
-//        ★ 지금 코드에서 세션이 붙은 캐릭터는 CPlayer 뿐이다 — 이 전제에 기대는 내려 캐스팅이
-//          CGameServer 에 한 곳 있다(맵 경계 클램프 → _dbDirty). 전제가 깨지면 거기가 첫 사고 지점.
+//
+// [종류] _kind 는 _sessionId 와 뜻이 다르다 — 헷갈리면 아래 물음으로 고른다.
+//          "지금 이 캐릭터에게 패킷을 보낼 수 있나"  → _sessionId   (송신 가드)
+//          "이 캐릭터가 무엇이냐"                    → _kind        (종류 판정)
+//        둘이 실제로 갈리는 자리가 있다. 접속 경로(CGameServer::OnConnected)가 EnterZone →
+//        _sessionId 부여 순이라, EnterZone 시점엔 플레이어도 _sessionId == -1 이다.
+//        그래서 존의 정원 카운터(_playerCount)는 _sessionId 로 가르면 플레이어도 안 세어진다.
+//        파생 생성자가 자기 것을 잡는다 — 여기 기본값은 PLAYER 이고 CMonster 가 MONSTER 로 덮는다.
 //
 // [컨테이너] 섹터·존은 vector<CCharacter*> 를 담는다. CActor* 가 아닌 이유 — 전투 판정이 _hp 를
 //        봐야 하는데, 섹터에서 꺼낸 것이 곧바로 CCharacter 여야 캐스팅이 없다.
@@ -30,6 +36,13 @@
 constexpr int32_t CHARACTER_DEFAULT_MAX_HP        = 100;
 constexpr int32_t CHARACTER_DEFAULT_ATTACK_POWER  = 10;
 
+// 캐릭터 종류 — 위 [종류] 참조. 와이어에는 안 실린다(클라는 displayChar 로 종류를 안다).
+enum class CharacterKind : uint8_t
+{
+    PLAYER  = 0,
+    MONSTER = 1,
+};
+
 class CCharacter : public CActor
 {
     friend class CGameServer;  // 경계 계층만 _sessionId 접근 허용
@@ -37,6 +50,9 @@ class CCharacter : public CActor
 public:
     CCharacter();
     ~CCharacter() override;
+
+    // ── 종류 ── 순회에서 종류를 가를 때 쓴다 (정원 카운터, AI 대상 거르기 등)
+    CharacterKind _kind;
 
     // ── 표시 ── 클라가 그리는 데 쓰는 것. CREATE 패킷에 실린다.
     uint8_t _displayChar;   // 표시 문자 (ASCII: A-Z, a-z, 0-9)

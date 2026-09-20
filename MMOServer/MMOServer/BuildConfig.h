@@ -96,3 +96,13 @@
 //         DummyClient::GetPacketSize가 모르는 타입에 0을 돌려주면 packetParseFail → Disconnect라
 //         전투 패킷이 섹터에 뿌려지는 순간 더미가 전부 떨어진다.
 #define USE_COMBAT 1
+
+// 몬스터 — 맵에 사는 적. 첫 종류는 뱀 하나다.
+//   CCharacter 계층 위에 얹는 두 번째 컨텐츠. 전투(USE_COMBAT)가 이미 CCharacter 기준이라
+//   몬스터는 "섹터에 들어 있기만" 하면 맞고 죽고 되살아난다 — 그 경로에 새 코드가 없다.
+//   1: 존마다 몬스터 스폰 + AI 갱신 [기본]
+//   0: 몬스터 경로가 컴파일에서 빠짐 — 기존 A/B 실측과 같은 바이너리
+//   와이어는 안 바뀐다: 몬스터는 기존 CREATE 패킷의 displayChar 에 예약값(0x01~)을 실어 보낸다.
+//     그래서 부하 더미는 새 타입을 몰라도 되고, 이 토글을 켜도 더미가 안 떨어진다.
+//   주의: 0 으로 껐을 때 컴파일이 깨지면 계층이 잘못 얽힌 것이다(USE_COMBAT=0 과 같은 뜻의 시험).
+#define USE_MONSTER 1

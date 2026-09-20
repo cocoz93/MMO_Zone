@@ -93,6 +93,8 @@ int main()
 
     // 이벤트 큐 과부하 시 신규 accept 차단 임계 (네트워크 객체는 Init에서 생성된다)
     server.SetEventQueueAcceptLimit(config.eventQueueAcceptLimit);
+    server.SetMoveSpeeds(config.playerSpeed, config.snakeSpeed);   // 0 = 기본(부하 시험 기준) — ServerConfig [Game]
+    server.SetMonsterPerZone(config.monsterPerZone);               // 0 = 기본 30 마리/존 — ServerConfig [Game]
 
     // DB 저장 파이프라인 초기화 (USE_DB_WORKER=0이면 no-op)
     {

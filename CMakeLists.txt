@@ -144,6 +144,8 @@ set(GAME_SOURCES
     ${SRV_DIR}/Zone.cpp
     ${SRV_DIR}/Player.cpp
     ${SRV_DIR}/Character.cpp
+    ${SRV_DIR}/Monster.cpp
+    ${SRV_DIR}/MonsterAI.cpp
     ${SRV_DIR}/Actor.cpp
     ${SRV_DIR}/Combat.cpp
     ${SRV_DIR}/DB/DBWorker.cpp

@@ -8,6 +8,7 @@ CZone::CZone()
     , _mapId(-1)
     , _mapWidth(0)
     , _mapHeight(0)
+    , _playerCount(0)
 {
 }
 
@@ -47,9 +48,13 @@ bool CZone::EnterZone(CCharacter* player)
     player->_sectorY = _sectorManager.CalcSectorY(player->_y);
     _sectorManager.AddCharacter(player, player->_sectorX, player->_sectorY);
 
-    // 플레이어 목록에 추가
+    // 캐릭터 목록에 추가
     player->_listIndex = static_cast<int32_t>(_characterList.size());
     _characterList.push_back(player);
+
+    // 정원 카운터는 목록에 실제로 넣은 이 자리에서만 올린다 (Zone.h _playerCount)
+    if (player->_kind == CharacterKind::PLAYER)
+        ++_playerCount;
 
     return true;
 }
@@ -70,6 +75,11 @@ void CZone::LeaveZone(CCharacter* player)
         _characterList[idx] = back;
         back->_listIndex = idx;
         _characterList.pop_back();
+
+        // 카운터는 이 블록 안에서만 내린다 — 밖으로 빼면 목록은 그대로인데
+        //   카운터만 내려가는 길이 열린다(같은 캐릭터로 두 번 부르는 경우).
+        if (player->_kind == CharacterKind::PLAYER)
+            --_playerCount;
     }
     player->_listIndex = -1;
 }

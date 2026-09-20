@@ -1,5 +1,7 @@
 ﻿#include "GameServer.h"
 #include "Player.h"
+#include "Monster.h"     // USE_MONSTER — 헤더 안에서 스스로 토글을 본다
+#include "MonsterAI.h"   // 몬스터 판단 (Combat 과 같은 자리의 순수 판정 모듈)
 #include <Protocol/Protocol.h>
 #include "SerialBuffer.h"
 #include <Common/ErrorLog.h>
@@ -452,6 +454,13 @@ void CGameServer::Stop()
         delete player;
     }
     _sessionSlots.clear();
+
+#if USE_MONSTER
+    // 몬스터도 CGameServer 소유다 — _sessionSlots 에 없으니 따로 회수한다.
+    //   게임 스레드가 이미 끝났고(위 join) 받을 세션도 없으므로 브로드캐스트 없이 delete 만 한다.
+    //   프로세스가 곧 끝나는 길이라 실해는 없지만, 소유를 선언했으면 회수도 짝이 맞아야 한다.
+    _mapManager.ForEachZone([this](CZone* zone) { DespawnMonsters(zone, false); });
+#endif
 }
 
 #if USE_DB_WORKER
@@ -583,6 +592,12 @@ void CGameServer::GameLoopThread()
         ProcessNetworkEvents();
         auto phaseT2 = Clock::now();
 
+#if USE_MONSTER
+        // 1-1) 몬스터 — 새 존에 스폰(2단계). 3단계에서 AI 판단이 여기 붙는다.
+        //   좌표 갱신(2) 앞에 두는 이유: AI 가 정한 방향이 같은 틱에 반영돼야 한 틱씩 밀리지 않는다.
+        TickMonsters();
+#endif
+
         // 2) 게임 로직 갱신 (좌표 이동 + 섹터 변경 감지 + 경계 클램핑)
         _tickSectorChanges.clear();
         _tickClampedPlayers.clear();
@@ -624,10 +639,19 @@ void CGameServer::GameLoopThread()
         for (CCharacter* player : _tickClampedPlayers)
         {
 #if USE_DB_WORKER
-            // 세션이 붙은 캐릭터는 CPlayer 뿐이다(Character.h [세션]) — 그 전제로 내려 캐스팅한다.
-            //   몬스터가 들어와 전제가 흔들리면 여기가 첫 사고 지점. 타입 태그가 생기면 그것으로 바꾼다.
-            if (player->_sessionId != -1)
+            // 종류로 가른다 — _kind == PLAYER 인 것은 CPlayer 뿐이므로 내려 캐스팅이 안전하다.
+            //   _sessionId 를 쓰지 않는 이유는 Character.h [종류] 참조(접속 도중엔 플레이어도 -1).
+            if (player->_kind == CharacterKind::PLAYER)
                 static_cast<CPlayer*>(player)->_dbDirty = true;   // 경계 클램프로 위치 변경 → 저장 대상
+#endif
+#if USE_MONSTER
+            // 벽에 닿은 몬스터는 다음 틱에 바로 다시 판단하게 한다.
+            //   AI 는 맵 경계를 모른다(MonsterAI 는 맵 크기를 안 받는다). 그래서 배회 방향이
+            //   바깥을 향하면 클램프로 멈춘 채 다음 판단(최대 3초)까지 벽에 붙어 있게 된다.
+            //   실측으로 뱀의 50%가 가장자리 띠에 몰렸다(면적 비율은 36%). 여기서 판단을
+            //   앞당기면 40ms 만에 새 방향을 고른다 — 4방향 중 대부분이 안쪽이라 곧 벗어난다.
+            if (player->_kind == CharacterKind::MONSTER)
+                static_cast<CMonster*>(player)->_nextThinkFrame = 0;
 #endif
             CZone* zone = _mapManager.GetZone(player->_zoneId);
             if (zone != nullptr)
@@ -713,7 +737,12 @@ void CGameServer::GameLoopThread()
         if (_cleanupFrameCount >= CLEANUP_INTERVAL_FRAMES)
         {
             _cleanupFrameCount = 0;
-            _mapManager.CleanupEmptyChannels();
+#if USE_MONSTER
+            // 존을 지우기 직전에 그 존의 몬스터를 회수한다 — 안 하면 대기열에 죽은 주소가 남는다.
+            _mapManager.CleanupEmptyChannels([this](CZone* zone) { DespawnMonsters(zone, true); });
+#else
+            _mapManager.CleanupEmptyChannels(nullptr);
+#endif
         }
 
 #if USE_DB_WORKER
@@ -796,6 +825,8 @@ void CGameServer::OnConnected(int64_t sessionId)
     player->_actorId = AllocPlayerId();
     player->_displayChar = CalcDisplayChar(player->_actorId);
     player->_colorIndex = CalcColorIndex(player->_actorId);
+    if (_playerSpeed > 0)
+        player->_speed = _playerSpeed;   // 게임용 속도 — 0 이면 생성자의 25~50 무작위(부하 시험 기준) 그대로
     if (!zone->EnterZone(player))
     {
         delete player;
@@ -1537,6 +1568,8 @@ void CGameServer::RecvAdminLogin(CPlayer* player, CSerialBuffer* pMsg)
 //   S2C_ACTOR_STATS로 HP가 다시 맞춰진다. 이번 범위에서는 여기까지만 한다.
 // ==========================================================================
 
+// 세션 핸들러 — 세션이 있어야 성립하는 것만 보고 본체로 넘긴다.
+//   몬스터는 패킷을 안 보내므로 이 경로를 못 탄다. 그래서 본체가 따로 있다.
 void CGameServer::RecvAttack(CPlayer* player, CSerialBuffer* pMsg)
 {
     (void)pMsg;   // C2S_ATTACK은 바디가 없다 — 방향은 서버가 들고 있고, 대상도 서버가 고른다
@@ -1545,19 +1578,50 @@ void CGameServer::RecvAttack(CPlayer* player, CSerialBuffer* pMsg)
     if (zone == nullptr)
         return;
 
+    PerformAttack(zone, player);
+}
+
+// 공격 본체 — 플레이어와 몬스터가 같이 쓴다.
+//   읽는 필드가 _zoneId·_lastAttackFrame·_direction·_attackPower·_actorId·_x·_y 로
+//   전부 CCharacter 것이라 갈라낼 수 있었다(CPlayer 전용 필드가 하나도 없다).
+//
+//   ★ 지표는 종류별로 가른다. 기준이 둘이다 —
+//     공격 계수기는 "때린 쪽"(attacker), 죽음 계수기는 "당한 쪽"(target)으로 간다.
+//     죽음을 때린 쪽으로 가르면 플레이어가 뱀을 죽인 것이 "플레이어 죽음"으로 세어진다.
+void CGameServer::PerformAttack(CZone* zone, CCharacter* player)
+{
+#if USE_MONSTER
+    const bool byMonster = (player->_kind == CharacterKind::MONSTER);
+#else
+    constexpr bool byMonster = false;
+#endif
+
     // ── 1) 휘두를 수 있나 (쿨타임·자기 생사) ──
-    switch (Combat::CanAttack(*player, _frameCount))
+    const Combat::AttackReject reject = Combat::CanAttack(*player, _frameCount);
+    if (reject != Combat::AttackReject::NONE)
     {
-    case Combat::AttackReject::COOLDOWN:
-        _gameMonitor._combat._attacksRejectedCooldown.Inc();
-        return;
+#if USE_MONSTER
+        // 몬스터 거부는 사유를 안 가르고 한 통에 센다 — AI 가 쿨타임을 먼저 보고
+        //   시도하므로 거의 0 이어야 한다. 0 이 아니게 되면 그 전제가 깨진 것이다.
+        if (byMonster)
+        {
+            _gameMonitor._monster._attacksRejected.Inc();
+            return;
+        }
+#endif
+        switch (reject)
+        {
+        case Combat::AttackReject::COOLDOWN:
+            _gameMonitor._combat._attacksRejectedCooldown.Inc();
+            return;
 
-    case Combat::AttackReject::DEAD_SELF:
-        _gameMonitor._combat._attacksRejectedDeadSelf.Inc();
-        return;
+        case Combat::AttackReject::DEAD_SELF:
+            _gameMonitor._combat._attacksRejectedDeadSelf.Inc();
+            return;
 
-    default:
-        break;   // NONE — 통과
+        default:
+            return;   // 여기 오는 나머지 사유는 없다(CanAttack 은 셋만 돌려준다)
+        }
     }
 
     player->_lastAttackFrame = _frameCount;
@@ -1565,7 +1629,12 @@ void CGameServer::RecvAttack(CPlayer* player, CSerialBuffer* pMsg)
     // ── 2) 휘두른 모션은 대상 유무와 무관하게 보낸다 (헛스윙도 그려야 한다) ──
     //   그래서 _attacksTotal은 "맞힌 수"가 아니라 "휘두른 수"다. 헛스윙은 여기서도 오르고
     //   아래 rejected{no_target}에서도 오른다 — 두 값의 뜻이 다르므로 겹치는 것이 맞다.
+#if USE_MONSTER
+    if (byMonster) _gameMonitor._monster._attacksTotal.Inc();
+    else           _gameMonitor._combat._attacksTotal.Inc();
+#else
     _gameMonitor._combat._attacksTotal.Inc();
+#endif
     BroadcastAroundSector(zone, player,
         MakeAttack(player->_actorId, static_cast<uint8_t>(player->_direction)), false);
 
@@ -1594,6 +1663,17 @@ void CGameServer::RecvAttack(CPlayer* player, CSerialBuffer* pMsg)
                 if (candidate == player)
                     continue;   // GetAroundCharacters 의 exclude 인자를 대신한다
 
+#if USE_MONSTER
+                // 몬스터는 몬스터를 못 때린다 — 같은 편이다.
+                //   빠뜨리면 뱀 여럿이 한 플레이어에게 몰릴 때 뒤의 뱀이 "정면의 가장 가까운 것"인
+                //   앞의 뱀을 문다(실측: 플레이어 셋 90초에 뱀→뱀 4~32회, 뱀이 죽기까지 했다).
+                //   때리는 쪽이 몬스터일 때만 거른다 — 플레이어가 뱀을 때리는 것은 그대로다.
+                //   AI 의 대상 찾기(FindAITarget)에서 몬스터를 거르는 것만으로는 안 막힌다:
+                //   AI 는 "누구를 쫓을까"를 정할 뿐이고, 실제로 무는 대상은 여기서 다시 고른다.
+                if (byMonster && candidate->_kind == CharacterKind::MONSTER)
+                    continue;
+#endif
+
                 float distSq = 0.0f;
                 if (!Combat::IsInAttackRange(*player, *candidate, distSq))
                     continue;
@@ -1615,6 +1695,13 @@ void CGameServer::RecvAttack(CPlayer* player, CSerialBuffer* pMsg)
 
     if (target == nullptr)
     {
+#if USE_MONSTER
+        if (byMonster)
+        {
+            _gameMonitor._monster._attacksRejected.Inc();
+            return;
+        }
+#endif
         if (sawDeadInRange)
             _gameMonitor._combat._attacksRejectedDeadTarget.Inc();
         else
@@ -1637,7 +1724,15 @@ void CGameServer::RecvAttack(CPlayer* player, CSerialBuffer* pMsg)
     target->_deathFrame = _frameCount;
     target->_moveState  = MoveState::IDLE;   // 시체가 계속 걸어가지 않게
     _deadActors.push_back(target);
+
+    // ★ 죽음은 "당한 쪽"으로 가른다 — 때린 쪽(byMonster)으로 가르면
+    //   플레이어가 뱀을 죽인 것이 "플레이어 죽음"으로 세어진다.
+#if USE_MONSTER
+    if (target->_kind == CharacterKind::MONSTER) _gameMonitor._monster._deathsTotal.Inc();
+    else                                         _gameMonitor._combat._deathsTotal.Inc();
+#else
     _gameMonitor._combat._deathsTotal.Inc();
+#endif
 
     BroadcastAroundSector(zone, player, MakeDeath(target->_actorId), false);
 }
@@ -1659,7 +1754,14 @@ void CGameServer::TickRespawn()
         }
 
         Combat::Respawn(*dead);
+
+        // 부활도 "되살아난 쪽"으로 가른다 (죽음과 같은 기준 — GameMonitor.h 참조)
+#if USE_MONSTER
+        if (dead->_kind == CharacterKind::MONSTER) _gameMonitor._monster._respawnsTotal.Inc();
+        else                                       _gameMonitor._combat._respawnsTotal.Inc();
+#else
         _gameMonitor._combat._respawnsTotal.Inc();
+#endif
 
         CZone* zone = _mapManager.GetZone(dead->_zoneId);
         if (zone != nullptr)
@@ -1694,6 +1796,178 @@ void CGameServer::SendActorStats(CCharacter* target, const CCharacter* actor)
     SendPacket(target, MakeActorStats(actor->_actorId, actor->_hp, actor->_maxHp));
 }
 #endif // USE_COMBAT
+
+#if USE_MONSTER
+// ==========================================================================
+// 몬스터 (USE_MONSTER)
+// ==========================================================================
+
+// 게임 루프 1-1) — 아직 몬스터를 안 깐 존을 찾아 스폰한다.
+//   "존이 만들어질 때 부른다"가 아니라 루프가 훑는 이유 — 존은 CMapInstance::CreateChannel
+//   (private)에서만 생기고 그 호출처가 전부 MapManager 안이다. CGameServer 는
+//   FindOrCreateChannel 의 반환값만 받으므로 그게 새 존인지 원래 있던 존인지 알 길이 없다.
+//   받는 자리 셋에 "스폰했나"를 흩으면 하나를 빠뜨린 날 몬스터 없는 채널이 생긴다.
+//   비용은 틱마다 존 수만큼의 플래그 비교이고, 스폰은 존마다 딱 한 번만 돈다.
+void CGameServer::TickMonsters()
+{
+    _mapManager.ForEachZone([this](CZone* zone)
+    {
+        if (!zone->IsMonsterSpawned())
+            SpawnMonsters(zone);
+
+        for (CMonster* monster : zone->GetMonsters())
+            ThinkMonster(zone, monster);
+    });
+}
+
+// 몬스터 하나의 판단 — 대상 찾기와 송신은 여기가 하고, "무엇을 할까"는 MonsterAI 가 정한다.
+void CGameServer::ThinkMonster(CZone* zone, CMonster* monster)
+{
+    // 매 틱 돌지 않는다 — 몬스터마다 0.4초에 한 번. 스폰 때 프레임을 흩어 한 틱에 안 몰린다.
+    //   게임 루프가 단일 코어라 여기서 아끼는 것이 그대로 동접 여유가 된다.
+    if (_frameCount < monster->_nextThinkFrame)
+        return;
+
+    _gameMonitor._monster._thinkCalls.Inc();
+
+    CCharacter* target = FindAITarget(zone, monster);
+    const MonsterAI::Decision d = MonsterAI::Think(*monster, target, _frameCount);
+
+    // 상태·대상·다음 판단 시점은 그대로 적는다 (와이어에 안 나가는 서버 내부 값)
+    if (d.nextState != monster->_aiState)
+        _gameMonitor._monster._stateTransitions.Inc();
+    monster->_aiState        = d.nextState;
+    monster->_targetActorId  = d.targetActorId;
+    monster->_nextThinkFrame = d.nextThinkFrame;
+    monster->_stateEndFrame  = d.stateEndFrame;   // 배회 기간 — 다음 판단 시점과 따로 들고 간다
+
+    // ── 방향·이동 상태는 바뀐 것만 브로드캐스트한다 ──
+    //   안 바뀐 것까지 보내면 뱀 한 마리가 0.4초마다 주변에 패킷을 뿌린다.
+    const bool dirChanged  = (d.direction != monster->_direction);
+    const bool moveChanged = (d.moveState != monster->_moveState);
+
+    monster->_direction = d.direction;
+    monster->_moveState = d.moveState;
+
+    if (moveChanged || (dirChanged && d.moveState == MoveState::MOVING))
+    {
+        // 걷기 시작(또는 걷는 중에 방향을 틀었다) → MOVE_START 로 새 방향을 알린다.
+        //   멈췄다면 MOVE_STOP. 좌표는 이미 서버 것이 권위라 그대로 실린다.
+        if (d.moveState == MoveState::MOVING)
+            NotifyMoveStart(zone, monster);
+        else
+            NotifyMoveStop(zone, monster, false);   // 본인 포함 — 몬스터는 세션이 없어 어차피 안 간다
+    }
+
+    // ── 공격 ──
+    //   ★ USE_COMBAT 안에 둔다 — 공격 본체(PerformAttack)가 전투 토글 소유다.
+    //     전투를 끄면 몬스터는 배회·추적까지만 하고 물지 않는다. 그게 맞는 동작이고,
+    //     이 가드를 빼면 USE_COMBAT=0 + USE_MONSTER=1 조합이 컴파일되지 않는다.
+#if USE_COMBAT
+    if (d.attack)
+        PerformAttack(zone, monster);
+#endif
+}
+
+// AI 가 쫓을 대상 하나를 고른다 — 시야 안에서 가장 가까운 "산 플레이어".
+//   ★ 몬스터를 거른다. 안 거르면 뱀이 옆의 뱀을 쫓아가 문다.
+//     거르는 자리가 둘이다 — 여기(누구를 쫓을까)와 PerformAttack(실제로 누구를 무나).
+//     여기만 거르면 플레이어를 쫓아간 뱀이 정면에 선 다른 뱀을 문다(실측으로 확인).
+//     PerformAttack 쪽은 "때리는 쪽이 몬스터일 때만" 거르므로 플레이어는 뱀을 그대로 때린다.
+CCharacter* CGameServer::FindAITarget(CZone* zone, CMonster* monster)
+{
+    // 시야(6타일)가 걸치는 섹터만 참조로 훑는다 — GetAroundCharacters(3×3, 60×60타일)를
+    //   쓰지 않는 이유는 공격 본체와 같다(그건 브로드캐스트용이라 후보를 벡터에 전부 복사한다).
+    const CSectorManager& sectors = zone->GetSectorManager();
+    const int32_t sx0 = sectors.CalcSectorX(monster->_x - MonsterAI::SIGHT_RANGE);
+    const int32_t sx1 = sectors.CalcSectorX(monster->_x + MonsterAI::SIGHT_RANGE);
+    const int32_t sy0 = sectors.CalcSectorY(monster->_y - MonsterAI::SIGHT_RANGE);
+    const int32_t sy1 = sectors.CalcSectorY(monster->_y + MonsterAI::SIGHT_RANGE);
+
+    CCharacter* best = nullptr;
+    float bestDistSq = 0.0f;
+
+    for (int32_t sy = sy0; sy <= sy1; ++sy)
+    {
+        for (int32_t sx = sx0; sx <= sx1; ++sx)
+        {
+            for (CCharacter* candidate : sectors.GetSectorCharacters(sx, sy))
+            {
+                if (candidate->_kind != CharacterKind::PLAYER)
+                    continue;   // 몬스터끼리 싸우지 않는다 (자기 자신도 여기서 걸러진다)
+                if (candidate->_isDead)
+                    continue;   // 시체는 쫓지 않는다
+
+                float distSq = 0.0f;
+                if (!MonsterAI::IsInSight(*monster, *candidate, distSq))
+                    continue;
+
+                if (best == nullptr || distSq < bestDistSq)
+                {
+                    best = candidate;
+                    bestDistSq = distSq;
+                }
+            }
+        }
+    }
+
+    return best;
+}
+
+void CGameServer::SpawnMonsters(CZone* zone)
+{
+    zone->MarkMonsterSpawned();   // 실패하더라도 매 틱 재시도하지 않게 먼저 세운다
+
+    const int32_t spawnCount = (_monsterPerZone > 0) ? _monsterPerZone : MONSTERS_PER_ZONE;
+
+    for (int32_t i = 0; i < spawnCount; ++i)
+    {
+        CMonster* monster = new CMonster();
+        monster->_actorId = AllocPlayerId();   // 단일 증가 카운터라 플레이어와 충돌하지 않는다
+        if (_snakeSpeed > 0)
+            monster->_speed = _snakeSpeed;     // 게임용 속도 — 0 이면 SNAKE_SPEED(15) 그대로
+
+        // 위치·방향·정지 상태·섹터 등록·주민 목록 추가를 EnterZone 이 전부 한다.
+        //   스폰 좌표는 맵 전체 균등 랜덤(CZone::CalcSpawnPos).
+        if (!zone->EnterZone(monster))
+        {
+            delete monster;
+            continue;
+        }
+
+        monster->_spawnX = monster->_x;   // 귀환을 넣을 때 쓴다
+        monster->_spawnY = monster->_y;
+
+        // 첫 판단 시점을 흩는다 — 다 같은 프레임에 깨어나면 한 존의 몬스터가 한 틱에 몰려
+        //   그 틱만 튄다. 판단 주기 안에서 고르게 퍼뜨린다.
+        monster->_nextThinkFrame = _frameCount + (i % MonsterAI::THINK_INTERVAL_FRAMES);
+
+        zone->AddMonster(monster);
+
+        // 주변에 알린다 — 이미 그 자리를 보고 있던 플레이어에게 CREATE 가 간다.
+        //   보는 사람이 없으면 아무에게도 안 가고, 나중에 걸어온 사람은 섹터 진입 때 받는다.
+        BroadcastEnterZone(zone, monster, SpawnReason::NORMAL);
+    }
+}
+
+// 존이 사라지기 전에 몬스터를 회수한다.
+//   broadcast=false 는 서버 종료 경로다 — 게임 스레드가 이미 끝났고 받을 세션도 없다.
+void CGameServer::DespawnMonsters(CZone* zone, bool broadcast)
+{
+    for (CMonster* monster : zone->GetMonsters())
+    {
+        // 섹터 변경·부활 대기열에서 빼는 것이 핵심이다. 안 빼고 delete 하면
+        //   다음 틱이 해제된 주소를 밟는다(BroadcastLeaveZone 이 그 셋을 전부 훑는다).
+        if (broadcast)
+            BroadcastLeaveZone(zone, monster);
+
+        delete monster;
+    }
+
+    // 순회가 끝난 뒤 한 번에 비운다 — 도는 중에 LeaveZone 이 이 목록을 건드리지 않는 이유(Zone.h)
+    zone->ClearMonsters();
+}
+#endif // USE_MONSTER
 
 void CGameServer::SendZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex)
 {
@@ -1916,7 +2190,7 @@ void CGameServer::PushSectorChange(CCharacter* player, int32_t oldSectorX, int32
 // 같은 틱 이동자 쌍 보정
 //
 // [왜 필요한가]
-//   섹터 점유는 이동 즉시 갱신되지만(Zone.cpp:120-123, RecvMoveStart/Stop) 통보는 틱 끝에 몰아서
+//   섹터 점유는 이동 즉시 갱신되지만(CZone::Tick 의 섹터 변경 판정, RecvMoveStart/Stop) 통보는 틱 끝에 몰아서
 //   한다. 이때 ProcessSectorChange는 이탈/진입 섹터의 "틱 끝 시점" 주민을 읽으므로, 상대도 같은
 //   틱에 움직였다면 그 조회에 안 걸린다.
 //     · 서로 멀어짐 → 상호 DELETE 누락 → 클라에 유령(멈춘 캐릭터)이 남는다
@@ -1999,6 +2273,11 @@ void CGameServer::FixSameTickMoverPairs()
 void CGameServer::ProcessSectorChange(CZone* zone, CCharacter* player,
                                       int32_t oldSectorX, int32_t oldSectorY)
 {
+    // 인바운드(상대→나)는 내가 받을 수 있을 때만 뜻이 있다. 조종 세션이 없는 캐릭터(몬스터·NPC)는
+    //   SendPacket 의 세션 가드에서 어차피 버려지므로, 여기서 미리 걸러 수집·직렬화 자체를 없앤다.
+    //   아웃바운드(나→상대)는 받는 쪽이 남이라 종류와 무관하게 그대로 간다.
+    const bool canRecv = (player->_sessionId != -1);
+
     CSectorManager::SectorPos added[CSectorManager::MAX_AROUND_SECTORS];
     CSectorManager::SectorPos removed[CSectorManager::MAX_AROUND_SECTORS];
     int32_t addedCount = 0;
@@ -2026,27 +2305,31 @@ void CGameServer::ProcessSectorChange(CZone* zone, CCharacter* player,
         FanoutToSectors(zone, removed, removedCount, MakeDeletePlayer(player->_actorId), nullptr);
 #endif
 
+        // 아래는 전부 "나에게" 보내는 것이다 — 받을 세션이 없으면 통째로 건너뛴다
+        if (canRecv)
+        {
 #if USE_MEMBERSHIP_INBOUND_BUNDLE
-        // [Phase 2] 인바운드: 수신자가 mover 1명 → 상대들을 배치 패킷(상한 초과 시 청크 분할)으로 접음.
-        //           엔트리 순서 = OFF의 개별 송신 순서(섹터 순회순) 그대로.
-        _membershipInboundBuffer.clear();
-        for (int32_t i = 0; i < removedCount; ++i)
-        {
-            const auto& players = zone->GetSectorManager().GetSectorCharacters(removed[i].x, removed[i].y);
-            for (CCharacter* other : players)
-                _membershipInboundBuffer.push_back(other);
-        }
-        SendDeletePlayerBatch(player, _membershipInboundBuffer.data(),
-                              static_cast<int>(_membershipInboundBuffer.size()));
+            // [Phase 2] 인바운드: 수신자가 mover 1명 → 상대들을 배치 패킷(상한 초과 시 청크 분할)으로 접음.
+            //           엔트리 순서 = OFF의 개별 송신 순서(섹터 순회순) 그대로.
+            _membershipInboundBuffer.clear();
+            for (int32_t i = 0; i < removedCount; ++i)
+            {
+                const auto& players = zone->GetSectorManager().GetSectorCharacters(removed[i].x, removed[i].y);
+                for (CCharacter* other : players)
+                    _membershipInboundBuffer.push_back(other);
+            }
+            SendDeletePlayerBatch(player, _membershipInboundBuffer.data(),
+                                  static_cast<int>(_membershipInboundBuffer.size()));
 #else
-        // 인바운드: "상대를 삭제"는 상대마다 내용이 달라 개별 송신
-        for (int32_t i = 0; i < removedCount; ++i)
-        {
-            const auto& players = zone->GetSectorManager().GetSectorCharacters(removed[i].x, removed[i].y);
-            for (CCharacter* other : players)
-                SendDeletePlayer(player, other);   // 나에게 상대를 삭제
-        }
+            // 인바운드: "상대를 삭제"는 상대마다 내용이 달라 개별 송신
+            for (int32_t i = 0; i < removedCount; ++i)
+            {
+                const auto& players = zone->GetSectorManager().GetSectorCharacters(removed[i].x, removed[i].y);
+                for (CCharacter* other : players)
+                    SendDeletePlayer(player, other);   // 나에게 상대를 삭제
+            }
 #endif
+        }
     }
 
     // 진입 섹터 — 상호 CREATE
@@ -2073,34 +2356,38 @@ void CGameServer::ProcessSectorChange(CZone* zone, CCharacter* player,
 #endif
 #endif
 
+        // 아래는 전부 "나에게" 보내는 것이다 — 받을 세션이 없으면 통째로 건너뛴다
+        if (canRecv)
+        {
 #if USE_MEMBERSHIP_INBOUND_BUNDLE
-        // [Phase 2] 인바운드: 상대들을 배치 패킷(상한 초과 시 청크 분할)으로 — 자기 자신 제외는 OFF와 동일.
-        _membershipInboundBuffer.clear();
-        for (int32_t i = 0; i < addedCount; ++i)
-        {
-            const auto& players = zone->GetSectorManager().GetSectorCharacters(added[i].x, added[i].y);
-            for (CCharacter* other : players)
+            // [Phase 2] 인바운드: 상대들을 배치 패킷(상한 초과 시 청크 분할)으로 — 자기 자신 제외는 OFF와 동일.
+            _membershipInboundBuffer.clear();
+            for (int32_t i = 0; i < addedCount; ++i)
             {
-                if (other == player)
-                    continue;  // 멀티섹터 점프 시 자기 자신 방지
-                _membershipInboundBuffer.push_back(other);
+                const auto& players = zone->GetSectorManager().GetSectorCharacters(added[i].x, added[i].y);
+                for (CCharacter* other : players)
+                {
+                    if (other == player)
+                        continue;  // 멀티섹터 점프 시 자기 자신 방지
+                    _membershipInboundBuffer.push_back(other);
+                }
             }
-        }
-        SendCreatePlayerBatch(player, _membershipInboundBuffer.data(),
-                              static_cast<int>(_membershipInboundBuffer.size()));
+            SendCreatePlayerBatch(player, _membershipInboundBuffer.data(),
+                                  static_cast<int>(_membershipInboundBuffer.size()));
 #else
-        // 인바운드: "상대를 생성"은 상대마다 내용이 달라 개별 송신
-        for (int32_t i = 0; i < addedCount; ++i)
-        {
-            const auto& players = zone->GetSectorManager().GetSectorCharacters(added[i].x, added[i].y);
-            for (CCharacter* other : players)
+            // 인바운드: "상대를 생성"은 상대마다 내용이 달라 개별 송신
+            for (int32_t i = 0; i < addedCount; ++i)
             {
-                if (other == player)
-                    continue;  // 멀티섹터 점프 시 자기 자신 방지
-                SendCreateOtherPlayer(player, other);   // 나에게 상대를 생성
+                const auto& players = zone->GetSectorManager().GetSectorCharacters(added[i].x, added[i].y);
+                for (CCharacter* other : players)
+                {
+                    if (other == player)
+                        continue;  // 멀티섹터 점프 시 자기 자신 방지
+                    SendCreateOtherPlayer(player, other);   // 나에게 상대를 생성
+                }
             }
-        }
 #endif
+        }
     }
 #else
     // 이탈 섹터 — 상호 DELETE
@@ -2109,8 +2396,9 @@ void CGameServer::ProcessSectorChange(CZone* zone, CCharacter* player,
         const auto& players = zone->GetSectorManager().GetSectorCharacters(removed[i].x, removed[i].y);
         for (CCharacter* other : players)
         {
-            SendDeletePlayer(other, player);  // 상대에게 나를 삭제
-            SendDeletePlayer(player, other);   // 나에게 상대를 삭제
+            SendDeletePlayer(other, player);  // 상대에게 나를 삭제 — 아웃바운드
+            if (canRecv)
+                SendDeletePlayer(player, other);   // 나에게 상대를 삭제 — 인바운드
         }
     }
 
@@ -2123,8 +2411,9 @@ void CGameServer::ProcessSectorChange(CZone* zone, CCharacter* player,
             if (other == player)
                 continue;  // 멀티섹터 점프 시 자기 자신 방지
 
-            SendCreateOtherPlayer(other, player);  // 상대에게 나를 생성
-            SendCreateOtherPlayer(player, other);   // 나에게 상대를 생성
+            SendCreateOtherPlayer(other, player);  // 상대에게 나를 생성 — 아웃바운드
+            if (canRecv)
+                SendCreateOtherPlayer(player, other);   // 나에게 상대를 생성 — 인바운드
         }
     }
 #endif

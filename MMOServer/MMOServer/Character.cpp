@@ -1,7 +1,8 @@
 ﻿#include "Character.h"
 
 CCharacter::CCharacter()
-    : _displayChar('A')
+    : _kind(CharacterKind::PLAYER)
+    , _displayChar('A')
     , _colorIndex(0)
     , _sessionId(-1)
 {

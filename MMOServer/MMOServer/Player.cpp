@@ -3,6 +3,9 @@
 CPlayer::CPlayer()
     : _isAdmin(false)
 {
+    // 자기 종류를 잡는다 — CCharacter 기본값과 같지만 명시한다(파생이 정하는 게 규칙, Character.h [종류])
+    _kind = CharacterKind::PLAYER;
+
     // 25 ~ 50 (5 단위) 랜덤 속도 부여 — CActor는 0으로 두고 파생이 정한다
     static thread_local std::mt19937 rng(std::random_device{}());
     std::uniform_int_distribution<int> dist(5, 10);

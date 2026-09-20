@@ -63,6 +63,21 @@ public:
             _network->SetEventQueueAcceptLimit(limit);
     }
 
+    // 이동 속도(칸/초) — 0 이면 지금까지의 동작(사람 25~50 무작위·뱀 15). ServerConfig [Game] 참조.
+    //   Start() 전에 호출. 새로 만드는 캐릭터부터 적용된다.
+    void SetMoveSpeeds(int playerSpeed, int snakeSpeed)
+    {
+        _playerSpeed = playerSpeed;
+        _snakeSpeed  = snakeSpeed;
+    }
+
+    // 존당 몬스터 수 — 0 이면 MONSTERS_PER_ZONE(30). ServerConfig [Game] MonsterPerZone 참조.
+    //   Start() 전에 호출. 맵을 넓히면 같은 마리 수로는 화면이 비므로 넓이에 맞춰 같이 올린다.
+    void SetMonsterPerZone(int count)
+    {
+        _monsterPerZone = count;
+    }
+
     // 서버 시작/종료
     bool Start();
     void Stop();
@@ -95,6 +110,33 @@ private:
 
     // 부활 대기열에서 빼기 — 퇴장 경로가 반드시 부른다. 안 부르면 다음 틱이 해제된 포인터를 밟는다.
     void RemoveFromDeadActors(CCharacter* player);
+
+    // 공격 본체 — 플레이어(RecvAttack)와 몬스터(ThinkMonster)가 같이 쓴다.
+    //   읽는 필드가 전부 CCharacter 것이라 세션 핸들러에서 갈라낼 수 있었다.
+    void PerformAttack(CZone* zone, CCharacter* attacker);
+#endif
+
+#if USE_MONSTER
+    // ── 몬스터 (USE_MONSTER) ──
+    // 게임 루프 1-1) — 좌표 갱신(2단계) 바로 앞에 놓는다.
+    //   2단계인 지금은 "아직 몬스터를 안 깐 존"을 찾아 스폰하는 일만 한다.
+    //   3단계에서 AI 판단이 여기 붙는다. 순서가 뒤면 AI 가 정한 방향이 한 틱씩 밀린다.
+    void TickMonsters();
+
+    // 존 하나에 몬스터를 깐다 — 위치·방향·섹터 등록은 CZone::EnterZone 이 전부 해 준다.
+    void SpawnMonsters(CZone* zone);
+
+    // 존이 사라지기 전에 몬스터를 회수한다(빈 채널 정리 · 서버 종료).
+    //   BroadcastLeaveZone 이 섹터 변경·부활 대기열까지 훑어 주므로 죽은 주소가 안 남는다.
+    void DespawnMonsters(CZone* zone, bool broadcast);
+
+    // 몬스터 하나의 판단 — 대상 찾기·상태 적용·송신은 여기가, "무엇을 할까"는 MonsterAI 가.
+    void ThinkMonster(CZone* zone, CMonster* monster);
+
+    // 시야 안에서 가장 가까운 산 플레이어 (없으면 nullptr). 몬스터는 후보에서 거른다.
+    CCharacter* FindAITarget(CZone* zone, CMonster* monster);
+
+    static constexpr int32_t MONSTERS_PER_ZONE = 30;   // 섹터 36 개에 마리당 1 개꼴
 #endif
 
 #if USE_DB_WORKER
@@ -272,6 +314,11 @@ private:
     int _cleanupFrameCount = 0;
     int _syncFrameCount = 0;
     uint64_t _frameCount = 0;   // 단조 증가 프레임 번호 (이동 예산의 경과 시간 산출용)
+
+    // 이동 속도 덮어쓰기(칸/초) — 0 이면 각 생성자의 기본값을 그대로 쓴다(SetMoveSpeeds)
+    int _playerSpeed = 0;
+    int _snakeSpeed  = 0;
+    int _monsterPerZone = 0;   // 존당 몬스터 수 — 0 이면 MONSTERS_PER_ZONE(SetMonsterPerZone)
 
     // 섹터 변경 배치 처리용 대기열 (프레임 내 수집 → 틱 후 일괄 처리)
     std::vector<SectorChangeInfo> _pendingSectorChanges;

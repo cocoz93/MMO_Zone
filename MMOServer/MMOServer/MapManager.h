@@ -14,6 +14,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -52,7 +53,13 @@ public:
     CZone* FindChannel(int32_t channelIndex);
 
     // 빈 동적 채널 정리 (channelIndex > 0이고 플레이어 0명)
-    void CleanupEmptyChannels();
+    //   onBeforeErase: 존을 실제로 지우기 직전에 부른다(비어 있으면 안 부른다).
+    //     CGameServer 가 여기서 몬스터를 회수한다 — 안 치우고 지우면 몬스터가 섹터 변경·부활
+    //     대기열에 죽은 주소로 남는다. "후보를 돌려주고 밖에서 지운다"로 안 하는 이유는
+    //     그러면 "빈 채널인가/기본 채널인가" 판정이 호출자 쪽에도 한 벌 더 생기기 때문이다.
+    //   ★ 이 인자는 USE_MONSTER 밖에 둔다 — MapManager 가 빌드 토글을 알 이유가 없다.
+    //     끄면 CGameServer 가 빈 콜백을 넘긴다.
+    void CleanupEmptyChannels(const std::function<void(CZone*)>& onBeforeErase);
 
     // 전체 채널 Tick
     void TickAll(float deltaTime, std::vector<SectorChangeInfo>& outSectorChanges,
@@ -96,7 +103,8 @@ public:
     int32_t GetMaxPlayersPerChannel(int32_t mapId) const;
 
     // 빈 동적 채널 정리 (channelIndex > 0이고 플레이어 0명)
-    void CleanupEmptyChannels();
+    //   onBeforeErase 는 CMapInstance 쪽으로 그대로 넘어간다 — 뜻은 거기 주석 참조.
+    void CleanupEmptyChannels(const std::function<void(CZone*)>& onBeforeErase);
 
     // 존 조회 (zoneId로 직접 접근)
     CZone* GetZone(int32_t zoneId);
