@@ -263,6 +263,7 @@ private:
 
         // ── 게임 컨텐츠 지표 (저장소가 코어와 별개 — CGameMonitor) ──
         WriteCombatCounters(ss);
+        WriteEnterCounters(ss);
 
         // ── 워커 스레드 카운터 ──
         WriteWorkerCounters(ss);
@@ -427,7 +428,7 @@ private:
         ss << "mmo_handle_latency_seconds_count " << handleCount << "\n\n";
     }
 
-    // 전투 지표 — 유일하게 _gameMonitor(게임 저장소)를 읽는 자리다.
+    // 전투 지표 — _gameMonitor(게임 저장소)를 읽는 자리다. (아래 WriteEnterCounters 와 함께 둘뿐이다)
     //   USE_COMBAT=0 이어도 계수기는 남아 0으로 노출된다. 조건부로 감추지 않는 이유는
     //   USE_COMBAT 이 BuildConfig.h 에 있어 이 헤더가 그걸 안 읽으면 #if 가 조용히 0이 되고,
     //   그러면 "전투가 꺼진 것"과 "노출을 빠뜨린 것"이 화면에서 똑같아 보이기 때문이다.
@@ -475,6 +476,61 @@ private:
                      "Monster AI state changes (one state swallowing others shows up as a stall here)",
                      _gameMonitor._monster._stateTransitions);
 #endif
+    }
+
+    // 입장(캐릭터 불러오기) 지표 — 전부 게임 루프가 센 값이다(GameMonitor.h 참조).
+    //   mmo_db_* 와 이름을 섞지 않는다: 그쪽은 "저장"만 세는 기존 게이트라 뜻이 바뀌면 안 된다.
+    //   등식: requested = found + new + failed + orphaned (조용해진 뒤). 지연 분포의 count 도 오른쪽과 같아야 한다.
+    void WriteEnterCounters(std::ostringstream& ss)
+    {
+        using EC = CGameMonitor::EnterCounters;
+        const EC& e = _gameMonitor._enter;
+
+        WriteCounter(ss, "mmo_enter_requested_total",
+                     "Character loads enqueued to the DB worker",
+                     e._requested);
+        WriteCounter(ss, "mmo_enter_rejected_total",
+                     "Character loads refused at enqueue (load ceiling hit; 0 expected - nonzero means the DB is stalled)",
+                     e._rejected);
+        WriteCounter(ss, "mmo_enter_found_total",
+                     "Load results: row existed",
+                     e._found);
+        WriteCounter(ss, "mmo_enter_new_total",
+                     "Load results: no row (new character)",
+                     e._newCharacter);
+        WriteCounter(ss, "mmo_enter_failed_total",
+                     "Load results: query failed (never treated as 'no row')",
+                     e._failed);
+        WriteCounter(ss, "mmo_enter_orphaned_total",
+                     "Load results whose session was already gone",
+                     e._orphaned);
+
+        // 비누적 버킷 스냅샷 → 누적 변환 (mmo_tick_duration_seconds 와 같은 방식)
+        int64_t cum[EC::LATENCY_BUCKET_COUNT];
+        int64_t running = 0;
+        for (int i = 0; i < EC::LATENCY_BUCKET_COUNT; ++i)
+        {
+            running += e._latencyBuckets[i];
+            cum[i] = running;
+        }
+        const int64_t sumUs = e._latencySumUs;
+
+        ss << "# HELP mmo_enter_latency_seconds Character load latency: enqueue to result drained by game loop\n";
+        ss << "# TYPE mmo_enter_latency_seconds histogram\n";
+        for (int i = 0; i < EC::LATENCY_BUCKET_COUNT - 1; ++i)
+        {
+            ss << "mmo_enter_latency_seconds_bucket{le=\""
+               << EC::LATENCY_LE[i] << "\"} " << cum[i] << "\n";
+        }
+        ss << "mmo_enter_latency_seconds_bucket{le=\"+Inf\"} "
+           << cum[EC::LATENCY_BUCKET_COUNT - 1] << "\n";
+
+        ss << std::fixed << std::setprecision(6);
+        ss << "mmo_enter_latency_seconds_sum "
+           << (static_cast<double>(sumUs) / 1000000.0) << "\n";
+        ss << std::defaultfloat;
+
+        ss << "mmo_enter_latency_seconds_count " << cum[EC::LATENCY_BUCKET_COUNT - 1] << "\n\n";
     }
 
     void WriteWorkerCounters(std::ostringstream& ss)

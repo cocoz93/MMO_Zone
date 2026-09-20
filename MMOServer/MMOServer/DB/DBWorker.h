@@ -10,6 +10,11 @@
 // [설계] 송신 워커(CIOCPServer::SendWorker) 패턴을 그대로 복제:
 //        게임스레드 push(lock+notify) / 워커스레드 swap-out 배치 처리.
 //        잡은 값 타입 스냅샷이라 플레이어 삭제 후 실행돼도 안전(수명 무관).
+//
+// [왕복] 저장은 던지고 끝(편도)이지만 불러오기는 답이 돌아와야 한다(왕복).
+//        가는 길은 저장과 "같은 큐"를 쓴다 — 같은 계정은 같은 워커를 타고 큐는 앞에서부터
+//        실행되므로 "옛 접속의 마지막 저장 → 새 접속의 불러오기" 순서가 공짜로 지켜진다.
+//        오는 길은 회신 큐 하나다 — 워커가 넣고, 게임 루프가 틱마다 통째로 꺼낸다.
 // ==========================================================================
 
 #include "BuildConfig.h"
@@ -51,6 +56,65 @@ struct DBSaveJob
     int32_t mapId;
 };
 
+// 불러오기 잡 — 계정 번호로 캐릭터 행을 읽는다. 저장과 달리 결과가 회신 큐로 돌아온다.
+struct DBLoadJob
+{
+    int64_t accountId;
+    int64_t sessionId;   // 결과의 주인. 게임 스레드가 세션 번호 "전체"로 대조한다(자리 재사용 방어)
+    int64_t requestNs;   // 요청 시각(steady_clock, ns) — 요청→결과 수령 지연을 재는 기준
+};
+
+// 작업 종류 — 큐 원소에 붙는 표시. 워커와 게임 루프가 switch 로 가른다.
+//   ※ 종류를 늘리면 COUNT 가 바뀌고, 각 switch 옆의 static_assert 가 컴파일을 막아
+//     빠뜨린 갈래를 찾아가게 한다. (이 프로젝트 빌드 옵션엔 -Wswitch·C4062 가 꺼져 있어
+//     컴파일러 경고로는 못 잡는다 — 그래서 경고 대신 단언에 맡긴다.)
+enum class DBJobKind : uint8_t
+{
+    SAVE_POSITION,     // 위치 UPSERT — 편도. 손실 허용(넘치면 버리고 다음 주기가 덮는다)
+    LOAD_CHARACTER,    // 캐릭터 행 SELECT — 왕복. 버리지 않는다(버리면 그 사람이 못 들어온다)
+    COUNT
+};
+constexpr int DB_JOB_KIND_COUNT = static_cast<int>(DBJobKind::COUNT);
+
+// 큐 원소 = 종류 + 몸. 몸은 둘 다 값 타입(POD)이라 union 으로 겹친다 — 수명 무관, 복사는 memcpy.
+//   DBSaveJob 을 그대로 담으므로 게임 쪽 저장 호출부(MakeSaveJob·EnqueueBatch)는 바뀌지 않는다.
+struct DBJob
+{
+    DBJobKind kind;
+    union
+    {
+        DBSaveJob save;
+        DBLoadJob load;
+    };
+
+    static DBJob Save(const DBSaveJob& s) { DBJob j; j.kind = DBJobKind::SAVE_POSITION;  j.save = s; return j; }
+    static DBJob Load(const DBLoadJob& l) { DBJob j; j.kind = DBJobKind::LOAD_CHARACTER; j.load = l; return j; }
+};
+
+// 불러오기 결과 — 셋을 가른다.
+//   ★ NOT_FOUND 와 FAILED 를 절대 섞지 않는다. 실패를 "없음"으로 받으면 새 캐릭터로 스폰되고,
+//     다음 저장(UPSERT)이 진짜 행을 덮어쓴다. 0("없었다")과 "못 읽었다"는 다른 사실이다.
+enum class DBResultCode : uint8_t
+{
+    FOUND,        // 행이 있다 — x·y·mapId 유효
+    NOT_FOUND,    // 행이 없다 — 새 캐릭터(정상)
+    FAILED,       // 조회 실패(커넥션 없음·쿼리 오류) — 들여보내면 안 된다
+    COUNT
+};
+
+// 회신 큐 원소 — 워커가 채워 넣고 게임 루프가 꺼낸다. 값 타입이라 요청자가 사라져도 안전하다.
+struct DBResult
+{
+    DBJobKind    kind;
+    DBResultCode code;
+    int64_t      accountId;
+    int64_t      sessionId;   // 요청 때 실어 보낸 값 그대로
+    int64_t      requestNs;   // 요청 때 실어 보낸 값 그대로
+    float        x;           // ↓ FOUND 일 때만 유효
+    float        y;
+    int32_t      mapId;
+};
+
 // 워커 슬롯 — 스레드/커넥션/큐 1세트 (CIOCPServer::SendWorker 패턴).
 //   mutex/cv는 이동불가라 unique_ptr로 힙 고정 후 포인터만 벡터에 보관.
 struct DBWorkerSlot
@@ -58,13 +122,18 @@ struct DBWorkerSlot
     std::thread              thread;
     std::mutex               mutex;
     std::condition_variable  cv;
-    std::vector<DBSaveJob>   queue;           // 게임 push / 워커 swap-out
+    std::vector<DBJob>       queue;           // 게임 push / 워커 swap-out
+    size_t                   loadCount = 0;   // queue 안의 불러오기 수(mutex 보호) — 저장 상한과 따로 센다
     void*                    mysql = nullptr; // 실제 MYSQL* (헤더 오염 차단 위해 void*)
-    void*                    stmt  = nullptr; // MYSQL_STMT* — prepared 핸들 (커넥션 종속)
-    int64_t                  bAccountId = 0;  // ↓ stmt 파라미터 바인딩 버퍼 (execute 직전 잡 값 복사)
+    void*                    stmt[DB_JOB_KIND_COUNT] = {};   // MYSQL_STMT* — 종류별 prepared 핸들 (커넥션 종속)
+    int64_t                  bAccountId = 0;  // ↓ 저장 stmt 파라미터 바인딩 버퍼 (execute 직전 잡 값 복사)
     float                    bX = 0.0f;
     float                    bY = 0.0f;
     int32_t                  bMapId = 0;
+    int64_t                  bLoadAccountId = 0;   // ↓ 불러오기 stmt — 파라미터 1개
+    float                    bLoadX = 0.0f;        // ↓ 불러오기 stmt — 결과 3열 (fetch 가 여기에 채운다)
+    float                    bLoadY = 0.0f;
+    int32_t                  bLoadMapId = 0;
     int                      index = 0;
 };
 
@@ -90,16 +159,40 @@ public:
     void EnqueueBatch(const std::vector<DBSaveJob>& batch,
                       std::vector<size_t>* outDropped = nullptr);
 
+    // 게임루프 전용 — 불러오기 1건. 저장과 같은 슬롯 큐(accountId%K)에 넣어 계정별 순서를 지킨다.
+    //   저장 상한(queueMax)은 건너뛴다 — 저장은 버려도 다음 주기가 덮지만, 불러오기는 버리면 그 사람이
+    //   영영 못 들어온다. 대신 큐에 든 불러오기 수를 따로 세서 같은 상한을 넘으면 거절한다
+    //   (끝없이 쌓이는 큐를 만들지 않는다. 정상 상태에선 안 닿는 값 — 닿았다면 DB 가 멈춘 것).
+    //   반환 false = 거절됨. 결과가 오지 않으므로 호출부가 그 자리에서 처리해야 한다.
+    bool EnqueueLoad(const DBLoadJob& job);
+
+    // 게임루프 전용 — 쌓인 결과를 통째로 꺼낸다(락 1회). out 은 비어 있어야 한다.
+    //   벡터를 맞바꾸므로 양쪽 다 용량이 보존된다 → 틱마다 할당하지 않는다
+    //   (SwapOutNetworkEvents 와 같은 방식). 처리 중에 도착한 결과는 다음 틱으로 넘어간다.
+    void SwapOutResults(std::vector<DBResult>& out);
+
     // 모든 슬롯의 잔여 잡을 비우고 워커 종료 (멱등 — 소멸자에서도 호출).
+    //   드레인 중에 끝난 불러오기의 결과는 회신 큐에 쌓인 채 버려진다(게임 스레드가 이미 끝난 뒤다).
     void Shutdown(int drainTimeoutSec);
 
 private:
+    // ExecLoad 한 번의 결말 — 커넥션 유실만 따로 가른다(읽기는 멱등이라 재연결 후 한 번 더 해 볼 수 있다).
+    enum class LoadOutcome : uint8_t { FOUND, NOT_FOUND, QUERY_ERROR, CONNECTION_LOST };
+
     void WorkerThread(int idx);
     bool Connect(void*& outMysql);            // 슬롯 커넥션 1개 생성
-    bool PrepareStmt(DBWorkerSlot& slot);     // slot.mysql로 prepared stmt 준비 + 파라미터 바인딩
+    bool PrepareStmt(DBWorkerSlot& slot);     // slot.mysql로 종류별 prepared stmt 준비 + 바인딩 (하나라도 실패하면 전부 닫고 false)
+    void CloseStmts(DBWorkerSlot& slot);      // 종류별 stmt 전부 닫기 (커넥션은 건드리지 않음)
+    void DropConnection(DBWorkerSlot& slot);  // stmt 전부 + 커넥션 닫고 null 로 — 유실 확인 시
     bool ExecSave(DBWorkerSlot& slot, const DBSaveJob& job);   // 커넥션 유실 시 stmt/mysql을 null로(재연결은 WorkerThread)
-    // 백프레셔 포함 — 큐 여유만큼만 수용하고 실제 수용 개수를 반환 (나머지는 드롭).
-    size_t PushToSlot(DBWorkerSlot& slot, const DBSaveJob* jobs, size_t count);
+    // 결과는 항상 채운다(실패도 결과다). reconnectFailedThisBatch = 이 묶음에서 재연결이 실패한 적 있나(WorkerThread 지역값).
+    void ExecLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out, bool& reconnectFailedThisBatch);
+    LoadOutcome RunLoadOnce(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out);
+    // 불러오기용 재연결 — 이 묶음에서 이미 실패했으면 시도하지 않는다(죽은 DB 에 불러오기마다 접속 제한 시간을 쓰지 않게).
+    bool TryReconnectForLoad(DBWorkerSlot& slot, bool& reconnectFailedThisBatch);
+    void PushResult(const DBResult& result);  // 워커 스레드 → 회신 큐
+    // 백프레셔 포함 — 큐 여유만큼만 수용하고 실제 수용 개수를 반환 (나머지는 드롭). 저장 전용.
+    size_t PushToSlot(DBWorkerSlot& slot, const DBJob* jobs, size_t count);
 
     int SlotIndex(int64_t accountId) const    // accountId % K (음수 방어)
     {
@@ -117,10 +210,22 @@ private:
     bool              _libInited = false;   // mysql_library_init 성공 여부 (library_end 짝 맞춤)
 
     // EnqueueBatch 분류 버퍼 재사용 (게임스레드/종료 시 순차 접근 — 동시 호출 없음).
-    std::vector<std::vector<DBSaveJob>> _perWorker;
+    //   저장 잡을 큐 원소(DBJob)로 바꿔 담는 일도 여기서, 즉 "락 밖에서" 한다 → 락을 쥐는 시간은
+    //   범위 삽입 한 번 그대로다.
+    std::vector<std::vector<DBJob>>     _perWorker;
     // _perWorker와 나란한 원본 batch 인덱스 — 드롭분을 호출부에 되돌려주기 위함
     // (PushToSlot은 앞에서부터 수용하므로 드롭분은 각 슬롯 목록의 꼬리).
     std::vector<std::vector<size_t>>    _perWorkerIdx;
+
+    // 회신 큐 — 워커 K개가 넣고 게임 스레드 하나가 꺼낸다. 워커가 소유하므로 종료 때 안전하다:
+    //   게임 스레드가 먼저 끝나고 워커가 잔여를 비우는 동안에도 결과를 넣을 자리가 살아 있다.
+    //   alignas(64): 워커가 쓰는 이 묶음이, 게임 스레드가 읽는 위 멤버들과 캐시 줄을 나눠 쓰지 않게 띄운다.
+    struct alignas(64) ResultBox
+    {
+        std::mutex            mutex;
+        std::vector<DBResult> items;
+    };
+    ResultBox _results;
 };
 
 #endif // USE_DB_WORKER

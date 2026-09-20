@@ -73,4 +73,53 @@ public:
         Counter _thinkCalls;        // 판단을 실제로 돌린 횟수 (0 이면 AI 가 아예 안 도는 것)
     } _monster;
 #endif
+
+    // ══════════════════════════════════════════════════════════════
+    // 입장 — 캐릭터 불러오기 (USE_DB_WORKER)
+    //
+    // ★ 전부 게임 루프 스레드가 센다. DB 워커는 결과에 코드만 실어 보내고, 세는 일은
+    //   게임 루프가 결과를 꺼낼 때 한다 → 쓰는 스레드가 하나고, 코어(ServerCore)의
+    //   mmo_db_saved_total·mmo_db_failed_total 은 계속 "저장"만 센다(같은 이름이 두 가지를
+    //   세면 기존 게이트가 흐려진다).
+    //
+    // ★ 맞아야 하는 등식 — 조용해진 뒤 requested = found + newCharacter + failed + orphaned.
+    //   왼쪽은 요청을 넣는 자리, 오른쪽은 결과를 꺼내는 자리에서 따로 센다. 그래서 워커가
+    //   어느 갈래에서 결과를 빠뜨리면 등식이 영영 안 맞는다. 갈래마다 계수기를 둔 이유다 —
+    //   한 통에 담으면 제일 흔한 하나(찾음)가 나머지를 삼킨다.
+    //
+    // USE_DB_WORKER=0 이어도 계수기는 남아 0 으로 노출된다(전투 계수기와 같은 이유 —
+    //   "꺼진 것"과 "노출을 빠뜨린 것"이 화면에서 똑같아 보이지 않게).
+    // ══════════════════════════════════════════════════════════════
+    struct alignas(64) EnterCounters
+    {
+        Counter _requested;      // 조회를 워커 큐에 넣은 수
+        Counter _rejected;       // 불러오기 상한에 걸려 큐에 못 넣은 수 (requested 에 안 들어간다)
+
+        Counter _found;          // 결과: 행이 있었다
+        Counter _newCharacter;   // 결과: 행이 없었다 (새 캐릭터 — 정상)
+        Counter _failed;         // 결과: 조회 실패 ("없음"과 섞이면 안 되는 갈래)
+        Counter _orphaned;       // 결과가 왔는데 주인(세션)이 이미 나가고 없다 — 코드는 안 본다
+
+        // 요청 → 결과 수령 지연. 평균은 튄 값을 못 보므로 구간별 개수로 담는다(비누적, 노출 때 누적 변환).
+        //   개수 합 = 꺼낸 결과 전부 = found + newCharacter + failed + orphaned (등식의 둘째 대조군).
+        //   첫 경계가 40ms 가 아니라 50ms 인 이유: 결과는 "다음 틱"에 꺼내므로 정상값이 틱 주기(40ms)
+        //   바로 위에 몰린다(실측 평균 40.5ms). 경계를 40 에 두면 같은 정상값이 두 칸으로 갈려 읽을 수 없다.
+        //   첫 칸 = "다음 틱에 돌아왔다"로 읽는다.
+        static constexpr int     LATENCY_BUCKET_COUNT = 5;   // 마지막 칸 = +Inf
+        static constexpr int64_t LATENCY_BOUNDS_US[LATENCY_BUCKET_COUNT - 1] = { 50000, 100000, 500000, 2000000 };
+        static constexpr const char* LATENCY_LE[LATENCY_BUCKET_COUNT - 1]    = { "0.05", "0.1", "0.5", "2" };
+        Counter _latencyBuckets[LATENCY_BUCKET_COUNT];
+        Counter _latencySumUs;
+
+        void RecordLatencyUs(int64_t us)
+        {
+            if (us < 0)
+                us = 0;
+            int i = 0;
+            while (i < LATENCY_BUCKET_COUNT - 1 && us > LATENCY_BOUNDS_US[i])
+                ++i;
+            _latencyBuckets[i].Inc();
+            _latencySumUs.Add(us);
+        }
+    } _enter;
 };

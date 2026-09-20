@@ -555,6 +555,101 @@ void CGameServer::SaveAllPlayers()
     }
     _dbWorker->EnqueueBatch(batch);   // 배치 1회 핸드오프
 }
+
+// ==========================================================================
+// DB 왕복 — 캐릭터 불러오기
+//   가는 길: RequestCharacterLoad → 워커 큐(저장과 같은 큐 — 계정별 순서 보장)
+//   오는 길: 워커 → 회신 큐 → ProcessDbResults(틱마다 통째로 꺼냄) → OnCharacterLoaded
+// ==========================================================================
+
+static int64_t SteadyNowNs()
+{
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+void CGameServer::RequestCharacterLoad(int64_t sessionId, int64_t accountId)
+{
+    DBLoadJob job;
+    job.accountId = accountId;
+    job.sessionId = sessionId;       // 결과가 돌아왔을 때 주인을 찾는 열쇠 — 세션 번호 "전체"
+    job.requestNs = SteadyNowNs();
+
+    // 거절되면 결과가 오지 않는다 → requested 에 넣지 않고 따로 센다(등식이 안 흐려지게).
+    if (_dbWorker->EnqueueLoad(job))
+        _gameMonitor._enter._requested.Inc();
+    else
+        _gameMonitor._enter._rejected.Inc();
+}
+
+void CGameServer::ProcessDbResults()
+{
+    if (!_dbWorker)
+        return;
+
+    // _dbResults 는 직전 틱에 모두 소비되어 비어 있다 — 빈 벡터를 워커 쪽과 맞바꾼다(락 1회).
+    _dbWorker->SwapOutResults(_dbResults);
+    if (_dbResults.empty())
+        return;
+
+    const int64_t nowNs = SteadyNowNs();
+
+    static_assert(DB_JOB_KIND_COUNT == 2, "DBJobKind 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
+    for (const DBResult& result : _dbResults)
+    {
+        switch (result.kind)
+        {
+        case DBJobKind::LOAD_CHARACTER:
+            OnCharacterLoaded(result, nowNs);
+            break;
+
+        case DBJobKind::SAVE_POSITION:   // 저장은 편도 — 결과를 돌려주지 않는다. 여기 오면 워커 쪽 결함이다
+        case DBJobKind::COUNT:
+            SLOG_ERROR("[DB] unexpected result kind {}", static_cast<int>(result.kind));
+            break;
+        }
+    }
+    _dbResults.clear();
+}
+
+void CGameServer::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
+{
+    CGameMonitor::EnterCounters& enter = _gameMonitor._enter;
+
+    // 지연은 주인이 있든 없든 잰다 — "꺼낸 결과 전부"가 분모라야 아래 갈래 합과 맞대 볼 수 있다.
+    enter.RecordLatencyUs((nowNs - result.requestNs) / 1000);
+
+    // 주인 확인 — 세션 번호 전체가 같아야 한다(자리 재사용 방어는 FindPlayer 안에 있다).
+    //   불러오는 사이에 나갔으면 결과는 버린다. 코드(찾음·없음·실패)는 보지 않고 이 갈래 하나로 센다.
+    CPlayer* player = FindPlayer(result.sessionId);
+    if (player == nullptr)
+    {
+        enter._orphaned.Inc();
+        return;
+    }
+
+    // [1단계] 세기만 한다 — 스폰은 접속 때 이미 했다. 2단계에서 이 자리에 스폰이 들어온다.
+    static_assert(static_cast<int>(DBResultCode::COUNT) == 3, "DBResultCode 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
+    switch (result.code)
+    {
+    case DBResultCode::FOUND:
+        enter._found.Inc();
+        break;
+
+    case DBResultCode::NOT_FOUND:
+        enter._newCharacter.Inc();
+        break;
+
+    case DBResultCode::FAILED:
+        // "없음"과 절대 섞지 않는다 — 2단계에서 이 갈래는 세션을 끊는다(들여보내면 다음 저장이 진짜 행을 덮는다).
+        enter._failed.Inc();
+        SLOG_ERROR("[DB] character load failed (account={}, session={})", result.accountId, result.sessionId);
+        break;
+
+    case DBResultCode::COUNT:
+        break;   // 값이 아니라 개수 표시
+    }
+}
 #else
 bool CGameServer::InitDB(const DBConfig&, int, int, int) { return true; }   // 토글 OFF: no-op
 #endif
@@ -590,6 +685,15 @@ void CGameServer::GameLoopThread()
         _monitor._gameLoop._eventQueueSize.Store(static_cast<int64_t>(_network->GetEventQueueSize()));
         auto phaseT1 = Clock::now();
         ProcessNetworkEvents();
+
+#if USE_DB_WORKER
+        // 1-0) DB 회신 소비 — 워커가 돌려준 결과(캐릭터 불러오기)를 통째로 꺼낸다 (락 1회).
+        //   네트워크 이벤트 "뒤"에 두는 이유: 같은 틱에 그 세션의 끊김과 결과가 같이 오면 끊김을 먼저
+        //   처리해 결과가 주인 없는 것으로 버려지게 한다. 거꾸로면 들여보냈다가 곧바로 지우게 된다.
+        //   네트워크 구간(phaseT1~T2) "안"에 두는 이유: 접속 처리(스폰) 비용이 원래 이 구간에 있었다.
+        //   결과를 받아 스폰하게 바뀐 뒤에도 _phaseNetworkUs 가 같은 것을 재도록 자리를 맞춘다.
+        ProcessDbResults();
+#endif
         auto phaseT2 = Clock::now();
 
 #if USE_MONSTER
@@ -846,6 +950,12 @@ void CGameServer::OnConnected(int64_t sessionId)
     // 1단계 임시: playerId를 계정 식별자로 사용 (2단계는 접속 핸드셰이크로 수신)
     player->_accountId = player->_actorId;
     player->_dbDirty   = true;   // 접속 위치를 첫 주기에 저장(신규 행 INSERT 유도)
+
+    // [DB 왕복 1단계] 스폰은 지금처럼 곧바로 하고, 조회를 "같이" 던진다. 결과는 ProcessDbResults 가
+    //   받아서 세기만 한다 → 클라에 보이는 동작은 그대로인 채 묻고 답하는 길 전체가 실제 부하로 돈다.
+    //   2단계에서 아래 스폰이 결과 받는 자리로 옮겨 간다(이 호출은 그대로 남는다).
+    if (_dbWorker)
+        RequestCharacterLoad(sessionId, player->_accountId);
 #endif
 
     // 1) 존 메타 정보 전송

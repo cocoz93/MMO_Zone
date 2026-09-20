@@ -146,6 +146,11 @@ private:
     void EnqueuePlayerSave(CPlayer* player);   // 단건: 스냅샷 enqueue + dirty clear (로그아웃)
     void TickPeriodicSave();                   // 주기: 저장 대상 배치를 1회 핸드오프
     void SaveAllPlayers();                     // 종료: 전원 최종 저장(안전망, dirty 무관)
+
+    // DB 왕복 — 캐릭터 불러오기 (요청은 워커 큐로, 결과는 회신 큐로 돌아와 다음 틱에 꺼낸다)
+    void RequestCharacterLoad(int64_t sessionId, int64_t accountId);   // 조회 1건 투입 + 계수
+    void ProcessDbResults();                                           // 틱마다: 회신 큐를 통째로 꺼내 종류별로 넘긴다
+    void OnCharacterLoaded(const DBResult& result, int64_t nowNs);     // 불러오기 결과 1건 처리
 #endif
 
     // 섹터 변경 시 시야 진입/이탈 브로드캐스트
@@ -396,5 +401,9 @@ private:
     std::unique_ptr<CDBWorker> _dbWorker;
     int _dbSavePeriodFrames = 250;   // SavePeriodSec × 25fps (InitDB에서 설정)
     int _dbSaveFrameCounter  = 0;
+
+    // 회신 큐에서 통째로 꺼내 받는 로컬 버퍼 (멤버 재사용 — 워커 쪽 벡터와 맞바꾸므로 양쪽 용량이 보존된다.
+    //   _localEvents 와 같은 방식). 접근은 게임 스레드 단독.
+    std::vector<DBResult> _dbResults;
 #endif
 };
