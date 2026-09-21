@@ -20,7 +20,7 @@
 // [종류] _kind 는 _sessionId 와 뜻이 다르다 — 헷갈리면 아래 물음으로 고른다.
 //          "지금 이 캐릭터에게 패킷을 보낼 수 있나"  → _sessionId   (송신 가드)
 //          "이 캐릭터가 무엇이냐"                    → _kind        (종류 판정)
-//        둘이 실제로 갈리는 자리가 있다. 접속 경로(CGameServer::OnConnected)가 EnterZone →
+//        둘이 실제로 갈리는 자리가 있다. 스폰 경로(CGameServer::SpawnPlayer)가 EnterZone →
 //        _sessionId 부여 순이라, EnterZone 시점엔 플레이어도 _sessionId == -1 이다.
 //        그래서 존의 정원 카운터(_playerCount)는 _sessionId 로 가르면 플레이어도 안 세어진다.
 //        파생 생성자가 자기 것을 잡는다 — 여기 기본값은 PLAYER 이고 CMonster 가 MONSTER 로 덮는다.

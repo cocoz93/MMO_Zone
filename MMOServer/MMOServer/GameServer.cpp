@@ -381,6 +381,9 @@ bool CGameServer::Init(ServerMode mode, int port, int maxClients,
         // 전체 서버 범위 버퍼도 maxPerChannel 기준 — 초과 시 자연 증가 후 capacity 유지
         int32_t maxPerChannel = maps[0].maxPlayersPerChannel;
         _sessionSlots.assign(maxClients, nullptr);   // 인덱스 직접 접근용 슬롯 (sessionId 인덱스로 접근)
+#if USE_DB_WORKER
+        _pendingEnter.assign(maxClients, PendingEnter{});   // 대기표 — 위 슬롯과 같은 크기·같은 색인 (불변식 공유)
+#endif
         _broadcastBuffer.reserve(maxPerChannel);       // 주변 9섹터 단위
         _eventAroundBuffer.reserve(maxPerChannel);     // 주변 9섹터 단위
         _pendingSectorChanges.reserve(maxPerChannel);  // 전체 서버 프레임 이벤트
@@ -568,7 +571,7 @@ static int64_t SteadyNowNs()
         std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-void CGameServer::RequestCharacterLoad(int64_t sessionId, int64_t accountId)
+bool CGameServer::RequestCharacterLoad(int64_t sessionId, int64_t accountId)
 {
     DBLoadJob job;
     job.accountId = accountId;
@@ -576,10 +579,53 @@ void CGameServer::RequestCharacterLoad(int64_t sessionId, int64_t accountId)
     job.requestNs = SteadyNowNs();
 
     // 거절되면 결과가 오지 않는다 → requested 에 넣지 않고 따로 센다(등식이 안 흐려지게).
+    //   호출부는 false 를 받으면 그 세션을 끊어야 한다 — 매달아 두면 영영 안 들어온다.
     if (_dbWorker->EnqueueLoad(job))
+    {
         _gameMonitor._enter._requested.Inc();
-    else
-        _gameMonitor._enter._rejected.Inc();
+        return true;
+    }
+    _gameMonitor._enter._rejected.Inc();
+    return false;
+}
+
+void CGameServer::SetPendingEnter(int64_t sessionId, int64_t accountId, int32_t actorId)
+{
+    const uint16_t idx = CSession::ExtractIndex(sessionId);
+    assert(idx < _pendingEnter.size());   // FindPlayer 와 같은 불변식 — 두 배열은 Init 에서 같은 크기로 잡힌다
+    PendingEnter& slot = _pendingEnter[idx];
+
+    if (slot.sessionId != -1)
+    {
+        // 있을 수 없다 — 같은 자리의 끊김 이벤트는 다음 접속보다 먼저 온다(_sessionSlots 도 같은 순서에 기댄다).
+        //   그래도 덮어쓰면 스스로 아문다: 옛 조회의 결과는 세션 번호가 안 맞아 orphaned 로 세어진다.
+        SLOG_ERROR("[DB] pending enter overwritten (slot={}, old session={}, new session={})",
+                   idx, slot.sessionId, sessionId);
+        --_pendingEnterCount;
+    }
+
+    slot.sessionId = sessionId;
+    slot.accountId = accountId;
+    slot.actorId   = actorId;
+    ++_pendingEnterCount;
+    _gameMonitor._enter._pending.Store(_pendingEnterCount);
+}
+
+bool CGameServer::TakePendingEnter(int64_t sessionId, PendingEnter& out)
+{
+    const uint16_t idx = CSession::ExtractIndex(sessionId);
+    assert(idx < _pendingEnter.size());
+    PendingEnter& slot = _pendingEnter[idx];
+
+    // 빈 자리(-1)이거나 같은 자리에 들어온 다른 세션 — 세션 번호 "전체"가 같아야 주인이다.
+    if (slot.sessionId != sessionId)
+        return false;
+
+    out  = slot;
+    slot = PendingEnter{};
+    --_pendingEnterCount;
+    _gameMonitor._enter._pending.Store(_pendingEnterCount);
+    return true;
 }
 
 void CGameServer::ProcessDbResults()
@@ -619,35 +665,73 @@ void CGameServer::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
     // 지연은 주인이 있든 없든 잰다 — "꺼낸 결과 전부"가 분모라야 아래 갈래 합과 맞대 볼 수 있다.
     enter.RecordLatencyUs((nowNs - result.requestNs) / 1000);
 
-    // 주인 확인 — 세션 번호 전체가 같아야 한다(자리 재사용 방어는 FindPlayer 안에 있다).
-    //   불러오는 사이에 나갔으면 결과는 버린다. 코드(찾음·없음·실패)는 보지 않고 이 갈래 하나로 센다.
-    CPlayer* player = FindPlayer(result.sessionId);
-    if (player == nullptr)
+    // 주인 확인 — 대기표의 세션 번호 "전체"가 같아야 한다(같은 자리에 다른 사람이 들어왔으면 안 맞는다).
+    //   불러오는 사이에 나갔으면 OnDisconnected 가 대기표를 이미 비웠다 → 결과는 버린다.
+    //   코드(찾음·없음·실패)는 보지 않고 이 갈래 하나로 센다.
+    PendingEnter pending;
+    if (!TakePendingEnter(result.sessionId, pending))
     {
         enter._orphaned.Inc();
         return;
     }
 
-    // [1단계] 세기만 한다 — 스폰은 접속 때 이미 했다. 2단계에서 이 자리에 스폰이 들어온다.
+    // [2단계] 결과를 "어느 존에 · 어느 자리에 · 저장할까"로 바꾼 뒤 스폰한다.
+    //   존 조회(FindOrCreateChannel)는 찾음·없음 갈래에서만 한다 — 채널을 만들 수도 있는 함수라
+    //   들여보내지 않을 갈래(주인 없음·실패)에서는 부르면 안 된다.
+    CZone* zone = nullptr;
+    EnterPlacement place;   // 기본값 = 무작위 자리 · 다음 주기에 저장
+
     static_assert(static_cast<int>(DBResultCode::COUNT) == 3, "DBResultCode 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
     switch (result.code)
     {
     case DBResultCode::FOUND:
         enter._found.Inc();
+
+        // 존 먼저, 좌표는 그 존의 크기로 본다. 저장된 맵이 없으면 zone 이 nullptr 로 남아 아래에서 기본 맵을 구한다.
+        zone = _mapManager.FindOrCreateChannel(result.mapId);
+        if (zone != nullptr && IsValidSpawnPos(result.x, result.y, zone->GetMapWidth(), zone->GetMapHeight()))
+        {
+            place.hasPos  = true;
+            place.x       = result.x;
+            place.y       = result.y;
+            place.dbDirty = false;   // DB 와 같은 값으로 들어간다 — 움직이기 전엔 다시 쓸 것이 없다
+        }
+        else
+        {
+            // 맵이 없어졌거나 좌표가 맵 밖·숫자 아님 → 무작위 자리. 그 자리는 DB 와 다르므로 dbDirty 는 기본값(true) 그대로.
+            enter._fallback.Inc();
+            SLOG_WARN("[DB] saved position unusable -> random spawn (account={}, map={}, x={}, y={})",
+                      result.accountId, result.mapId, result.x, result.y);
+        }
         break;
 
     case DBResultCode::NOT_FOUND:
-        enter._newCharacter.Inc();
+        enter._newCharacter.Inc();   // 새 캐릭터 — 기본 맵 무작위 자리. 행은 첫 저장(UPSERT)이 만든다
         break;
 
     case DBResultCode::FAILED:
-        // "없음"과 절대 섞지 않는다 — 2단계에서 이 갈래는 세션을 끊는다(들여보내면 다음 저장이 진짜 행을 덮는다).
+        // "없음"과 절대 섞지 않는다 — 들여보내면 새 캐릭터로 스폰되고 다음 저장이 진짜 행을 덮는다.
+        //   재시도는 하지 않는다: 워커가 이미 재연결하고 한 번 더 해 봤다. 클라가 다시 접속하는 것이 재시도다.
         enter._failed.Inc();
-        SLOG_ERROR("[DB] character load failed (account={}, session={})", result.accountId, result.sessionId);
-        break;
+        SLOG_ERROR("[DB] character load failed -> disconnect (account={}, session={})", result.accountId, result.sessionId);
+        _network->RequestDisconnectSession(result.sessionId);
+        return;
 
     case DBResultCode::COUNT:
-        break;   // 값이 아니라 개수 표시
+        // 값이 아니라 개수 표시 — 올 수 없다. 대기표는 이미 비웠으니 세션을 매달아 두지 않고 끊는다.
+        SLOG_ERROR("[DB] unexpected load result code (session={})", result.sessionId);
+        _network->RequestDisconnectSession(result.sessionId);
+        return;
+    }
+
+    if (zone == nullptr)
+        zone = _mapManager.FindOrCreateChannel(_defaultMapId);
+
+    if (SpawnPlayer(result.sessionId, pending.actorId, pending.accountId, zone, place) == nullptr)
+    {
+        // 갈래 계수기는 위에서 이미 올랐다. 여기 오는 길은 채널 생성 실패뿐이라 계수기를 따로 두지 않는다(로그만).
+        SLOG_ERROR("[DB] spawn failed after load -> disconnect (account={}, session={})", result.accountId, result.sessionId);
+        _network->RequestDisconnectSession(result.sessionId);
     }
 }
 #else
@@ -776,8 +860,10 @@ void CGameServer::GameLoopThread()
         if (_syncFrameCount >= SYNC_INTERVAL_FRAMES)
         {
             _syncFrameCount = 0;
+            int64_t inGame = 0;   // 게임 중인 플레이어 수 — 이미 도는 이 순회에 얹는다(존마다 덧셈 한 번)
             _mapManager.ForEachZone([&](CZone* zone)
             {
+                inGame += zone->GetPlayerCount();
                 for (CCharacter* player : zone->GetCharacters())
                 {
                     if (player->_moveState != MoveState::MOVING)
@@ -795,6 +881,7 @@ void CGameServer::GameLoopThread()
                     NotifyMoveSync(zone, player);  // 본인 포함 (이동 중 클라-서버 좌표 드리프트 보정)
                 }
             });
+            _gameMonitor._enter._inGame.Store(inGame);   // 게이지 — 동접 = 게임 중 + 불러오는 중 (GameMonitor.h)
         }
 
 #if USE_BROADCAST_BUNDLE
@@ -907,35 +994,38 @@ void CGameServer::ProcessNetworkEvents()
     }
 }
 
-void CGameServer::OnConnected(int64_t sessionId)
+bool CGameServer::IsValidSpawnPos(float x, float y, int32_t mapWidth, int32_t mapHeight)
 {
-    // 이미 등록된 세션이면 무시 (중복 접속 방어)
-    if (FindPlayer(sessionId) != nullptr)
-    {
-        _network->RequestDisconnectSession(sessionId);
-        return;
-    }
+    // 이동 쪽 클램프(CZone::Tick)와 같은 범위 — 0 <= 좌표 < 맵 크기.
+    //   식이 다르면 "입장은 되는데 첫 틱에 클램프되는" 자리가 생긴다.
+    //   NaN·무한대를 먼저 거른다 — NaN 은 비교가 전부 거짓이라 범위 검사만으로는 뜻이 안 읽힌다.
+    return std::isfinite(x) && std::isfinite(y)
+        && x >= 0.0f && x < static_cast<float>(mapWidth)
+        && y >= 0.0f && y < static_cast<float>(mapHeight);
+}
 
-    // 기본 맵의 여유 채널에 입장
-    CZone* zone = _mapManager.FindOrCreateChannel(_defaultMapId);
+CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t accountId,
+                                  CZone* zone, const EnterPlacement& place)
+{
     if (zone == nullptr)
-    {
-        _network->RequestDisconnectSession(sessionId);
-        return;
-    }
+        return nullptr;
 
     // 플레이어 생성 + ID/표시 속성 부여 (CGameServer가 생명주기 소유)
+    //   번호는 호출부가 준다 — 접속 때 이미 뽑았다(조회 열쇠로 먼저 필요했다).
     CPlayer* player = new CPlayer();
-    player->_actorId = AllocPlayerId();
+    player->_actorId = actorId;
     player->_displayChar = CalcDisplayChar(player->_actorId);
     player->_colorIndex = CalcColorIndex(player->_actorId);
     if (_playerSpeed > 0)
         player->_speed = _playerSpeed;   // 게임용 속도 — 0 이면 생성자의 25~50 무작위(부하 시험 기준) 그대로
-    if (!zone->EnterZone(player))
+
+    // 저장된 자리가 있으면 그 자리에, 없으면 무작위 자리에
+    const bool entered = place.hasPos ? zone->EnterZoneAt(player, place.x, place.y)
+                                      : zone->EnterZone(player);
+    if (!entered)
     {
         delete player;
-        _network->RequestDisconnectSession(sessionId);
-        return;
+        return nullptr;
     }
 
     // 경계 매핑 등록
@@ -948,14 +1038,11 @@ void CGameServer::OnConnected(int64_t sessionId)
 
 #if USE_DB_WORKER
     // 1단계 임시: playerId를 계정 식별자로 사용 (2단계는 접속 핸드셰이크로 수신)
-    player->_accountId = player->_actorId;
-    player->_dbDirty   = true;   // 접속 위치를 첫 주기에 저장(신규 행 INSERT 유도)
-
-    // [DB 왕복 1단계] 스폰은 지금처럼 곧바로 하고, 조회를 "같이" 던진다. 결과는 ProcessDbResults 가
-    //   받아서 세기만 한다 → 클라에 보이는 동작은 그대로인 채 묻고 답하는 길 전체가 실제 부하로 돈다.
-    //   2단계에서 아래 스폰이 결과 받는 자리로 옮겨 간다(이 호출은 그대로 남는다).
-    if (_dbWorker)
-        RequestCharacterLoad(sessionId, player->_accountId);
+    player->_accountId = accountId;
+    // 새 캐릭터·무작위 자리면 true(첫 주기에 저장 → 신규 행 INSERT 유도), DB 에서 불러온 자리 그대로면 false
+    player->_dbDirty   = place.dbDirty;
+#else
+    (void)accountId;
 #endif
 
     // 1) 존 메타 정보 전송
@@ -966,13 +1053,60 @@ void CGameServer::OnConnected(int64_t sessionId)
 
     // 3) 주변 상호 CREATE 브로드캐스트
     BroadcastEnterZone(zone, player, SpawnReason::CONNECT);
+
+    return player;
+}
+
+void CGameServer::OnConnected(int64_t sessionId)
+{
+    // 이미 등록된 세션이면 무시 (중복 접속 방어)
+    if (FindPlayer(sessionId) != nullptr)
+    {
+        _network->RequestDisconnectSession(sessionId);
+        return;
+    }
+
+    // 번호는 접속 때 뽑는다 — 지금은 계정 번호 = 캐릭터 번호(임시)라 조회 열쇠로 먼저 필요하다.
+    //   못 들어간 접속은 번호 하나를 버린다(단조 증가 카운터라 무해 — 몬스터도 같은 카운터를 쓴다).
+    const int32_t actorId = AllocPlayerId();
+
+#if USE_DB_WORKER
+    if (_dbWorker)
+    {
+        // [DB 왕복 2단계] 접속 → 불러오는 중 → 게임 중. 여기서는 대기표만 남기고 조회를 던진다.
+        //   플레이어도 존 입장도 패킷도 없다 — 스폰은 결과가 와야 한다(OnCharacterLoaded).
+        //   그 사이에 온 패킷은 OnReceived 가 조용히 버린다(FindPlayer == nullptr).
+        const int64_t accountId = actorId;
+        if (!RequestCharacterLoad(sessionId, accountId))
+        {
+            // 거절 = 결과가 안 온다. 매달아 두면 영영 안 들어오므로 끊는다(rejected 는 위에서 셌다).
+            _network->RequestDisconnectSession(sessionId);
+            return;
+        }
+        SetPendingEnter(sessionId, accountId, actorId);
+        return;
+    }
+#endif
+
+    // DB 워커가 없으면(토글 OFF·미기동) 예전 그대로 곧바로 스폰 — 기본 맵의 여유 채널, 무작위 자리.
+    CZone* zone = _mapManager.FindOrCreateChannel(_defaultMapId);
+    if (SpawnPlayer(sessionId, actorId, actorId, zone, EnterPlacement{}) == nullptr)
+        _network->RequestDisconnectSession(sessionId);
 }
 
 void CGameServer::OnDisconnected(int64_t sessionId)
 {
     CPlayer* player = FindPlayer(sessionId);
     if (player == nullptr)
+    {
+#if USE_DB_WORKER
+        // 불러오는 중에 나간 세션 — 플레이어가 아직 없으니 저장도 방송도 없다. 대기표만 비운다.
+        //   뒤늦게 오는 결과는 대기표에서 주인을 못 찾아 orphaned 로 세어진다.
+        PendingEnter gone;
+        TakePendingEnter(sessionId, gone);
+#endif
         return;
+    }
     CZone* zone = _mapManager.GetZone(player->_zoneId);
     if (zone != nullptr)
     {

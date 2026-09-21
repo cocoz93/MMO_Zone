@@ -504,6 +504,19 @@ private:
         WriteCounter(ss, "mmo_enter_orphaned_total",
                      "Load results whose session was already gone",
                      e._orphaned);
+        WriteCounter(ss, "mmo_enter_fallback_total",
+                     "Found rows whose map or position was unusable - spawned at a random spot (subset of found)",
+                     e._fallback);
+
+        // 게이지 — 조용해지면 0 이어야 한다(안 내려가면 대기표가 샌 것)
+        ss << "# HELP mmo_enter_pending Sessions currently waiting for their character load\n";
+        ss << "# TYPE mmo_enter_pending gauge\n";
+        ss << "mmo_enter_pending " << e._pending << "\n\n";
+
+        // 게이지 — 조용해지면 mmo_session_count = mmo_players_ingame + mmo_enter_pending
+        ss << "# HELP mmo_players_ingame Players currently spawned in zones (sum of zone player counts, refreshed about every 0.5s)\n";
+        ss << "# TYPE mmo_players_ingame gauge\n";
+        ss << "mmo_players_ingame " << e._inGame << "\n\n";
 
         // 비누적 버킷 스냅샷 → 누적 변환 (mmo_tick_duration_seconds 와 같은 방식)
         int64_t cum[EC::LATENCY_BUCKET_COUNT];

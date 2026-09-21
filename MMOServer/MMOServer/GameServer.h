@@ -92,6 +92,28 @@ private:
     void OnDisconnected(int64_t sessionId);
     void OnReceived(int64_t sessionId, CSerialBuffer* pMsg);
 
+    // ── 입장(스폰) ──
+    // 불러온 결과를 "어디에 어떻게 넣을까"로 바꾼 것. 판정하는 쪽(OnCharacterLoaded·OnConnected)이
+    //   채우고 SpawnPlayer 가 쓴다. 판정과 스폰을 가른 이유 — 갈래(찾음·없음·맵 없음·좌표 불량)는
+    //   넷인데 스폰 절차는 하나다.
+    //   ★ USE_DB_WORKER 밖에 둔다 — 토글을 끈 빌드의 접속 처리도 SpawnPlayer 를 부른다.
+    struct EnterPlacement
+    {
+        bool  hasPos  = false;   // false = 무작위 자리
+        float x       = 0.0f;
+        float y       = 0.0f;
+        bool  dbDirty = true;    // 스폰 자리를 다음 주기에 저장할까 (DB 와 같은 값으로 들어왔으면 false)
+    };
+
+    // 플레이어를 만들어 존에 넣고 본인·주변에 알린다 (OnConnected 의 몸이 옮겨 온 것).
+    //   존은 호출부가 구해서 준다 — 좌표 검사에 그 존의 크기가 필요해서 판정하는 쪽이 이미 들고 있다.
+    //   반환 nullptr = 입장 실패(zone 이 nullptr 이거나 존 입장 실패) → 호출부가 세션을 끊는다.
+    CPlayer* SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t accountId,
+                         CZone* zone, const EnterPlacement& place);
+
+    // 저장된 좌표를 그대로 써도 되나 — 이동 쪽 클램프(CZone::Tick)와 같은 범위를 쓴다.
+    static bool IsValidSpawnPos(float x, float y, int32_t mapWidth, int32_t mapHeight);
+
     // 패킷 핸들러
     void RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg);
     void RecvMoveStop(CPlayer* player, CSerialBuffer* pMsg);
@@ -148,9 +170,23 @@ private:
     void SaveAllPlayers();                     // 종료: 전원 최종 저장(안전망, dirty 무관)
 
     // DB 왕복 — 캐릭터 불러오기 (요청은 워커 큐로, 결과는 회신 큐로 돌아와 다음 틱에 꺼낸다)
-    void RequestCharacterLoad(int64_t sessionId, int64_t accountId);   // 조회 1건 투입 + 계수
+    bool RequestCharacterLoad(int64_t sessionId, int64_t accountId);   // 조회 1건 투입 + 계수. false = 거절됨(결과가 안 온다)
     void ProcessDbResults();                                           // 틱마다: 회신 큐를 통째로 꺼내 종류별로 넘긴다
-    void OnCharacterLoaded(const DBResult& result, int64_t nowNs);     // 불러오기 결과 1건 처리
+    void OnCharacterLoaded(const DBResult& result, int64_t nowNs);     // 불러오기 결과 1건 처리 — 판정 후 스폰
+
+    // 대기표 — 접속은 했지만 아직 불러오는 중인 세션. 세션은 "불러오는 중"이거나 "게임 중"이지 둘 다일 수 없다.
+    //   sessionId == -1 이 빈 자리다(CCharacter::_sessionId 와 같은 약속). 세션 번호 "전체"를 들고 있어야
+    //   같은 자리에 다른 사람이 들어왔을 때 옛 결과를 가려낸다.
+    struct PendingEnter
+    {
+        int64_t sessionId = -1;
+        int64_t accountId = 0;
+        int32_t actorId   = 0;   // 접속 때 미리 뽑아 둔 번호 — 조회 열쇠(계정 번호)가 지금은 이것이라 먼저 필요하다
+    };
+    // 대기표를 바꾸는 자리는 이 둘뿐이다 — 게이지(mmo_enter_pending)도 여기서만 움직인다.
+    //   접속·결과·끊김 세 곳이 제각기 올리고 내리면 한 곳만 빠져도 게이지가 영영 안 맞는다.
+    void SetPendingEnter(int64_t sessionId, int64_t accountId, int32_t actorId);   // 채운다
+    bool TakePendingEnter(int64_t sessionId, PendingEnter& out);                   // 세션 번호 전체가 같으면 꺼내고 비운다
 #endif
 
     // 섹터 변경 시 시야 진입/이탈 브로드캐스트
@@ -405,5 +441,10 @@ private:
     // 회신 큐에서 통째로 꺼내 받는 로컬 버퍼 (멤버 재사용 — 워커 쪽 벡터와 맞바꾸므로 양쪽 용량이 보존된다.
     //   _localEvents 와 같은 방식). 접근은 게임 스레드 단독.
     std::vector<DBResult> _dbResults;
+
+    // 대기표 — _sessionSlots 와 같은 크기·같은 색인(해시맵 아님). Init 에서 나란히 잡는다.
+    //   개수는 배열을 훑지 않으려고 따로 센다. 접근은 게임 스레드 단독.
+    std::vector<PendingEnter> _pendingEnter;
+    int32_t _pendingEnterCount = 0;
 #endif
 };

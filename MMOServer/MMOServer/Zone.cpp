@@ -35,13 +35,26 @@ bool CZone::EnterZone(CCharacter* player)
     if (player == nullptr)
         return false;
 
+    // 무작위 스폰 좌표를 뽑아 넘긴다 — 입장 절차 자체는 EnterZoneAt 하나뿐이다.
+    float x = 0.0f;
+    float y = 0.0f;
+    CalcSpawnPos(x, y);
+    return EnterZoneAt(player, x, y);
+}
+
+bool CZone::EnterZoneAt(CCharacter* player, float x, float y)
+{
+    if (player == nullptr)
+        return false;
+
     // 존 설정 (playerId, 표시 속성은 CGameServer가 부여 완료 상태)
     player->_zoneId = _zoneId;
     player->_direction = Direction::DOWN;
     player->_moveState = MoveState::IDLE;
 
-    // 스폰 좌표 설정
-    CalcSpawnPos(player->_x, player->_y);
+    // 스폰 좌표 설정 (무작위 자리든 DB 에서 불러온 자리든 호출부가 정해서 준다)
+    player->_x = x;
+    player->_y = y;
 
     // 섹터 좌표 계산 및 등록
     player->_sectorX = _sectorManager.CalcSectorX(player->_x);

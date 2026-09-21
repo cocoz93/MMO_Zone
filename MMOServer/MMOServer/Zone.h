@@ -44,6 +44,11 @@ public:
     // actorId와 CCharacter의 생성/삭제는 CGameServer가 담당
     bool EnterZone(CCharacter* player);
 
+    // 자리를 받는 입장 — 위 EnterZone 과 하는 일이 같고 스폰 좌표만 호출부가 준다(DB 에서 불러온 자리).
+    //   입장 절차는 이쪽 하나뿐이다: EnterZone 은 무작위 자리를 뽑아 이걸 부른다.
+    //   좌표가 맵 안인지는 호출부가 본다(CGameServer::IsValidSpawnPos) — 여기는 받은 대로 넣는다.
+    bool EnterZoneAt(CCharacter* player, float x, float y);
+
     // 캐릭터 퇴장 — 섹터 해제, 목록에서 제거 (delete하지 않음)
     void LeaveZone(CCharacter* player);
 
