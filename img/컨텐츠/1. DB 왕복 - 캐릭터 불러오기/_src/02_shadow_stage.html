@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face{font-family:'Pretendard';src:url('fonts/PretendardVariable.woff2') format('woff2');
+    font-weight:100 900;font-style:normal;font-display:block}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:840px;height:424px;overflow:hidden;background:#ffffff;
+    font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased}
+  svg{display:block}
+  text{font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;fill:#111111}
+  .lane{font-size:14px;font-weight:800}
+  .h{font-size:15px;font-weight:700}
+  .s{font-size:12.5px;font-weight:500;fill:#444444}
+  .cap{font-size:12px;font-weight:500;fill:#666666}
+  .r{fill:#c00000}
+</style>
+</head>
+<body>
+<svg width="840" height="424" viewBox="0 0 840 424" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#333333"/>
+    </marker>
+    <marker id="arR" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#c00000"/>
+    </marker>
+  </defs>
+
+  <text x="40" y="38" font-size="19" font-weight="800">동작을 바꾸기 전에 먼저 재 봄 — <tspan class="r">그림자 조회</tspan></text>
+
+  <!-- ══════ 1단계 ══════ -->
+  <text class="lane" x="40" y="78">1단계 — 지금</text>
+  <text class="cap" x="140" y="78">스폰은 그대로 두고 조회만 같이 던짐 · 클라에 보이는 변화 0</text>
+
+  <rect x="40" y="92" width="120" height="50" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="100" y="123" text-anchor="middle">접속</text>
+
+  <line x1="160" y1="117" x2="218" y2="117" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+  <rect x="220" y="92" width="180" height="50" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="310" y="123" text-anchor="middle">스폰 (예전 그대로)</text>
+
+  <!-- 갈래: 접속 아래로 내려가 조회 길 -->
+  <path d="M100,142 L100,187 L218,187" fill="none" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+  <rect x="220" y="162" width="140" height="50" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="h r" x="290" y="193" text-anchor="middle">조회 던짐</text>
+
+  <line x1="360" y1="187" x2="418" y2="187" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+  <rect x="420" y="162" width="140" height="50" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="h r" x="490" y="193" text-anchor="middle">결과 도착</text>
+
+  <line x1="560" y1="187" x2="618" y2="187" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+  <rect x="620" y="162" width="180" height="50" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="h r" x="710" y="193" text-anchor="middle">세기만 함</text>
+
+  <!-- ══════ 2단계 ══════ -->
+  <text class="lane" x="40" y="262">2단계 — 다음</text>
+  <text class="cap" x="140" y="262">결과가 와야 스폰함 · 실패면 끊음</text>
+
+  <rect x="40" y="276" width="120" height="50" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="100" y="307" text-anchor="middle">접속</text>
+
+  <line x1="160" y1="301" x2="218" y2="301" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+  <rect x="220" y="276" width="140" height="50" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="h r" x="290" y="307" text-anchor="middle">조회 던짐</text>
+
+  <line x1="360" y1="301" x2="418" y2="301" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+  <rect x="420" y="276" width="140" height="50" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="h r" x="490" y="307" text-anchor="middle">결과 도착</text>
+
+  <line x1="560" y1="301" x2="618" y2="301" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+  <rect x="620" y="276" width="180" height="50" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="710" y="307" text-anchor="middle">스폰 (저장된 자리)</text>
+
+  <text class="s" x="40" y="356">1단계에서 「세기만」 하던 자리에 스폰이 옮겨 올 뿐 — 버리는 코드 없음</text>
+  <text class="cap" x="40" y="386">빨강 = 조회가 오가는 길   ·   검정 = 원래 있던 접속 처리</text>
+</svg>
+</body>
+</html>

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face{font-family:'Pretendard';src:url('fonts/PretendardVariable.woff2') format('woff2');
+    font-weight:100 900;font-style:normal;font-display:block}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:840px;height:588px;overflow:hidden;background:#ffffff;
+    font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased}
+  svg{display:block}
+  text{font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;fill:#111111}
+  .lane{font-size:14px;font-weight:800}
+  .h{font-size:14.5px;font-weight:700}
+  .s{font-size:12.5px;font-weight:500;fill:#444444}
+  .cap{font-size:12px;font-weight:500;fill:#666666}
+  .r{fill:#c00000}
+</style>
+</head>
+<body>
+<svg width="840" height="588" viewBox="0 0 840 588" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#333333"/>
+    </marker>
+    <marker id="arR" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#c00000"/>
+    </marker>
+  </defs>
+
+  <text x="40" y="38" font-size="19" font-weight="800">접속하면 대기표만 남기고, 답이 와야 스폰한다</text>
+
+  <!-- ══════ 세 상태 ══════ -->
+  <rect x="40" y="64" width="150" height="54" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="115" y="88" text-anchor="middle">접속</text>
+  <text class="cap" x="115" y="107" text-anchor="middle">번호 뽑기</text>
+
+  <line x1="190" y1="91" x2="228" y2="91" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+
+  <rect x="230" y="64" width="190" height="54" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="325" y="88" text-anchor="middle">불러오는 중</text>
+  <text class="cap" x="325" y="107" text-anchor="middle">대기표에 남기고 조회를 던짐</text>
+
+  <line x1="420" y1="91" x2="458" y2="91" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+
+  <rect x="460" y="64" width="150" height="54" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="535" y="88" text-anchor="middle">게임 중</text>
+  <text class="cap" x="535" y="107" text-anchor="middle">스폰</text>
+
+  <text class="s" x="630" y="86">이 사이엔 플레이어도</text>
+  <text class="s" x="630" y="104">존 입장도 패킷도 없음</text>
+
+  <!-- ══════ 판정 ══════ -->
+  <text class="lane" x="40" y="160">답이 오면 — 여섯 갈래</text>
+  <text class="cap" x="196" y="160">주인은 세션 번호 전체로 찾음</text>
+
+  <!-- 표 머리 -->
+  <line x1="40" y1="174" x2="800" y2="174" stroke="#333333" stroke-width="1.2"/>
+  <text class="cap" x="52" y="192">온 답</text>
+  <text class="cap" x="330" y="192">어디에</text>
+  <text class="cap" x="556" y="192">다음 주기에 저장</text>
+  <line x1="40" y1="202" x2="800" y2="202" stroke="#333333" stroke-width="1.2"/>
+
+  <!-- 행 1 -->
+  <text class="s" x="52" y="228" fill="#111111">주인 없음 — 불러오는 사이에 나감</text>
+  <line x1="300" y1="223" x2="322" y2="223" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+  <text class="s r" x="330" y="228" font-weight="700">버림</text>
+  <text class="cap" x="556" y="228">—</text>
+  <line x1="40" y1="242" x2="800" y2="242" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 행 2 -->
+  <rect x="44" y="250" width="250" height="34" fill="#ffffff" stroke="#111111" stroke-width="1.8"/>
+  <text class="s" x="56" y="272" fill="#111111" font-weight="700">찾음 · 맵 있음 · 좌표 정상</text>
+  <line x1="300" y1="267" x2="322" y2="267" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+  <text class="s" x="330" y="272" fill="#111111" font-weight="700">저장된 맵의 저장된 자리</text>
+  <text class="s" x="556" y="272" fill="#111111">안 함 — DB와 같은 값</text>
+  <line x1="40" y1="292" x2="800" y2="292" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 행 3 -->
+  <text class="s" x="52" y="318" fill="#111111">찾음 · 맵이 없어짐</text>
+  <line x1="300" y1="313" x2="322" y2="313" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+  <text class="s" x="330" y="318" fill="#111111">기본 맵 무작위 자리</text>
+  <text class="s" x="556" y="318" fill="#111111">함</text>
+  <line x1="40" y1="332" x2="800" y2="332" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 행 4 -->
+  <text class="s" x="52" y="358" fill="#111111">찾음 · 좌표가 못 쓸 값</text>
+  <line x1="300" y1="353" x2="322" y2="353" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+  <text class="s" x="330" y="358" fill="#111111">저장된 맵의 무작위 자리</text>
+  <text class="s" x="556" y="358" fill="#111111">함</text>
+  <line x1="40" y1="372" x2="800" y2="372" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 행 5 -->
+  <text class="s" x="52" y="398" fill="#111111">없음 — 새 캐릭터</text>
+  <line x1="300" y1="393" x2="322" y2="393" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+  <text class="s" x="330" y="398" fill="#111111">기본 맵 무작위 자리</text>
+  <text class="s" x="556" y="398" fill="#111111">함 — 첫 저장이 행을 만듦</text>
+  <line x1="40" y1="412" x2="800" y2="412" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 행 6 -->
+  <text class="s" x="52" y="438" fill="#111111">실패 — 못 읽었다</text>
+  <line x1="300" y1="433" x2="322" y2="433" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+  <text class="s r" x="330" y="438" font-weight="700">끊음</text>
+  <text class="cap" x="556" y="438">—</text>
+  <line x1="40" y1="452" x2="800" y2="452" stroke="#333333" stroke-width="1.2"/>
+
+  <!-- 아래 설명 -->
+  <text class="s" x="40" y="486"><tspan font-weight="700" fill="#111111">★ 실패를 「없음」으로 받으면 안 되는 까닭</tspan> — 새 캐릭터로 들어오고, 다음 저장이 진짜 행을 덮어씀</text>
+  <text class="s" x="40" y="508">좌표 검사는 이동 쪽 경계 처리와 같은 식 — 다른 식이면 입장은 되는데 첫 틱에 끌려오는 자리가 생김</text>
+  <text class="s" x="40" y="530">대기표에 시간 제한 없음 — 받아들인 조회마다 답이 정확히 하나 나옴</text>
+
+  <text class="cap" x="40" y="562">빨강 = 들여보내지 않는 길   ·   굵은 테두리 = 2단계가 노린 자리</text>
+</svg>
+</body>
+</html>

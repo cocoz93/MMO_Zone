@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face{font-family:'Pretendard';src:url('fonts/PretendardVariable.woff2') format('woff2');
+    font-weight:100 900;font-style:normal;font-display:block}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:840px;height:484px;overflow:hidden;background:#ffffff;
+    font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased}
+  svg{display:block}
+  text{font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;fill:#111111}
+  .lane{font-size:14px;font-weight:800}
+  .h{font-size:14.5px;font-weight:700}
+  .s{font-size:12.5px;font-weight:500;fill:#444444}
+  .cap{font-size:12px;font-weight:500;fill:#666666}
+  .big{font-size:30px;font-weight:800}
+  .r{fill:#c00000}
+</style>
+</head>
+<body>
+<svg width="840" height="484" viewBox="0 0 840 484" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#333333"/>
+    </marker>
+    <marker id="arR" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#c00000"/>
+    </marker>
+  </defs>
+
+  <text x="40" y="38" font-size="19" font-weight="800">끊긴 연결을 <tspan class="r">저장이 먼저</tspan> 밟으면 — 뒤의 조회가 그대로 실패했음</text>
+  <text class="s" x="40" y="64">상황 — DB는 멀쩡함. 워커의 연결만 서버 쪽에서 끊겨 있고, 저장과 조회가 한 묶음에 들어옴</text>
+
+  <!-- ══════ 고치기 전 ══════ -->
+  <text class="lane" x="40" y="104">고치기 전</text>
+
+  <rect x="40" y="116" width="160" height="84" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="120" y="142" text-anchor="middle">한 묶음</text>
+  <rect x="56" y="156" width="60" height="30" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="s" x="86" y="176" text-anchor="middle" fill="#111111">저장</text>
+  <rect x="124" y="156" width="60" height="30" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="s" x="154" y="176" text-anchor="middle" fill="#111111">조회</text>
+
+  <line x1="200" y1="158" x2="238" y2="158" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+  <rect x="240" y="116" width="170" height="84" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="256" y="142">① 저장 실행</text>
+  <text class="s" x="256" y="166">끊김을 밟음</text>
+  <text class="s" x="256" y="186">연결을 내림</text>
+
+  <line x1="410" y1="158" x2="448" y2="158" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+  <rect x="450" y="116" width="190" height="84" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="h r" x="466" y="142">② 조회 실행</text>
+  <text class="s" x="466" y="166">연결 없음</text>
+  <text class="s r" x="466" y="186" font-weight="700">재연결 없이 곧바로 실패</text>
+
+  <line x1="640" y1="158" x2="678" y2="158" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+  <rect x="680" y="116" width="120" height="84" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="big r" x="740" y="160" text-anchor="middle">7 / 10</text>
+  <text class="cap" x="740" y="184" text-anchor="middle">번 실패</text>
+
+  <!-- ══════ 고친 뒤 ══════ -->
+  <text class="lane" x="40" y="244">고친 뒤</text>
+
+  <rect x="40" y="256" width="160" height="84" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="120" y="282" text-anchor="middle">한 묶음</text>
+  <rect x="56" y="296" width="60" height="30" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="s" x="86" y="316" text-anchor="middle" fill="#111111">저장</text>
+  <rect x="124" y="296" width="60" height="30" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="s" x="154" y="316" text-anchor="middle" fill="#111111">조회</text>
+
+  <line x1="200" y1="298" x2="238" y2="298" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+  <rect x="240" y="256" width="170" height="84" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="256" y="282">① 저장 실행</text>
+  <text class="s" x="256" y="306">끊김을 밟음</text>
+  <text class="s" x="256" y="326">연결을 내림</text>
+
+  <line x1="410" y1="298" x2="448" y2="298" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+  <rect x="450" y="256" width="190" height="84" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="466" y="282">② 조회 실행</text>
+  <text class="s" x="466" y="306">연결 없음</text>
+  <text class="s" x="466" y="326" fill="#111111" font-weight="700">그 자리에서 재연결하고 조회</text>
+
+  <line x1="640" y1="298" x2="678" y2="298" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+  <rect x="680" y="256" width="120" height="84" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="big" x="740" y="300" text-anchor="middle">0 / 10</text>
+  <text class="cap" x="740" y="324" text-anchor="middle">번 실패</text>
+
+  <!-- 아래 설명 -->
+  <text class="s" x="40" y="380"><tspan font-weight="700" fill="#111111">내 시험이 못 잡은 이유</tspan> — 연결을 끊는 시험에서 조회가 혼자인 묶음만 봤음</text>
+  <text class="s" x="40" y="402"><tspan font-weight="700" fill="#111111">찾은 방법</tspan> — 검토자 여섯을 따로 띄운 자가검증. 재현해서 확인한 뒤 고침</text>
+  <text class="s" x="40" y="424"><tspan font-weight="700" fill="#111111">지킨 것</tspan> — DB가 정말 죽어 있을 땐 재연결을 묶음당 한 번만 시도함</text>
+
+  <text class="cap" x="40" y="448">빨강 = 실패로 가는 길</text>
+</svg>
+</body>
+</html>

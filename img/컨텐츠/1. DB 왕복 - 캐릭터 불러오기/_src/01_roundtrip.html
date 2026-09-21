@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face{font-family:'Pretendard';src:url('fonts/PretendardVariable.woff2') format('woff2');
+    font-weight:100 900;font-style:normal;font-display:block}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:840px;height:524px;overflow:hidden;background:#ffffff;
+    font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased}
+  svg{display:block}
+  text{font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;fill:#111111}
+  .m{font-family:ui-monospace,"Cascadia Mono",Consolas,"Courier New",monospace}
+  .col{font-size:13px;font-weight:700;fill:#555555}
+  .h{font-size:15px;font-weight:700}
+  .s{font-size:12.5px;font-weight:500;fill:#444444}
+  .cap{font-size:12px;font-weight:500;fill:#666666}
+  .r{fill:#c00000}
+</style>
+</head>
+<body>
+<svg width="840" height="524" viewBox="0 0 840 524" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#333333"/>
+    </marker>
+    <marker id="arR" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#c00000"/>
+    </marker>
+  </defs>
+
+  <text x="40" y="38" font-size="19" font-weight="800">가는 길은 있었고, <tspan class="r">오는 길 넷</tspan>을 새로 만들었음</text>
+
+  <text class="col" x="40"  y="72">게임 스레드</text>
+  <text class="col" x="320" y="72">DB 워커 — 계정 번호 % K 로 고른 큐</text>
+  <text class="col" x="660" y="72">MySQL</text>
+
+  <!-- ══════ 게임 스레드 ══════ -->
+  <rect x="40" y="84" width="200" height="300" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <line x1="40" y1="174" x2="240" y2="174" stroke="#333333" stroke-width="1.2"/>
+
+  <text class="h" x="56" y="112">접속 처리</text>
+  <text class="s" x="56" y="136">스폰은 예전 그대로</text>
+  <text class="s r" x="56" y="156" font-weight="700">조회를 같이 던짐</text>
+
+  <text class="h" x="56" y="202">저장</text>
+  <text class="s" x="56" y="226">60초마다 · 나갈 때</text>
+  <text class="s" x="56" y="246">바뀐 것만</text>
+
+  <rect x="40" y="264" width="200" height="120" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="h r" x="56" y="294" font-weight="800">④ 결과 받는 자리</text>
+  <text class="s" x="56" y="320">네트워크 이벤트 처리</text>
+  <text class="s" x="56" y="340">직후 통째로 꺼냄</text>
+  <text class="cap" x="56" y="366">1단계는 세기만 함</text>
+
+  <!-- 게임 → 워커 -->
+  <text class="s r" x="279" y="121" font-weight="700" text-anchor="middle">조회</text>
+  <line x1="240" y1="129" x2="318" y2="129" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+  <text class="s" x="279" y="211" text-anchor="middle">저장</text>
+  <line x1="240" y1="219" x2="318" y2="219" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+
+  <!-- ══════ DB 워커 ══════ -->
+  <rect x="320" y="84" width="260" height="180" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text x="336" y="110" font-size="13.5" font-weight="700">큐 하나 — 저장과 조회가 같은 줄</text>
+
+  <rect x="336" y="124" width="42" height="34" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="s" x="357" y="146" text-anchor="middle">저장</text>
+  <rect x="382" y="124" width="42" height="34" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="s r" x="403" y="146" text-anchor="middle" font-weight="700">조회</text>
+  <rect x="428" y="124" width="42" height="34" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="s" x="449" y="146" text-anchor="middle">저장</text>
+  <rect x="474" y="124" width="42" height="34" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="s" x="495" y="146" text-anchor="middle">저장</text>
+  <rect x="520" y="124" width="42" height="34" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="s" x="541" y="146" text-anchor="middle">⋯</text>
+
+  <text class="s r" x="336" y="182" font-weight="700">① 원소마다 종류 표시</text>
+  <text class="s" x="336" y="212">통째로 꺼내 앞에서부터 실행</text>
+  <text class="s" x="336" y="234">종류로 갈라 문장을 고름</text>
+
+  <!-- 워커 → MySQL -->
+  <text class="m" x="619" y="121" font-size="12" font-weight="600" text-anchor="middle">UPSERT</text>
+  <line x1="580" y1="129" x2="658" y2="129" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+  <text class="r" x="619" y="211" font-size="12.5" font-weight="700" text-anchor="middle">② <tspan class="m" font-size="12">SELECT</tspan></text>
+  <line x1="580" y1="219" x2="658" y2="219" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+
+  <!-- ══════ MySQL ══════ -->
+  <rect x="660" y="84" width="140" height="180" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="m" x="730" y="118" font-size="14" font-weight="700" text-anchor="middle">characters</text>
+  <text class="cap" x="730" y="140" text-anchor="middle">캐릭터 하나 = 한 행</text>
+  <line x1="660" y1="174" x2="800" y2="174" stroke="#333333" stroke-width="1.2"/>
+  <text class="s" x="730" y="202" text-anchor="middle">저장 = 있으면 덮어씀</text>
+  <text class="s r" x="730" y="232" font-weight="700" text-anchor="middle">조회 = 읽기만 함</text>
+
+  <!-- ══════ 오는 길 ══════ -->
+  <line x1="450" y1="264" x2="450" y2="298" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+
+  <rect x="320" y="300" width="260" height="84" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="h r" x="336" y="330" font-weight="800">③ 회신 큐</text>
+  <text class="s" x="336" y="354">워커가 소유 · 끝나는 대로 바로 넣음</text>
+  <text class="cap" x="336" y="374">종료 때도 넣을 자리가 살아 있음</text>
+
+  <text class="s r" x="281" y="334" font-weight="700" text-anchor="middle">결과</text>
+  <line x1="320" y1="342" x2="242" y2="342" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+
+  <!-- 결과는 셋 -->
+  <rect x="620" y="300" width="180" height="84" fill="#f7f7f7" stroke="#cccccc" stroke-width="1"/>
+  <text x="636" y="326" font-size="13.5" font-weight="700">결과는 셋</text>
+  <text class="s" x="636" y="348" fill="#111111">찾음 · 없음 · 실패</text>
+  <text class="cap" x="636" y="370">없음과 실패를 안 섞음</text>
+
+  <!-- 아래 설명 -->
+  <text x="40" y="420" font-size="13" font-weight="700">같은 큐에 넣는 이유</text>
+  <text class="s" x="40" y="442">같은 계정은 같은 워커를 타고, 큐는 앞에서부터 실행됨</text>
+  <text class="s" x="40" y="462">그래서 「옛 접속의 마지막 저장 다음에 새 접속의 불러오기」 순서가 저절로 지켜짐</text>
+
+  <text class="cap" x="40" y="488">빨강 = 이번에 만든 것 (① 종류 표시 · ② 조회 문장 · ③ 회신 큐 · ④ 받는 자리)   ·   검정 = 원래 있던 가는 길</text>
+</svg>
+</body>
+</html>
