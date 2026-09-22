@@ -174,19 +174,41 @@ private:
     void ProcessDbResults();                                           // 틱마다: 회신 큐를 통째로 꺼내 종류별로 넘긴다
     void OnCharacterLoaded(const DBResult& result, int64_t nowNs);     // 불러오기 결과 1건 처리 — 판정 후 스폰
 
-    // 대기표 — 접속은 했지만 아직 불러오는 중인 세션. 세션은 "불러오는 중"이거나 "게임 중"이지 둘 다일 수 없다.
-    //   sessionId == -1 이 빈 자리다(CCharacter::_sessionId 와 같은 약속). 세션 번호 "전체"를 들고 있어야
-    //   같은 자리에 다른 사람이 들어왔을 때 옛 결과를 가려낸다.
+    // 대기표 — 접속은 했지만 아직 게임에 못 들어온 세션. 세션은 아래 둘 중 하나이거나 "게임 중"이고,
+    //   셋 중 둘일 수는 없다. sessionId == -1 이 빈 자리다(CCharacter::_sessionId 와 같은 약속).
+    //   세션 번호 "전체"를 들고 있어야 같은 자리에 다른 사람이 들어왔을 때 옛 결과를 가려낸다.
+    //   ★ 접속한 세션은 반드시 이 표에 자리를 잡는다 — 어느 표에도 없는 세션이 생기면
+    //     "동접 = 게임 중 + 불러오는 중 + 입장 대기" 등식이 늘 틀린 채로 울려 쓸모가 없어진다.
+    enum class EnterState : uint8_t
+    {
+        WAITING_ENTER,   // 접속함. 입장 요청(C2S_ENTER_GAME)을 기다린다 — USE_LOGIN=1 에서만 생긴다
+        LOADING,         // 입장 요청을 받아 조회를 던졌다. 결과를 기다린다
+    };
     struct PendingEnter
     {
-        int64_t sessionId = -1;
-        int64_t accountId = 0;
-        int32_t actorId   = 0;   // 접속 때 미리 뽑아 둔 번호 — 조회 열쇠(계정 번호)가 지금은 이것이라 먼저 필요하다
+        int64_t    sessionId = -1;
+        int64_t    accountId = 0;   // [입장 대기] 구간에서는 아직 0 이다 — 입장 요청이 와야 정해진다
+        int32_t    actorId   = 0;   // 같음. 캐릭터 번호도 입장 요청 때 뽑는다
+        EnterState state     = EnterState::WAITING_ENTER;
     };
-    // 대기표를 바꾸는 자리는 이 둘뿐이다 — 게이지(mmo_enter_pending)도 여기서만 움직인다.
-    //   접속·결과·끊김 세 곳이 제각기 올리고 내리면 한 곳만 빠져도 게이지가 영영 안 맞는다.
-    void SetPendingEnter(int64_t sessionId, int64_t accountId, int32_t actorId);   // 채운다
-    bool TakePendingEnter(int64_t sessionId, PendingEnter& out);                   // 세션 번호 전체가 같으면 꺼내고 비운다
+    // 대기표를 바꾸는 자리는 이 셋뿐이다 — 게이지 둘(mmo_enter_waiting·mmo_enter_pending)도 여기서만 움직인다.
+    //   접속·입장요청·결과·끊김 네 곳이 제각기 올리고 내리면 한 곳만 빠져도 게이지가 영영 안 맞는다.
+    void SetPendingEnter(int64_t sessionId, int64_t accountId, int32_t actorId, EnterState state);
+    bool PromotePendingEnter(int64_t sessionId, int64_t accountId, int32_t actorId);  // [입장 대기] → [불러오는 중]
+    bool TakePendingEnter(int64_t sessionId, PendingEnter& out);                      // 세션 번호 전체가 같으면 꺼내고 비운다
+    void AdjustPendingCount(EnterState state, int delta);                             // 상태별 수 + 게이지를 한 자리에서 움직인다
+#endif
+
+#if USE_LOGIN
+    // ── 입장 요청 (USE_LOGIN) ──
+    // 이 핸들러만 OnReceived 의 FindPlayer 문턱 "앞"에서 불린다 — 입장 요청이 올 때는 아직
+    //   플레이어가 없어서, 문턱 뒤에 두면 영영 여기까지 못 온다.
+    void RecvEnterGame(int64_t sessionId, CSerialBuffer* pMsg);
+
+    // 같은 계정으로 이미 들어와 있는 세션을 걷어낸다 (게임 중 / 불러오는 중 양쪽).
+    //   새 조회를 던지기 "전"에 불러야 한다 — 정리가 넣는 최종 저장이 그 조회보다 큐에서 앞서야
+    //   새 접속이 방금 저장한 자리를 읽는다(같은 계정은 같은 워커를 탄다).
+    void KickDuplicateAccount(int64_t accountId, int64_t exceptSessionId);
 #endif
 
     // 섹터 변경 시 시야 진입/이탈 브로드캐스트
@@ -443,8 +465,9 @@ private:
     std::vector<DBResult> _dbResults;
 
     // 대기표 — _sessionSlots 와 같은 크기·같은 색인(해시맵 아님). Init 에서 나란히 잡는다.
-    //   개수는 배열을 훑지 않으려고 따로 센다. 접근은 게임 스레드 단독.
+    //   개수는 배열을 훑지 않으려고 상태별로 따로 센다. 접근은 게임 스레드 단독.
     std::vector<PendingEnter> _pendingEnter;
-    int32_t _pendingEnterCount = 0;
+    int32_t _pendingLoadingCount = 0;   // [불러오는 중] — DB 결과를 기다린다
+    int32_t _pendingWaitingCount = 0;   // [입장 대기]  — 입장 요청을 기다린다 (USE_LOGIN=1 에서만 0 이 아니다)
 #endif
 };

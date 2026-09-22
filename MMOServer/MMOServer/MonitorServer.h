@@ -507,13 +507,22 @@ private:
         WriteCounter(ss, "mmo_enter_fallback_total",
                      "Found rows whose map or position was unusable - spawned at a random spot (subset of found)",
                      e._fallback);
+        WriteCounter(ss, "mmo_enter_duplicate_total",
+                     "Old sessions kicked because the same account entered again",
+                     e._duplicate);
 
         // 게이지 — 조용해지면 0 이어야 한다(안 내려가면 대기표가 샌 것)
         ss << "# HELP mmo_enter_pending Sessions currently waiting for their character load\n";
         ss << "# TYPE mmo_enter_pending gauge\n";
         ss << "mmo_enter_pending " << e._pending << "\n\n";
 
-        // 게이지 — 조용해지면 mmo_session_count = mmo_players_ingame + mmo_enter_pending
+        // 게이지 — 접속은 했는데 입장 요청을 아직 안 보낸 세션. 올라가서 안 내려오면 클라가 안 보내는 것이다
+        //   (네트워크 계층의 유휴 타임아웃은 하트비트만 보내도 갱신돼서 이런 세션을 안 끊는다).
+        ss << "# HELP mmo_enter_waiting Sessions connected but not yet sent C2S_ENTER_GAME\n";
+        ss << "# TYPE mmo_enter_waiting gauge\n";
+        ss << "mmo_enter_waiting " << e._waiting << "\n\n";
+
+        // 게이지 — 조용해지면 mmo_session_count = mmo_players_ingame + mmo_enter_pending + mmo_enter_waiting
         ss << "# HELP mmo_players_ingame Players currently spawned in zones (sum of zone player counts, refreshed about every 0.5s)\n";
         ss << "# TYPE mmo_players_ingame gauge\n";
         ss << "mmo_players_ingame " << e._inGame << "\n\n";

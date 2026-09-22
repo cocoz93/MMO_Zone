@@ -589,7 +589,22 @@ bool CGameServer::RequestCharacterLoad(int64_t sessionId, int64_t accountId)
     return false;
 }
 
-void CGameServer::SetPendingEnter(int64_t sessionId, int64_t accountId, int32_t actorId)
+// 상태별 수와 게이지를 한 자리에서만 움직인다 — 세는 자리가 갈라지면 한 곳만 빠져도 영영 안 맞는다.
+void CGameServer::AdjustPendingCount(EnterState state, int delta)
+{
+    if (state == EnterState::LOADING)
+    {
+        _pendingLoadingCount += delta;
+        _gameMonitor._enter._pending.Store(_pendingLoadingCount);
+    }
+    else
+    {
+        _pendingWaitingCount += delta;
+        _gameMonitor._enter._waiting.Store(_pendingWaitingCount);
+    }
+}
+
+void CGameServer::SetPendingEnter(int64_t sessionId, int64_t accountId, int32_t actorId, EnterState state)
 {
     const uint16_t idx = CSession::ExtractIndex(sessionId);
     assert(idx < _pendingEnter.size());   // FindPlayer 와 같은 불변식 — 두 배열은 Init 에서 같은 크기로 잡힌다
@@ -601,14 +616,37 @@ void CGameServer::SetPendingEnter(int64_t sessionId, int64_t accountId, int32_t 
         //   그래도 덮어쓰면 스스로 아문다: 옛 조회의 결과는 세션 번호가 안 맞아 orphaned 로 세어진다.
         SLOG_ERROR("[DB] pending enter overwritten (slot={}, old session={}, new session={})",
                    idx, slot.sessionId, sessionId);
-        --_pendingEnterCount;
+        AdjustPendingCount(slot.state, -1);
     }
 
     slot.sessionId = sessionId;
     slot.accountId = accountId;
     slot.actorId   = actorId;
-    ++_pendingEnterCount;
-    _gameMonitor._enter._pending.Store(_pendingEnterCount);
+    slot.state     = state;
+    AdjustPendingCount(state, +1);
+}
+
+// [입장 대기] → [불러오는 중]. 번호 둘은 이때 정해지므로 여기서 채운다.
+//   상태 검사는 RecvEnterGame 앞 문턱과 겹친다. 일부러 남긴 둘째 겹이고 역할이 다르다 —
+//   앞 문턱은 "번호를 뽑고 조회를 던지는 일 자체를 하지 말 것"이고, 여기는 "게이지 둘을 움직이기 전에
+//   정말 [입장 대기]였나"를 보는 이 함수의 전제다. 이 줄이 없으면 [불러오는 중]에 또 불렸을 때
+//   입장 대기 수가 음수로 내려간다(돌연변이로 확인: 요청 셋에 입장 대기 -2 · 불러오는 중 2).
+//   ※ 지금은 앞 문턱이 먼저 막아서 이 검사에 도달하는 길이 없다 — 시험으로는 못 태운다.
+bool CGameServer::PromotePendingEnter(int64_t sessionId, int64_t accountId, int32_t actorId)
+{
+    const uint16_t idx = CSession::ExtractIndex(sessionId);
+    assert(idx < _pendingEnter.size());
+    PendingEnter& slot = _pendingEnter[idx];
+
+    if (slot.sessionId != sessionId || slot.state != EnterState::WAITING_ENTER)
+        return false;
+
+    AdjustPendingCount(EnterState::WAITING_ENTER, -1);
+    slot.accountId = accountId;
+    slot.actorId   = actorId;
+    slot.state     = EnterState::LOADING;
+    AdjustPendingCount(EnterState::LOADING, +1);
+    return true;
 }
 
 bool CGameServer::TakePendingEnter(int64_t sessionId, PendingEnter& out)
@@ -622,9 +660,8 @@ bool CGameServer::TakePendingEnter(int64_t sessionId, PendingEnter& out)
         return false;
 
     out  = slot;
+    AdjustPendingCount(slot.state, -1);
     slot = PendingEnter{};
-    --_pendingEnterCount;
-    _gameMonitor._enter._pending.Store(_pendingEnterCount);
     return true;
 }
 
@@ -1066,6 +1103,16 @@ void CGameServer::OnConnected(int64_t sessionId)
         return;
     }
 
+#if USE_LOGIN
+    // [입장 요청] 접속만으로는 아무것도 안 만든다 — 캐릭터 번호도 계정 번호도 조회도
+    //   입장 요청(C2S_ENTER_GAME)을 받아야 정해진다. 여기서는 대기표에 자리만 잡는다.
+    //   ★ 자리를 안 잡으면 이 세션이 어느 표에도 없어서, 유령 플레이어를 잡는 유일한 장치인
+    //     "동접 = 게임 중 + 불러오는 중 + 입장 대기" 등식이 늘 틀린 채로 울린다.
+    //   ※ 입장 요청을 끝내 안 보내는 세션은 여기 남는다. 네트워크 계층의 유휴 타임아웃은
+    //     하트비트만 보내도 갱신되므로 안 끊는다 — 그래서 게이지(mmo_enter_waiting)로 지켜본다.
+    //     값이 올라가서 안 내려오면 그때 쓸어내기를 넣는다(지금 넣으면 한 번도 안 도는 갈래다).
+    SetPendingEnter(sessionId, 0, 0, EnterState::WAITING_ENTER);
+#else
     // 번호는 접속 때 뽑는다 — 지금은 계정 번호 = 캐릭터 번호(임시)라 조회 열쇠로 먼저 필요하다.
     //   못 들어간 접속은 번호 하나를 버린다(단조 증가 카운터라 무해 — 몬스터도 같은 카운터를 쓴다).
     const int32_t actorId = AllocPlayerId();
@@ -1083,7 +1130,7 @@ void CGameServer::OnConnected(int64_t sessionId)
             _network->RequestDisconnectSession(sessionId);
             return;
         }
-        SetPendingEnter(sessionId, accountId, actorId);
+        SetPendingEnter(sessionId, accountId, actorId, EnterState::LOADING);
         return;
     }
 #endif
@@ -1092,7 +1139,112 @@ void CGameServer::OnConnected(int64_t sessionId)
     CZone* zone = _mapManager.FindOrCreateChannel(_defaultMapId);
     if (SpawnPlayer(sessionId, actorId, actorId, zone, EnterPlacement{}) == nullptr)
         _network->RequestDisconnectSession(sessionId);
+#endif
 }
+
+#if USE_LOGIN
+// 같은 계정으로 이미 들어와 있는 세션을 걷어낸다. 걷을 곳이 둘이다 — 게임 중, 그리고 불러오는 중.
+//   ★ 맵(계정 → 플레이어)을 안 만들고 훑는 이유: 넣고 빼야 할 표가 둘이라 한쪽이 어긋나면
+//     해제된 주소를 들게 된다. 훑기는 어긋날 표가 없다. 그리고 번호를 안 들고 온 접속은 이 길을
+//     아예 안 타므로(부하 더미가 전부 그렇다) 훑는 횟수가 사람 수준에 머문다.
+//   ※ 모든 계정이 지정 번호로 들어오는 날(로그인 서버가 붙는 날, 또는 부하 더미를 고정 계정으로
+//     바꾸는 날)에는 접속마다 전체를 훑게 된다. 그때 재 보고 계정 → 플레이어 맵으로 바꾼다.
+void CGameServer::KickDuplicateAccount(int64_t accountId, int64_t exceptSessionId)
+{
+    // ⑴ 게임 중 — 정리 코드를 새로 쓰지 않고 평소 끊김 처리를 그대로 부른다. 그 안에 퇴장 방송·
+    //    슬롯 해제·부활 대기열 회수·최종 저장 투입이 전부 있고, 무엇보다 **틱 중간 대기열에서 빼는
+    //    일**이 들어 있다(BroadcastLeaveZone 이 _sectorChangedSet·_pendingSectorChanges 에서 제거,
+    //    :2569~2573). 이 함수는 네트워크 이벤트 구간 한가운데서 플레이어를 지우는데, 같은 틱에
+    //    그 플레이어가 MOVE_STOP 으로 그 대기열에 들어가 있을 수 있다 — 새로 짰으면 빠뜨렸을 자리다.
+    //    뒤늦게 오는 진짜 끊김 이벤트는 플레이어가 이미 없어 FindPlayer 가 nullptr 이라 무해하다.
+    for (CPlayer* other : _sessionSlots)
+    {
+        if (other == nullptr || other->_accountId != accountId || other->_sessionId == exceptSessionId)
+            continue;
+
+        const int64_t oldSession = other->_sessionId;
+        SLOG_WARN("[LOGIN] duplicate account -> kick old session (account={}, old={}, new={})",
+                  accountId, oldSession, exceptSessionId);
+        OnDisconnected(oldSession);                        // 최종 저장이 이 뒤의 조회보다 큐에서 앞선다
+        _network->RequestDisconnectSession(oldSession);
+        _gameMonitor._enter._duplicate.Inc();
+        break;   // 같은 계정이 둘 이상 게임 중일 수는 없다 — 여기서 막고 있기 때문이다
+    }
+
+    // ⑵ 불러오는 중 — 아직 플레이어가 없으니 저장도 방송도 없다. 대기표만 지우고 끊는다.
+    //    탭 둘을 거의 동시에 열면 둘째가 첫째를 이 상태에서 걷어낸다. 뒤늦게 오는 그 조회 결과는
+    //    대기표에서 주인을 못 찾아 orphaned 로 세어진다.
+    //    [입장 대기] 자리는 계정 번호가 아직 0 이라 여기 안 걸린다(이 함수는 0 으로 안 불린다).
+    for (const PendingEnter& slot : _pendingEnter)
+    {
+        if (slot.sessionId == -1 || slot.state != EnterState::LOADING
+            || slot.accountId != accountId || slot.sessionId == exceptSessionId)
+            continue;
+
+        const int64_t oldSession = slot.sessionId;   // TakePendingEnter 가 slot 을 비우므로 먼저 복사한다
+        SLOG_WARN("[LOGIN] duplicate account while loading -> drop (account={}, old={})", accountId, oldSession);
+        PendingEnter gone;
+        TakePendingEnter(oldSession, gone);
+        _network->RequestDisconnectSession(oldSession);
+        _gameMonitor._enter._duplicate.Inc();
+        break;
+    }
+}
+
+void CGameServer::RecvEnterGame(int64_t sessionId, CSerialBuffer* pMsg)
+{
+    MSG_C2S_ENTER_GAME recvMsg{};
+    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
+
+    // ⑴ 대기표가 [입장 대기]인가. 이미 요청했거나(불러오는 중) 이미 게임 중이면 조용히 무시한다 —
+    //    두 번째 요청으로 캐릭터를 하나 더 만들지 않게 막는 자리다.
+    {
+        const uint16_t idx = CSession::ExtractIndex(sessionId);
+        assert(idx < _pendingEnter.size());
+        const PendingEnter& slot = _pendingEnter[idx];
+        if (slot.sessionId != sessionId || slot.state != EnterState::WAITING_ENTER)
+            return;
+    }
+
+    // ⑵ 번호 둘. 캐릭터 번호는 언제나 새로 뽑고, 계정 번호는 들고 온 값이 있으면 그것, 없으면(0)
+    //    방금 뽑은 캐릭터 번호를 그대로 쓴다 — 그래야 번호를 안 들고 온 접속이 지금까지와 똑같이 돈다.
+    //    자동과 지정은 구간이 타입으로 갈린다: AllocPlayerId 는 int32 카운터라 2^31 위로 못 올라온다.
+    const int32_t actorId   = AllocPlayerId();
+    const int64_t accountId = (recvMsg.accountId != 0) ? recvMsg.accountId : static_cast<int64_t>(actorId);
+
+    // [불변식] 여기 오는 동안 _dbWorker 는 널이 아니다 — InitDB 가 실패하면 main 이 서버를 아예
+    //   안 띄우고(main.cpp:109~113), 내리는 쪽은 게임 스레드를 join 한 "뒤"다(Stop, :428~437).
+    //   USE_LOGIN 은 USE_DB_WORKER 를 요구하므로 "DB 없는 빌드"도 여기 못 온다.
+    //   ※ 널 대비 분기를 두지 않는다 — 한 번도 안 타는 갈래이고, 혹시 탄다면 불러오기 없이 스폰해
+    //     다음 저장이 남의 행을 덮는 쪽이라 조용한 오동작이 된다. 차라리 여기서 멈추는 게 낫다.
+    assert(_dbWorker != nullptr);
+
+    // ⑶ 같은 계정 정리 — 반드시 조회를 던지기 "전"이다. 정리가 넣는 최종 저장과 이 조회는 같은
+    //    워커 큐를 타고(계정 번호 % 워커 수) 앞에서부터 실행되므로, 순서가 뒤집히면 방금 저장한
+    //    자리를 못 읽는다. 번호를 안 들고 온 접속은 새 번호라 겹칠 수가 없어 아예 안 훑는다.
+    if (recvMsg.accountId != 0)
+        KickDuplicateAccount(accountId, sessionId);
+
+    // ⑷ 조회를 던진다. 거절되면 결과가 안 오므로 매달아 두지 않고 끊는다(rejected 는 안에서 셌다).
+    if (!RequestCharacterLoad(sessionId, accountId))
+    {
+        PendingEnter gone;
+        TakePendingEnter(sessionId, gone);
+        _network->RequestDisconnectSession(sessionId);
+        return;
+    }
+
+    // ⑸ 대기표를 [불러오는 중]으로. 조회 뒤에 해도 안전하다 — 결과는 같은 스레드가 네트워크 이벤트를
+    //    다 돈 "뒤에야" 꺼내므로(ProcessNetworkEvents → ProcessDbResults), 그 전에 주인을 찾을 일이 없다.
+    //    [불변식] 여기서 반드시 성공한다 — ⑴ 에서 [입장 대기]인 것을 봤고, 그 사이 이 자리를 건드리는
+    //      것은 ⑶ 뿐인데 거기서 내 세션을 명시적으로 제외한다. 실패하면 조회는 던져 놓고 대기표가 없어
+    //      결과가 주인을 못 찾고, 그 세션은 스폰도 끊김도 없이 영영 매달린다(클라가 하트비트를 보내
+    //      유휴 타임아웃도 안 걸린다). 그래서 조용히 넘기지 않고 단언으로 잡는다.
+    const bool promoted = PromotePendingEnter(sessionId, accountId, actorId);
+    assert(promoted);
+    (void)promoted;   // 릴리즈(NDEBUG) 미사용 경고 억제
+}
+#endif
 
 void CGameServer::OnDisconnected(int64_t sessionId)
 {
@@ -1158,6 +1310,18 @@ void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
         pMsg->SubRef();
         return;
     }
+
+#if USE_LOGIN
+    // 입장 요청만 아래 문턱 "앞"에서 가른다 — 이 패킷이 올 때는 아직 플레이어가 없어서,
+    //   문턱 뒤에 두면 FindPlayer 가 nullptr 을 돌려 영영 핸들러에 못 닿는다.
+    //   나머지 패킷은 지금까지와 똑같이 플레이어를 찾은 뒤에 간다.
+    if (header.type == MsgType::C2S_ENTER_GAME)
+    {
+        RecvEnterGame(sessionId, pMsg);
+        pMsg->SubRef();
+        return;
+    }
+#endif
 
     // 경계 계층: sessionId → CPlayer* 변환은 여기 한 번뿐 — 이후 컨텐츠 로직은 세션 ID 를 다시 쓰지 않는다.
     //   핸들러(RecvXxx)는 CPlayer* 를 받고, 브로드캐스트·섹터 쪽은 CCharacter* 로 받는다(몬스터도 같은 길).
