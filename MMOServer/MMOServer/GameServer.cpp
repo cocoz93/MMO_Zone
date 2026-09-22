@@ -1219,6 +1219,10 @@ uint16_t CGameServer::GetExpectedSize(MsgType type)
     case MsgType::C2S_ATTACK:       return sizeof(MSG_C2S_ATTACK);
 #endif
     case MsgType::C2S_ADMIN_LOGIN:  return sizeof(MSG_C2S_ADMIN_LOGIN);
+    // 이 줄이 없으면 입장 요청이 0 을 받아 파싱 오류로 샌다 — 로그도 안 남고 _packetErrors 만 오른다.
+    //   1단계에서는 크기만 등록하고 핸들러는 없다(아래 OnReceived 의 default 로 빠지거나,
+    //   플레이어가 아직 없으면 그 앞 문턱에서 버려진다). 서버 동작은 그대로다.
+    case MsgType::C2S_ENTER_GAME:   return sizeof(MSG_C2S_ENTER_GAME);
     default:                        return 0;
     }
 }

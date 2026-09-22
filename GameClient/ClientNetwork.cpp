@@ -246,6 +246,18 @@ void CClientNetwork::SendHeartbeat()
     SendPacket(reinterpret_cast<const char*>(&msg), sizeof(msg));
 }
 
+void CClientNetwork::SendEnterGame(int64_t accountId)
+{
+    // 입장 요청 — 접속 직후 한 번. 서버는 이걸 받아야 캐릭터를 불러온다(USE_LOGIN).
+    //   입장권 64바이트는 아직 안 쓴다 — 값 초기화로 0 을 채워 보낸다.
+    MSG_C2S_ENTER_GAME msg{};
+    msg.header.size = sizeof(msg);
+    msg.header.type = MsgType::C2S_ENTER_GAME;
+    msg.accountId   = accountId;
+
+    SendPacket(reinterpret_cast<const char*>(&msg), sizeof(msg));
+}
+
 void CClientNetwork::SendAdminLogin(const char* key)
 {
     MSG_C2S_ADMIN_LOGIN msg{};

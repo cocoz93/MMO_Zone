@@ -135,6 +135,10 @@ void DummyClient::OnConnected(StatsLocal& stats, int reconnectDelayMs)
     stats.connectedDelta += 1;
     stats.connectTotal += 1;
     ResetState();
+
+    // 입장 요청 — 접속 직후 한 번. 서버가 이걸 받아야 캐릭터를 불러온다(USE_LOGIN).
+    //   ResetState 가 송신 버퍼를 비우므로 반드시 그 뒤에 넣는다.
+    SendEnterGame(stats);
 }
 
 void DummyClient::OnConnectFailed(StatsLocal& stats, int reconnectDelayMs)
@@ -512,6 +516,25 @@ void DummyClient::SendHeartbeat(StatsLocal& stats)
     }
     stats.sendPackets += 1;
     stats.heartbeatSent += 1;
+}
+
+void DummyClient::SendEnterGame(StatsLocal& stats)
+{
+    // 계정 번호 0 = "번호를 지정하지 않음" — 서버가 접속마다 새 번호를 붙인다.
+    //   지정 번호를 쓰면 더미 전부가 "같은 계정 찾기"를 타게 돼 부하 구성이 달라진다.
+    //   ※ 조회는 0 으로 와도 그대로 나간다 — 자동 번호는 재시작마다 1부터 다시 세는데
+    //     DB 행은 남아 있어서, 새 번호가 지난 회차의 행과 겹칠 수 있기 때문이다.
+    MSG_C2S_ENTER_GAME msg{};   // 입장권 64바이트를 0 으로 채우려면 값 초기화가 필요하다
+    msg.header.size = sizeof(msg);
+    msg.header.type = MsgType::C2S_ENTER_GAME;
+    msg.accountId   = 0;
+
+    if (_sendBuf.Enqueue(&msg, sizeof(msg)) == 0)
+    {
+        stats.sendBufferFull += 1;
+        return;
+    }
+    stats.sendPackets += 1;
 }
 
 // MMO 더미 채팅 문장 풀

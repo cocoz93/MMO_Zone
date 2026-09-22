@@ -11,10 +11,14 @@
 //  [Server]
 //  IP=127.0.0.1
 //  Port=6000
+//  [Account]
+//  Id=10000000000
 // ==========================================================================
 
 #include <string>
 #include <iostream>
+#include <cstdint>
+#include <cstdlib>
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 
@@ -22,6 +26,11 @@ struct ClientConfig
 {
     std::string serverIp  = "127.0.0.1";
     int         serverPort = 6000;
+
+    // [Account] 입장 요청에 실어 보낼 계정 번호. 0 = "번호를 지정하지 않음"(서버가 접속마다 새로 붙인다).
+    //   지정 번호는 2^31 이상에서 고른다 — 서버의 자동 번호는 int32 카운터라 그 위로 못 올라오기 때문에
+    //   구간이 타입으로 갈린다("100만 이상" 같은 약속은 부하 더미가 몇 시간이면 넘어선다).
+    int64_t     accountId = 0;
 
     // 실행 파일 경로 기준으로 ClientConfig.ini 로드
     bool Load()
@@ -51,6 +60,10 @@ struct ClientConfig
 
         serverPort = GetPrivateProfileIntW(L"Server", L"Port", 6000, path);
 
+        // [Account] 섹션 — GetPrivateProfileIntW 는 32비트라 100억을 못 담는다. 문자열로 읽어 64비트로 바꾼다
+        GetPrivateProfileStringW(L"Account", L"Id", L"0", buf, 256, path);
+        accountId = _wtoi64(buf);
+
         PrintConfig();
         return true;
     }
@@ -69,5 +82,6 @@ private:
         std::cout << "[ClientConfig] Loaded from INI" << std::endl;
         std::cout << "  ServerIP   : " << serverIp << std::endl;
         std::cout << "  ServerPort : " << serverPort << std::endl;
+        std::cout << "  AccountId  : " << accountId << (accountId == 0 ? " (미지정 - 매번 새 캐릭터)" : "") << std::endl;
     }
 };

@@ -76,6 +76,7 @@ private:
     void SendMoveStart(StatsLocal& stats);
     void SendMoveStop(StatsLocal& stats);
     void SendHeartbeat(StatsLocal& stats);
+    void SendEnterGame(StatsLocal& stats);
     void SendChat(StatsLocal& stats, int64_t nowMs);
     void SendZoneChange(StatsLocal& stats, int targetMapId);
 

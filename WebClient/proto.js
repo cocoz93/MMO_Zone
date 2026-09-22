@@ -16,7 +16,9 @@
     S2C_SECTOR_UPDATES:1019, S2C_CREATE_PLAYER_BATCH:1020, S2C_DELETE_PLAYER_BATCH:1021,
     // 전투 (USE_COMBAT) — 번호가 한 칸만 밀려도 조용히 엉뚱한 패킷을 읽으므로 Protocol.h 와 나란히 볼 것
     C2S_ATTACK:1022, S2C_ATTACK:1023, S2C_DAMAGE:1024, S2C_DEATH:1025,
-    S2C_RESPAWN:1026, S2C_ACTOR_STATS:1027
+    S2C_RESPAWN:1026, S2C_ACTOR_STATS:1027,
+    // 입장 (USE_LOGIN) — 접속 직후 한 번 보낸다. 새 타입은 늘 끝에만 붙는다
+    C2S_ENTER_GAME:1028
   };
   const NAME = Object.fromEntries(Object.entries(MSG).map(([k,v])=>[v,k]));
   const DIR = { NONE:0, UP:1, DOWN:2, LEFT:3, RIGHT:4 };  // Player.h
@@ -137,6 +139,10 @@
   function hdr(size, type){ const b=new ArrayBuffer(size); const d=new DataView(b); d.setUint16(0,size,true); d.setUint16(2,type,true); return {b,d}; }
   const enc = {
     heartbeat(){ return hdr(4, MSG.C2S_HEARTBEAT).b; },
+    // C2S_ENTER_GAME: header(4) + int64 accountId + char ticket[64] = 76B.
+    //   티켓은 아직 안 쓴다 — ArrayBuffer 가 0 으로 채워져 나오므로 그대로 둔다.
+    //   accountId 0 = "번호를 지정하지 않음" → 서버가 새 번호를 붙인다(새로고침마다 다른 캐릭터).
+    enterGame(accountId){ const {b,d}=hdr(76,MSG.C2S_ENTER_GAME); d.setBigInt64(4, BigInt(accountId||0), true); return b; },
     // 바디 없음 — 방향은 서버가 들고 있고, 대상도 서버가 "앞 한 칸"으로 고른다
     attack(){ return hdr(4, MSG.C2S_ATTACK).b; },
     moveStart(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_START); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },

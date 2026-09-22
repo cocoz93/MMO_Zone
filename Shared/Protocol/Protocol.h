@@ -87,7 +87,15 @@ enum class MsgType : uint16_t
     S2C_DAMAGE,             // 서버 → 클라이언트: 피해 적용 결과
     S2C_DEATH,              // 서버 → 클라이언트: 죽음
     S2C_RESPAWN,            // 서버 → 클라이언트: 부활
-    S2C_ACTOR_STATS         // 서버 → 클라이언트: 스탯 통보 (CREATE 직후 — 본인·시야 진입 상대)
+    S2C_ACTOR_STATS,        // 서버 → 클라이언트: 스탯 통보 (CREATE 직후 — 본인·시야 진입 상대)
+
+    //--------------------------------------------------
+    // 입장 (USE_LOGIN)
+    //--------------------------------------------------
+    // ※ 새 타입은 반드시 맨 끝에 붙인다 — 중간에 넣으면 뒤의 값이 전부 한 칸씩 밀려
+    //   콘솔·부하·웹·언리얼 네 클라가 조용히 엉뚱한 패킷을 읽는다.
+    //   WebClient/proto.js 의 번호표도 같은 값으로 같이 고칠 것.
+    C2S_ENTER_GAME          // 클라이언트 → 서버: 입장 요청 (계정 번호 + 입장권 자리)
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -562,6 +570,24 @@ struct MSG_S2C_ACTOR_STATS
     int32_t maxHp;
 
     MSG_S2C_ACTOR_STATS() : header{ sizeof(*this), TYPE }, actorId(0), hp(0), maxHp(0) {}
+};
+
+//==================================================
+// 입장 (USE_LOGIN)
+//==================================================
+
+// 입장권 자리 — 지금은 늘 빈 값이다. 인증 서버가 붙으면 그 토큰이 여기 들어가고, 서버는
+//   토큰으로 계정 번호를 꺼낸다. 쓰지도 않을 자리를 지금 비워 두는 이유는, 나중에 필드를
+//   더하면 Protocol.h 한 벌을 쓰는 클라 넷을 같이 고쳐야 하기 때문이다(접속당 한 번이라 값이 싸다).
+//   ※ 자리만 둔다. 토큰을 검사하는 코드는 붙일 상대가 생길 때 쓴다.
+constexpr int32_t ENTER_TICKET_MAX_LEN = 64;
+
+// C2S: 입장 요청 — 접속 직후 한 번. 이 패킷이 와야 서버가 캐릭터를 불러온다.
+struct MSG_C2S_ENTER_GAME
+{
+    MsgHeader header;
+    int64_t   accountId;                      // 0 = "번호를 지정하지 않음"(서버가 붙인다). "새 캐릭터"라는 뜻은 아니다
+    char      ticket[ENTER_TICKET_MAX_LEN];   // 지금은 안 쓴다 — 전부 0
 };
 
 #pragma pack(pop)
