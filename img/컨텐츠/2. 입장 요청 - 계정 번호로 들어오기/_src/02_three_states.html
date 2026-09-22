@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face{font-family:'Pretendard';src:url('fonts/PretendardVariable.woff2') format('woff2');
+    font-weight:100 900;font-style:normal;font-display:block}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:840px;height:496px;overflow:hidden;background:#ffffff;
+    font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased}
+  svg{display:block}
+  text{font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;fill:#111111}
+  .lane{font-size:14px;font-weight:800}
+  .h{font-size:14.5px;font-weight:700}
+  .s{font-size:12.5px;font-weight:500;fill:#444444}
+  .cap{font-size:12px;font-weight:500;fill:#666666}
+  .eq{font-size:16px;font-weight:800}
+  .r{fill:#c00000}
+</style>
+</head>
+<body>
+<svg width="840" height="496" viewBox="0 0 840 496" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#333333"/>
+    </marker>
+    <marker id="arR" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#c00000"/>
+    </marker>
+  </defs>
+
+  <text x="40" y="38" font-size="19" font-weight="800">상태가 둘에서 <tspan class="r">셋</tspan>으로 — 등식도 같이 늘어난다</text>
+  <text class="s" x="40" y="64">접속한 세션은 반드시 어느 한 칸에 있어야 한다. 어느 칸에도 없으면 등식이 늘 거짓이 된다</text>
+
+  <!-- ══════ 앞 단계 ══════ -->
+  <text class="lane" x="40" y="108">앞 단계 — 접속하자마자 조회가 나감</text>
+
+  <rect x="40" y="122" width="120" height="46" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="100" y="150" text-anchor="middle">접속</text>
+
+  <line x1="160" y1="145" x2="198" y2="145" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+
+  <rect x="200" y="122" width="170" height="46" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="285" y="150" text-anchor="middle">불러오는 중</text>
+
+  <line x1="370" y1="145" x2="408" y2="145" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+
+  <rect x="410" y="122" width="170" height="46" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="495" y="150" text-anchor="middle">게임 중</text>
+
+  <text class="eq" x="612" y="151">동접 = 둘의 합</text>
+
+  <!-- ══════ 이번 ══════ -->
+  <text class="lane" x="40" y="222">이번 — 입장 요청을 받아야 조회가 나감</text>
+
+  <rect x="40" y="236" width="120" height="46" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="100" y="264" text-anchor="middle">접속</text>
+
+  <line x1="160" y1="259" x2="198" y2="259" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+
+  <rect x="200" y="236" width="170" height="46" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="h r" x="285" y="258" text-anchor="middle">입장 대기</text>
+  <text class="cap r" x="285" y="275" text-anchor="middle">이번에 생긴 칸</text>
+
+  <line x1="370" y1="259" x2="408" y2="259" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+
+  <rect x="410" y="236" width="170" height="46" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="495" y="264" text-anchor="middle">불러오는 중</text>
+
+  <line x1="580" y1="259" x2="618" y2="259" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+
+  <rect x="620" y="236" width="180" height="46" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="710" y="264" text-anchor="middle">게임 중</text>
+
+  <text class="cap" x="285" y="302" text-anchor="middle">입장 요청이 와야 다음 칸으로</text>
+
+  <!-- ══════ 등식 ══════ -->
+  <rect x="40" y="330" width="380" height="92" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="cap" x="56" y="352">이 칸을 안 세면</text>
+  <text class="eq" x="56" y="382">동접 5  ≠  게임 중 0  +  불러오는 중 0</text>
+  <text class="s" x="56" y="406">접속만 하고 기다리는 세션이 어디에도 없음</text>
+
+  <rect x="440" y="330" width="360" height="92" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="cap r" x="456" y="352">세 항으로 늘리면</text>
+  <text class="eq r" x="456" y="382">동접 5  =  0  +  0  +  입장 대기 5</text>
+  <text class="s r" x="456" y="406">유령 플레이어를 잡는 장치가 살아 있음</text>
+
+  <text class="cap" x="40" y="466">빨강 = 이번에 늘어난 칸과 항</text>
+</svg>
+</body>
+</html>
