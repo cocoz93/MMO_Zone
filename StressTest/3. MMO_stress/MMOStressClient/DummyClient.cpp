@@ -235,6 +235,10 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     case MsgType::S2C_DEATH:              return sizeof(MSG_S2C_DEATH);
     case MsgType::S2C_RESPAWN:            return sizeof(MSG_S2C_RESPAWN);
     case MsgType::S2C_ACTOR_STATS:        return sizeof(MSG_S2C_ACTOR_STATS);
+    // USE_EXP: 경험치·레벨 — 위 전투 패킷과 같은 이유로 크기만 등록한다.
+    //   ★ 더미는 몬스터를 안 잡지만 이 패킷을 반드시 받는다 — 스폰 직후 본인에게 한 장 간다.
+    //     빠뜨리면 전투가 없어도 더미 전원이 접속하자마자 떨어진다.
+    case MsgType::S2C_EXP:                return sizeof(MSG_S2C_EXP);
     default: return 0;
     }
 }

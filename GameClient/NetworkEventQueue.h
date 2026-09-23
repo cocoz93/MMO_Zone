@@ -23,7 +23,8 @@ struct ClientNetworkEvent
         ZONE_CHANGE_FAIL,
         ERROR_MSG,
         ADMIN_LOGIN_OK,
-        ADMIN_LOGIN_FAIL
+        ADMIN_LOGIN_FAIL,
+        EXP          // 서버 USE_EXP — 내 레벨·경험치 (본인에게만 온다)
     };
 
     Type type;
@@ -48,6 +49,12 @@ struct ClientNetworkEvent
     int32_t mapId;
     int32_t channelIndex;
     uint8_t reason;
+
+    // 레벨·경험치 — playerId 를 안 싣는다(늘 본인이다)
+    int32_t level;
+    int64_t exp;
+    int64_t levelBaseExp;
+    int64_t nextLevelExp;
 
     // 채팅 / 에러
     wchar_t chatMessage[512];

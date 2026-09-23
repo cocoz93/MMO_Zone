@@ -146,9 +146,12 @@ void CConsoleRenderer::RenderStatusBar(const ClientPlayer* me)
         default:               dirStr = L"-";     break;
         }
 
-        swprintf_s(buf, CONSOLE_WIDTH + 1,
-            L" Zone:%d-%d  Player:%-4d  Pos:(%6.1f,%6.1f)  Speed:%-3d  [%s %s]",
-            _mapId, _channelIndex, me->playerId, me->x, me->y, me->speed, stateStr, dirStr);
+        // ★ swprintf_s 가 아니라 _TRUNCATE 다 — 넘치면 자르고 만다.
+        //   Lv 를 끼우면서 한 줄이 80칸에 더 가까워졌고, 캐릭터 번호가 커지면(지금도 만 단위)
+        //   swprintf_s 는 잘라 주는 대신 잘못된 인자 핸들러를 불러 프로그램을 끝낸다.
+        _snwprintf_s(buf, CONSOLE_WIDTH + 1, _TRUNCATE,
+            L" Zone:%d-%d  Lv:%-2d  Player:%-4d  Pos:(%6.1f,%6.1f)  Speed:%-3d  [%s %s]",
+            _mapId, _channelIndex, me->level, me->playerId, me->x, me->y, me->speed, stateStr, dirStr);
     }
     else
     {

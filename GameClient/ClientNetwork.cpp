@@ -376,6 +376,12 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
     case MsgType::S2C_ACTOR_STATS:
         break;
 
+    // 경험치·레벨 (서버 USE_EXP) — 이것만 상태바에 그린다. 숫자 하나라 흔들림이 없다.
+    case MsgType::S2C_EXP:
+        if (size >= sizeof(MSG_S2C_EXP))
+            _gameInstance->OnExp(reinterpret_cast<const MSG_S2C_EXP*>(data));
+        break;
+
     default:
         LOG_ERROR_STREAM("Unknown message type: " << static_cast<int>(header->type));
         break;

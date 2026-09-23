@@ -39,6 +39,7 @@ public:
     void OnError(const MSG_S2C_ERROR* msg);
     void OnAdminLoginOk();
     void OnAdminLoginFail();
+    void OnExp(const MSG_S2C_EXP* msg);   // 서버 USE_EXP: 내 레벨·경험치 (본인에게만 온다)
 
 private:
     // 게임 루프 (25fps)

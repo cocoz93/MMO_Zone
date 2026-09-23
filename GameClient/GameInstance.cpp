@@ -339,6 +339,33 @@ void CGameInstance::ProcessNetworkEvents()
         case ClientNetworkEvent::Type::ADMIN_LOGIN_FAIL:
             AddChatMessage(L"[System] Admin login failed. Invalid key.");
             break;
+
+        case ClientNetworkEvent::Type::EXP:
+        {
+            // 내 것에만 담는다. 아직 내 캐릭터가 없으면(순서가 뒤집힌 경우) 버린다 —
+            //   존 이동·스폰 양쪽 다 CREATE 뒤에 오므로 평소엔 안 걸린다.
+            ClientPlayer* me = _playerManager.GetMyPlayer();
+            if (me == nullptr)
+                break;
+
+            const bool    hadExp    = me->hasExp;
+            const int32_t prevLevel = me->level;
+            me->level        = event.level;
+            me->exp          = event.exp;
+            me->levelBaseExp = event.levelBaseExp;
+            me->nextLevelExp = event.nextLevelExp;
+            me->hasExp       = true;
+
+            // 레벨이 오른 것만 한 줄 남긴다 — 경험치마다 찍으면 채팅창이 사냥 로그가 된다.
+            //   첫 장은 기준선이라 건너뛴다(위 hasExp 주석).
+            if (hadExp && event.level > prevLevel)
+            {
+                wchar_t buf[64];
+                swprintf_s(buf, L"[System] Level up! Lv.%d", event.level);
+                AddChatMessage(buf);
+            }
+            break;
+        }
         }
     }
 }
@@ -750,6 +777,17 @@ void CGameInstance::OnAdminLoginFail()
 {
     ClientNetworkEvent event{};
     event.type = ClientNetworkEvent::Type::ADMIN_LOGIN_FAIL;
+    _eventQueue.Push(std::move(event));
+}
+
+void CGameInstance::OnExp(const MSG_S2C_EXP* msg)
+{
+    ClientNetworkEvent event{};
+    event.type         = ClientNetworkEvent::Type::EXP;
+    event.level        = msg->level;
+    event.exp          = msg->exp;
+    event.levelBaseExp = msg->levelBaseExp;
+    event.nextLevelExp = msg->nextLevelExp;
     _eventQueue.Push(std::move(event));
 }
 

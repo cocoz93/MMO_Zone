@@ -95,7 +95,12 @@ enum class MsgType : uint16_t
     // ※ 새 타입은 반드시 맨 끝에 붙인다 — 중간에 넣으면 뒤의 값이 전부 한 칸씩 밀려
     //   콘솔·부하·웹·언리얼 네 클라가 조용히 엉뚱한 패킷을 읽는다.
     //   WebClient/proto.js 의 번호표도 같은 값으로 같이 고칠 것.
-    C2S_ENTER_GAME          // 클라이언트 → 서버: 입장 요청 (계정 번호 + 입장권 자리)
+    C2S_ENTER_GAME,         // 클라이언트 → 서버: 입장 요청 (계정 번호 + 입장권 자리)
+
+    //--------------------------------------------------
+    // 경험치·레벨 (USE_EXP)
+    //--------------------------------------------------
+    S2C_EXP                 // 서버 → 클라이언트: 레벨·경험치 통보 (본인 전용)
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -588,6 +593,31 @@ struct MSG_C2S_ENTER_GAME
     MsgHeader header;
     int64_t   accountId;                      // 0 = "번호를 지정하지 않음"(서버가 붙인다). "새 캐릭터"라는 뜻은 아니다
     char      ticket[ENTER_TICKET_MAX_LEN];   // 지금은 안 쓴다 — 전부 0
+};
+
+//==================================================
+// 경험치·레벨 (USE_EXP)
+//==================================================
+
+// S2C: 레벨·경험치 통보 — 본인에게만 보낸다.
+//   남의 레벨은 화면에 안 띄운다. 띄우려면 CREATE 계열에 자리가 필요한데 그건 구조체 변경이라 안 한다.
+//   ★ 값 넷을 다 실어 보내는 이유 — 클라가 레벨 표를 안 갖게 한다. 표는 서버 것이고,
+//     클라는 막대를 그릴 분자·분모만 있으면 된다.
+//       분자 = exp - levelBaseExp, 분모 = nextLevelExp - levelBaseExp
+//   ★ 만렙에서는 nextLevelExp 가 0 이다. 클라는 0 을 보면 나누지 말고 "MAX" 로 그린다
+//     (마지막 레벨의 값을 그대로 넣어 가득 찬 막대처럼 보이게 하는 것보다 덜 헷갈린다).
+//   레벨업에 별도 타입을 안 판다 — level 이 달라진 것으로 알 수 있고, 늘어난 체력은
+//     기존 S2C_ACTOR_STATS 를 다시 보내면 된다.
+struct MSG_S2C_EXP
+{
+    static constexpr MsgType TYPE = MsgType::S2C_EXP;
+    MsgHeader header;
+    int32_t level;
+    int64_t exp;             // 지금까지 얻은 총 누적 (레벨 안에서 다시 0부터 세지 않는다)
+    int64_t levelBaseExp;    // 지금 레벨에 도달할 때의 누적 = 막대의 0 점
+    int64_t nextLevelExp;    // 다음 레벨에 필요한 누적. 만렙이면 0
+
+    MSG_S2C_EXP() : header{ sizeof(*this), TYPE }, level(1), exp(0), levelBaseExp(0), nextLevelExp(0) {}
 };
 
 #pragma pack(pop)

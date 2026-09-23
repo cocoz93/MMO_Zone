@@ -18,7 +18,9 @@
     C2S_ATTACK:1022, S2C_ATTACK:1023, S2C_DAMAGE:1024, S2C_DEATH:1025,
     S2C_RESPAWN:1026, S2C_ACTOR_STATS:1027,
     // 입장 (USE_LOGIN) — 접속 직후 한 번 보낸다. 새 타입은 늘 끝에만 붙는다
-    C2S_ENTER_GAME:1028
+    C2S_ENTER_GAME:1028,
+    // 경험치·레벨 (USE_EXP) — 본인 전용
+    S2C_EXP:1029
   };
   const NAME = Object.fromEntries(Object.entries(MSG).map(([k,v])=>[v,k]));
   const DIR = { NONE:0, UP:1, DOWN:2, LEFT:3, RIGHT:4 };  // Player.h
@@ -110,6 +112,14 @@
         p.x=dv.getFloat32(o+4,true); p.y=dv.getFloat32(o+8,true); p.hp=dv.getInt32(o+12,true); break;
       case MSG.S2C_ACTOR_STATS:                  // CREATE 에 HP 자리가 없어 뒤따라 오는 것
         p.actorId=dv.getInt32(o,true); p.hp=dv.getInt32(o+4,true); p.maxHp=dv.getInt32(o+8,true); break;
+      // ---- 경험치·레벨 (USE_EXP) — 본인 전용. 표는 서버 것이라 막대의 분자·분모가 같이 온다 ----
+      //   #pragma pack(1) 이라 int32 뒤에 int64 가 곧바로 붙는다(패딩 없음) → 오프셋 4,8,16,24
+      //   nextLevelExp 가 0 이면 만렙 — 나누지 말고 MAX 로 그린다
+      case MSG.S2C_EXP:
+        p.level=dv.getInt32(o,true);
+        p.exp=Number(dv.getBigInt64(o+4,true));
+        p.levelBaseExp=Number(dv.getBigInt64(o+12,true));
+        p.nextLevelExp=Number(dv.getBigInt64(o+20,true)); break;
       default: break; // ZONE_CHANGE_OK/FAIL, ADMIN_* etc. — not needed for the view
     }
     return p;

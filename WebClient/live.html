@@ -75,11 +75,13 @@ function resize(){
   //   여백이 그보다 좁으면(세로로 긴 창 등) 예전처럼 게임 화면 위에 400px 로 얹는다.
   CHAT_W = (VX>=250 && VX<428) ? VX-28 : 400;
   chatbox.style.width = (CHAT_W-26)+'px';         // 입력창을 패널과 같은 폭으로(좌우 패딩 12×2 + 테두리 1×2 를 뺀다)
-  // 연결 표시 — 왼쪽 여백이 있으면 이름표(14~72px) 아래로 옮긴다. 위 가운데에 두면 작아진 게임 화면의 윗부분을 가린다
+  // 연결 표시 — 왼쪽 여백이 있으면 이름표 아래로 옮긴다. 위 가운데에 두면 작아진 게임 화면의 윗부분을 가린다
   //   (확대 150%에서 화면 폭의 40%를 덮었다). 여백이 없으면 예전처럼 위 가운데.
+  //   ★ 110px = 이름표가 경험치 칸까지 낀 높이(14+84=98) + 12px 틈. 84px 는 칸이 없던 시절 값이라
+  //     레벨이 들어온 순간 8px 겹쳤다. 칸이 뜨기 전 잠깐 틈이 넓은 편이 겹치는 것보다 낫다.
   const side = VX>=250;
   connEl.style.left      = side ? '14px' : '';
-  connEl.style.top       = side ? '84px' : '';
+  connEl.style.top       = side ? '110px' : '';
   connEl.style.transform = side ? 'none' : '';
   connEl.style.maxWidth  = side ? (VX-28)+'px' : '';
 }
@@ -94,6 +96,11 @@ const BUBBLE_LIFE = 7;                       // 말풍선 표시 시간(초) —
 const HIT_LIFE = 0.5;                        // 피격 점멸 + 데미지 숫자
 const SWING_LIFE = 0.18;                     // 휘두르는 호
 const SPAWN_LIFE = 0.6;                      // 부활 섬광
+const LEVELUP_LIFE = 1.6;                    // 레벨업 문구 표시 시간(초)
+// 경험치·레벨 (USE_EXP) — 본인 것만 서버가 보낸다. self 에 안 넣는 이유는 self 가
+//   존을 넘을 때 통째로 새로 만들어져서 레벨이 같이 날아가기 때문이다(서버가 다시 보내 주긴 한다).
+//   level===null = "아직 한 장도 못 받음" → HUD 에 레벨 줄을 안 그린다.
+const me = { level:null, exp:0, base:0, next:0, levelUpT:0 };
 // 전투 필드 기본값 — CREATE 와 부활 양쪽에서 같은 모양으로 만들려고 한 곳에 둔다
 const COMBAT_INIT = () => ({ hp:null, maxHp:null, hitT:0, hitDmg:0, swingT:0, spawnT:0, dead:false });
 const stat = { count:{}, rate:{}, bytes:0, kbps:0, connected:false };
@@ -210,6 +217,14 @@ function onPacket(p){
     case P.MSG.S2C_RESPAWN: {
       const a=actorOf(p.targetId);
       if(a){ a.dead=false; a.hp=p.hp; a.x=p.x; a.y=p.y; a.rx=p.x; a.ry=p.y; a.moveState=0; a.spawnT=SPAWN_LIFE; }
+      break; }
+
+    // ---- 경험치·레벨 (USE_EXP) ----
+    // 본인에게만 온다 — actorId 가 안 실려 있고, 실을 이유도 없다.
+    //   nextLevelExp===0 은 만렙. 그때 비율을 계산하면 0 으로 나눈다.
+    case P.MSG.S2C_EXP: {
+      if(me.level!==null && p.level>me.level) me.levelUpT=LEVELUP_LIFE;
+      me.level=p.level; me.exp=p.exp; me.base=p.levelBaseExp; me.next=p.nextLevelExp;
       break; }
   }
 }
@@ -486,14 +501,47 @@ function drawSectorLabels(){
 }
 function panel(x,y,w,h){ ctx.fillStyle='rgba(10,16,12,.76)'; rr(x,y,w,h,10); ctx.fill(); ctx.strokeStyle='rgba(150,200,150,.16)'; ctx.lineWidth=1; ctx.stroke(); }
 function drawHUD(){
-  // player banner (top-left)
-  panel(14,14,220,58);
+  // player banner (top-left) — 레벨을 받기 전에는 아래 경험치 칸만큼 낮게 그린다
+  const hasLv = me.level!==null;
+  panel(14,14,220, hasLv?84:58);
   ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font='600 15px '+SANS; ctx.fillText('주우진', 26, 36);
   ctx.fillStyle='rgba(180,210,180,.8)'; ctx.font='11px '+SANS;
   ctx.fillText('내 캐릭터 '+(self?('· '+String.fromCharCode(self.disp)+' #'+self.id):''), 26, 54);
   ctx.textAlign='right'; ctx.fillStyle='#8fd6a0'; ctx.font='600 13px '+SANS;
   ctx.fillText('시야 '+others.size+'명', 220, 36);
   ctx.fillStyle='rgba(180,210,180,.7)'; ctx.font='11px '+SANS; ctx.fillText('AOI 실시간', 220, 54); ctx.textAlign='left';
+
+  if(hasLv){
+    // 경험치 막대 — 누적 기준이라 "이 레벨에서 번 것 / 이 레벨이 요구하는 것"으로 환산해 그린다.
+    //   서버가 base(현 레벨 도달치)와 next(다음 레벨 도달치)를 같이 줘서 클라가 표를 몰라도 된다.
+    const maxed = me.next<=0;                       // 만렙 — 0 으로 나누지 않게 먼저 가른다
+    const span  = maxed?0:(me.next-me.base);
+    const ratio = (maxed||span<=0) ? 1 : Math.max(0,Math.min(1,(me.exp-me.base)/span));
+    const bx=26, by=64, bw=182, bh=7;
+    ctx.fillStyle='rgba(255,255,255,.10)'; rr(bx,by,bw,bh,3.5); ctx.fill();
+    ctx.fillStyle= maxed?'#e7d16a':'#8fd6a0'; rr(bx,by,Math.max(2,bw*ratio),bh,3.5); ctx.fill();
+
+    ctx.font='600 11px '+MONO; ctx.fillStyle='#cfe8c8';
+    ctx.fillText('Lv.'+me.level, 26, 84);
+    ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.75)';
+    ctx.fillText(maxed?'MAX':((me.exp-me.base)+' / '+span), 208, 84);
+    ctx.textAlign='left';
+  }
+
+  // 레벨업 순간만 짧게 — 막대가 0 으로 돌아가는 이유를 보여 준다.
+  //   ★ 배너 옆(x=244)에 두면 안 된다 — 거기가 곧 게임 화면 왼쪽 끝이라 글자가 풀밭을 파고든다.
+  //     게임 화면 위 가운데는 어느 패널과도 안 겹치고, 알림이 놓일 자리이기도 하다.
+  if(me.levelUpT>0){
+    const a=Math.min(1,me.levelUpT/0.5);
+    ctx.save();
+    ctx.globalAlpha=a; ctx.textAlign='center';
+    ctx.font='700 22px '+SANS;
+    ctx.lineWidth=4; ctx.strokeStyle='rgba(0,0,0,.55)';
+    ctx.strokeText('LEVEL UP!  Lv.'+me.level, VX+VW/2, VY+64);
+    ctx.fillStyle='#ffe98a';
+    ctx.fillText('LEVEL UP!  Lv.'+me.level, VX+VW/2, VY+64);
+    ctx.restore();
+  }
 
   // SERVER INTERNALS panel (top-right, teal = server's-eye)
   const pw=232, ph=195, px=W-14-pw, py=14;
@@ -588,6 +636,7 @@ function step(dt,t){
   }
   if(self){ decayCombat(self,dt); if(self.chat){ self.chatT-=dt; if(self.chatT<=0)self.chat=null; } }
   others.forEach(o=>{ advance(o,dt,Math.min(1,dt*9)); decayCombat(o,dt); if(o.chat){o.chatT-=dt; if(o.chatT<=0)o.chat=null;} });
+  if(me.levelUpT>0) me.levelUpT=Math.max(0,me.levelUpT-dt);   // 레벨업 문구는 나 하나뿐이라 decayCombat 밖이다
 }
 // 전투 표시 타이머 감쇠 — 셋을 한 곳에서 줄인다(자리를 나누면 하나를 빠뜨려 표시가 안 꺼진다)
 function decayCombat(o,dt){
