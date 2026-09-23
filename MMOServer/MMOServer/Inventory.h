@@ -22,6 +22,19 @@ enum class InvAddResult : uint8_t
     COUNT
 };
 const char* InvAddResultName(InvAddResult r);   // 지표 라벨(tab_full 등)
+
+// 불러올 때 건너뛴 줄의 사유 — DB 행이 망가졌거나 표가 바뀌어 지금 규칙에 안 맞는 줄. 평소엔 전부 0 이다.
+//   ★ 깎아서 넣지 않는다(수량 초과를 한도로 줄이는 식) — 깎으면 무엇이 사라졌는지 아무도 모른다. 세고 건너뛴다.
+enum class InvLoadSkip : uint8_t
+{
+    BAD_SLOT,        // 칸 번호가 어느 탭 구간에도 없다
+    UNKNOWN_ITEM,    // 아이템 표에 없는 번호(패치로 지운 아이템)
+    WRONG_TAB,       // 아이템의 탭과 칸의 탭이 다르다
+    BAD_COUNT,       // 개수가 0 이하이거나 쌓임 한도를 넘는다
+    TOO_MANY_ROWS,   // 결과에 다 못 실은 줄(DB_INV_MAX_ROWS 초과)
+    COUNT
+};
+const char* InvLoadSkipName(InvLoadSkip r);
 const char* UseItemFailName(UseItemFail r);     // 지표 라벨(full_hp 등) — 사유 enum 은 와이어에 실려 Protocol.h 에 있다
 
 // 칸 번호 → 탭 + 가방 배열 색인. 구간 밖이면 false. INV_TAB_RANGES 를 돈다(탭마다 if 없음).

@@ -134,6 +134,11 @@ private:
         bool    dbDirty = true;    // 스폰 자리를 다음 주기에 저장할까 (DB 와 같은 값으로 들어왔으면 false)
         int32_t level   = 1;       // 불러온 값. 새 캐릭터·못 읽음이면 기본값 그대로
         int64_t exp     = 0;
+#if USE_DB_WORKER && USE_INVENTORY
+        // 불러온 가방 줄이 든 결과 — 찾음·없음 갈래에서 채운다(없음이어도 가방 줄은 있을 수 있다). nullptr = 가방 없음.
+        //   회신 큐의 원소를 가리킨다 — OnCharacterLoaded 가 SpawnPlayer 를 동기로 부르는 동안만 살아 있다.
+        const DBResult* loaded = nullptr;
+#endif
     };
 
     // 플레이어를 만들어 존에 넣고 본인·주변에 알린다 (OnConnected 의 몸이 옮겨 온 것).
@@ -191,6 +196,12 @@ private:
     // 쓸 수 있나 — 사유를 UseItemFail 순서대로 보고 먼저 걸린 하나를 돌려준다. 통과면 COUNT.
     //   판정을 값을 돌려주는 함수로 뺀 이유 — 사유가 여섯이라 호출부에서 if 사슬로 쓰면 하나를 빠뜨려도 안 보인다.
     UseItemFail CheckUseItem(const CPlayer* player, uint16_t slot, int& outIndex, const ItemDef*& outDef) const;
+
+#if USE_DB_WORKER
+    // 불러온 가방 줄을 검사해 넣는다 — 칸 범위·아이템 표·탭·쌓임 한도. 안 맞는 줄은 세고 건너뛴다(깎아 넣지 않는다).
+    //   바뀐 칸 표시를 안 켠다(DB 와 같은 값) — 건너뛴 줄은 DB 에 그대로 남고, 그 칸에 새 아이템이 들어오면 덮인다.
+    void LoadInventoryRows(CPlayer* player, const DBResult& result);
+#endif
 
     // 물약 대기시간 1초 — 서버 틱 수로 잰다(사용자 결정 09-23). 틱 주기가 바뀌어도 1초가 되게 FRAME_PER_SEC 로 쓴다.
     static constexpr uint64_t ITEM_USE_COOLDOWN_FRAMES = 25;   // = FRAME_PER_SEC (아래 선언보다 앞이라 숫자로 — 단언이 맞춘다)

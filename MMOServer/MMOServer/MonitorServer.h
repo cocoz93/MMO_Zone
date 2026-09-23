@@ -538,6 +538,39 @@ private:
                << "\"} " << inv._useRejected[i] << "\n";
         }
         ss << "\n";
+
+#if USE_DB_WORKER
+        // 가방 저장·불러오기. mmo_db_* 로 안 붙인다 — 그쪽은 위치 저장만 세는 기존 게이트다.
+        //   등식(조용해진 뒤): saves_queued = saved + save_failed
+        const auto& dbItem = _gameMonitor._dbItem;
+        WriteCounter(ss, "mmo_inv_saves_queued_total",
+                     "Bag slot saves enqueued to the DB worker (one per changed slot, FlushInventory)",
+                     inv._itemSavesQueued);
+        WriteCounter(ss, "mmo_inv_save_rejected_total",
+                     "Bag slot saves refused at enqueue (item save ceiling hit; 0 expected - nonzero means the DB is stalled)",
+                     inv._itemSaveRejected);
+        WriteCounter(ss, "mmo_inv_saved_total",
+                     "Bag slot saves written by the DB worker",
+                     dbItem._saved);
+        WriteCounter(ss, "mmo_inv_save_failed_total",
+                     "Bag slot saves lost after one reconnect and retry (0 expected - that slot differs from the DB)",
+                     dbItem._failed);
+        WriteCounter(ss, "mmo_inv_save_retried_total",
+                     "Bag slot saves retried after a reconnect (success or not)",
+                     dbItem._retried);
+        WriteCounter(ss, "mmo_inv_loaded_slots_total",
+                     "Bag slots filled from the DB at enter",
+                     inv._loadedSlots);
+
+        ss << "# HELP mmo_inv_load_skipped_total Bag rows skipped at enter, split by reason (0 expected)\n";
+        ss << "# TYPE mmo_inv_load_skipped_total counter\n";
+        for (int i = 0; i < static_cast<int>(InvLoadSkip::COUNT); ++i)
+        {
+            ss << "mmo_inv_load_skipped_total{reason=\"" << InvLoadSkipName(static_cast<InvLoadSkip>(i))
+               << "\"} " << inv._loadSkipped[i] << "\n";
+        }
+        ss << "\n";
+#endif
 #endif
     }
 

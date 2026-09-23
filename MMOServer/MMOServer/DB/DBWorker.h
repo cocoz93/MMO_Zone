@@ -68,6 +68,37 @@ struct DBLoadJob
     int64_t requestNs;   // 요청 시각(steady_clock, ns) — 요청→결과 수령 지연을 재는 기준
 };
 
+#if USE_INVENTORY
+// 가방 한 칸 저장 잡 (USE_INVENTORY) — 칸이 바뀐 "그 순간" 칸의 최종값을 싣는다(60초 주기와 따로).
+//   증감이 아니라 최종값이라 같은 잡을 두 번 실행해도 결과가 같다 → 실행 실패 때 재연결 후 다시 써도 안전하다.
+//   ★ 위치 저장과 달리 버리지 않는다 — 저장 상한을 건너뛰고 따로 센다(EnqueueItemSlot).
+//     위치는 다음 주기가 덮지만, 아이템은 버리면 되돌릴 길이 없다.
+struct DBItemSlotJob
+{
+    int64_t accountId;
+    int32_t slot;        // 칸 번호 (Protocol.h INV_TAB_RANGES)
+    int32_t itemId;      // 0 = 빈 칸 — 행을 지우지 않고 0 으로 덮는다(DB 계정에 DELETE 권한이 없다)
+    int32_t count;
+};
+
+// 불러온 가방 한 줄 — DB 값 그대로(검사는 게임 스레드가 한다: 칸 범위·아이템 표·탭·쌓임 한도).
+//   칸 번호를 int32 로 받는 이유 — 행이 망가져 있으면 음수나 큰 값일 수 있다. 줄이기 전에 걸러야 한다.
+struct DBInvRow
+{
+    int32_t slot;
+    int32_t itemId;
+    int32_t count;
+};
+
+// 결과에 실을 수 있는 가방 줄 수 — 칸 60 의 두 배. 망가진 행이 섞여 있어도 멀쩡한 행을 잃지 않게 넉넉히 둔다.
+//   넘는 줄은 싣지 않고 수만 센다(DBResult::invOverflow → 게임 쪽 "too_many_rows" 계수기).
+constexpr int DB_INV_MAX_ROWS = 120;
+
+// 아이템 저장 계수기 — 워커 스레드가 센다. 정의는 게임 쪽(GameMonitor.h)이고 여기선 가리키기만 한다.
+//   코어(CMonitorManager)에 안 넣는 이유 — 넣으면 별도 저장소(ServerCore)를 고치게 된다.
+struct DBItemSaveCounters;
+#endif
+
 // 작업 종류 — 큐 원소에 붙는 표시. 워커와 게임 루프가 switch 로 가른다.
 //   ※ 종류를 늘리면 COUNT 가 바뀌고, 각 switch 옆의 static_assert 가 컴파일을 막아
 //     빠뜨린 갈래를 찾아가게 한다. (이 프로젝트 빌드 옵션엔 -Wswitch·C4062 가 꺼져 있어
@@ -76,6 +107,9 @@ enum class DBJobKind : uint8_t
 {
     SAVE_POSITION,     // 위치 UPSERT — 편도. 손실 허용(넘치면 버리고 다음 주기가 덮는다)
     LOAD_CHARACTER,    // 캐릭터 행 SELECT — 왕복. 버리지 않는다(버리면 그 사람이 못 들어온다)
+#if USE_INVENTORY
+    SAVE_ITEM_SLOT,    // 가방 칸 UPSERT — 편도지만 버리지 않는다(버리면 아이템이 사라진다)
+#endif
     COUNT
 };
 constexpr int DB_JOB_KIND_COUNT = static_cast<int>(DBJobKind::COUNT);
@@ -89,10 +123,16 @@ struct DBJob
     {
         DBSaveJob save;
         DBLoadJob load;
+#if USE_INVENTORY
+        DBItemSlotJob item;
+#endif
     };
 
     static DBJob Save(const DBSaveJob& s) { DBJob j; j.kind = DBJobKind::SAVE_POSITION;  j.save = s; return j; }
     static DBJob Load(const DBLoadJob& l) { DBJob j; j.kind = DBJobKind::LOAD_CHARACTER; j.load = l; return j; }
+#if USE_INVENTORY
+    static DBJob Item(const DBItemSlotJob& i) { DBJob j; j.kind = DBJobKind::SAVE_ITEM_SLOT; j.item = i; return j; }
+#endif
 };
 
 // 불러오기 결과 — 셋을 가른다.
@@ -119,6 +159,14 @@ struct DBResult
     int32_t      mapId;
     int32_t      level;
     int64_t      exp;
+#if USE_INVENTORY
+    // ↓ FOUND·NOT_FOUND 둘 다 유효 — 캐릭터 행이 없어도 가방은 읽는다(가방은 바뀌자마자 쓰고 캐릭터 행은
+    //   주기·로그아웃에 쓰므로, 첫 저장 전에 서버가 죽으면 가방 행만 있는 계정이 생긴다).
+    //   가방 조회가 실패하면 code 는 FAILED 다 — 빈 가방으로 들여보내면 첫 아이템이 진짜 행을 덮는다.
+    int32_t      invCount;     // inv 에 실린 줄 수
+    int32_t      invOverflow;  // DB_INV_MAX_ROWS 를 넘어 못 실은 줄 수 (정상이면 0)
+    DBInvRow     inv[DB_INV_MAX_ROWS];
+#endif
 };
 
 // 워커 슬롯 — 스레드/커넥션/큐 1세트 (CIOCPServer::SendWorker 패턴).
@@ -144,6 +192,18 @@ struct DBWorkerSlot
     int32_t                  bLoadMapId = 0;
     int32_t                  bLoadLevel = 1;
     int64_t                  bLoadExp = 0;
+#if USE_INVENTORY
+    size_t                   itemCount = 0;         // queue 안의 아이템 저장 수(mutex 보호) — 저장 상한과 따로 센다
+    int64_t                  bItemAccountId = 0;    // ↓ 가방 칸 저장 stmt 파라미터
+    int32_t                  bItemSlot = 0;
+    int32_t                  bItemId = 0;
+    int32_t                  bItemCount = 0;
+    void*                    stmtLoadInv = nullptr; // 가방 불러오기 stmt — 작업 종류가 아니라 불러오기 잡의 "둘째 문장"
+    int64_t                  bInvAccountId = 0;     // ↓ 가방 불러오기 파라미터 1개 · 결과 3열
+    int32_t                  bInvSlot = 0;
+    int32_t                  bInvItemId = 0;
+    int32_t                  bInvCount = 0;
+#endif
     int                      index = 0;
 };
 
@@ -176,6 +236,17 @@ public:
     //   반환 false = 거절됨. 결과가 오지 않으므로 호출부가 그 자리에서 처리해야 한다.
     bool EnqueueLoad(const DBLoadJob& job);
 
+#if USE_INVENTORY
+    // 게임루프 전용 — 가방 칸 저장 1건. 저장과 같은 슬롯 큐(accountId%K) — 계정별 순서가 불러오기와 맞물린다
+    //   (같은 계정이 다시 들어오면 불러오기가 이 저장들 "뒤"에 줄 선다 → 방금 얻은 아이템을 본다).
+    //   저장 상한(queueMax)은 건너뛰고 아이템 저장끼리만 센 수로 같은 상한을 건다(EnqueueLoad 와 같은 대우).
+    //   반환 false = 거절(= DB 가 멈춘 것). 호출부가 세고 ERROR 를 남긴다 — 아이템을 되살릴 길은 이번 범위 밖.
+    bool EnqueueItemSlot(const DBItemSlotJob& job);
+
+    // 아이템 저장 계수기 자리를 알려 준다 — Start 전에 한 번. 없으면(nullptr) 세지 않는다.
+    void SetItemSaveCounters(DBItemSaveCounters* counters) { _itemCounters = counters; }
+#endif
+
     // 게임루프 전용 — 쌓인 결과를 통째로 꺼낸다(락 1회). out 은 비어 있어야 한다.
     //   벡터를 맞바꾸므로 양쪽 다 용량이 보존된다 → 틱마다 할당하지 않는다
     //   (SwapOutNetworkEvents 와 같은 방식). 처리 중에 도착한 결과는 다음 틱으로 넘어간다.
@@ -198,6 +269,16 @@ private:
     // 결과는 항상 채운다(실패도 결과다). reconnectFailedThisBatch = 이 묶음에서 재연결이 실패한 적 있나(WorkerThread 지역값).
     void ExecLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out, bool& reconnectFailedThisBatch);
     LoadOutcome RunLoadOnce(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out);
+#if USE_INVENTORY
+    // 불러오기의 둘째 문장 — 가방 줄을 out.inv 에 채운다. 결말은 LoadOutcome 로(FOUND = 성공, 줄이 0 이어도).
+    LoadOutcome RunInventoryLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out);
+    // 가방 칸 저장 — 커넥션이 없거나 도중에 죽으면 재연결 한 번 하고 다시 쓴다(최종값이라 두 번 써도 같다).
+    void ExecItemSave(DBWorkerSlot& slot, const DBItemSlotJob& job, bool& reconnectFailedThisBatch);
+    LoadOutcome RunItemSaveOnce(DBWorkerSlot& slot, const DBItemSlotJob& job);   // FOUND = 성공
+    // 새 문장들의 오류 분류(유실 / 그 밖). stmt 는 MYSQL_STMT* — 헤더를 mysql.h 로 더럽히지 않으려고 void*
+    static LoadOutcome ClassifyStmtError(void* stmt, const char* what, int64_t accountId);
+    DBItemSaveCounters* _itemCounters = nullptr;
+#endif
     // 불러오기용 재연결 — 이 묶음에서 이미 실패했으면 시도하지 않는다(죽은 DB 에 불러오기마다 접속 제한 시간을 쓰지 않게).
     bool TryReconnectForLoad(DBWorkerSlot& slot, bool& reconnectFailedThisBatch);
     void PushResult(const DBResult& result);  // 워커 스레드 → 회신 큐

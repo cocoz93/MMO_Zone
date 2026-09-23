@@ -42,6 +42,15 @@ inline const char* ChatCommandRejectName(ChatCommandReject r)
     }
     return "?";
 }
+
+// 아이템 저장 계수기 — DB 워커 스레드가 센다(DBWorker.h 가 앞 선언으로 가리킨다).
+//   ★ 게임 스레드가 세는 _inventory 와 따로 둔다 — 두 스레드가 같은 캐시 줄을 번갈아 쓰지 않게(alignas(64)).
+struct alignas(64) DBItemSaveCounters
+{
+    Counter _saved;     // 칸 저장 성공
+    Counter _failed;    // 재연결 뒤 다시 해 봐도 실패 — 0 이어야 한다(0 이 아니면 그 칸은 다음 변화 전까지 DB 와 다르다)
+    Counter _retried;   // 재연결하고 다시 써 본 수(성공·실패 무관) — DB 가 한 번 끊겼다 살아난 흔적
+};
 #endif
 
 class CGameMonitor
@@ -130,7 +139,16 @@ public:
         Counter _snapshotsSent;                                               // 전체 목록(S2C_INVENTORY) 보낸 수 — 입장마다 1
         Counter _itemsUsed;                                                   // 쓴 아이템 개수(성공)
         Counter _useRejected[static_cast<int>(UseItemFail::COUNT)];           // 쓰기 거절, 사유별
+
+        // ── 4단계: DB (USE_DB_WORKER) — 게임 스레드가 센다. 워커 쪽은 아래 _dbItem ──
+        //   등식(조용해진 뒤): _itemSavesQueued = _dbItem._saved + _dbItem._failed
+        Counter _itemSavesQueued;                                             // 칸 저장을 워커 큐에 넣은 수(FlushInventory)
+        Counter _itemSaveRejected;                                            // 아이템 저장 상한에 걸려 못 넣은 수 — 0 이어야 한다
+        Counter _loadedSlots;                                                 // 불러와 가방에 넣은 칸 수
+        Counter _loadSkipped[static_cast<int>(InvLoadSkip::COUNT)];           // 불러올 때 건너뛴 줄, 사유별 — 평소 0
     } _inventory;
+
+    DBItemSaveCounters _dbItem;   // 워커 스레드 몫 — 위 등식의 오른쪽
 #endif
 
     // ══════════════════════════════════════════════════════════════

@@ -51,6 +51,21 @@ const char* UseItemFailName(UseItemFail r)
     return "?";
 }
 
+const char* InvLoadSkipName(InvLoadSkip r)
+{
+    static_assert(static_cast<int>(InvLoadSkip::COUNT) == 5, "InvLoadSkip 을 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case InvLoadSkip::BAD_SLOT:      return "bad_slot";
+    case InvLoadSkip::UNKNOWN_ITEM:  return "unknown_item";
+    case InvLoadSkip::WRONG_TAB:     return "wrong_tab";
+    case InvLoadSkip::BAD_COUNT:     return "bad_count";
+    case InvLoadSkip::TOO_MANY_ROWS: return "too_many_rows";
+    case InvLoadSkip::COUNT:         break;
+    }
+    return "?";
+}
+
 bool FindInvSlot(uint16_t slot, InvTab& outTab, int& outIndex)
 {
     int base = 0;

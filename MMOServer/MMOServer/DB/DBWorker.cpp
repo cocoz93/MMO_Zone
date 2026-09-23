@@ -7,6 +7,7 @@
 #endif
 #include <mysql.h>
 #include <errmsg.h>     // CR_SERVER_GONE_ERROR / CR_SERVER_LOST (커넥션 유실 감지)
+#include <mysqld_error.h>   // ER_NO_SUCH_TABLE — 가방 테이블이 없을 때 안내를 정확히 걸려고
 #include <cstdio>
 #include <cstring>      // strlen (JobKindDesc.sql 길이)
 #include <chrono>
@@ -14,6 +15,9 @@
 #include "MonitorManager.h"
 #include <Common/ErrorLog.h>
 #include "CoreAffinity.h"
+#if USE_INVENTORY
+#include "GameMonitor.h"    // DBItemSaveCounters — 아이템 저장 계수기(게임 쪽 그릇)
+#endif
 
 #pragma comment(lib, "libmysql.lib")
 
@@ -209,6 +213,26 @@ bool CDBWorker::EnqueueLoad(const DBLoadJob& job)
     return true;
 }
 
+#if USE_INVENTORY
+bool CDBWorker::EnqueueItemSlot(const DBItemSlotJob& job)
+{
+    DBWorkerSlot& slot = *_workers[SlotIndex(job.accountId)];   // 저장·불러오기와 같은 슬롯 — 계정별 순서 보장
+
+    {
+        std::lock_guard<std::mutex> lk(slot.mutex);
+        // 저장 상한(queue.size() 기준)은 보지 않는다 — 위치 저장이 큐를 채워도 아이템 저장은 들어간다.
+        //   아이템 저장끼리만 센 수로 같은 상한을 건다. 정상 상태에선 안 닿는 값이다(닿았다면 DB 가 멈춘 것).
+        if (slot.itemCount >= static_cast<size_t>(_queueMax))
+            return false;
+        slot.queue.push_back(DBJob::Item(job));
+        ++slot.itemCount;
+    }
+
+    slot.cv.notify_one();
+    return true;
+}
+#endif
+
 void CDBWorker::PushResult(const DBResult& result)
 {
     std::lock_guard<std::mutex> lk(_results.mutex);
@@ -238,6 +262,9 @@ void CDBWorker::WorkerThread(int idx)
                 break;                   // 정지 요청 + 잔여 없음 → 종료(드레인 완료)
             local.swap(slot.queue);       // 누적분 통째 인출 (여러 주기분 병합 가능)
             slot.loadCount = 0;           // 큐를 통째로 가져왔으므로 큐에 든 불러오기도 0 (EnqueueLoad 의 상한 기준)
+#if USE_INVENTORY
+            slot.itemCount = 0;           // 같은 이유 — 아이템 저장 상한(EnqueueItemSlot)의 기준
+#endif
         }
 
         // 배치 처리 전 — 커넥션이 끊겨 있으면 재연결 1회 시도.
@@ -267,7 +294,7 @@ void CDBWorker::WorkerThread(int idx)
 
         _monitor._dbQueueDepth[idx].Store(static_cast<int64_t>(local.size()));  // 워커별 게이지
 
-        static_assert(DB_JOB_KIND_COUNT == 2, "DBJobKind 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
+        static_assert(DB_JOB_KIND_COUNT == (USE_INVENTORY ? 3 : 2), "DBJobKind 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
         for (const DBJob& job : local)
         {
             switch (job.kind)
@@ -289,6 +316,13 @@ void CDBWorker::WorkerThread(int idx)
                 PushResult(result);   // 묶음 끝까지 기다리지 않고 바로 — 뒤에 저장 수천 건이 있어도 입장이 안 밀린다
                 break;
             }
+
+#if USE_INVENTORY
+            case DBJobKind::SAVE_ITEM_SLOT:
+                // 코어 지표(_dbSavedJobs·_dbFailedJobs)는 "위치 저장"만 센다 — 아이템은 게임 쪽 계수기로 따로(ExecItemSave)
+                ExecItemSave(slot, job.item, reconnectFailedThisBatch);
+                break;
+#endif
 
             case DBJobKind::COUNT:
                 break;   // 값이 아니라 개수 표시 — 큐에 들어올 수 없다
@@ -368,6 +402,42 @@ static bool BindLoadCharacter(MYSQL_STMT* st, DBWorkerSlot& slot)
     return mysql_stmt_bind_result(st, r) == 0;
 }
 
+#if USE_INVENTORY
+// ── 가방 칸 저장 ─────────────────────────────────────────────────────────
+static bool BindItemSlotParams(MYSQL_STMT* st, DBWorkerSlot& slot)
+{
+    // VALUES 4개 + ON DUPLICATE KEY UPDATE 2개 = ? 6개 (item_id·count 는 양쪽이 같은 버퍼를 참조한다)
+    MYSQL_BIND b[6] = {};
+    b[0].buffer_type = MYSQL_TYPE_LONGLONG; b[0].buffer = &slot.bItemAccountId;
+    b[1].buffer_type = MYSQL_TYPE_LONG;     b[1].buffer = &slot.bItemSlot;
+    b[2].buffer_type = MYSQL_TYPE_LONG;     b[2].buffer = &slot.bItemId;
+    b[3].buffer_type = MYSQL_TYPE_LONG;     b[3].buffer = &slot.bItemCount;
+    b[4] = b[2];   // UPDATE item_id = 같은 bItemId
+    b[5] = b[3];   // UPDATE count   = 같은 bItemCount
+    return mysql_stmt_bind_param(st, b) == 0;
+}
+
+// ── 가방 불러오기 (불러오기 잡의 둘째 문장 — 작업 종류가 아니다) ──────────
+//   빈 칸(item_id 0)은 안 읽는다. 칸 순서로 받는다 — 줄이 넘칠 때 어느 줄을 버릴지가 늘 같게.
+static const char* kLoadInvSql =
+    "SELECT slot,item_id,count FROM inventory WHERE account_id=? AND item_id<>0 ORDER BY slot";
+
+static bool BindLoadInventory(MYSQL_STMT* st, DBWorkerSlot& slot)
+{
+    MYSQL_BIND p[1] = {};
+    p[0].buffer_type = MYSQL_TYPE_LONGLONG; p[0].buffer = &slot.bInvAccountId;
+    if (mysql_stmt_bind_param(st, p) != 0)
+        return false;
+
+    // 결과 3열 — 셋 다 NOT NULL INT 라 int32 버퍼로 변환·잘림 없이 받는다
+    MYSQL_BIND r[3] = {};
+    r[0].buffer_type = MYSQL_TYPE_LONG; r[0].buffer = &slot.bInvSlot;
+    r[1].buffer_type = MYSQL_TYPE_LONG; r[1].buffer = &slot.bInvItemId;
+    r[2].buffer_type = MYSQL_TYPE_LONG; r[2].buffer = &slot.bInvCount;
+    return mysql_stmt_bind_result(st, r) == 0;
+}
+#endif
+
 // DBJobKind 순서 그대로 — 인덱스가 곧 종류다.
 static const JobKindDesc kKinds[] = {
     /* SAVE_POSITION  */ { "save_position",
@@ -377,12 +447,32 @@ static const JobKindDesc kKinds[] = {
     /* LOAD_CHARACTER */ { "load_character",
                            "SELECT x,y,map_id,level,exp FROM characters WHERE account_id=?",
                            BindLoadCharacter },
+#if USE_INVENTORY
+    /* SAVE_ITEM_SLOT */ { "save_item_slot",
+                           "INSERT INTO inventory (account_id,slot,item_id,count) VALUES (?,?,?,?) "
+                           "ON DUPLICATE KEY UPDATE item_id=?,count=?",
+                           BindItemSlotParams },
+#endif
 };
 static_assert(sizeof(kKinds) / sizeof(kKinds[0]) == DB_JOB_KIND_COUNT,
               "DBJobKind 를 늘렸으면 kKinds 에도 같은 순서로 한 줄을 넣을 것");
 
 static constexpr int kSaveIdx = static_cast<int>(DBJobKind::SAVE_POSITION);
 static constexpr int kLoadIdx = static_cast<int>(DBJobKind::LOAD_CHARACTER);
+#if USE_INVENTORY
+static constexpr int kItemIdx = static_cast<int>(DBJobKind::SAVE_ITEM_SLOT);
+
+// 문장 준비 실패 로그 — 가방 테이블이 없으면(ER_NO_SUCH_TABLE) 할 일을 같이 적는다.
+//   게임 계정에는 CREATE 권한이 없어 서버가 테이블을 만들 수 없다 — 사람이 root 로 한 번 돌려야 한다.
+static void LogPrepareFailure(const char* name, MYSQL_STMT* st)
+{
+    if (mysql_stmt_errno(st) == ER_NO_SUCH_TABLE)
+        SLOG_ERROR("[DB] stmt_prepare failed ({}): {} — root 로 MMOServer/MMOServer/DB/schema.sql 을 먼저 돌리세요 "
+                   "(게임 계정은 테이블을 못 만든다)", name, mysql_stmt_error(st));
+    else
+        SLOG_ERROR("[DB] stmt_prepare failed ({}): {}", name, mysql_stmt_error(st));
+}
+#endif
 
 bool CDBWorker::PrepareStmt(DBWorkerSlot& slot)
 {
@@ -404,7 +494,11 @@ bool CDBWorker::PrepareStmt(DBWorkerSlot& slot)
 
         if (mysql_stmt_prepare(st, kind.sql, static_cast<unsigned long>(strlen(kind.sql))) != 0)
         {
+#if USE_INVENTORY
+            LogPrepareFailure(kind.name, st);
+#else
             SLOG_ERROR("[DB] stmt_prepare failed ({}): {}", kind.name, mysql_stmt_error(st));
+#endif
             mysql_stmt_close(st);
             CloseStmts(slot);
             return false;
@@ -420,6 +514,34 @@ bool CDBWorker::PrepareStmt(DBWorkerSlot& slot)
 
         slot.stmt[i] = st;
     }
+
+#if USE_INVENTORY
+    // 불러오기 잡의 둘째 문장 — 종류 표 밖이라 따로 준비한다. 실패 규칙은 위와 같다(반쪽 상태로 안 돈다).
+    {
+        MYSQL_STMT* st = mysql_stmt_init(m);
+        if (st == nullptr)
+        {
+            SLOG_ERROR("[DB] stmt_init failed (load_inventory): {}", mysql_error(m));
+            CloseStmts(slot);
+            return false;
+        }
+        if (mysql_stmt_prepare(st, kLoadInvSql, static_cast<unsigned long>(strlen(kLoadInvSql))) != 0)
+        {
+            LogPrepareFailure("load_inventory", st);
+            mysql_stmt_close(st);
+            CloseStmts(slot);
+            return false;
+        }
+        if (!BindLoadInventory(st, slot))
+        {
+            SLOG_ERROR("[DB] stmt_bind failed (load_inventory): {}", mysql_stmt_error(st));
+            mysql_stmt_close(st);
+            CloseStmts(slot);
+            return false;
+        }
+        slot.stmtLoadInv = st;
+    }
+#endif
     return true;
 }
 
@@ -433,6 +555,13 @@ void CDBWorker::CloseStmts(DBWorkerSlot& slot)
             slot.stmt[i] = nullptr;
         }
     }
+#if USE_INVENTORY
+    if (slot.stmtLoadInv != nullptr)
+    {
+        mysql_stmt_close(static_cast<MYSQL_STMT*>(slot.stmtLoadInv));
+        slot.stmtLoadInv = nullptr;
+    }
+#endif
 }
 
 void CDBWorker::DropConnection(DBWorkerSlot& slot)
@@ -524,8 +653,131 @@ CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJo
     if (outcome != LoadOutcome::CONNECTION_LOST)
         mysql_stmt_free_result(st);
 
+#if USE_INVENTORY
+    // 둘째 문장 — 가방 줄. ★ 캐릭터 행이 없어도(NOT_FOUND) 읽는다(DBResult 주석 참조).
+    //   ★ 가방이 실패하면 캐릭터 행을 읽었어도 전체가 실패다 — 빈 가방으로 들여보내면 첫 아이템이 진짜 행을 덮는다.
+    if (outcome == LoadOutcome::FOUND || outcome == LoadOutcome::NOT_FOUND)
+    {
+        const LoadOutcome inv = RunInventoryLoad(slot, job, out);
+        if (inv != LoadOutcome::FOUND)
+            return inv;
+    }
+#endif
+
     return outcome;
 }
+
+#if USE_INVENTORY
+// 새로 붙은 문장들의 오류 분류 — 유실(재연결 후 다시 해 볼 값어치가 있다)과 그 밖을 가른다(RunLoadOnce 와 같은 규칙).
+CDBWorker::LoadOutcome CDBWorker::ClassifyStmtError(void* stmt, const char* what, int64_t accountId)
+{
+    MYSQL_STMT* st = static_cast<MYSQL_STMT*>(stmt);
+    const unsigned int err = mysql_stmt_errno(st);
+    if (err == CR_SERVER_GONE_ERROR || err == CR_SERVER_LOST)
+    {
+        SLOG_WARN("[DB] connection lost during {} (errno={}, account={})", what, err, accountId);
+        return LoadOutcome::CONNECTION_LOST;
+    }
+    SLOG_ERROR("[DB] {} failed (account={}): {}", what, accountId, mysql_stmt_error(st));
+    return LoadOutcome::QUERY_ERROR;
+}
+
+CDBWorker::LoadOutcome CDBWorker::RunInventoryLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out)
+{
+    // 재시도로 두 번 돌 수 있다 — 매번 비우고 시작한다(앞선 시도의 반쪽 줄이 섞이지 않게).
+    out.invCount    = 0;
+    out.invOverflow = 0;
+
+    MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmtLoadInv);
+    if (st == nullptr)
+        return LoadOutcome::QUERY_ERROR;   // PrepareStmt 가 캐릭터 문장과 함께 세우므로 닿지 않는다 — 닿으면 실패로
+    slot.bInvAccountId = job.accountId;
+
+    if (mysql_stmt_execute(st) != 0)
+        return ClassifyStmtError(st, "load inventory execute", job.accountId);
+
+    // 줄 여럿 — 끝(MYSQL_NO_DATA)까지 다 읽어야 다음 명령이 안 꼬인다. 넘치는 줄은 싣지 않고 수만 센다.
+    for (;;)
+    {
+        const int rc = mysql_stmt_fetch(st);
+        if (rc == MYSQL_NO_DATA)
+            break;
+        if (rc != 0)   // 1(오류) · MYSQL_DATA_TRUNCATED — 버퍼 값을 믿을 수 없다
+        {
+            const LoadOutcome e = ClassifyStmtError(st, "load inventory fetch", job.accountId);
+            if (e != LoadOutcome::CONNECTION_LOST)
+                mysql_stmt_free_result(st);
+            return e;
+        }
+        if (out.invCount < DB_INV_MAX_ROWS)
+            out.inv[out.invCount++] = DBInvRow{ slot.bInvSlot, slot.bInvItemId, slot.bInvCount };
+        else
+            ++out.invOverflow;
+    }
+    mysql_stmt_free_result(st);
+    return LoadOutcome::FOUND;   // 줄이 0 이어도 성공 — "가방이 비었다"는 사실이다
+}
+
+CDBWorker::LoadOutcome CDBWorker::RunItemSaveOnce(DBWorkerSlot& slot, const DBItemSlotJob& job)
+{
+    MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmt[kItemIdx]);
+    slot.bItemAccountId = job.accountId;
+    slot.bItemSlot      = job.slot;
+    slot.bItemId        = job.itemId;
+    slot.bItemCount     = job.count;
+    if (mysql_stmt_execute(st) == 0)
+        return LoadOutcome::FOUND;   // 성공
+    return ClassifyStmtError(st, "save item slot", job.accountId);
+}
+
+void CDBWorker::ExecItemSave(DBWorkerSlot& slot, const DBItemSlotJob& job, bool& reconnectFailedThisBatch)
+{
+    // 위치 저장(ExecSave)과 다르게 "버리지 않는" 쪽 규칙 — 불러오기(ExecLoad)와 같은 재연결을 쓴다.
+    //   커넥션이 없거나(앞선 잡이 유실을 밟아 내렸다) 도중에 죽으면 그 자리에서 한 번 살려 보고 다시 쓴다.
+    //   칸의 최종값이라 두 번 써도 결과가 같다. 이 묶음에서 재연결이 이미 실패했으면 곧바로 실패로 센다
+    //   (죽은 DB 에 잡마다 접속 제한 시간을 쓰며 큐를 막지 않는다 — TryReconnectForLoad).
+    bool retried = false;
+    LoadOutcome r = LoadOutcome::CONNECTION_LOST;
+
+    if (slot.mysql == nullptr || slot.stmt[kItemIdx] == nullptr)
+    {
+        DropConnection(slot);
+        if (TryReconnectForLoad(slot, reconnectFailedThisBatch))
+        {
+            retried = true;
+            r = RunItemSaveOnce(slot, job);
+        }
+    }
+    else
+    {
+        r = RunItemSaveOnce(slot, job);
+        if (r == LoadOutcome::CONNECTION_LOST)
+        {
+            DropConnection(slot);
+            if (TryReconnectForLoad(slot, reconnectFailedThisBatch))
+            {
+                retried = true;
+                r = RunItemSaveOnce(slot, job);
+            }
+        }
+    }
+    if (r == LoadOutcome::CONNECTION_LOST)
+        DropConnection(slot);   // 다시 해 본 것까지 죽었다 — 다음 묶음 머리가 다시 붙는다
+
+    if (_itemCounters != nullptr)
+    {
+        if (retried)
+            _itemCounters->_retried.Inc();
+        if (r == LoadOutcome::FOUND)
+            _itemCounters->_saved.Inc();
+        else
+            _itemCounters->_failed.Inc();
+    }
+    if (r != LoadOutcome::FOUND)
+        SLOG_ERROR("[DB] item slot save LOST (account={}, slot={}, item={}, count={}) — 이 칸은 다음에 바뀔 때 다시 써진다",
+                   job.accountId, job.slot, job.itemId, job.count);
+}
+#endif
 
 bool CDBWorker::TryReconnectForLoad(DBWorkerSlot& slot, bool& reconnectFailedThisBatch)
 {
@@ -564,6 +816,10 @@ void CDBWorker::ExecLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out
     out.mapId     = 0;
     out.level     = 1;   // 못 읽었을 때의 값 — 새 캐릭터와 같다. FOUND 일 때만 행의 값으로 덮인다
     out.exp       = 0;
+#if USE_INVENTORY
+    out.invCount    = 0;   // 가방 줄 — RunInventoryLoad 가 채운다(실패면 code 가 FAILED 라 안 쓰인다)
+    out.invOverflow = 0;
+#endif
 
     // 읽기는 멱등이라 두 번 해도 안전하다 → 커넥션이 없거나 도중에 죽으면 그 자리에서 재연결해 본다.
     //   노는 커넥션은 MySQL 이 끊는다(wait_timeout). 서버를 밤새 켜 두면 아침 첫 접속이 여기에 걸리는데,

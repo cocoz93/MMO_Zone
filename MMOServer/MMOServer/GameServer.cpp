@@ -566,6 +566,9 @@ void CGameServer::Stop()
 bool CGameServer::InitDB(const DBConfig& dbConfig, int savePeriodSec, int workerCount, int queueMax)
 {
     _dbWorker = std::make_unique<CDBWorker>(_monitor);
+#if USE_INVENTORY
+    _dbWorker->SetItemSaveCounters(&_gameMonitor._dbItem);   // Start 전에 — 워커 스레드가 뜨기 전에 자리를 알려 둔다
+#endif
     if (!_dbWorker->Start(dbConfig, workerCount, queueMax))
     {
         SLOG_ERROR("[DB] InitDB failed - check MySQL connection/config");
@@ -771,7 +774,7 @@ void CGameServer::ProcessDbResults()
 
     const int64_t nowNs = SteadyNowNs();
 
-    static_assert(DB_JOB_KIND_COUNT == 2, "DBJobKind 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
+    static_assert(DB_JOB_KIND_COUNT == (USE_INVENTORY ? 3 : 2), "DBJobKind 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
     for (const DBResult& result : _dbResults)
     {
         switch (result.kind)
@@ -781,6 +784,9 @@ void CGameServer::ProcessDbResults()
             break;
 
         case DBJobKind::SAVE_POSITION:   // 저장은 편도 — 결과를 돌려주지 않는다. 여기 오면 워커 쪽 결함이다
+#if USE_INVENTORY
+        case DBJobKind::SAVE_ITEM_SLOT:  // 칸 저장도 편도 — 성공·실패는 워커가 _dbItem 에 센다
+#endif
         case DBJobKind::COUNT:
             SLOG_ERROR("[DB] unexpected result kind {}", static_cast<int>(result.kind));
             break;
@@ -823,6 +829,9 @@ void CGameServer::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
         //   ★ 표 범위 검사와 레벨 정산은 여기가 아니라 SpawnPlayer 가 한다 — 새 캐릭터·못 읽음 갈래도 거기를 지난다.
         place.level = result.level;
         place.exp   = result.exp;
+#if USE_INVENTORY
+        place.loaded = &result;   // 가방 줄 — 검사와 적재는 SpawnPlayer 가 한다(이 함수 안에서 동기로 불리므로 가리켜도 안전)
+#endif
 
         // 존 먼저, 좌표는 그 존의 크기로 본다. 저장된 맵이 없으면 zone 이 nullptr 로 남아 아래에서 기본 맵을 구한다.
         zone = _mapManager.FindOrCreateChannel(result.mapId);
@@ -844,6 +853,10 @@ void CGameServer::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
 
     case DBResultCode::NOT_FOUND:
         enter._newCharacter.Inc();   // 새 캐릭터 — 기본 맵 무작위 자리. 행은 첫 저장(UPSERT)이 만든다
+#if USE_INVENTORY
+        // ★ 캐릭터 행이 없어도 가방 줄은 있을 수 있다(첫 저장 전에 서버가 죽은 계정) — 워커가 읽어 왔다. 그대로 넣는다.
+        place.loaded = &result;
+#endif
         break;
 
     case DBResultCode::FAILED:
@@ -1224,6 +1237,11 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
 #endif
 
 #if USE_INVENTORY
+#if USE_DB_WORKER
+    // 3-0) 불러온 가방 — 전체 목록을 보내기 "전"에 채운다(안 그러면 첫 장이 빈 가방으로 나간다)
+    if (place.loaded != nullptr)
+        LoadInventoryRows(player, *place.loaded);
+#endif
     // 3-1) 본인에게 가방 전체 — 빈 가방이어도 한 장. 존 이동 때는 안 보낸다(가방이 안 바뀐다).
     //   ★ 부하 더미가 이 패킷을 받는 유일한 길이 여기다(더미는 아이템을 안 받는다). 그래서 더미 시험과
     //     "등록을 빼면 떨어지나" 돌연변이가 이 한 장에 매달려 있다 — "비었으면 안 보내자"로 바꾸면 둘 다
@@ -1881,11 +1899,84 @@ void CGameServer::FlushInventory(CPlayer* player)
     {
         // 칸의 "최종값"을 보낸다 — 증감이 아니라서 같은 칸이 두 번 가도 결과가 같다
         const CInventory::Slot& s = inv.At(index);
-        SendPacket(player, MakeInventorySlot(CInventory::SlotNumberOf(index), s.itemId, s.count));
+        const uint16_t slotNo = CInventory::SlotNumberOf(index);
+        SendPacket(player, MakeInventorySlot(slotNo, s.itemId, s.count));
         _gameMonitor._inventory._slotUpdatesSent.Inc();
-        // 4단계: 여기서 DB 저장 하나 — 같은 최종값을 UPSERT 한다(재시도해도 결과가 같다)
+
+#if USE_DB_WORKER
+        // 같은 최종값을 곧바로 DB 로 — 60초 주기를 안 기다린다(아이템은 잃으면 되돌릴 길이 없다).
+        //   빈 칸은 행을 지우지 않고 itemId 0 으로 덮는다(DB 계정에 DELETE 권한이 없다).
+        //   같은 계정은 같은 워커 큐라, 다시 들어올 때 불러오기가 이 저장들 뒤에 줄 선다.
+        if (_dbWorker)
+        {
+            const DBItemSlotJob job{ player->_accountId, slotNo, s.itemId, s.count };
+            if (_dbWorker->EnqueueItemSlot(job))
+                _gameMonitor._inventory._itemSavesQueued.Inc();
+            else
+            {
+                // 아이템 저장 상한 — 정상 상태에선 안 닿는다(닿았다면 DB 가 멈춘 것). 되살릴 길은 이번 범위 밖이라 세고 남긴다.
+                _gameMonitor._inventory._itemSaveRejected.Inc();
+                SLOG_ERROR("[DB] item slot save REJECTED — queue ceiling (account={}, slot={}, item={}, count={})",
+                           player->_accountId, slotNo, s.itemId, s.count);
+            }
+        }
+#endif
     });
 }
+
+#if USE_DB_WORKER
+static_assert(DB_INV_MAX_ROWS >= INVENTORY_TOTAL_SLOTS, "결과에 실을 가방 줄 수가 가방 칸 수보다 적다");
+
+void CGameServer::LoadInventoryRows(CPlayer* player, const DBResult& result)
+{
+    CGameMonitor::InventoryCounters& counters = _gameMonitor._inventory;
+    auto skip = [&](InvLoadSkip why, const DBInvRow& r)
+    {
+        counters._loadSkipped[static_cast<int>(why)].Inc();
+        SLOG_WARN("[INV] load skip {} (account={}, slot={}, item={}, count={})",
+                  InvLoadSkipName(why), player->_accountId, r.slot, r.itemId, r.count);
+    };
+
+    // 사유는 가장 기본적인 것부터 본다 — 칸이 틀리면 아이템을 볼 것도 없다
+    for (int i = 0; i < result.invCount; ++i)
+    {
+        const DBInvRow& r = result.inv[i];
+
+        InvTab tab;
+        int index = -1;
+        if (r.slot < 0 || r.slot > 0xFFFF || !FindInvSlot(static_cast<uint16_t>(r.slot), tab, index))
+        {
+            skip(InvLoadSkip::BAD_SLOT, r);   // uint16 로 줄이기 전에 범위부터 — 큰 값이 엉뚱한 칸으로 접히지 않게
+            continue;
+        }
+        const ItemDef* def = _gameDataFiles.Item().Find(r.itemId);
+        if (def == nullptr)
+        {
+            skip(InvLoadSkip::UNKNOWN_ITEM, r);
+            continue;
+        }
+        if (def->tab != tab)
+        {
+            skip(InvLoadSkip::WRONG_TAB, r);
+            continue;
+        }
+        if (r.count <= 0 || r.count > def->maxStack)
+        {
+            skip(InvLoadSkip::BAD_COUNT, r);   // 깎아 넣지 않는다 — 깎으면 사라진 걸 아무도 모른다
+            continue;
+        }
+        player->_inventory.LoadSlot(index, r.itemId, r.count);
+        counters._loadedSlots.Inc();
+    }
+
+    if (result.invOverflow > 0)
+    {
+        counters._loadSkipped[static_cast<int>(InvLoadSkip::TOO_MANY_ROWS)].Add(result.invOverflow);
+        SLOG_WARN("[INV] load skip too_many_rows x{} (account={}) — 결과 자리 {} 를 넘은 줄",
+                  result.invOverflow, player->_accountId, DB_INV_MAX_ROWS);
+    }
+}
+#endif
 
 void CGameServer::SendInventory(CPlayer* player)
 {
