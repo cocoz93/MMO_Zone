@@ -22,6 +22,7 @@ enum class InvAddResult : uint8_t
     COUNT
 };
 const char* InvAddResultName(InvAddResult r);   // 지표 라벨(tab_full 등)
+const char* UseItemFailName(UseItemFail r);     // 지표 라벨(full_hp 등) — 사유 enum 은 와이어에 실려 Protocol.h 에 있다
 
 // 칸 번호 → 탭 + 가방 배열 색인. 구간 밖이면 false. INV_TAB_RANGES 를 돈다(탭마다 if 없음).
 bool FindInvSlot(uint16_t slot, InvTab& outTab, int& outIndex);
@@ -57,6 +58,9 @@ public:
 
     // 불러올 때 칸을 채운다 — 바뀐 칸 표시를 안 켠다(DB 와 같은 값이다). 4단계에서 쓴다.
     void LoadSlot(int index, int32_t itemId, int32_t count);
+
+    // 한 개 줄인다 — 0 이 되면 칸을 비운다(itemId 0). 쓸 수 있는지는 부르는 쪽이 이미 봤다(빈 칸이면 단언).
+    void ConsumeOne(int index);
 
     const Slot& At(int index) const { return _slots[index]; }
     static uint16_t SlotNumberOf(int index);   // 배열 색인 → 칸 번호

@@ -184,6 +184,16 @@ private:
 
     // 본인에게 알림 한 줄 — 기존 S2C_ERROR 를 쓴다(콘솔은 이미 UTF-8 로 풀어 보여 준다).
     void SendSystemMessage(CPlayer* player, const std::string& utf8);
+
+    // 아이템 쓰기(지금은 물약만) — 거절이면 사유를 본인에게, 성공이면 칸 갱신 + 체력 통보(주변 포함).
+    void RecvUseItem(CPlayer* player, CSerialBuffer* pMsg);
+
+    // 쓸 수 있나 — 사유를 UseItemFail 순서대로 보고 먼저 걸린 하나를 돌려준다. 통과면 COUNT.
+    //   판정을 값을 돌려주는 함수로 뺀 이유 — 사유가 여섯이라 호출부에서 if 사슬로 쓰면 하나를 빠뜨려도 안 보인다.
+    UseItemFail CheckUseItem(const CPlayer* player, uint16_t slot, int& outIndex, const ItemDef*& outDef) const;
+
+    // 물약 대기시간 1초 — 서버 틱 수로 잰다(사용자 결정 09-23). 틱 주기가 바뀌어도 1초가 되게 FRAME_PER_SEC 로 쓴다.
+    static constexpr uint64_t ITEM_USE_COOLDOWN_FRAMES = 25;   // = FRAME_PER_SEC (아래 선언보다 앞이라 숫자로 — 단언이 맞춘다)
 #endif
 
 #if USE_MONSTER

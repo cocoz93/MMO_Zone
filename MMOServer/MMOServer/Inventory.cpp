@@ -35,6 +35,22 @@ const char* InvAddResultName(InvAddResult r)
     return "?";
 }
 
+const char* UseItemFailName(UseItemFail r)
+{
+    static_assert(static_cast<int>(UseItemFail::COUNT) == 6, "UseItemFail 을 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case UseItemFail::BAD_SLOT:   return "bad_slot";
+    case UseItemFail::EMPTY:      return "empty";
+    case UseItemFail::NOT_USABLE: return "not_usable";
+    case UseItemFail::DEAD:       return "dead";
+    case UseItemFail::COOLDOWN:   return "cooldown";
+    case UseItemFail::FULL_HP:    return "full_hp";
+    case UseItemFail::COUNT:      break;
+    }
+    return "?";
+}
+
 bool FindInvSlot(uint16_t slot, InvTab& outTab, int& outIndex)
 {
     int base = 0;
@@ -127,6 +143,19 @@ InvAddResult CInventory::TryAdd(const ItemDef& def, int32_t count)
 
     assert(left == 0);   // ⑴ 에서 자리를 셌으므로 반드시 다 들어간다
     return InvAddResult::OK;
+}
+
+void CInventory::ConsumeOne(int index)
+{
+    assert(index >= 0 && index < INVENTORY_TOTAL_SLOTS);
+    Slot& s = _slots[index];
+    assert(s.itemId != 0 && s.count > 0);   // 부르는 쪽(RecvUseItem)이 빈 칸을 이미 거절했다
+    if (--s.count <= 0)
+    {
+        s.itemId = 0;   // 마지막 한 개 — 칸을 비운다. 칸 패킷은 itemId 0 으로 나간다
+        s.count  = 0;
+    }
+    _changed.set(static_cast<size_t>(index));
 }
 
 void CInventory::LoadSlot(int index, int32_t itemId, int32_t count)

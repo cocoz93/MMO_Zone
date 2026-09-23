@@ -526,6 +526,18 @@ private:
         WriteCounter(ss, "mmo_inv_snapshots_sent_total",
                      "S2C_INVENTORY packets sent (one per spawn, empty bags included)",
                      inv._snapshotsSent);
+        WriteCounter(ss, "mmo_inv_items_used_total",
+                     "Items used successfully (potions consumed)",
+                     inv._itemsUsed);
+
+        ss << "# HELP mmo_inv_use_rejected_total Item uses refused, split by reason (nothing was consumed)\n";
+        ss << "# TYPE mmo_inv_use_rejected_total counter\n";
+        for (int i = 0; i < static_cast<int>(UseItemFail::COUNT); ++i)
+        {
+            ss << "mmo_inv_use_rejected_total{reason=\"" << UseItemFailName(static_cast<UseItemFail>(i))
+               << "\"} " << inv._useRejected[i] << "\n";
+        }
+        ss << "\n";
 #endif
     }
 

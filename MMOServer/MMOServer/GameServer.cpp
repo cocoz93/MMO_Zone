@@ -345,6 +345,17 @@ namespace
         assert(buf->GetDataSize() == sizeof(MSG_S2C_INVENTORY_SLOT));
         return buf;
     }
+
+    CSerialBuffer* MakeUseItemFail(uint16_t slot, UseItemFail reason)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_USE_ITEM_FAIL::TYPE);
+        *buf << static_cast<uint16_t>(slot);
+        *buf << static_cast<uint8_t>(reason);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_USE_ITEM_FAIL));
+        return buf;
+    }
 #endif // USE_INVENTORY
 
 #if USE_SECTOR_AGGREGATION
@@ -1492,6 +1503,12 @@ void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
         break;
 #endif
 
+#if USE_INVENTORY
+    case MsgType::C2S_USE_ITEM:
+        RecvUseItem(player, pMsg);
+        break;
+#endif
+
     default:
         // C2S_HEARTBEAT 등 — 게임 로직 처리 불필요 (타임아웃 갱신은 IOCPServer 수신 시점에서 처리)
         break;
@@ -1519,6 +1536,10 @@ uint16_t CGameServer::GetExpectedSize(MsgType type)
     //   1단계에서는 크기만 등록하고 핸들러는 없다(아래 OnReceived 의 default 로 빠지거나,
     //   플레이어가 아직 없으면 그 앞 문턱에서 버려진다). 서버 동작은 그대로다.
     case MsgType::C2S_ENTER_GAME:   return sizeof(MSG_C2S_ENTER_GAME);
+#if USE_INVENTORY
+    // 이 줄이 없으면 물약 쓰기가 조용히 버려진다(위 C2S_ATTACK 과 같은 함정 — 답도 로그도 없다).
+    case MsgType::C2S_USE_ITEM:     return sizeof(MSG_C2S_USE_ITEM);
+#endif
     default:                        return 0;
     }
 }
@@ -1875,6 +1896,67 @@ void CGameServer::SendInventory(CPlayer* player)
 void CGameServer::SendSystemMessage(CPlayer* player, const std::string& utf8)
 {
     SendPacket(player, MakeError(utf8));
+}
+
+UseItemFail CGameServer::CheckUseItem(const CPlayer* player, uint16_t slot, int& outIndex, const ItemDef*& outDef) const
+{
+    // UseItemFail 의 순서 그대로 본다 — 여럿이 겹치면 먼저 걸린 하나로 답한다(열거 순서가 곧 확인 순서).
+    InvTab tab;
+    if (!FindInvSlot(slot, tab, outIndex))
+        return UseItemFail::BAD_SLOT;
+
+    const CInventory::Slot& s = player->_inventory.At(outIndex);
+    if (s.itemId == 0)
+        return UseItemFail::EMPTY;
+
+    // 표에서 사라진 번호(패치로 지운 아이템)도 여기서 "못 쓴다"로 떨어진다
+    outDef = _gameDataFiles.Item().Find(s.itemId);
+    if (outDef == nullptr || outDef->tab != InvTab::USE || outDef->healHp <= 0)
+        return UseItemFail::NOT_USABLE;
+
+    if (player->_isDead)
+        return UseItemFail::DEAD;
+
+    if (_frameCount < player->_itemUseReadyFrame)
+        return UseItemFail::COOLDOWN;
+
+    // 체력이 가득이면 안 줄인다 — 물약만 날리게 두지 않는다
+    if (player->_hp >= player->_maxHp)
+        return UseItemFail::FULL_HP;
+
+    return UseItemFail::COUNT;   // 통과
+}
+
+void CGameServer::RecvUseItem(CPlayer* player, CSerialBuffer* pMsg)
+{
+    static_assert(ITEM_USE_COOLDOWN_FRAMES == FRAME_PER_SEC, "물약 대기시간은 1초 — 틱 주기를 바꿨으면 같이 맞출 것");
+
+    MSG_C2S_USE_ITEM recvMsg{};
+    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
+
+    int index = -1;
+    const ItemDef* def = nullptr;
+    const UseItemFail fail = CheckUseItem(player, recvMsg.slot, index, def);
+    if (fail != UseItemFail::COUNT)
+    {
+        _gameMonitor._inventory._useRejected[static_cast<int>(fail)].Inc();
+        SendPacket(player, MakeUseItemFail(recvMsg.slot, fail));
+        return;
+    }
+
+    // ── 성공 — 체력을 채우고(최대치에서 멈춘다) 한 개 줄이고 대기시간을 건다 ──
+    const int32_t healed = player->_hp + def->healHp;   // std::min 은 윈도 헤더의 min 매크로에 먹힌다
+    player->_hp = (healed < player->_maxHp) ? healed : player->_maxHp;
+    player->_inventory.ConsumeOne(index);
+    player->_itemUseReadyFrame = _frameCount + ITEM_USE_COOLDOWN_FRAMES;   // 성공했을 때만 — 거절은 대기시간을 안 건다
+    _gameMonitor._inventory._itemsUsed.Inc();
+
+    // 칸 갱신(본인) → 체력 통보(본인 + 주변 — 남의 머리 위 막대도 차야 한다). 레벨업 때 체력 방송과 같은 꼴.
+    //   ★ 순서가 곧 와이어 순서다 — 칸 패킷이 체력 패킷보다 앞선다(시험이 이 순서로 "이 체력이 물약 몫"을 가린다).
+    FlushInventory(player);
+    CZone* zone = _mapManager.GetZone(player->_zoneId);
+    if (zone != nullptr)
+        BroadcastAroundSector(zone, player, MakeActorStats(player->_actorId, player->_hp, player->_maxHp), false);
 }
 #endif // USE_INVENTORY
 

@@ -46,5 +46,9 @@ public:
     //   ★ 맨 끝에 두는 이유 — 칸 60개(약 490B)라 앞에 끼우면 이동 쪽 필드들이 캐시 줄 여러 개 뒤로 밀린다.
     //     가방은 명령·물약 때만 본다.
     CInventory _inventory;
+
+    // 아이템을 다시 쓸 수 있는 프레임(CGameServer::_frameCount 기준) — 성공했을 때만 앞으로 민다.
+    //   서버가 틱 수로 잰다(클라 연타·매크로로 물약을 한꺼번에 마시지 못하게). 0 = 바로 쓸 수 있다.
+    uint64_t _itemUseReadyFrame = 0;
 #endif
 };

@@ -128,6 +128,8 @@ public:
         Counter _commandRejected[static_cast<int>(ChatCommandReject::COUNT)]; // 채팅 명령 거절, 사유별
         Counter _slotUpdatesSent;                                             // 칸 패킷(S2C_INVENTORY_SLOT) 보낸 수
         Counter _snapshotsSent;                                               // 전체 목록(S2C_INVENTORY) 보낸 수 — 입장마다 1
+        Counter _itemsUsed;                                                   // 쓴 아이템 개수(성공)
+        Counter _useRejected[static_cast<int>(UseItemFail::COUNT)];           // 쓰기 거절, 사유별
     } _inventory;
 #endif
 
