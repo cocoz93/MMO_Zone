@@ -35,6 +35,7 @@
 #include "MonitorManager.h"
 #include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
 #include "Common.h"
+#include "GameDataFiles.h"  // 기획 데이터 파일(레벨 표 등) — USE_EXP=0 이면 빈 헤더
 #include "DB/DBWorker.h"
 
 class CSerialBuffer;
@@ -77,6 +78,30 @@ public:
     {
         _monsterPerZone = count;
     }
+
+#if USE_EXP
+    // 기획 데이터 파일(레벨 표 등)을 읽는다 — 기동 때 한 번, DB 접속보다 "앞"에서 부른다.
+    //   실패하면 false 이고 main 이 서버를 안 띄운다. dir 은 끝에 경로 구분자가 붙은 디렉토리.
+    bool LoadGameDataFiles(const std::string& dir) { return _gameDataFiles.LoadAll(dir); }
+
+    // ── 경험치·레벨 ──
+    // 경험치를 더하고, 올라갈 만큼 올린다. 레벨이 올랐으면 true.
+    //   ★ 부르는 자리가 둘이다 — 몬스터를 잡았을 때, 그리고 불러왔을 때.
+    //     틱마다 레벨을 보는 자리가 없어서, 불러올 때 안 부르면 표를 낮춘 패치 뒤에 들어온 사람이
+    //     "몬스터를 하나 잡기 전까지" 옛 레벨로 서 있게 된다.
+    bool GainExp(CPlayer* player, int64_t amount);
+
+    // 레벨을 표 안으로 내린다 (행이 표 밖 레벨을 들고 있을 때). 내렸으면 true.
+    //   ★ 접근자가 조용히 clamp 하지 않는 이유가 이것 — 여기서 한 번 내리고 세야
+    //     "표 밖 레벨이 몇 건이었나"가 계수기에 남는다.
+    bool ClampLevelToTable(CPlayer* player);
+
+    // 지금 레벨의 표 값으로 최대 체력·공격력을 맞춘다 (레벨업·입장 공통).
+    void ApplyLevelStats(CPlayer* player, bool refillHp);
+
+    // 본인에게 레벨·경험치를 알린다. 만렙이면 nextLevelExp 를 0 으로 보낸다.
+    void SendExp(CPlayer* player);
+#endif
 
     // 서버 시작/종료
     bool Start();
@@ -356,6 +381,11 @@ private:
 
     int32_t _defaultMapId = 0;  // 최초 접속 시 입장할 맵
     int32_t _nextPlayerId = 1;  // 전역 playerId 카운터 (싱글스레드 게임 루프)
+
+#if USE_EXP
+    // 기획 데이터 — 기동 때 한 번 읽고 그 뒤로는 읽기만 한다(게임 스레드가 매 전투에서 본다).
+    CGameDataFiles _gameDataFiles;
+#endif
 
     // 네트워크 경계: sessionId → CPlayer* (수신 시 플레이어 조회)
     //   sessionId 상위 16비트 = 세션 슬롯 인덱스 → 해시맵 대신 인덱스 배열 직접 접근 (캐시미스 제거).

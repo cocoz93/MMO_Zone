@@ -126,3 +126,21 @@
 #if USE_LOGIN && !USE_DB_WORKER
 	#error "USE_LOGIN requires USE_DB_WORKER=1 (입장 요청의 몸이 DB 조회 하나다)"
 #endif
+
+// 경험치·레벨 — 몬스터를 잡으면 쌓이고, 표의 값을 넘으면 레벨이 오른다.
+//   ★ 레벨별 필요 경험치·최대 체력·공격력은 "기획 데이터"라 코드가 아니라 파일에 둔다
+//     (Run/bin/LevelTable.csv). 기동 때 한 번 읽어 배열로 들고, 몬스터를 잡을 때마다 다시 읽지 않는다.
+//     DB 가 아니라 파일인 이유 — 밸런스 값이 코드와 같은 커밋에 들어가 같이 롤백된다.
+//     DB 에 있는 것은 "내 레벨·내 경험치"(유저 데이터)뿐이고, "레벨 10 이 되려면 얼마"는 여기 없다.
+//   1: 경험치·레벨 활성 — 표를 읽고, 몬스터를 잡으면 쌓이고, 레벨이 오른다 [기본]
+//   0: 표를 안 읽고 경험치 경로가 컴파일에서 빠짐. characters 의 level·exp 열은 그대로 오가지만
+//      값을 바꾸는 코드가 없어 늘 1·0 이다(위치가 DB 토글과 무관하게 도는 것과 같은 결).
+//   기본값이 USE_COMBAT 을 따라가는 이유: 경험치를 얻는 유일한 길이 전투다. 전투를 끄면 같이 꺼져
+//     아래 #error 를 안 만난다. 리눅스는 -DUSE_DB_WORKER=0 이지만 USE_COMBAT 은 1 이라 여기도 1 이다.
+#ifndef USE_EXP
+#define USE_EXP USE_COMBAT
+#endif
+
+#if USE_EXP && !USE_COMBAT
+	#error "USE_EXP requires USE_COMBAT=1 (경험치를 얻는 유일한 길이 전투다)"
+#endif

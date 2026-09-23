@@ -96,6 +96,17 @@ int main()
     server.SetMoveSpeeds(config.playerSpeed, config.snakeSpeed);   // 0 = 기본(부하 시험 기준) — ServerConfig [Game]
     server.SetMonsterPerZone(config.monsterPerZone);               // 0 = 기본 30 마리/존 — ServerConfig [Game]
 
+#if USE_EXP
+    // 기획 데이터 파일 (레벨 표 등) — DB 접속보다 "앞"에 둔다.
+    //   값이 없으면 어차피 못 도는데, 먼저 보면 커넥션을 열기도 전에 파일 문제로 끝낼 수 있다.
+    //   밸런스 값 없이 도는 서버는 조용히 틀린 게임이 되므로 기본값으로 때우지 않는다.
+    if (!server.LoadGameDataFiles(Platform::GetExecutableDir()))
+    {
+        SLOG_ERROR("[Error] 기획 데이터 파일을 못 읽었습니다 - 위 [LevelTable] 줄을 보세요");
+        return 1;
+    }
+#endif
+
     // DB 저장 파이프라인 초기화 (USE_DB_WORKER=0이면 no-op)
     {
         DBConfig dbConfig;

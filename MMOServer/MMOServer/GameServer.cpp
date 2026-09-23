@@ -191,6 +191,21 @@ namespace
         return buf;
     }
 
+#if USE_EXP
+    CSerialBuffer* MakeExp(int32_t level, int64_t exp, int64_t levelBaseExp, int64_t nextLevelExp)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_EXP::TYPE);
+        *buf << static_cast<int>(level);
+        *buf << exp;
+        *buf << levelBaseExp;
+        *buf << nextLevelExp;
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_EXP));
+        return buf;
+    }
+#endif
+
     CSerialBuffer* MakeActorStats(int32_t actorId, int32_t hp, int32_t maxHp)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
@@ -728,7 +743,7 @@ void CGameServer::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
 
         // 레벨·경험치는 자리(좌표·맵) 판정과 무관하게 행의 값을 그대로 쓴다.
         //   좌표가 못 쓸 값이어도 레벨까지 버릴 이유는 없다 — 다른 사실이다.
-        //   ★ 표 범위 검사와 레벨업 판정은 2단계에서 이 아래에 붙는다(표가 그때 생긴다).
+        //   ★ 표 범위 검사와 레벨 정산은 여기가 아니라 SpawnPlayer 가 한다 — 새 캐릭터·못 읽음 갈래도 거기를 지난다.
         place.level = result.level;
         place.exp   = result.exp;
 
@@ -1095,13 +1110,43 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
     (void)accountId;
 #endif
 
+#if USE_EXP
+    // ── 레벨 정산 — 스탯을 표에서 다시 세우고, 불러온 값이 표와 어긋나면 바로잡는다 ──
+    //   ★ SendZoneInfo 보다 앞이다. SendCreateMyPlayer 가 곧바로 최대 체력을 실어 보내므로
+    //     여기서 안 세우면 첫 화면의 막대가 생성자 기본값(100)으로 나간다.
+    //   갈래 둘 — ⑴ 레벨이 표 밖(표를 줄인 패치) ⑵ 경험치가 이미 다음 레벨 몫을 넘음
+    //     (표의 필요치를 낮춘 패치, 또는 만렙 상한에 걸려 안 오른 채 저장된 행).
+    //     둘 다 "행은 멀쩡한데 표가 바뀐" 경우라 평소엔 한 번도 안 도는 갈래다.
+    const bool clamped = ClampLevelToTable(player);
+    if (clamped)
+        _gameMonitor._exp._levelClamped.Inc();
+
+    // 0 을 줘서 레벨만 정산한다 — 경험치는 한 톨도 안 늘고, 올릴 수 있으면 올린다.
+    const bool settled = GainExp(player, 0);
+
+    // GainExp 는 레벨이 올랐을 때만 스탯을 세운다. 안 올랐으면 생성자 기본값 그대로라 여기서 세운다.
+    //   지금은 스폰이 늘 만피라 refillHp=true — 죽은 채로 들어오는 경로가 생기면 그때 가른다.
+    ApplyLevelStats(player, true);
+
+#if USE_DB_WORKER
+    // 바로잡은 값은 DB 와 다르다 — 안 켜면 다음 주기 저장이 건너뛰어 영영 틀린 채로 남는다.
+    if (clamped || settled)
+        player->_dbDirty = true;
+#endif
+#endif
+
     // 1) 존 메타 정보 전송
     SendZoneInfo(player, zone);
 
     // 2) 본인에게 내 캐릭터 생성
     SendCreateMyPlayer(player);
 
-    // 3) 주변 상호 CREATE 브로드캐스트
+#if USE_EXP
+    // 3) 본인에게 레벨·경험치 — CREATE 뒤에 보낸다(클라가 내 액터를 알고 나서 숫자를 채우게)
+    SendExp(player);
+#endif
+
+    // 4) 주변 상호 CREATE 브로드캐스트
     BroadcastEnterZone(zone, player, SpawnReason::CONNECT);
 
     return player;
@@ -1923,6 +1968,9 @@ void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
             // 복귀한 존에서 본인 + 주변 상호 통보
             SendZoneInfo(player, fallback);
             SendCreateMyPlayer(player);
+#if USE_EXP
+            SendExp(player);   // 아래 성공 경로와 같은 이유 — 클라가 존을 넘을 때 판을 비운다
+#endif
             BroadcastEnterZone(fallback, player, SpawnReason::NORMAL);
 
             return;
@@ -1949,6 +1997,14 @@ void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
     SendZoneInfo(player, newZone);
     int32_t channelIndex = CMapManager::GetChannelIndexFromZoneId(newZone->GetZoneId());
     SendZoneChangeOk(player, targetMapId, channelIndex);
+
+#if USE_EXP
+    // ★ 레벨·경험치를 다시 보낸다 — 이 경로는 SendCreateMyPlayer 를 안 거친다.
+    //   콘솔 클라는 존을 넘을 때 내 정보를 통째로 비우고 다시 세운다(speed 만 따로 옮겨 담는다,
+    //   GameInstance.cpp 의 ZONE_CHANGE_OK). 안 보내면 거기서 화면이 1 레벨로 돌아가고
+    //   다음 경험치가 들어올 때까지 그대로다. 웹 클라는 안 비우므로 이 장이 덧쓰기가 될 뿐 무해하다.
+    SendExp(player);
+#endif
 
     // 주변 상호 CREATE 브로드캐스트
     BroadcastEnterZone(newZone, player, SpawnReason::ZONE_TRANSFER);
@@ -2160,7 +2216,123 @@ void CGameServer::PerformAttack(CZone* zone, CCharacter* player)
 #endif
 
     BroadcastAroundSector(zone, player, MakeDeath(target->_actorId), false);
+
+#if USE_EXP && USE_MONSTER
+    // ── 6) 경험치 — 사람이 몬스터를 잡았을 때만 ──
+    //   ★ 막타 한 명에게만 준다. 나눠 주려면 누가 얼마나 때렸는지를 몬스터가 들고 있어야 하고,
+    //     그건 퇴장 경로가 훑어야 할 대기열이 하나 더 느는 일이다(Monster.h [대상] 과 같은 이유).
+    //   때린 쪽은 CCharacter* 라 종류로 가르고 내려 캐스팅한다 — _tickClampedPlayers 순회와 같은 꼴.
+    //   PvP 는 안 준다: 당한 쪽이 몬스터일 때만이다.
+    if (player->_kind == CharacterKind::PLAYER && target->_kind == CharacterKind::MONSTER)
+    {
+        CPlayer* killer = static_cast<CPlayer*>(player);
+        const int32_t reward = SNAKE_EXP_REWARD;   // 종류가 하나뿐 — 늘어나면 종류별 표에서 뽑는다
+
+        // ★ 준 뒤에 센다 — GainExp 는 만렙이면 한 톨도 안 쌓는다.
+        //   먼저 세면 만렙 이후 잡은 수만큼 "줬다"가 늘어, 계수기가 실제와 갈린다.
+        const int64_t beforeExp = killer->_exp;
+        const bool leveled = GainExp(killer, reward);
+        const bool gained  = (killer->_exp != beforeExp);
+
+        if (gained)
+        {
+            _gameMonitor._exp._granted.Inc();
+            _gameMonitor._exp._grantedAmount.Add(killer->_exp - beforeExp);
+
+            SendExp(killer);
+
+            // ★ 경험치가 늘었으면 저장 대상이다 — 안 켜면 레벨업이 주기 저장에 안 실린다.
+            //   불러온 캐릭터는 dirty 가 아닌 채로 들어오므로(값이 DB 와 같다) 여기서 안 켜면 영영 안 써진다.
+#if USE_DB_WORKER
+            killer->_dbDirty = true;
+#endif
+        }
+
+        if (leveled)
+        {
+            // 늘어난 체력을 본인과 주변에 다시 알린다 — 막대가 옛 최대치로 남지 않게.
+            //   excludeSelf=false 라 본인에게도 간다(부활 방송과 같은 꼴).
+            BroadcastAroundSector(zone, killer,
+                MakeActorStats(killer->_actorId, killer->_hp, killer->_maxHp), false);
+        }
+    }
+#endif
 }
+
+#if USE_EXP
+// ==========================================================================
+// 경험치·레벨
+//   표(CLevelTable)는 기획 데이터라 파일에서 왔고, 여기서는 읽기만 한다.
+//   ★ 누적 기준 — _exp 는 "지금까지 얻은 총합"이고 표의 필요치도 같은 기준이다.
+//     레벨 안에서 다시 0부터 세지 않아서 레벨업이 한 줄이고 넘친 경험치가 안 사라진다.
+// ==========================================================================
+
+void CGameServer::ApplyLevelStats(CPlayer* player, bool refillHp)
+{
+    const CLevelTable& table = _gameDataFiles.Level();
+    player->_maxHp       = table.MaxHp(player->_level);
+    player->_attackPower = table.AttackPower(player->_level);
+
+    // 레벨이 올랐을 때만 채운다. 입장 때는 DB 가 들고 있던 체력이 아직 없으므로(스탯만 맞춘다)
+    //   호출부가 정한다 — 지금은 스폰도 만피라 둘 다 true 로 들어온다.
+    if (refillHp)
+        player->_hp = player->_maxHp;
+    else if (player->_hp > player->_maxHp)
+        player->_hp = player->_maxHp;   // 표를 낮춘 패치 뒤엔 들고 있던 체력이 최대를 넘을 수 있다
+}
+
+bool CGameServer::ClampLevelToTable(CPlayer* player)
+{
+    const CLevelTable& table = _gameDataFiles.Level();
+    const int32_t maxLevel = table.MaxLevel();
+
+    if (player->_level >= 1 && player->_level <= maxLevel)
+        return false;
+
+    SLOG_WARN("[EXP] level out of table -> clamp (account={}, level={}, table max={})",
+              player->_accountId, player->_level, maxLevel);
+    player->_level = (player->_level < 1) ? 1 : maxLevel;
+    return true;
+}
+
+bool CGameServer::GainExp(CPlayer* player, int64_t amount)
+{
+    const CLevelTable& table = _gameDataFiles.Level();
+    const int32_t maxLevel = table.MaxLevel();
+
+    // 만렙이면 더 안 쌓는다 — 쌓아 봐야 쓸 데가 없고, 숫자만 끝없이 커진다.
+    if (player->_level >= maxLevel)
+        return false;
+
+    if (amount > 0)
+        player->_exp += amount;
+
+    // ★ 앞의 level < maxLevel 이 없으면 만렙에서 table[maxLevel + 1] 을 읽어 배열 밖이다.
+    //   한 번에 여러 레벨이 오를 수 있으므로 if 가 아니라 while 이다.
+    const int32_t before = player->_level;
+    while (player->_level < maxLevel && player->_exp >= table.RequiredExp(player->_level + 1))
+        ++player->_level;
+
+    if (player->_level == before)
+        return false;
+
+    ApplyLevelStats(player, true);   // 오르면 체력을 가득 채운다
+    _gameMonitor._exp._levelUps.Inc();
+    return true;
+}
+
+void CGameServer::SendExp(CPlayer* player)
+{
+    const CLevelTable& table = _gameDataFiles.Level();
+    const int32_t maxLevel = table.MaxLevel();
+
+    // 만렙이면 다음 필요치가 0 — 클라는 0 을 보면 나누지 말고 MAX 로 그린다.
+    const int64_t nextExp = (player->_level < maxLevel) ? table.RequiredExp(player->_level + 1) : 0;
+
+    SendPacket(player, MakeExp(player->_level, player->_exp,
+                               table.RequiredExp(player->_level), nextExp));
+}
+#endif // USE_EXP
 
 // 부활 대기자 훑기 — 틱마다 1회. 죽은 것만 따로 들고 있어 존 전체를 돌지 않는다.
 void CGameServer::TickRespawn()

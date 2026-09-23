@@ -476,6 +476,23 @@ private:
                      "Monster AI state changes (one state swallowing others shows up as a stall here)",
                      _gameMonitor._monster._stateTransitions);
 #endif
+
+#if USE_EXP
+        // 경험치·레벨. 둘을 나눠 세는 이유 — 횟수만으로는 "몇 마리 잡았나"만 보이고
+        //   총량과 갈라 두면 나중에 종류별 보상이 생겨도 평균이 바로 나온다.
+        WriteCounter(ss, "mmo_exp_granted_total",
+                     "Kills that actually awarded exp (max-level kills award nothing and are not counted)",
+                     _gameMonitor._exp._granted);
+        WriteCounter(ss, "mmo_exp_granted_amount_total",
+                     "Total exp awarded",
+                     _gameMonitor._exp._grantedAmount);
+        WriteCounter(ss, "mmo_exp_level_ups_total",
+                     "Level-up events (one per call even if several levels are gained at once)",
+                     _gameMonitor._exp._levelUps);
+        WriteCounter(ss, "mmo_exp_level_clamped_total",
+                     "Loaded characters whose level fell outside the table and was clamped (0 expected)",
+                     _gameMonitor._exp._levelClamped);
+#endif
     }
 
     // 입장(캐릭터 불러오기) 지표 — 전부 게임 루프가 센 값이다(GameMonitor.h 참조).

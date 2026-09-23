@@ -47,6 +47,14 @@ constexpr int32_t SNAKE_MAX_HP        = 30;   // 플레이어 3 대(10×3)
 constexpr int32_t SNAKE_ATTACK_POWER  = 5;    // 플레이어를 20 대에 눕힌다
 constexpr int32_t SNAKE_SPEED         = 15;   // 플레이어 최저(25)보다 느리다 — 도망칠 수 있어야 한다
 
+#if USE_EXP
+// 잡으면 주는 경험치. 레벨 표(LevelTable.csv)는 2레벨을 100 으로 두므로 뱀 열 마리다.
+//   ★ 이 값만 파일로 빼지 않는 이유 — 같은 몬스터의 값이 두 곳(코드·파일)으로 갈린다.
+//     위 :29 주석이 예고한 대로 "둘째 종류가 생기는 날" 몬스터 스탯을 통째로 파일로 옮긴다.
+//     그때 이 값도 같이 간다.
+constexpr int32_t SNAKE_EXP_REWARD    = 10;
+#endif
+
 class CMonster : public CCharacter
 {
 public:

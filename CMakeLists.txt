@@ -148,6 +148,8 @@ set(GAME_SOURCES
     ${SRV_DIR}/MonsterAI.cpp
     ${SRV_DIR}/Actor.cpp
     ${SRV_DIR}/Combat.cpp
+    ${SRV_DIR}/LevelTable.cpp
+    ${SRV_DIR}/GameDataFiles.cpp
     ${SRV_DIR}/DB/DBWorker.cpp
 )
 

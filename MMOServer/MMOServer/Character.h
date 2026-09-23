@@ -33,7 +33,10 @@
 // ==========================================================================
 
 // 스탯 기본값 — 종류별 값은 파생이 정한다 (플레이어는 지금 이 값 그대로)
-constexpr int32_t CHARACTER_DEFAULT_MAX_HP        = 100;
+//   ★ USE_EXP 가 켜져 있으면 스폰 때 레벨 표(LevelTable.csv)가 곧바로 덮어쓴다.
+//     그래서 이 값은 표의 1레벨 칸과 반드시 같아야 한다 — 어긋나면 토글을 끈 빌드와
+//     켠 빌드의 1레벨 체력이 달라져서 "같은 캐릭터인데 빌드마다 다른" 상태가 된다.
+constexpr int32_t CHARACTER_DEFAULT_MAX_HP        = 800;
 constexpr int32_t CHARACTER_DEFAULT_ATTACK_POWER  = 10;
 
 // 캐릭터 종류 — 위 [종류] 참조. 와이어에는 안 실린다(클라는 displayChar 로 종류를 안다).
