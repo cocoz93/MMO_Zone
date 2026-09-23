@@ -239,6 +239,11 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     //   ★ 더미는 몬스터를 안 잡지만 이 패킷을 반드시 받는다 — 스폰 직후 본인에게 한 장 간다.
     //     빠뜨리면 전투가 없어도 더미 전원이 접속하자마자 떨어진다.
     case MsgType::S2C_EXP:                return sizeof(MSG_S2C_EXP);
+    // USE_INVENTORY: 가방 — 위와 같은 이유로 크기만 등록한다.
+    //   ★ 더미는 아이템을 안 받지만 S2C_INVENTORY 는 반드시 받는다 — 빈 가방이라도 입장 때 한 장 간다.
+    //     빠뜨리면 더미 전원이 접속하자마자 떨어진다. 가변 길이라 최소 = header+count.
+    case MsgType::S2C_INVENTORY:          return static_cast<uint16_t>(offsetof(MSG_S2C_INVENTORY, entries));
+    case MsgType::S2C_INVENTORY_SLOT:     return sizeof(MSG_S2C_INVENTORY_SLOT);
     default: return 0;
     }
 }

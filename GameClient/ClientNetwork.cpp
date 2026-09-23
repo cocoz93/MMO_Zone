@@ -382,6 +382,12 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
             _gameInstance->OnExp(reinterpret_cast<const MSG_S2C_EXP*>(data));
         break;
 
+    // 가방 (서버 USE_INVENTORY) — 콘솔 클라는 가방을 그리지 않으므로 알고 넘긴다(위 전투와 같은 이유).
+    //   가방 전체는 입장 때 반드시 한 장 오므로, 빠뜨리면 접속할 때마다 모르는 타입 로그가 한 줄 찍힌다.
+    case MsgType::S2C_INVENTORY:
+    case MsgType::S2C_INVENTORY_SLOT:
+        break;
+
     default:
         LOG_ERROR_STREAM("Unknown message type: " << static_cast<int>(header->type));
         break;

@@ -100,7 +100,13 @@ enum class MsgType : uint16_t
     //--------------------------------------------------
     // 경험치·레벨 (USE_EXP)
     //--------------------------------------------------
-    S2C_EXP                 // 서버 → 클라이언트: 레벨·경험치 통보 (본인 전용)
+    S2C_EXP,                // 서버 → 클라이언트: 레벨·경험치 통보 (본인 전용)
+
+    //--------------------------------------------------
+    // 인벤토리 (USE_INVENTORY)
+    //--------------------------------------------------
+    S2C_INVENTORY,          // 서버 → 클라이언트: 가방 전체 (입장 때 한 번 — 빈 칸은 안 싣는다)
+    S2C_INVENTORY_SLOT      // 서버 → 클라이언트: 가방 한 칸이 바뀜 (itemId 0 = 비었음)
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -618,6 +624,90 @@ struct MSG_S2C_EXP
     int64_t nextLevelExp;    // 다음 레벨에 필요한 누적. 만렙이면 0
 
     MSG_S2C_EXP() : header{ sizeof(*this), TYPE }, level(1), exp(0), levelBaseExp(0), nextLevelExp(0) {}
+};
+
+//==================================================
+// 인벤토리 (USE_INVENTORY)
+//==================================================
+
+// 탭과 칸 번호 — 칸 번호가 곧 DB 열쇠(계정, 칸)다.
+//   탭마다 번호 구간을 띄워 둔다(장비 0~ · 소비 100~ · 기타 200~). 그래서 탭을 늘려도, 한 탭의
+//   칸 수를 늘려도 기존 칸 번호가 안 밀리고 DB 를 고칠 일이 없다.
+//   탭 하나 더 = 아래 enum 한 줄 + 구간 한 줄 + 클라 탭 하나.
+//   ★ 칸 번호 → 탭을 가를 때 탭마다 if 를 쓰지 말고 이 표를 돈다 — 넷째 탭이 오면 if 하나가 나머지를 삼킨다.
+//   ★ WebClient/proto.js 에 같은 표를 옮겨 둔다 — 한쪽만 고치면 웹이 엉뚱한 탭에 그린다.
+enum class InvTab : uint8_t
+{
+    EQUIP,   // 장비 — 쌓이지 않는다(아이템 표의 maxStack 이 1)
+    USE,     // 소비 — 물약
+    ETC,     // 기타 — 재료
+    COUNT
+};
+
+struct InvTabRange
+{
+    uint16_t firstSlot;   // 이 탭 첫 칸의 번호
+    uint16_t slotCount;   // 이 탭의 칸 수
+};
+
+// InvTab 순서 그대로. 구간은 겹치지 않고 오름차순이어야 한다(아래 단언이 막는다).
+constexpr InvTabRange INV_TAB_RANGES[] = {
+    {   0, 20 },   // EQUIP
+    { 100, 20 },   // USE
+    { 200, 20 },   // ETC
+};
+constexpr int INVENTORY_TOTAL_SLOTS = 60;   // 위 칸 수의 합 — 가방 배열·전체 목록 패킷의 크기
+
+static_assert(sizeof(INV_TAB_RANGES) / sizeof(INV_TAB_RANGES[0]) == static_cast<unsigned>(InvTab::COUNT),
+              "INV_TAB_RANGES 는 InvTab 마다 한 줄이어야 한다");
+
+constexpr bool InvTabRangesAreValid()
+{
+    int total = 0;
+    for (unsigned i = 0; i < sizeof(INV_TAB_RANGES) / sizeof(INV_TAB_RANGES[0]); ++i)
+    {
+        if (INV_TAB_RANGES[i].slotCount == 0)
+            return false;
+        if (i > 0 && INV_TAB_RANGES[i].firstSlot <
+                     INV_TAB_RANGES[i - 1].firstSlot + INV_TAB_RANGES[i - 1].slotCount)
+            return false;   // 앞 탭 구간과 겹친다
+        total += INV_TAB_RANGES[i].slotCount;
+    }
+    return total == INVENTORY_TOTAL_SLOTS;
+}
+static_assert(InvTabRangesAreValid(), "탭 구간이 겹치거나 칸 수의 합이 INVENTORY_TOTAL_SLOTS 와 다르다");
+
+// 가방 한 칸 (10B, pack(1))
+struct InventoryEntry
+{
+    uint16_t slot;     // 칸 번호 (위 구간 안)
+    int32_t  itemId;   // 아이템 번호 (Run/bin/ItemTable.csv). 0 = 빈 칸 — 전체 목록에는 안 실린다
+    int32_t  count;    // 개수 (1 ~ 그 아이템의 maxStack)
+};
+
+// S2C: 가방 전체 — 입장 때 한 번.
+//   가변 길이 — 와이어에는 header + count + InventoryEntry × count 만 실린다(빈 칸은 안 싣는다).
+//   ★ 빈 가방이어도 한 장 간다(count 0). 부하 더미도 받으므로 더미가 이 타입을 몰라서는 안 된다.
+struct MSG_S2C_INVENTORY
+{
+    static constexpr MsgType TYPE = MsgType::S2C_INVENTORY;
+    MsgHeader      header;
+    uint16_t       count;
+    InventoryEntry entries[INVENTORY_TOTAL_SLOTS];
+
+    MSG_S2C_INVENTORY() : header{ sizeof(*this), TYPE }, count(0), entries{} {}
+};
+
+// S2C: 가방 한 칸이 바뀜 — 넣기·쓰기 모두 이것 하나로 알린다. 칸의 "최종값"이다(증감 아님).
+struct MSG_S2C_INVENTORY_SLOT
+{
+    static constexpr MsgType TYPE = MsgType::S2C_INVENTORY_SLOT;
+    MsgHeader header;
+    uint16_t  slot;
+    int32_t   itemId;   // 0 = 이 칸이 비었다
+    int32_t   count;
+
+    MSG_S2C_INVENTORY_SLOT() : header{ sizeof(*this), TYPE }, slot(0), itemId(0), count(0) {}
 };
 
 #pragma pack(pop)
