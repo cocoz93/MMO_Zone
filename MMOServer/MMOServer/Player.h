@@ -5,6 +5,7 @@
 #include <random>
 
 #include "Character.h"   // CCharacter ← CActor · Direction · MoveState
+#include "Inventory.h"   // USE_INVENTORY — 헤더 안에서 스스로 토글을 본다
 
 // CPlayer — 사람이 조종하는 캐릭터.
 //   좌표·섹터·이동은 CActor 에, HP·표시·조종 세션은 CCharacter 에 있다.
@@ -37,4 +38,13 @@ public:
     //   초기값 0 + 프레임 0 = 첫 수용 시 경과가 커서 상한까지 적립됨(스폰 직후 만충과 동일).
     float    _moveBudget = 0.0f;       // 남은 예산 (타일)
     uint64_t _moveBudgetFrame = 0;     // 마지막 적립 프레임 (CGameServer::_frameCount 기준)
+
+#if USE_INVENTORY
+    // ── 가방 ──
+    // 사람만 갖는다(몬스터가 떨어뜨리는 것은 몬스터의 가방이 아니라 종류별 기획 값이 된다).
+    //   칸을 바꾼 자리는 반드시 CGameServer::FlushInventory 를 불러야 클라·DB 에 나간다.
+    //   ★ 맨 끝에 두는 이유 — 칸 60개(약 490B)라 앞에 끼우면 이동 쪽 필드들이 캐시 줄 여러 개 뒤로 밀린다.
+    //     가방은 명령·물약 때만 본다.
+    CInventory _inventory;
+#endif
 };

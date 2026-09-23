@@ -18,6 +18,31 @@
 
 #include "BuildConfig.h"      // USE_MONSTER — 몬스터 카운터 묶음을 토글 안에 둔다
 #include "MonitorManager.h"   // Counter — 원자 카운터 타입만 빌려 쓴다 (코어 지표는 참조하지 않음)
+#include "Inventory.h"        // USE_INVENTORY — 넣기 결과 사유(InvAddResult) 수만큼 칸을 잡는다
+
+#if USE_INVENTORY
+// 채팅 명령 거절 사유 — 넣기 거절(InvAddResult)과 따로 센다. 명령이 틀린 것과 가방이 찬 것은 다른 사실이다.
+enum class ChatCommandReject : uint8_t
+{
+    NOT_ADMIN,         // 운영자가 아니다
+    UNKNOWN_COMMAND,   // 모르는 명령
+    BAD_ARGS,          // 명령은 맞는데 인자가 틀렸다
+    COUNT
+};
+
+inline const char* ChatCommandRejectName(ChatCommandReject r)
+{
+    static_assert(static_cast<int>(ChatCommandReject::COUNT) == 3, "사유를 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case ChatCommandReject::NOT_ADMIN:       return "not_admin";
+    case ChatCommandReject::UNKNOWN_COMMAND: return "unknown_command";
+    case ChatCommandReject::BAD_ARGS:        return "bad_args";
+    case ChatCommandReject::COUNT:           break;
+    }
+    return "?";
+}
+#endif
 
 class CGameMonitor
 {
@@ -87,6 +112,23 @@ public:
         Counter _levelUps;       // 레벨이 오른 횟수 (한 번에 여러 칸 올라도 1)
         Counter _levelClamped;   // 불러온 레벨이 표 밖이라 내린 수
     } _exp;
+#endif
+
+#if USE_INVENTORY
+    // ══════════════════════════════════════════════════════════════
+    // 인벤토리 (USE_INVENTORY)
+    //   ★ 거절은 사유마다 한 칸(배열) — 한 통에 담으면 제일 흔한 하나(가득)가 나머지를 삼킨다.
+    //     배열로 둔 이유는 사유가 늘어도 노출 쪽이 표를 돌며 빠짐없이 내보내게 하려는 것이다.
+    //   ★ 칸 패킷 수는 FlushInventory 한 곳에서만 센다 — 칸을 바꾸는 길이 몇이든 내보내는 길은 하나다.
+    // ══════════════════════════════════════════════════════════════
+    struct alignas(64) InventoryCounters
+    {
+        Counter _itemsAdded;                                                  // 넣은 아이템 개수(칸 수가 아니라 개수)
+        Counter _addRejected[static_cast<int>(InvAddResult::COUNT)];          // 넣기 거절, 사유별 ([OK] 칸은 안 쓴다)
+        Counter _commandRejected[static_cast<int>(ChatCommandReject::COUNT)]; // 채팅 명령 거절, 사유별
+        Counter _slotUpdatesSent;                                             // 칸 패킷(S2C_INVENTORY_SLOT) 보낸 수
+        Counter _snapshotsSent;                                               // 전체 목록(S2C_INVENTORY) 보낸 수 — 입장마다 1
+    } _inventory;
 #endif
 
     // ══════════════════════════════════════════════════════════════

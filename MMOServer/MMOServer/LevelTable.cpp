@@ -3,77 +3,15 @@
 #if USE_EXP
 
 #include <cassert>
-#include <cctype>
-#include <cstdlib>
-#include <fstream>
-#include <sstream>
 
 #include <Common/ErrorLog.h>
 
-namespace
-{
-    // 한 줄을 쉼표로 쪼갠다. 앞뒤 공백과 CR 을 턴다(CRLF 파일을 텍스트 모드로 읽어도 안전하게).
-    //   ※ 표가 둘째로 늘어나는 날 이 둘을 공용 자리로 옮긴다. 지금은 쓰는 곳이 하나뿐이라 여기 둔다.
-    void SplitCsv(const std::string& line, std::vector<std::string>& out)
-    {
-        out.clear();
-        std::string cell;
-        std::istringstream ss(line);
-        while (std::getline(ss, cell, ','))
-        {
-            size_t b = cell.find_first_not_of(" \t\r\n");
-            size_t e = cell.find_last_not_of(" \t\r\n");
-            out.push_back(b == std::string::npos ? std::string() : cell.substr(b, e - b + 1));
-        }
-    }
+#include "GameDataCsv.h"   // 줄·칸 쪼개기 — 아이템 표가 생기며 이 파일에서 공용 자리로 옮겼다
 
-    // 값으로 읽을 줄만 남긴다 — 빈 줄 · '#' 주석 · 헤더(첫 칸이 숫자가 아닌 줄) 를 버린다.
-    //   반환하는 줄 번호는 파일 기준이라 오류 메시지가 사람이 볼 줄을 가리킨다.
-    struct DataLine { int fileLine; std::string text; };
-
-    bool ReadDataLines(const std::string& path, std::vector<DataLine>& out)
-    {
-        std::ifstream f(path);
-        if (!f.is_open())
-            return false;
-
-        out.clear();
-        std::string line;
-        int no = 0;
-        while (std::getline(f, line))
-        {
-            ++no;
-            // UTF-8 BOM 이 붙어 있으면 첫 줄 앞 세 바이트를 턴다 — 편집기가 붙여 놓는 일이 있다
-            if (no == 1 && line.size() >= 3 &&
-                static_cast<unsigned char>(line[0]) == 0xEF &&
-                static_cast<unsigned char>(line[1]) == 0xBB &&
-                static_cast<unsigned char>(line[2]) == 0xBF)
-                line.erase(0, 3);
-
-            size_t b = line.find_first_not_of(" \t\r\n");
-            if (b == std::string::npos)      continue;   // 빈 줄
-            if (line[b] == '#')              continue;   // 주석
-            if (!std::isdigit(static_cast<unsigned char>(line[b])))
-                continue;                                // 헤더 — 첫 칸이 숫자가 아니면 값 줄이 아니다
-
-            out.push_back({ no, line });
-        }
-        return true;
-    }
-
-    // 문자열이 통째로 정수인가 (뒤에 쓰레기가 붙은 "12abc" 를 12 로 받지 않게)
-    bool ParseInt(const std::string& s, int64_t& out)
-    {
-        if (s.empty())
-            return false;
-        char* end = nullptr;
-        const long long v = std::strtoll(s.c_str(), &end, 10);
-        if (end != s.c_str() + s.size())
-            return false;
-        out = static_cast<int64_t>(v);
-        return true;
-    }
-}
+using GameDataCsv::DataLine;
+using GameDataCsv::ReadDataLines;
+using GameDataCsv::SplitCsv;
+using GameDataCsv::ParseInt;
 
 bool CLevelTable::Load(const std::string& path)
 {

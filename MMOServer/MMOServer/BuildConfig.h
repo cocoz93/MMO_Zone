@@ -144,3 +144,24 @@
 #if USE_EXP && !USE_COMBAT
 	#error "USE_EXP requires USE_COMBAT=1 (경험치를 얻는 유일한 길이 전투다)"
 #endif
+
+// 인벤토리(가방) — 종류별 탭 셋(장비·소비·기타)에 20칸씩. 무게는 없고 칸 수만 센다.
+//   ★ 아이템 정의(이름·탭·쌓임 한도·회복량)는 기획 데이터라 파일에 둔다(Run/bin/ItemTable.csv).
+//     가방 안의 "무엇이 몇 개"만 유저 데이터다.
+//   1: 가방 활성 — 표를 읽고, 입장 때 가방을 보내고, 운영자 채팅 명령 /item 으로 채운다 [기본]
+//   0: 가방 경로가 컴파일에서 빠짐 — '/' 로 시작하는 채팅도 지금처럼 그냥 방송된다
+//   기본값이 USE_COMBAT 을 따라가는 이유: 물약이 체력을 채운다(3단계). 전투를 끄면 같이 꺼져
+//     아래 #error 를 안 만난다. USE_EXP 와 같은 꼴.
+//   주의: 켠 채 부하 더미를 돌리려면 더미가 S2C_INVENTORY 를 알아야 한다 — 빈 가방이라도
+//         입장 때 한 장 가므로, 모르면 더미 전원이 접속하자마자 떨어진다(위 USE_COMBAT 주의와 같은 함정).
+#ifndef USE_INVENTORY
+#define USE_INVENTORY USE_COMBAT
+#endif
+
+#if USE_INVENTORY && !USE_COMBAT
+	#error "USE_INVENTORY requires USE_COMBAT=1 (물약이 체력을 채운다)"
+#endif
+
+// 기획 데이터 파일이 하나라도 필요한가 — 표를 담는 자리(CGameDataFiles)와 CSV 도우미가 이걸 본다.
+//   표마다 토글이 따로라, "레벨 표는 끄고 아이템 표만 켠" 빌드에서도 담는 자리는 살아 있어야 한다.
+#define USE_GAME_DATA_FILES (USE_EXP || USE_INVENTORY)

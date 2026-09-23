@@ -35,7 +35,7 @@
 #include "MonitorManager.h"
 #include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
 #include "Common.h"
-#include "GameDataFiles.h"  // 기획 데이터 파일(레벨 표 등) — USE_EXP=0 이면 빈 헤더
+#include "GameDataFiles.h"  // 기획 데이터 파일(레벨 표·아이템 표) — 표가 하나도 안 켜졌으면 빈 헤더
 #include "DB/DBWorker.h"
 
 class CSerialBuffer;
@@ -79,11 +79,13 @@ public:
         _monsterPerZone = count;
     }
 
-#if USE_EXP
-    // 기획 데이터 파일(레벨 표 등)을 읽는다 — 기동 때 한 번, DB 접속보다 "앞"에서 부른다.
+#if USE_GAME_DATA_FILES
+    // 기획 데이터 파일(레벨 표·아이템 표)을 읽는다 — 기동 때 한 번, DB 접속보다 "앞"에서 부른다.
     //   실패하면 false 이고 main 이 서버를 안 띄운다. dir 은 끝에 경로 구분자가 붙은 디렉토리.
     bool LoadGameDataFiles(const std::string& dir) { return _gameDataFiles.LoadAll(dir); }
+#endif
 
+#if USE_EXP
     // ── 경험치·레벨 ──
     // 경험치를 더하고, 올라갈 만큼 올린다. 레벨이 올랐으면 true.
     //   ★ 부르는 자리가 둘이다 — 몬스터를 잡았을 때, 그리고 불러왔을 때.
@@ -165,6 +167,23 @@ private:
     // 공격 본체 — 플레이어(RecvAttack)와 몬스터(ThinkMonster)가 같이 쓴다.
     //   읽는 필드가 전부 CCharacter 것이라 세션 핸들러에서 갈라낼 수 있었다.
     void PerformAttack(CZone* zone, CCharacter* attacker);
+#endif
+
+#if USE_INVENTORY
+    // ── 인벤토리 (USE_INVENTORY) ──
+    // '/' 로 시작하는 채팅 — 방송하지 않고 명령으로 처리한다. 답은 본인에게 S2C_ERROR 한 줄.
+    //   지금 명령은 /item 하나(운영자 전용 — 드랍이 생기기 전까지 가방을 채우는 유일한 길).
+    void HandleChatCommand(CPlayer* player, const ChatChar* msg, uint16_t len);
+
+    // 바뀐 칸을 내보낸다 — 칸 패킷 하나씩(+ 4단계에서 DB 저장 하나씩). 세는 것도 여기 한 곳이다.
+    //   ★ 칸을 바꾼 자리는 반드시 부른다. 넣기·쓰기·드랍 어느 길이든 내보내는 길은 이것 하나다.
+    void FlushInventory(CPlayer* player);
+
+    // 가방 전체 — 입장 때 한 번(빈 가방이어도 한 장).
+    void SendInventory(CPlayer* player);
+
+    // 본인에게 알림 한 줄 — 기존 S2C_ERROR 를 쓴다(콘솔은 이미 UTF-8 로 풀어 보여 준다).
+    void SendSystemMessage(CPlayer* player, const std::string& utf8);
 #endif
 
 #if USE_MONSTER
@@ -382,8 +401,8 @@ private:
     int32_t _defaultMapId = 0;  // 최초 접속 시 입장할 맵
     int32_t _nextPlayerId = 1;  // 전역 playerId 카운터 (싱글스레드 게임 루프)
 
-#if USE_EXP
-    // 기획 데이터 — 기동 때 한 번 읽고 그 뒤로는 읽기만 한다(게임 스레드가 매 전투에서 본다).
+#if USE_GAME_DATA_FILES
+    // 기획 데이터 — 기동 때 한 번 읽고 그 뒤로는 읽기만 한다(게임 스레드가 매 전투·명령에서 본다).
     CGameDataFiles _gameDataFiles;
 #endif
 

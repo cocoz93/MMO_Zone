@@ -2,6 +2,7 @@
 #include "Player.h"
 #include "Monster.h"     // USE_MONSTER — 헤더 안에서 스스로 토글을 본다
 #include "MonsterAI.h"   // 몬스터 판단 (Combat 과 같은 자리의 순수 판정 모듈)
+#include "GameDataCsv.h" // USE_INVENTORY — 채팅 명령 인자를 숫자로 읽는다(표 파서와 같은 규칙)
 #include <Protocol/Protocol.h>
 #include "SerialBuffer.h"
 #include <Common/ErrorLog.h>
@@ -12,6 +13,8 @@
 #include <algorithm>
 #include <cstddef>  // offsetof
 #include <cassert>  // 직렬화 필드 누락/폭 검증
+#include <cstring>  // memcpy — 알림 문구를 고정 배열에 옮겨 담는다
+#include <string>
 
 // ==========================================================================
 // S2C 직렬화 헬퍼 (파일 로컬)
@@ -280,6 +283,69 @@ namespace
             offsetof(MSG_S2C_CHAT, message) + (msgLen + 1) * sizeof(ChatChar));
         return buf;
     }
+
+#if USE_INVENTORY
+    // 본인에게 알림 한 줄 — 고정 256바이트 char 배열이라 SetData(raw)로 통째로 싣는다.
+    //   넘치면 자른다(마지막 한 바이트는 NUL 자리). 답 문구는 짧아 UTF-8 글자 가운데서 잘릴 일이 없다.
+    //   ※ 지금 부르는 곳이 채팅 명령 답뿐이라 USE_INVENTORY 안에 둔다(밖에 두면 끈 빌드에서 안 쓰는 함수가 된다).
+    CSerialBuffer* MakeError(const std::string& utf8)
+    {
+        char text[sizeof(MSG_S2C_ERROR::message)] = {};
+        const size_t n = (utf8.size() < sizeof(text) - 1) ? utf8.size() : sizeof(text) - 1;
+        memcpy(text, utf8.data(), n);
+
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_ERROR::TYPE);
+        buf->SetData(text, static_cast<int>(sizeof(text)));
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_ERROR));
+        return buf;
+    }
+
+    // ── 인벤토리 (USE_INVENTORY) ──
+    //   필드 순서는 Protocol.h 의 InventoryEntry·MSG_S2C_INVENTORY_SLOT 와 글자 그대로 같아야 한다.
+
+    // 가방 전체는 한 장으로 간다(나눠 보내는 길이 없다) — 가득 찬 가방도 한 패킷에 들어가야 한다.
+    //   지금 606B(헤더 4 + 개수 2 + 10 × 60). 탭을 늘려 칸이 145개를 넘으면 여기서 컴파일이 멈춘다.
+    //   ※ Protocol.h 가 아니라 여기 두는 이유 — 상한(MAX_PACKET_SIZE)이 코어 헤더에 있어 거기선 안 보인다.
+    static_assert(sizeof(MSG_S2C_INVENTORY) <= MAX_PACKET_SIZE,
+                  "가득 찬 가방 전체 목록이 한 패킷(MAX_PACKET_SIZE)에 안 들어간다 — 나눠 보내는 길을 만들 것");
+
+    // 가방 전체 — 가변 길이, 빈 칸은 안 싣는다. count 를 먼저 세어 앞에 쓴다(MakeSectorUpdates 와 같은 꼴).
+    CSerialBuffer* MakeInventory(const CInventory& inv)
+    {
+        const int count = inv.CountNonEmpty();
+
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_INVENTORY::TYPE);
+        *buf << static_cast<uint16_t>(count);
+        for (int i = 0; i < INVENTORY_TOTAL_SLOTS; ++i)
+        {
+            const CInventory::Slot& s = inv.At(i);
+            if (s.itemId == 0)
+                continue;
+            *buf << static_cast<uint16_t>(CInventory::SlotNumberOf(i));
+            *buf << static_cast<int>(s.itemId);
+            *buf << static_cast<int>(s.count);
+        }
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() ==
+            offsetof(MSG_S2C_INVENTORY, entries) + static_cast<size_t>(count) * sizeof(InventoryEntry));
+        return buf;
+    }
+
+    CSerialBuffer* MakeInventorySlot(uint16_t slot, int32_t itemId, int32_t count)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_INVENTORY_SLOT::TYPE);
+        *buf << static_cast<uint16_t>(slot);
+        *buf << static_cast<int>(itemId);
+        *buf << static_cast<int>(count);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_INVENTORY_SLOT));
+        return buf;
+    }
+#endif // USE_INVENTORY
 
 #if USE_SECTOR_AGGREGATION
     // 섹터 묶음 — dirty 플레이어 [0,count)의 최종 상태(위치·방향·이동상태)를 직렬화.
@@ -1146,6 +1212,14 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
     SendExp(player);
 #endif
 
+#if USE_INVENTORY
+    // 3-1) 본인에게 가방 전체 — 빈 가방이어도 한 장. 존 이동 때는 안 보낸다(가방이 안 바뀐다).
+    //   ★ 부하 더미가 이 패킷을 받는 유일한 길이 여기다(더미는 아이템을 안 받는다). 그래서 더미 시험과
+    //     "등록을 빼면 떨어지나" 돌연변이가 이 한 장에 매달려 있다 — "비었으면 안 보내자"로 바꾸면 둘 다
+    //     조용히 아무것도 안 보게 된다.
+    SendInventory(player);
+#endif
+
     // 4) 주변 상호 CREATE 브로드캐스트
     BroadcastEnterZone(zone, player, SpawnReason::CONNECT);
 
@@ -1645,6 +1719,16 @@ void CGameServer::RecvChat(CPlayer* player, CSerialBuffer* pMsg)
         msgLen = CHAT_MSG_MAX_LEN - 1;
     recvMsg.message[msgLen] = L'\0';  // null 종단 보장
 
+#if USE_INVENTORY
+    // '/' 로 시작하면 명령이다 — 방송하지 않는다. 운영자가 아닌 사람의 /item 이 채팅으로 새지 않게,
+    //   권한 검사보다 "방송 안 함"이 먼저다. 부하 더미의 채팅 문구에는 '/' 로 시작하는 것이 없다.
+    if (msgLen > 0 && recvMsg.message[0] == u'/')
+    {
+        HandleChatCommand(player, recvMsg.message, msgLen);
+        return;
+    }
+#endif
+
 #if USE_BROADCAST_BUNDLE
     // [digest] 즉시 브로드캐스트 대신 보류 등록 — 틱 끝 digest에 합류 (실송신 시점은 기존과 동일한 틱 끝 flush).
     // 소스 섹터는 수신 시점 좌표로 고정 → 기존(즉시 배포)의 AOI 의미 보존.
@@ -1658,6 +1742,141 @@ void CGameServer::RecvChat(CPlayer* player, CSerialBuffer* pMsg)
             recvMsg.message, msgLen), false);
 #endif
 }
+
+#if USE_INVENTORY
+// ==========================================================================
+// 채팅 명령 · 인벤토리 (USE_INVENTORY)
+// ==========================================================================
+
+namespace
+{
+    // 채팅(UTF-16) → 낱말들. 명령과 인자가 ASCII 라 그 밖의 글자는 '?' 로 바꾼다
+    //   (한글 인자를 받는 명령이 생기면 그때 UTF-8 로 옮긴다).
+    //   ★ NUL 에서 멈춘다 — 웹·콘솔 클라는 끝에 NUL 을 붙여 보내고(proto.js chat()), RecvChat 의
+    //     글자 수는 헤더 크기로 역산해 그 NUL 까지 센다. 안 멈추면 마지막 낱말이 "5\0" 이 되어 숫자로 안 읽힌다.
+    void SplitCommandWords(const ChatChar* msg, uint16_t len, std::vector<std::string>& out)
+    {
+        out.clear();
+        std::string cur;
+        for (uint16_t i = 0; i < len; ++i)
+        {
+            const ChatChar c = msg[i];
+            if (c == u'\0')
+                break;
+            if (c == u' ' || c == u'\t')
+            {
+                if (!cur.empty())
+                {
+                    out.push_back(cur);
+                    cur.clear();
+                }
+                continue;
+            }
+            cur += (c < 0x80) ? static_cast<char>(c) : '?';
+        }
+        if (!cur.empty())
+            out.push_back(cur);
+    }
+}
+
+void CGameServer::HandleChatCommand(CPlayer* player, const ChatChar* msg, uint16_t len)
+{
+    CGameMonitor::InventoryCounters& counters = _gameMonitor._inventory;
+
+    // 명령은 사람이 치는 것이라 드물다 — 할당을 아끼지 않는다
+    std::vector<std::string> words;
+    SplitCommandWords(msg, len, words);
+    const std::string cmd = words.empty() ? std::string("/") : words[0];   // 첫 글자가 '/' 라 비지 않는다
+
+    // 명령이 하나뿐이라 갈래가 하나다. 둘째 명령이 생기면 "이름 → 처리 함수" 표로 바꾼다(if 사슬 금지).
+    if (cmd != "/item")
+    {
+        counters._commandRejected[static_cast<int>(ChatCommandReject::UNKNOWN_COMMAND)].Inc();
+        SendSystemMessage(player, "모르는 명령입니다: " + cmd);
+        return;
+    }
+
+    if (!player->_isAdmin)
+    {
+        counters._commandRejected[static_cast<int>(ChatCommandReject::NOT_ADMIN)].Inc();
+        SendSystemMessage(player, "운영자만 쓸 수 있는 명령입니다: /item");
+        return;
+    }
+
+    // /item <아이템번호> [개수]  — 개수를 안 적으면 1
+    int64_t itemId = 0;
+    int64_t count  = 1;
+    const bool okId    = words.size() >= 2 && GameDataCsv::ParseInt(words[1], itemId);
+    const bool okCount = words.size() < 3 || GameDataCsv::ParseInt(words[2], count);
+    if (!okId || !okCount || words.size() > 3 || count < 1 || count > 9999)
+    {
+        counters._commandRejected[static_cast<int>(ChatCommandReject::BAD_ARGS)].Inc();
+        SendSystemMessage(player, "쓰는 법: /item <아이템번호> [개수 1~9999]");
+        return;
+    }
+
+    // 번호 범위를 먼저 본다 — int32 로 줄이기 전에 걸러야 큰 값이 엉뚱한 번호로 접히지 않는다
+    const ItemDef* def = (itemId > 0 && itemId <= CItemTable::MAX_ITEM_ID)
+                       ? _gameDataFiles.Item().Find(static_cast<int32_t>(itemId))
+                       : nullptr;
+    if (def == nullptr)
+    {
+        counters._addRejected[static_cast<int>(InvAddResult::UNKNOWN_ITEM)].Inc();
+        SendSystemMessage(player, "없는 아이템 번호입니다: " + words[1]);
+        return;
+    }
+
+    const InvAddResult result = player->_inventory.TryAdd(*def, static_cast<int32_t>(count));
+    switch (result)
+    {
+    case InvAddResult::OK:
+        counters._itemsAdded.Add(count);
+        SLOG_INFO("[ITEM] /item (account={}, player={}) -> {} x{} (item {})",
+                  player->_accountId, player->_actorId, def->name, count, def->itemId);
+        FlushInventory(player);
+        return;
+
+    case InvAddResult::TAB_FULL:
+        SendSystemMessage(player, std::string("가방에 자리가 없습니다 — ") + InvTabDisplayName(def->tab)
+                                  + " 탭에 " + def->name + " " + std::to_string(count) + "개를 다 둘 수 없습니다");
+        break;
+
+    case InvAddResult::UNKNOWN_ITEM:   // TryAdd 는 이 둘을 안 돌려준다 — 위에서 이미 걸렀다
+    case InvAddResult::BAD_COUNT:
+        SendSystemMessage(player, std::string("넣지 못했습니다: ") + InvAddResultName(result));
+        break;
+
+    case InvAddResult::COUNT:          // 값이 아니라 개수 표시 — 아래 배열 색인으로 쓰면 범위 밖이다
+        assert(false && "TryAdd 가 COUNT 를 돌려줄 수는 없다");
+        return;
+    }
+    counters._addRejected[static_cast<int>(result)].Inc();
+}
+
+void CGameServer::FlushInventory(CPlayer* player)
+{
+    CInventory& inv = player->_inventory;
+    inv.TakeChanges([&](int index)
+    {
+        // 칸의 "최종값"을 보낸다 — 증감이 아니라서 같은 칸이 두 번 가도 결과가 같다
+        const CInventory::Slot& s = inv.At(index);
+        SendPacket(player, MakeInventorySlot(CInventory::SlotNumberOf(index), s.itemId, s.count));
+        _gameMonitor._inventory._slotUpdatesSent.Inc();
+        // 4단계: 여기서 DB 저장 하나 — 같은 최종값을 UPSERT 한다(재시도해도 결과가 같다)
+    });
+}
+
+void CGameServer::SendInventory(CPlayer* player)
+{
+    SendPacket(player, MakeInventory(player->_inventory));
+    _gameMonitor._inventory._snapshotsSent.Inc();
+}
+
+void CGameServer::SendSystemMessage(CPlayer* player, const std::string& utf8)
+{
+    SendPacket(player, MakeError(utf8));
+}
+#endif // USE_INVENTORY
 
 // ==========================================================================
 // 패킷 전송 추상화

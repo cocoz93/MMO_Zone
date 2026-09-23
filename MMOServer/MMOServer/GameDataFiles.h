@@ -4,8 +4,11 @@
 
 #include "BuildConfig.h"
 #include "LevelTable.h"
+#include "ItemTable.h"
 
-#if USE_EXP
+// 담는 자리는 표가 하나라도 켜져 있으면 산다 — 표마다 토글이 따로다(USE_EXP · USE_INVENTORY).
+//   처음엔 레벨 표 하나라 USE_EXP 안에 두었다가, 아이템 표가 붙으며 밖으로 꺼냈다.
+#if USE_GAME_DATA_FILES
 
 // ==========================================================================
 // CGameDataFiles — 기획 데이터 파일 전부를 담는 자리
@@ -16,9 +19,9 @@
 //        파일인 이유는 밸런스 값이 코드와 같은 커밋에 들어가 같이 롤백되고 diff 로 보이기 때문.
 //        DB 가 나은 조건 둘(서버를 안 내리고 바꾸기 · 여러 대에 배포 누락 방지)은 아직 우리가 아니다.
 //
-// [늘어날 것] 지금은 레벨 표 하나뿐이다. 예고된 것이 둘 —
-//        몬스터 스탯 표(둘째 종류가 생기는 날) · 아이템 표(인벤토리 때).
-//        표가 하나일 때 줄어드는 코드는 서너 줄뿐이고, 값어치는 거기가 아니라
+// [늘어날 것] 레벨 표 다음으로 아이템 표가 붙었다(인벤토리). 예고된 것이 하나 더 —
+//        몬스터 스탯 표(둘째 종류가 생기는 날).
+//        표가 하나일 때 줄어드는 코드는 서너 줄뿐이었고, 값어치는 거기가 아니라
 //        "기획 데이터는 여기"가 코드에 이름으로 존재하는 것이다.
 //
 // [상속 안 씀] 표끼리 같은 것은 파일을 줄과 칸으로 쪼개는 일뿐이다. 열이 몇이고 무슨 뜻인지,
@@ -36,10 +39,20 @@ public:
     //   한 표라도 실패하면 곧바로 false — 뒤엣것을 마저 읽어 봐야 어차피 안 띄운다.
     bool LoadAll(const std::string& dir);
 
+#if USE_EXP
     const CLevelTable& Level() const { return _level; }
+#endif
+#if USE_INVENTORY
+    const CItemTable& Item() const { return _item; }
+#endif
 
 private:
+#if USE_EXP
     CLevelTable _level;
+#endif
+#if USE_INVENTORY
+    CItemTable _item;
+#endif
 };
 
-#endif // USE_EXP
+#endif // USE_GAME_DATA_FILES

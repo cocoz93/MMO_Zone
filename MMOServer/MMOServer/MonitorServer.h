@@ -493,6 +493,40 @@ private:
                      "Loaded characters whose level fell outside the table and was clamped (0 expected)",
                      _gameMonitor._exp._levelClamped);
 #endif
+
+#if USE_INVENTORY
+        // 인벤토리. 거절 둘은 사유 표를 돌며 내보낸다 — 사유를 늘려도 여기서 빠지는 칸이 없게.
+        const auto& inv = _gameMonitor._inventory;
+        WriteCounter(ss, "mmo_inv_items_added_total",
+                     "Item units put into bags (count of items, not slots)",
+                     inv._itemsAdded);
+
+        ss << "# HELP mmo_inv_add_rejected_total Item adds refused, split by reason (nothing was added)\n";
+        ss << "# TYPE mmo_inv_add_rejected_total counter\n";
+        for (int i = 1; i < static_cast<int>(InvAddResult::COUNT); ++i)   // [0] = OK — 거절이 아니다
+        {
+            ss << "mmo_inv_add_rejected_total{reason=\"" << InvAddResultName(static_cast<InvAddResult>(i))
+               << "\"} " << inv._addRejected[i] << "\n";
+        }
+        ss << "\n";
+
+        ss << "# HELP mmo_chat_command_rejected_total Chat commands ('/'-prefixed) refused, split by reason\n";
+        ss << "# TYPE mmo_chat_command_rejected_total counter\n";
+        for (int i = 0; i < static_cast<int>(ChatCommandReject::COUNT); ++i)
+        {
+            ss << "mmo_chat_command_rejected_total{reason=\""
+               << ChatCommandRejectName(static_cast<ChatCommandReject>(i))
+               << "\"} " << inv._commandRejected[i] << "\n";
+        }
+        ss << "\n";
+
+        WriteCounter(ss, "mmo_inv_slot_updates_sent_total",
+                     "S2C_INVENTORY_SLOT packets sent (only FlushInventory sends them)",
+                     inv._slotUpdatesSent);
+        WriteCounter(ss, "mmo_inv_snapshots_sent_total",
+                     "S2C_INVENTORY packets sent (one per spawn, empty bags included)",
+                     inv._snapshotsSent);
+#endif
     }
 
     // 입장(캐릭터 불러오기) 지표 — 전부 게임 루프가 센 값이다(GameMonitor.h 참조).
