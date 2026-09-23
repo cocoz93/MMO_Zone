@@ -500,6 +500,8 @@ DBSaveJob CGameServer::MakeSaveJob(const CPlayer* player) const
     job.x         = player->_x;
     job.y         = player->_y;
     job.mapId     = CMapManager::GetMapIdFromZoneId(player->_zoneId);
+    job.level     = player->_level;
+    job.exp       = player->_exp;
     return job;
 }
 
@@ -723,6 +725,12 @@ void CGameServer::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
     {
     case DBResultCode::FOUND:
         enter._found.Inc();
+
+        // 레벨·경험치는 자리(좌표·맵) 판정과 무관하게 행의 값을 그대로 쓴다.
+        //   좌표가 못 쓸 값이어도 레벨까지 버릴 이유는 없다 — 다른 사실이다.
+        //   ★ 표 범위 검사와 레벨업 판정은 2단계에서 이 아래에 붙는다(표가 그때 생긴다).
+        place.level = result.level;
+        place.exp   = result.exp;
 
         // 존 먼저, 좌표는 그 존의 크기로 본다. 저장된 맵이 없으면 zone 이 nullptr 로 남아 아래에서 기본 맵을 구한다.
         zone = _mapManager.FindOrCreateChannel(result.mapId);
@@ -1072,6 +1080,11 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
     // 델타 동기화 기준 좌표 초기화 (스폰 직후 불필요한 동기화 방지)
     player->_lastSyncX = player->_x;
     player->_lastSyncY = player->_y;
+
+    // 레벨·경험치 — 패킷을 보내기 "전"에 세운다. DB 토글 밖에 두는 이유는 토글을 끈 빌드에서도
+    //   값이 서 있어야 하기 때문이다(그 빌드에선 늘 기본값 1·0 이고 메모리에서만 돈다).
+    player->_level = place.level;
+    player->_exp   = place.exp;
 
 #if USE_DB_WORKER
     // 1단계 임시: playerId를 계정 식별자로 사용 (2단계는 접속 핸드셰이크로 수신)

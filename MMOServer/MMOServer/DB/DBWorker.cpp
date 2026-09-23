@@ -320,15 +320,20 @@ struct JobKindDesc
 // ── 위치 저장 ─────────────────────────────────────────────────────────────
 static bool BindPositionParams(MYSQL_STMT* st, DBWorkerSlot& slot)
 {
-    // VALUES 4개 + ON DUPLICATE KEY UPDATE 3개 = ? 7개 (x·y·map_id는 양쪽이 같은 버퍼 참조)
-    MYSQL_BIND b[7] = {};
+    // VALUES 6개 + ON DUPLICATE KEY UPDATE 5개 = ? 11개
+    //   (x·y·map_id·level·exp 는 양쪽이 같은 버퍼를 참조한다 — 값을 한 번만 복사하면 된다)
+    MYSQL_BIND b[11] = {};
     b[0].buffer_type = MYSQL_TYPE_LONGLONG; b[0].buffer = &slot.bAccountId;
     b[1].buffer_type = MYSQL_TYPE_FLOAT;    b[1].buffer = &slot.bX;
     b[2].buffer_type = MYSQL_TYPE_FLOAT;    b[2].buffer = &slot.bY;
     b[3].buffer_type = MYSQL_TYPE_LONG;     b[3].buffer = &slot.bMapId;
-    b[4] = b[1];  // UPDATE x      = 같은 bX
-    b[5] = b[2];  // UPDATE y      = 같은 bY
-    b[6] = b[3];  // UPDATE map_id = 같은 bMapId
+    b[4].buffer_type = MYSQL_TYPE_LONG;     b[4].buffer = &slot.bLevel;
+    b[5].buffer_type = MYSQL_TYPE_LONGLONG; b[5].buffer = &slot.bExp;
+    b[6]  = b[1];  // UPDATE x      = 같은 bX
+    b[7]  = b[2];  // UPDATE y      = 같은 bY
+    b[8]  = b[3];  // UPDATE map_id = 같은 bMapId
+    b[9]  = b[4];  // UPDATE level  = 같은 bLevel
+    b[10] = b[5];  // UPDATE exp    = 같은 bExp
     return mysql_stmt_bind_param(st, b) == 0;
 }
 
@@ -338,6 +343,8 @@ static void CopyPositionValues(DBWorkerSlot& slot, const DBSaveJob& job)
     slot.bX         = job.x;
     slot.bY         = job.y;
     slot.bMapId     = job.mapId;
+    slot.bLevel     = job.level;
+    slot.bExp       = job.exp;
 }
 
 // ── 캐릭터 불러오기 ───────────────────────────────────────────────────────
@@ -349,24 +356,26 @@ static bool BindLoadCharacter(MYSQL_STMT* st, DBWorkerSlot& slot)
     if (mysql_stmt_bind_param(st, p) != 0)
         return false;
 
-    // 결과 3열 (x, y, map_id) — fetch 가 슬롯 버퍼에 바로 채운다.
-    //   세 열 모두 NOT NULL 고정폭이고 열 타입과 버퍼 타입이 같아(FLOAT→float, INT→int32) 변환·잘림이 없다.
-    //   is_null·length·error 는 비워 두면 라이브러리가 내부 값으로 채운다.
-    MYSQL_BIND r[3] = {};
-    r[0].buffer_type = MYSQL_TYPE_FLOAT; r[0].buffer = &slot.bLoadX;
-    r[1].buffer_type = MYSQL_TYPE_FLOAT; r[1].buffer = &slot.bLoadY;
-    r[2].buffer_type = MYSQL_TYPE_LONG;  r[2].buffer = &slot.bLoadMapId;
+    // 결과 5열 (x, y, map_id, level, exp) — fetch 가 슬롯 버퍼에 바로 채운다.
+    //   다섯 열 모두 NOT NULL 고정폭이고 열 타입과 버퍼 타입이 같아(FLOAT→float, INT→int32,
+    //   BIGINT→int64) 변환·잘림이 없다. is_null·length·error 는 비워 두면 라이브러리가 내부 값으로 채운다.
+    MYSQL_BIND r[5] = {};
+    r[0].buffer_type = MYSQL_TYPE_FLOAT;    r[0].buffer = &slot.bLoadX;
+    r[1].buffer_type = MYSQL_TYPE_FLOAT;    r[1].buffer = &slot.bLoadY;
+    r[2].buffer_type = MYSQL_TYPE_LONG;     r[2].buffer = &slot.bLoadMapId;
+    r[3].buffer_type = MYSQL_TYPE_LONG;     r[3].buffer = &slot.bLoadLevel;
+    r[4].buffer_type = MYSQL_TYPE_LONGLONG; r[4].buffer = &slot.bLoadExp;
     return mysql_stmt_bind_result(st, r) == 0;
 }
 
 // DBJobKind 순서 그대로 — 인덱스가 곧 종류다.
 static const JobKindDesc kKinds[] = {
     /* SAVE_POSITION  */ { "save_position",
-                           "INSERT INTO characters (account_id,x,y,map_id) VALUES (?,?,?,?) "
-                           "ON DUPLICATE KEY UPDATE x=?,y=?,map_id=?",
+                           "INSERT INTO characters (account_id,x,y,map_id,level,exp) VALUES (?,?,?,?,?,?) "
+                           "ON DUPLICATE KEY UPDATE x=?,y=?,map_id=?,level=?,exp=?",
                            BindPositionParams },
     /* LOAD_CHARACTER */ { "load_character",
-                           "SELECT x,y,map_id FROM characters WHERE account_id=?",
+                           "SELECT x,y,map_id,level,exp FROM characters WHERE account_id=?",
                            BindLoadCharacter },
 };
 static_assert(sizeof(kKinds) / sizeof(kKinds[0]) == DB_JOB_KIND_COUNT,
@@ -496,6 +505,8 @@ CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJo
         out.x     = slot.bLoadX;
         out.y     = slot.bLoadY;
         out.mapId = slot.bLoadMapId;
+        out.level = slot.bLoadLevel;
+        out.exp   = slot.bLoadExp;
         outcome   = LoadOutcome::FOUND;
         break;
 
@@ -551,6 +562,8 @@ void CDBWorker::ExecLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out
     out.x         = 0.0f;
     out.y         = 0.0f;
     out.mapId     = 0;
+    out.level     = 1;   // 못 읽었을 때의 값 — 새 캐릭터와 같다. FOUND 일 때만 행의 값으로 덮인다
+    out.exp       = 0;
 
     // 읽기는 멱등이라 두 번 해도 안전하다 → 커넥션이 없거나 도중에 죽으면 그 자리에서 재연결해 본다.
     //   노는 커넥션은 MySQL 이 끊는다(wait_timeout). 서버를 밤새 켜 두면 아침 첫 접속이 여기에 걸리는데,

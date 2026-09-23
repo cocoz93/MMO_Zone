@@ -48,12 +48,16 @@ struct DBConfig
 class CMonitorManager;
 
 // 저장 잡 = 값 스냅샷 (포인터 없음 → 플레이어가 사라져도 안전)
+//   ※ level·exp 는 USE_EXP 로 안 가른다 — 열은 테이블에 늘 있고, 숫자 둘을 싣는 값이
+//     "토글마다 문장이 갈리는" 값보다 훨씬 싸다. 토글이 가르는 것은 "값이 바뀌는 코드" 쪽이다.
 struct DBSaveJob
 {
     int64_t accountId;
     float   x;
     float   y;
     int32_t mapId;
+    int32_t level;
+    int64_t exp;
 };
 
 // 불러오기 잡 — 계정 번호로 캐릭터 행을 읽는다. 저장과 달리 결과가 회신 큐로 돌아온다.
@@ -113,6 +117,8 @@ struct DBResult
     float        x;           // ↓ FOUND 일 때만 유효
     float        y;
     int32_t      mapId;
+    int32_t      level;
+    int64_t      exp;
 };
 
 // 워커 슬롯 — 스레드/커넥션/큐 1세트 (CIOCPServer::SendWorker 패턴).
@@ -130,10 +136,14 @@ struct DBWorkerSlot
     float                    bX = 0.0f;
     float                    bY = 0.0f;
     int32_t                  bMapId = 0;
+    int32_t                  bLevel = 1;
+    int64_t                  bExp = 0;
     int64_t                  bLoadAccountId = 0;   // ↓ 불러오기 stmt — 파라미터 1개
-    float                    bLoadX = 0.0f;        // ↓ 불러오기 stmt — 결과 3열 (fetch 가 여기에 채운다)
+    float                    bLoadX = 0.0f;        // ↓ 불러오기 stmt — 결과 5열 (fetch 가 여기에 채운다)
     float                    bLoadY = 0.0f;
     int32_t                  bLoadMapId = 0;
+    int32_t                  bLoadLevel = 1;
+    int64_t                  bLoadExp = 0;
     int                      index = 0;
 };
 

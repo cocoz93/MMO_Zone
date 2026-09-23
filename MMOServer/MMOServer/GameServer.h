@@ -93,16 +93,20 @@ private:
     void OnReceived(int64_t sessionId, CSerialBuffer* pMsg);
 
     // ── 입장(스폰) ──
-    // 불러온 결과를 "어디에 어떻게 넣을까"로 바꾼 것. 판정하는 쪽(OnCharacterLoaded·OnConnected)이
+    // 불러온 결과를 "스폰이 쓸 꼴"로 바꾼 것. 판정하는 쪽(OnCharacterLoaded·OnConnected)이
     //   채우고 SpawnPlayer 가 쓴다. 판정과 스폰을 가른 이유 — 갈래(찾음·없음·맵 없음·좌표 불량)는
     //   넷인데 스폰 절차는 하나다.
     //   ★ USE_DB_WORKER 밖에 둔다 — 토글을 끈 빌드의 접속 처리도 SpawnPlayer 를 부른다.
+    //   ★ level·exp 가 여기 있는 이유 — 스폰이 패킷을 보내기 "전"에 값이 서 있어야 한다.
+    //     스폰 뒤에 바깥에서 넣으면 그 패킷이 기본값을 싣고 나간다.
     struct EnterPlacement
     {
-        bool  hasPos  = false;   // false = 무작위 자리
-        float x       = 0.0f;
-        float y       = 0.0f;
-        bool  dbDirty = true;    // 스폰 자리를 다음 주기에 저장할까 (DB 와 같은 값으로 들어왔으면 false)
+        bool    hasPos  = false;   // false = 무작위 자리
+        float   x       = 0.0f;
+        float   y       = 0.0f;
+        bool    dbDirty = true;    // 스폰 자리를 다음 주기에 저장할까 (DB 와 같은 값으로 들어왔으면 false)
+        int32_t level   = 1;       // 불러온 값. 새 캐릭터·못 읽음이면 기본값 그대로
+        int64_t exp     = 0;
     };
 
     // 플레이어를 만들어 존에 넣고 본인·주변에 알린다 (OnConnected 의 몸이 옮겨 온 것).
