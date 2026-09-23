@@ -244,6 +244,7 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     //     빠뜨리면 더미 전원이 접속하자마자 떨어진다. 가변 길이라 최소 = header+count.
     case MsgType::S2C_INVENTORY:          return static_cast<uint16_t>(offsetof(MSG_S2C_INVENTORY, entries));
     case MsgType::S2C_INVENTORY_SLOT:     return sizeof(MSG_S2C_INVENTORY_SLOT);
+    case MsgType::S2C_USE_ITEM_FAIL:      return sizeof(MSG_S2C_USE_ITEM_FAIL);   // 더미는 아이템을 안 쓰지만 등록은 해 둔다
     default: return 0;
     }
 }

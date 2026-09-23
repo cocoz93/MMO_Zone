@@ -22,8 +22,11 @@
     // 경험치·레벨 (USE_EXP) — 본인 전용
     S2C_EXP:1029,
     // 인벤토리 (USE_INVENTORY) — 본인 전용. 가방 전체는 입장 때 한 번, 칸 갱신은 바뀔 때마다
-    S2C_INVENTORY:1030, S2C_INVENTORY_SLOT:1031
+    S2C_INVENTORY:1030, S2C_INVENTORY_SLOT:1031,
+    C2S_USE_ITEM:1032, S2C_USE_ITEM_FAIL:1033
   };
+  // 아이템 쓰기 거절 사유 — Protocol.h UseItemFail 순서 그대로(값이 와이어에 실린다). 서버가 이 순서로 보고 먼저 걸린 하나를 보낸다
+  const USE_FAIL = ['BAD_SLOT','EMPTY','NOT_USABLE','DEAD','COOLDOWN','FULL_HP'];
   // 가방 탭 구간 — Protocol.h INV_TAB_RANGES 사본(InvTab 순서: 장비·소비·기타). 칸 번호가 곧 DB 열쇠라
   //   한쪽만 고치면 웹이 엉뚱한 탭에 그린다 — Protocol.h 와 나란히 볼 것.
   const INV_TAB_RANGES = [ { first:0, n:20 }, { first:100, n:20 }, { first:200, n:20 } ];
@@ -141,6 +144,8 @@
       }
       case MSG.S2C_INVENTORY_SLOT:               // 칸의 최종값 — itemId 0 = 비었다
         p.slot=dv.getUint16(o,true); p.itemId=dv.getInt32(o+2,true); p.count=dv.getInt32(o+6,true); break;
+      case MSG.S2C_USE_ITEM_FAIL:                // 성공은 따로 안 온다 — 칸 갱신과 S2C_ACTOR_STATS 가 곧 결과다
+        p.slot=dv.getUint16(o,true); p.reason=dv.getUint8(o+2); p.reasonName=USE_FAIL[p.reason] || ('?'+p.reason); break;
       default: break; // ZONE_CHANGE_OK/FAIL, ADMIN_* etc. — not needed for the view
     }
     return p;
@@ -179,6 +184,8 @@
     // C2S_ADMIN_LOGIN: header(4) + char key[64] = 68B. 키는 ASCII — 마지막 한 바이트는 NUL 자리로 남긴다
     adminLogin(key){ const {b,d}=hdr(68,MSG.C2S_ADMIN_LOGIN); const s=String(key||'').slice(0,63);
       for(let i=0;i<s.length;i++) d.setUint8(4+i, s.charCodeAt(i) & 0x7F); return b; },
+    // C2S_USE_ITEM: header(4) + slot u16 = 6B
+    useItem(slot){ const {b,d}=hdr(6,MSG.C2S_USE_ITEM); d.setUint16(4, slot, true); return b; },
     moveStart(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_START); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     moveStop(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_STOP); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     // C2S_CHAT: header + wchar_t[] UTF-16LE, 널 종단 포함, (len+1)*2 바이트만 전송 (서버가 header.size로 역산)
@@ -192,7 +199,7 @@
     }
   };
 
-  const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, decodePacket, Reassembler, enc };
+  const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, USE_FAIL, decodePacket, Reassembler, enc };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else global.Proto = API;
 })(typeof window !== 'undefined' ? window : globalThis);

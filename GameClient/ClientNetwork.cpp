@@ -386,6 +386,7 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
     //   가방 전체는 입장 때 반드시 한 장 오므로, 빠뜨리면 접속할 때마다 모르는 타입 로그가 한 줄 찍힌다.
     case MsgType::S2C_INVENTORY:
     case MsgType::S2C_INVENTORY_SLOT:
+    case MsgType::S2C_USE_ITEM_FAIL:
         break;
 
     default:

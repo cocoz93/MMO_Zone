@@ -106,7 +106,9 @@ enum class MsgType : uint16_t
     // 인벤토리 (USE_INVENTORY)
     //--------------------------------------------------
     S2C_INVENTORY,          // 서버 → 클라이언트: 가방 전체 (입장 때 한 번 — 빈 칸은 안 싣는다)
-    S2C_INVENTORY_SLOT      // 서버 → 클라이언트: 가방 한 칸이 바뀜 (itemId 0 = 비었음)
+    S2C_INVENTORY_SLOT,     // 서버 → 클라이언트: 가방 한 칸이 바뀜 (itemId 0 = 비었음)
+    C2S_USE_ITEM,           // 클라이언트 → 서버: 이 칸의 아이템을 쓴다 (지금은 물약만)
+    S2C_USE_ITEM_FAIL       // 서버 → 클라이언트: 쓰기 거절 + 사유 (성공은 칸 갱신·체력 통보가 곧 결과다)
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -708,6 +710,38 @@ struct MSG_S2C_INVENTORY_SLOT
     int32_t   count;
 
     MSG_S2C_INVENTORY_SLOT() : header{ sizeof(*this), TYPE }, slot(0), itemId(0), count(0) {}
+};
+
+// 아이템 쓰기 거절 사유 — 서버는 위에서부터 차례로 보고 먼저 걸린 하나로 답한다(순서가 곧 확인 순서).
+//   ★ 값이 와이어에 실린다 — 중간에 끼우지 말고 끝(COUNT 앞)에만 붙인다. WebClient/proto.js 에 같은 순서로 옮겨 둔다.
+enum class UseItemFail : uint8_t
+{
+    BAD_SLOT,     // 칸 번호가 어느 탭 구간에도 없다
+    EMPTY,        // 빈 칸
+    NOT_USABLE,   // 쓸 수 있는 아이템이 아니다(소비 탭이 아니거나 효과가 없다)
+    DEAD,         // 죽어 있다
+    COOLDOWN,     // 아직 대기 중이다(지난번에 쓴 지 1초가 안 됐다)
+    FULL_HP,      // 체력이 가득 — 물약을 안 줄인다
+    COUNT
+};
+
+// C2S: 이 칸의 아이템을 쓴다
+struct MSG_C2S_USE_ITEM
+{
+    static constexpr MsgType TYPE = MsgType::C2S_USE_ITEM;
+    MsgHeader header;
+    uint16_t  slot;
+};
+
+// S2C: 쓰기 거절 — 성공은 따로 안 알린다(칸 패킷과 체력 패킷 S2C_ACTOR_STATS 가 곧 결과다)
+struct MSG_S2C_USE_ITEM_FAIL
+{
+    static constexpr MsgType TYPE = MsgType::S2C_USE_ITEM_FAIL;
+    MsgHeader header;
+    uint16_t  slot;
+    uint8_t   reason;   // UseItemFail
+
+    MSG_S2C_USE_ITEM_FAIL() : header{ sizeof(*this), TYPE }, slot(0), reason(0) {}
 };
 
 #pragma pack(pop)
