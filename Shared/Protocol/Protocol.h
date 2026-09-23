@@ -202,7 +202,8 @@ enum class SpawnReason : uint8_t
 {
     NORMAL = 0,         // 걸어서 시야 진입
     ZONE_TRANSFER = 1,  // 존/채널 이동으로 등장
-    CONNECT = 2         // 최초 접속으로 등장
+    CONNECT = 2,        // 최초 접속으로 등장
+    SPAWN = 3           // 월드에 새로 생김
 };
 
 // S2C: 다른 캐릭터 생성 (시야 진입)

@@ -2363,7 +2363,7 @@ void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
 #if USE_EXP
             SendExp(player);   // 아래 성공 경로와 같은 이유 — 클라가 존을 넘을 때 판을 비운다
 #endif
-            BroadcastEnterZone(fallback, player, SpawnReason::NORMAL);
+            BroadcastEnterZone(fallback, player, SpawnReason::ZONE_TRANSFER);
 
             return;
         }
@@ -2935,7 +2935,7 @@ void CGameServer::SpawnMonsters(CZone* zone)
 
         // 주변에 알린다 — 이미 그 자리를 보고 있던 플레이어에게 CREATE 가 간다.
         //   보는 사람이 없으면 아무에게도 안 가고, 나중에 걸어온 사람은 섹터 진입 때 받는다.
-        BroadcastEnterZone(zone, monster, SpawnReason::NORMAL);
+        BroadcastEnterZone(zone, monster, SpawnReason::SPAWN);
     }
 }
 
