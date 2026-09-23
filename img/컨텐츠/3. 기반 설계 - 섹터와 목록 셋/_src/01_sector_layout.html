@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face{font-family:'Pretendard';src:url('fonts/PretendardVariable.woff2') format('woff2');
+    font-weight:100 900;font-style:normal;font-display:block}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:840px;height:600px;overflow:hidden;background:#ffffff;
+    font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased}
+  svg{display:block}
+  text{font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;fill:#111111}
+  .lane{font-size:14px;font-weight:800}
+  .h{font-size:14.5px;font-weight:700}
+  .s{font-size:12.5px;font-weight:500;fill:#444444}
+  .cap{font-size:12px;font-weight:500;fill:#666666}
+  .idx{font-size:10px;font-weight:500;fill:#999999}
+  .r{fill:#c00000}
+</style>
+</head>
+<body>
+<svg width="840" height="600" viewBox="0 0 840 600" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#333333"/>
+    </marker>
+    <marker id="arR" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#c00000"/>
+    </marker>
+  </defs>
+
+  <text x="40" y="38" font-size="19" font-weight="800">섹터 = 칸마다 벡터 하나 — 칸 36개에 벡터 36개, 캐릭터는 자기 칸 벡터에 주소로 들어감</text>
+  <text class="s" x="40" y="64">맵 120×120 을 20 씩 나누면 6×6 = 36칸. CZone::_sectorManager 의 _sectors 가 그 벡터 36개를 한 줄로 듦 — 존 생성 때 resize(36) 한 번</text>
+
+  <!-- ══════ ① 칸 그리드 (x=60, y=108, 한 칸 40) ══════ -->
+  <text class="lane" x="40" y="88">① 칸 — 6×6 그리드(가로 x · 세로 y), 칸 번호 = y·6 + x</text>
+  <text class="cap" x="80"  y="103" text-anchor="middle">0</text>
+  <text class="cap" x="120" y="103" text-anchor="middle">1</text>
+  <text class="cap" x="160" y="103" text-anchor="middle">2</text>
+  <text class="cap" x="200" y="103" text-anchor="middle">3</text>
+  <text class="cap" x="240" y="103" text-anchor="middle">4</text>
+  <text class="cap" x="280" y="103" text-anchor="middle">5</text>
+  <text class="cap" x="50" y="132" text-anchor="end">0</text>
+  <text class="cap" x="50" y="172" text-anchor="end">1</text>
+  <text class="cap" x="50" y="212" text-anchor="end">2</text>
+  <text class="cap" x="50" y="252" text-anchor="end">3</text>
+  <text class="cap" x="50" y="292" text-anchor="end">4</text>
+  <text class="cap" x="50" y="332" text-anchor="end">5</text>
+
+  <rect x="60" y="108" width="240" height="240" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <line x1="100" y1="108" x2="100" y2="348" stroke="#333333" stroke-width="1.2"/>
+  <line x1="140" y1="108" x2="140" y2="348" stroke="#333333" stroke-width="1.2"/>
+  <line x1="180" y1="108" x2="180" y2="348" stroke="#333333" stroke-width="1.2"/>
+  <line x1="220" y1="108" x2="220" y2="348" stroke="#333333" stroke-width="1.2"/>
+  <line x1="260" y1="108" x2="260" y2="348" stroke="#333333" stroke-width="1.2"/>
+  <line x1="60" y1="148" x2="300" y2="148" stroke="#333333" stroke-width="1.2"/>
+  <line x1="60" y1="188" x2="300" y2="188" stroke="#333333" stroke-width="1.2"/>
+  <line x1="60" y1="228" x2="300" y2="228" stroke="#333333" stroke-width="1.2"/>
+  <line x1="60" y1="268" x2="300" y2="268" stroke="#333333" stroke-width="1.2"/>
+  <line x1="60" y1="308" x2="300" y2="308" stroke="#333333" stroke-width="1.2"/>
+  <g id="cells"></g>
+  <rect x="180" y="188" width="40" height="40" fill="none" stroke="#c00000" stroke-width="2"/>
+  <text class="r" x="200" y="212" font-size="12" font-weight="800" text-anchor="middle">15</text>
+  <text class="cap" x="40" y="372">칸 (3, 2) = <tspan class="r" font-weight="700">15번</tspan> — SectorAt(y, x) = _sectors[2·6 + 3]</text>
+
+  <!-- ══════ ② _sectors 한 줄 (x=411, y=108, 한 칸 38) ══════ -->
+  <text class="lane" x="411" y="88">② _sectors — 벡터 36개를 한 줄로</text>
+  <g id="strip"></g>
+  <text class="cap" x="411" y="160">vector&lt;vector&lt;CCharacter*&gt;&gt; — 칸 번호가 곧 벡터 번호</text>
+
+  <!-- 15번 벡터를 펼침 -->
+  <line x1="620" y1="144" x2="620" y2="198" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+  <text class="h r" x="632" y="176">_sectors[15]</text>
+  <text class="cap" x="632" y="192">vector&lt;CCharacter*&gt;</text>
+
+  <rect x="440" y="200" width="120" height="44" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="cap" x="448" y="215">[0]</text>
+  <text class="s" x="500" y="234" text-anchor="middle">→ CMonster #1</text>
+  <rect x="560" y="200" width="120" height="44" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="cap" x="568" y="215">[1]</text>
+  <text class="s" x="620" y="234" text-anchor="middle">→ CPlayer #91</text>
+  <rect x="680" y="200" width="120" height="44" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="cap" x="688" y="215">[2]</text>
+  <text class="s" x="740" y="234" text-anchor="middle">→ CPlayer #92</text>
+
+  <line x1="500" y1="244" x2="500" y2="282" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+  <line x1="620" y1="244" x2="620" y2="282" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+  <line x1="740" y1="244" x2="740" y2="282" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+
+  <rect x="445" y="284" width="110" height="66" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="500" y="305" text-anchor="middle">CMonster #1</text>
+  <text class="cap" x="500" y="323" text-anchor="middle">칸 (3, 2)</text>
+  <text class="cap" x="500" y="341" text-anchor="middle">_sectorIndex 0</text>
+  <rect x="565" y="284" width="110" height="66" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="620" y="305" text-anchor="middle">CPlayer #91</text>
+  <text class="cap" x="620" y="323" text-anchor="middle">칸 (3, 2)</text>
+  <text class="cap" x="620" y="341" text-anchor="middle">_sectorIndex 1</text>
+  <rect x="685" y="284" width="110" height="66" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="740" y="305" text-anchor="middle">CPlayer #92</text>
+  <text class="cap" x="740" y="323" text-anchor="middle">칸 (3, 2)</text>
+  <text class="cap" x="740" y="341" text-anchor="middle">_sectorIndex 2</text>
+  <text class="cap" x="440" y="370">본체는 CGameServer 가 new 해 소유 · 벡터엔 주소만 · 몬스터도 같은 벡터에</text>
+
+  <!-- ══════ ③ 좌표 → 칸 → 벡터 → 자리 ══════ -->
+  <text class="lane" x="40" y="388">③ 좌표 → 칸 → 벡터 → 자리</text>
+  <rect x="40" y="398" width="160" height="50" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="120" y="418" text-anchor="middle">월드 좌표 (74, 51)</text>
+  <text class="cap" x="120" y="438" text-anchor="middle">타일 단위</text>
+  <line x1="200" y1="423" x2="238" y2="423" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+  <rect x="240" y="398" width="160" height="50" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="320" y="418" text-anchor="middle">칸 (3, 2)</text>
+  <text class="cap" x="320" y="438" text-anchor="middle">CalcSectorX 74/20 = 3</text>
+  <line x1="400" y1="423" x2="438" y2="423" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+  <rect x="440" y="398" width="160" height="50" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="h r" x="520" y="418" text-anchor="middle">벡터 _sectors[15]</text>
+  <text class="cap r" x="520" y="438" text-anchor="middle">SectorAt 2·6+3 = 15</text>
+  <line x1="600" y1="423" x2="638" y2="423" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+  <rect x="640" y="398" width="160" height="50" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="720" y="418" text-anchor="middle">자리 _sectorIndex</text>
+  <text class="cap" x="720" y="438" text-anchor="middle">벡터 안 몇 번째인가 (0)</text>
+
+  <!-- ══════ ④ 원소 타입만 바꿈 ══════ -->
+  <text class="lane" x="40" y="468">④ 원소 타입만 바꿈</text>
+  <rect x="40" y="476" width="350" height="74" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="56" y="498">옛 타입 — vector&lt;CPlayer*&gt;</text>
+  <text class="s" x="56" y="520">CPlayer 주소만 들어감 — CMonster* 는 컴파일 오류</text>
+  <text class="cap" x="56" y="540">그래서 원안은 「몬스터용 벡터를 하나 더」였음</text>
+  <line x1="390" y1="513" x2="448" y2="513" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+  <rect x="450" y="476" width="350" height="74" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="466" y="498">지금 — vector&lt;CCharacter*&gt;</text>
+  <text class="s" x="466" y="520">플레이어·몬스터 둘 다 들어감 — 순회 코드는 그대로</text>
+  <text class="cap" x="466" y="540">둘 다 CCharacter 의 자식이라 같은 주소 타입으로 담김</text>
+
+  <text class="cap" x="40" y="580">빨강 = 예로 든 칸 하나 (3, 2) = _sectors[15] — 칸 36개가 전부 이 꼴 · ② 의 화살표 = 벡터 칸이 본체를 가리키는 주소(포인터)</text>
+</svg>
+
+<script>
+// ① 칸 번호 36개(15번은 마크업에서 빨강으로 따로) · ② _sectors 한 줄 10칸(5번째가 15번)
+(function () {
+  var NS = 'http://www.w3.org/2000/svg';
+  function txt(x, y, cls, s, anchor) {
+    var t = document.createElementNS(NS, 'text');
+    t.setAttribute('x', x); t.setAttribute('y', y); t.setAttribute('class', cls);
+    t.setAttribute('text-anchor', anchor || 'middle'); t.textContent = s; return t;
+  }
+  var cells = document.getElementById('cells');
+  for (var j = 0; j < 6; j++) for (var i = 0; i < 6; i++) {
+    var n = j * 6 + i; if (n === 15) continue;
+    cells.appendChild(txt(60 + i * 40 + 20, 108 + j * 40 + 24, 'idx', String(n)));
+  }
+  var strip = document.getElementById('strip');
+  var labels = ['0', '1', '2', '…', '14', '15', '16', '…', '34', '35'];
+  for (var k = 0; k < labels.length; k++) {
+    var x = 411 + k * 38, red = (labels[k] === '15');
+    var r = document.createElementNS(NS, 'rect');
+    r.setAttribute('x', x); r.setAttribute('y', 108); r.setAttribute('width', 38); r.setAttribute('height', 36);
+    r.setAttribute('fill', '#ffffff'); r.setAttribute('stroke', red ? '#c00000' : '#333333'); r.setAttribute('stroke-width', red ? 2 : 1.2);
+    strip.appendChild(r);
+    var t = txt(x + 19, 131, red ? 's r' : 's', labels[k]);
+    if (red) t.setAttribute('font-weight', 800);
+    strip.appendChild(t);
+  }
+})();
+</script>
+</body>
+</html>

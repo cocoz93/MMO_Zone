@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face{font-family:'Pretendard';src:url('fonts/PretendardVariable.woff2') format('woff2');
+    font-weight:100 900;font-style:normal;font-display:block}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:840px;height:500px;overflow:hidden;background:#ffffff;
+    font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased}
+  svg{display:block}
+  text{font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;fill:#111111}
+  .lane{font-size:14px;font-weight:800}
+  .h{font-size:14.5px;font-weight:700}
+  .s{font-size:12.5px;font-weight:500;fill:#444444}
+  .cap{font-size:12px;font-weight:500;fill:#666666}
+  .r{fill:#c00000}
+</style>
+</head>
+<body>
+<svg width="840" height="500" viewBox="0 0 840 500" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arR" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#c00000"/>
+    </marker>
+  </defs>
+
+  <text x="40" y="38" font-size="19" font-weight="800">몬스터 한 마리 = 주소 하나가 목록 셋에 — 종류를 묻는 목록은 셋째뿐</text>
+  <text class="s" x="40" y="64">본체는 하나뿐. 세 벡터가 같은 CMonster* 를 나눠 들고, 목록마다 쓰는 자리가 다름</text>
+
+  <!-- ══════ 본체 ══════ -->
+  <rect x="40" y="100" width="200" height="250" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="h r" x="56" y="124">CMonster #1 — 본체</text>
+  <text class="cap" x="56" y="142">CGameServer 가 new 해 소유</text>
+  <text class="s" x="56" y="170">_kind MONSTER</text>
+  <text class="s" x="56" y="192">_sessionId -1 · 세션 없음</text>
+  <text class="s" x="56" y="214">_sectorX 3 · _sectorY 2</text>
+  <text class="s" x="56" y="236">_sectorIndex 0 ← ①</text>
+  <text class="s" x="56" y="258">_listIndex 0 ← ②</text>
+  <text class="s" x="56" y="280">_aiState IDLE ← ③ 전용</text>
+  <text class="cap" x="56" y="312">①② 안의 내 자리 번호를 본체가</text>
+  <text class="cap" x="56" y="330">들고 있음 — 자리 바꿔 빼기용</text>
+
+  <!-- ══════ ① 섹터 벡터 ══════ -->
+  <text class="lane" x="320" y="100">① 섹터 벡터 _sectors[15] — 칸 (3, 2) 하나 · vector&lt;CCharacter*&gt;</text>
+  <g id="row1"></g>
+  <line x1="320" y1="128" x2="246" y2="128" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+  <text class="cap" x="320" y="168">용도 — 누구에게 보낼까 · 주변 9칸 방송·시야 (GetAroundCharacters) · 종류 안 물음</text>
+
+  <!-- ══════ ② 존 전체 ══════ -->
+  <text class="lane" x="320" y="200">② CZone::_characterList — 존 전체 · vector&lt;CCharacter*&gt;</text>
+  <g id="row2"></g>
+  <line x1="320" y1="228" x2="246" y2="228" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+  <text class="cap" x="320" y="268">용도 — 누가 움직이나 · CZone::Tick 이 좌표 갱신·섹터 변경 감지 · 종류 안 물음</text>
+
+  <!-- ══════ ③ 몬스터만 ══════ -->
+  <text class="lane" x="320" y="300">③ CZone::_monsterList — 몬스터만 · vector&lt;CMonster*&gt;</text>
+  <g id="row3"></g>
+  <line x1="320" y1="328" x2="246" y2="328" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+  <text class="cap" x="320" y="368">용도 — 누가 스스로 판단하나 · TickMonsters → MonsterAI::Think (_aiState 캐스팅 없이)</text>
+
+  <!-- ══════ 아래 설명 ══════ -->
+  <text class="s" x="40" y="404"><tspan font-weight="700" fill="#111111">앞 둘은 종류를 안 물음</tspan> — 플레이어와 같은 벡터. 몬스터는 _sessionId 가 -1 이라 보내는 자리에서 저절로 건너뜀</text>
+  <text class="s" x="40" y="426"><tspan font-weight="700" fill="#111111">셋째만 몬스터 전용</tspan> — 「누가 스스로 판단하나」는 종류가 곧 조건. 원소가 CMonster* 라 전용 필드를 캐스팅 없이 읽음</text>
+  <text class="s" x="40" y="448"><tspan font-weight="700" fill="#111111">넣는 자리도 셋</tspan> — AddCharacter ① · EnterZoneAt ② · AddMonster ③. ③ 만 하나씩 빼는 함수가 없음(ClearMonsters 로 통째)</text>
+
+  <text class="cap" x="40" y="482">빨강 = 같은 몬스터 #1 의 본체와 목록 셋의 자리 · 화살표 = 벡터 칸이 본체를 가리키는 주소(포인터) · M = CMonster · P = CPlayer · 숫자 = _actorId</text>
+</svg>
+
+<script>
+// 세 벡터의 칸 — 첫 칸(빨강)이 몬스터 #1. 뱀 90마리가 먼저 만들어져 플레이어(#91~)보다 앞에 선다
+(function () {
+  var NS = 'http://www.w3.org/2000/svg';
+  function row(id, y, labels) {
+    var g = document.getElementById(id);
+    for (var k = 0; k < labels.length; k++) {
+      var x = 320 + k * 50, red = (k === 0);
+      var r = document.createElementNS(NS, 'rect');
+      r.setAttribute('x', x); r.setAttribute('y', y); r.setAttribute('width', 50); r.setAttribute('height', 36);
+      r.setAttribute('fill', '#ffffff'); r.setAttribute('stroke', red ? '#c00000' : '#333333'); r.setAttribute('stroke-width', red ? 2 : 1.2);
+      g.appendChild(r);
+      var t = document.createElementNS(NS, 'text');
+      t.setAttribute('x', x + 25); t.setAttribute('y', y + 23); t.setAttribute('text-anchor', 'middle');
+      t.setAttribute('class', red ? 's r' : 's'); if (red) t.setAttribute('font-weight', 800);
+      t.textContent = labels[k]; g.appendChild(t);
+    }
+  }
+  row('row1', 110, ['M#1', 'P#91', 'P#92']);
+  row('row2', 210, ['M#1', 'M#2', '…', 'M#90', 'P#91', '…']);
+  row('row3', 310, ['M#1', 'M#2', '…', 'M#90']);
+})();
+</script>
+</body>
+</html>
