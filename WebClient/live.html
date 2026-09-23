@@ -117,8 +117,14 @@ const ADMIN_KEY = q.get('admin') || '';
 let adminSent = false;
 // 헤드리스 검증용 — 가방 요약을 속성 하나로 내놓는다(data-err·data-ready 와 같은 자리). 바뀔 때만 쓴다.
 function bagChanged(){
-  document.documentElement.setAttribute('data-bag', JSON.stringify({ open:bag.open, tab:bag.tab, n:bag.slots.size, items:ITEMS.size, sheet:!!ITEM_SHEET }));
+  let total=0; bag.slots.forEach(e=>{ total+=e.c; });   // 개수 합 — 물약을 쓰면 칸 수는 그대로이고 이것만 준다
+  document.documentElement.setAttribute('data-bag', JSON.stringify({ open:bag.open, tab:bag.tab, n:bag.slots.size, total, items:ITEMS.size, sheet:!!ITEM_SHEET }));
 }
+// 아이템 쓰기 거절 사유(P.USE_FAIL 이름) → 채팅 칸 [System] 문구
+const USE_FAIL_TEXT = {
+  BAD_SLOT:'없는 칸입니다', EMPTY:'빈 칸입니다', NOT_USABLE:'쓸 수 없는 아이템입니다',
+  DEAD:'쓰러진 동안에는 쓸 수 없습니다', COOLDOWN:'아직 쓸 수 없습니다 — 잠시 뒤에 다시', FULL_HP:'체력이 가득 찼습니다',
+};
 // 서버 알림 한 줄 — 채팅 칸에 [System] 으로. 채팅 명령의 답(/item 거절 등)이 여기로 온다.
 function sysMsg(t){ chatLog.push({sys:true, msg:t}); if(chatLog.length>8) chatLog.shift(); }
 // 전투 필드 기본값 — CREATE 와 부활 양쪽에서 같은 모양으로 만들려고 한 곳에 둔다
@@ -262,6 +268,8 @@ function onPacket(p){
     case P.MSG.S2C_ERROR: sysMsg(p.message||''); break;
     case P.MSG.S2C_ADMIN_LOGIN_OK:   sysMsg('운영자로 로그인했습니다'); break;
     case P.MSG.S2C_ADMIN_LOGIN_FAIL: sysMsg('운영자 로그인 실패 — 주소의 ?admin= 키를 확인하세요'); break;
+    // 쓰기 거절 — 성공은 따로 안 온다(칸 갱신과 S2C_ACTOR_STATS 가 곧 결과다)
+    case P.MSG.S2C_USE_ITEM_FAIL: sysMsg(USE_FAIL_TEXT[p.reasonName] || ('쓰지 못했습니다 ('+p.reasonName+')')); break;
   }
 }
 // 전투 패킷은 대상이 나일 수도 남일 수도 있다 — 한 곳에서 고른다.
@@ -317,6 +325,10 @@ if(!SNAP){
   cv.addEventListener('mouseleave',()=>{ bag.hover=null; });
   cv.addEventListener('mousedown',e=>{ if(e.button!==0 || !bag.open) return;
     const h=bagHit(e.offsetX,e.offsetY); if(h && h.tab!==undefined){ bag.tab=h.tab; bag.hover=null; bagChanged(); } });
+  // 두 번 누르기 = 쓰기. 쓸 수 있는지(소비 아이템·체력·대기시간)는 서버가 가르고, 안 되면 사유가 [System] 으로 온다.
+  //   클라가 미리 거르지 않는 이유 — 판정을 두 곳에 두면 어긋난다(서버가 권위).
+  cv.addEventListener('dblclick',e=>{ if(!bag.open || !ws || ws.readyState!==1) return;
+    const h=bagHit(e.offsetX,e.offsetY); if(h && h.slot!==undefined && bag.slots.has(h.slot)) ws.send(P.enc.useItem(h.slot)); });
 }
 function sendChat(text){
   if(!ws || ws.readyState!==1 || !self) return;
@@ -747,13 +759,14 @@ function drawBag(){
   if(hover) drawItemTip(px, hover.c.y, hover.e);
 }
 // 마우스를 올린 칸의 설명 — 창 왼쪽(게임 화면 쪽)에 띄운다. 창 위에 띄우면 옆 칸을 가린다.
-//   ※ "두 번 눌러 사용" 은 3단계(물약 쓰기)에서 붙인다 — 지금 적으면 안 되는 동작을 안내하게 된다.
+//   "두 번 눌러 사용" 은 효과가 있는 아이템(물약)에만 — 장비·재료에 적으면 안 되는 동작을 안내하게 된다.
 function drawItemTip(winX, y, e){
   const it=ITEMS.get(e.id);
   const name = it ? it.name : '#'+e.id;
   const lines=[];
   if(it && it.healHp>0) lines.push(['체력 '+it.healHp+' 회복', '#bfe8c0']);
   lines.push([it ? (e.c+' / '+it.maxStack+'개') : (e.c+'개'), 'rgba(200,215,200,.8)']);
+  if(it && it.healHp>0) lines.push(['두 번 눌러 사용', 'rgba(255,233,138,.9)']);
   const tw=156, th=58+lines.length*17+6, tx=winX-tw-10, ty=Math.min(y, H-14-th);
   ctx.fillStyle='rgba(8,12,10,.97)'; rr(tx,ty,tw,th,8); ctx.fill();   // 게임 화면 위에 뜨므로 뒤가 비치지 않게 거의 불투명
   ctx.strokeStyle='rgba(255,233,138,.35)'; ctx.lineWidth=1; ctx.stroke();
