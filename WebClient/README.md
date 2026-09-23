@@ -30,6 +30,10 @@ WS↔TCP 릴레이(`relay.js`, Node)를 두어 서버의 TCP 프로토콜을 그
 ## 조작
 - **WASD / 방향키** — 내 캐릭터를 실제 서버에서 이동(서버 권위 위치로 렌더).
 - 좌하단 주변 채팅(서버가 AOI = 내 섹터 ±1 로만 뿌린다) / 우상단 **SERVER INTERNALS** 패널 / 우하단 미니맵.
+- **I** — 가방 열고 닫기(Esc 도 닫음). 서버 패널 아래에 뜨고, 탭(장비·소비·기타)은 마우스로 누른다. 칸에 마우스를 올리면 설명.
+- 가방 채우기(드랍이 생기기 전까지) — 주소에 `?admin=키` 를 붙여 운영자로 들어온 뒤 채팅창에 `/item <아이템번호> [개수]`.
+  `/` 로 시작하는 채팅은 방송되지 않고 서버 명령으로 처리되며, 답은 채팅 칸에 `[System]` 으로 온다.
+- 아이템 이름·그림은 **`serve.js` 로 열 때만** 나온다(`Run/4. Web_client.bat` = `http://127.0.0.1:8200/live.html`) — 아이템 표를 `/data/ItemTable.csv` 로 받기 때문이다. 다른 길로 열면 칸에 아이템 번호가 회색으로 찍힌다(동작은 같다).
 
 ## 구성 파일
 | 파일 | 역할 |
@@ -37,6 +41,8 @@ WS↔TCP 릴레이(`relay.js`, Node)를 두어 서버의 TCP 프로토콜을 그
 | `live.html` | 브라우저 클라(픽셀 렌더 + 서버 내부 오버레이). `?snap`=스냅샷 렌더(검증용) |
 | `proto.js` | 와이어 프로토콜 파서/인코더 — `Shared/Protocol/Protocol.h` 1:1 이식 (pack(1), 리틀엔디안) |
 | `relay.js` | WS↔TCP 릴레이(프로토콜 무관 바이트 파이프). `--ws 9000 --server-port 6000` |
+| `serve.js` | 정적 서버 `node serve.js --port 8200`. `WebClient/` 밖은 막고, 예외로 `/data/ItemTable.csv` 하나만 `Run/bin/ItemTable.csv` 를 내준다(웹이 아이템 이름·그림 번호를 서버와 같은 파일에서 읽는다) |
+| `assets/items.js` | 아이템 그림 시트 — [LPC] Items and game effects(512×512, 32px 칸 16×16), base64. 크레딧: Reemax(Tuomo Untinen) 외 — 원문 `assets/items_credits.txt` (CC-BY-SA 3.0 / GPL 3.0 / GPL 2.0, https://opengameart.org/content/lpc-items-and-game-effects) |
 | `assets/assetsB.js` | LPC 스프라이트/타일(base64). 크레딧: LPC — Sharm·Redshrike·Mandi Paugh·William.Thompsonj (CC-BY-SA) |
 | `assets/lpc_layers.js` | 캐릭터 합성용 LPC 레이어(몸/머리/바지/상의/머리카락) 걸음 블록 576×256, base64. 크레딧: Universal LPC Spritesheet Character Generator (CC-BY-SA) |
 

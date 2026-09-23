@@ -20,13 +20,19 @@
     // 입장 (USE_LOGIN) — 접속 직후 한 번 보낸다. 새 타입은 늘 끝에만 붙는다
     C2S_ENTER_GAME:1028,
     // 경험치·레벨 (USE_EXP) — 본인 전용
-    S2C_EXP:1029
+    S2C_EXP:1029,
+    // 인벤토리 (USE_INVENTORY) — 본인 전용. 가방 전체는 입장 때 한 번, 칸 갱신은 바뀔 때마다
+    S2C_INVENTORY:1030, S2C_INVENTORY_SLOT:1031
   };
+  // 가방 탭 구간 — Protocol.h INV_TAB_RANGES 사본(InvTab 순서: 장비·소비·기타). 칸 번호가 곧 DB 열쇠라
+  //   한쪽만 고치면 웹이 엉뚱한 탭에 그린다 — Protocol.h 와 나란히 볼 것.
+  const INV_TAB_RANGES = [ { first:0, n:20 }, { first:100, n:20 }, { first:200, n:20 } ];
   const NAME = Object.fromEntries(Object.entries(MSG).map(([k,v])=>[v,k]));
   const DIR = { NONE:0, UP:1, DOWN:2, LEFT:3, RIGHT:4 };  // Player.h
   const MOVE = { IDLE:0, MOVING:1 };
   const POS_QUANT_INV = 1 / 512;   // SectorUpdateEntry ships coords as uint16 ticks (Protocol.h POS_QUANT_SCALE)
   const U16LE = new TextDecoder('utf-16le');
+  const U8 = new TextDecoder('utf-8');
 
   // ---- decode one packet body (dv positioned at packet start, total = header.size) ----
   function decodePacket(dv, base, size) {
@@ -96,8 +102,11 @@
         break;
       }
       case MSG.S2C_ERROR: {
+        // char[256] UTF-8 — 서버가 한글 답(채팅 명령 등)을 보낸다. 'ascii' 로 풀면 한글이 깨진다.
+        //   NUL 에서 자른다 — 뒤는 0 으로 채워져 있다.
         const sub = new Uint8Array(dv.buffer, dv.byteOffset + o, size - 4);
-        p.message = new TextDecoder('ascii').decode(sub).replace(/\u0000+$/,''); break;
+        const s = U8.decode(sub); const nul = s.indexOf('\u0000');
+        p.message = nul >= 0 ? s.slice(0, nul) : s; break;
       }
       // ---- 전투 (USE_COMBAT) — 필드 순서는 Protocol.h 의 구조체 그대로 ----
       case MSG.S2C_ATTACK:                       // 헛스윙도 온다 (휘두르는 그림용)
@@ -120,6 +129,18 @@
         p.exp=Number(dv.getBigInt64(o+4,true));
         p.levelBaseExp=Number(dv.getBigInt64(o+12,true));
         p.nextLevelExp=Number(dv.getBigInt64(o+20,true)); break;
+      // ---- 인벤토리 (USE_INVENTORY) — 칸 한 개 = slot u16 + itemId i32 + count i32 = 10B (pack(1)) ----
+      //   전체 목록은 빈 칸을 안 싣는다. count 는 header.size 로 한 번 더 막는다(서버 이상 시 넘겨 읽지 않게).
+      case MSG.S2C_INVENTORY: {
+        let count = dv.getUint16(o, true);
+        const avail = Math.floor((size - 6) / 10); if (count > avail) count = avail;
+        p.count = count; p.entries = [];
+        let e = o + 2;
+        for (let i=0;i<count;i++){ p.entries.push({ slot:dv.getUint16(e,true), itemId:dv.getInt32(e+2,true), count:dv.getInt32(e+6,true) }); e += 10; }
+        break;
+      }
+      case MSG.S2C_INVENTORY_SLOT:               // 칸의 최종값 — itemId 0 = 비었다
+        p.slot=dv.getUint16(o,true); p.itemId=dv.getInt32(o+2,true); p.count=dv.getInt32(o+6,true); break;
       default: break; // ZONE_CHANGE_OK/FAIL, ADMIN_* etc. — not needed for the view
     }
     return p;
@@ -155,6 +176,9 @@
     enterGame(accountId){ const {b,d}=hdr(76,MSG.C2S_ENTER_GAME); d.setBigInt64(4, BigInt(accountId||0), true); return b; },
     // 바디 없음 — 방향은 서버가 들고 있고, 대상도 서버가 "앞 한 칸"으로 고른다
     attack(){ return hdr(4, MSG.C2S_ATTACK).b; },
+    // C2S_ADMIN_LOGIN: header(4) + char key[64] = 68B. 키는 ASCII — 마지막 한 바이트는 NUL 자리로 남긴다
+    adminLogin(key){ const {b,d}=hdr(68,MSG.C2S_ADMIN_LOGIN); const s=String(key||'').slice(0,63);
+      for(let i=0;i<s.length;i++) d.setUint8(4+i, s.charCodeAt(i) & 0x7F); return b; },
     moveStart(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_START); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     moveStop(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_STOP); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     // C2S_CHAT: header + wchar_t[] UTF-16LE, 널 종단 포함, (len+1)*2 바이트만 전송 (서버가 header.size로 역산)
@@ -168,7 +192,7 @@
     }
   };
 
-  const API = { MSG, NAME, DIR, MOVE, decodePacket, Reassembler, enc };
+  const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, decodePacket, Reassembler, enc };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else global.Proto = API;
 })(typeof window !== 'undefined' ? window : globalThis);
