@@ -2104,8 +2104,8 @@ void CGameServer::BroadcastAroundSector(CZone* zone, CCharacter* player, CSerial
     auto _measGatherT0 = std::chrono::steady_clock::now();
 
     _broadcastBuffer.clear();
-    CCharacter* exclude = excludeSelf ? player : nullptr;
-    zone->GetSectorManager().GetAroundCharacters(
+    const CCharacter* exclude = excludeSelf ? player : nullptr;
+    zone->GetSectorManager().GetAroundPlayers(
         player->_sectorX, player->_sectorY, _broadcastBuffer, exclude);
 
     auto _measGatherT1 = std::chrono::steady_clock::now();
@@ -2113,29 +2113,19 @@ void CGameServer::BroadcastAroundSector(CZone* zone, CCharacter* player, CSerial
         _measGatherT1 - _measGatherT0).count();
 
     _monitor._gameLoop._broadcastCalls.Inc();
-    _monitor._gameLoop._broadcastTargets.Add(static_cast<int64_t>(_broadcastBuffer.size()));
+    _monitor._gameLoop._broadcastTargets.Add(static_cast<int64_t>(_broadcastBuffer.size()));   // 플레이어만 센다 — 뱀까지 세던 옛 값과 단위가 다르다
 
-    // 유효 타겟(플레이어) 수 선카운트 → 타겟별 AddRef를 1회 배치 AddRef로 압축 (원자연산 N→1)
-    // 단일 게임루프 스레드 내 호출이라 두 패스 사이 목록 변동 없음 → 카운트 정합 보장
-    size_t validCount = 0;
-    for (CCharacter* other : _broadcastBuffer)
-    {
-        if (AsPlayer(other) != nullptr)
-            ++validCount;
-    }
-
+    // 타겟별 AddRef를 1회 배치 AddRef로 압축 (원자연산 N→1) — 목록이 플레이어뿐이라 선카운트가 곧 크기다
+    const size_t validCount = _broadcastBuffer.size();
     if (validCount > 0)
         pMsg->AddRef(static_cast<int64_t>(validCount));   // 타겟별 소유권 일괄 확보
 
     // 송신 메트릭은 타겟별 원자증가 대신 성공분을 지역 누적 후 1회 반영 (원자연산 N→1)
     const int dataSize = pMsg->GetDataSize();
     size_t sentPkts = 0;
-    for (CCharacter* other : _broadcastBuffer)
+    for (CPlayer* other : _broadcastBuffer)
     {
-        CPlayer* p = AsPlayer(other);
-        if (p == nullptr)
-            continue;
-        if (_network->RequestSendMsg(p->_sessionId, pMsg, SendFlush::Deferred))
+        if (_network->RequestSendMsg(other->_sessionId, pMsg, SendFlush::Deferred))
             ++sentPkts;
     }
     if (sentPkts > 0)
@@ -2514,8 +2504,8 @@ void CGameServer::PerformAttack(CZone* zone, CCharacter* player)
     // ── 3) 앞 한 칸에서 대상 고르기 — 사거리·정면 중 가장 가까운 하나 ──
     //   사거리(1.5타일)가 실제로 걸치는 섹터만 훑는다. 섹터가 20타일이라 대부분 1개이고,
     //   섹터 경계에 서 있을 때만 2~4개가 된다.
-    //   GetAroundCharacters(3×3)를 쓰지 않는 이유 — 그건 브로드캐스트용이라 60×60타일을 모으고,
-    //   후보를 벡터에 전부 복사까지 한다(SectorManager.cpp:111). 1.5타일 판정에 그 범위를
+    //   GetAroundPlayers(3×3)를 쓰지 않는 이유 — 그건 브로드캐스트용이라 60×60타일을 모으고,
+    //   후보를 벡터에 전부 복사까지 한다(SectorManager.cpp GetAroundPlayers). 1.5타일 판정에 그 범위를
     //   뒤지면 동접이 커질수록 게임 루프(단일 코어)만 손해다. 여기서는 참조로 훑어 복사가 0이다.
     const CSectorManager& sectors = zone->GetSectorManager();
     const int32_t sx0 = sectors.CalcSectorX(player->_x - Combat::ATTACK_RANGE);
@@ -2527,42 +2517,49 @@ void CGameServer::PerformAttack(CZone* zone, CCharacter* player)
     float bestDistSq = 0.0f;
     bool  sawDeadInRange = false;   // 사거리 안에 있긴 했는데 시체였다 — "아무도 없었다"와 다르다
 
+    // 후보 하나를 재 본다 — 아래 두 순회가 같은 판정을 쓴다
+    auto consider = [&](CCharacter* candidate)
+    {
+        if (candidate == player)
+            return;   // 본인 제외 (GetAroundPlayers 의 exclude 인자를 대신한다)
+
+        float distSq = 0.0f;
+        if (!Combat::IsInAttackRange(*player, *candidate, distSq))
+            return;
+
+        if (candidate->_isDead)
+        {
+            sawDeadInRange = true;
+            return;
+        }
+
+        if (target == nullptr || distSq < bestDistSq)
+        {
+            target = candidate;
+            bestDistSq = distSq;
+        }
+    };
+
     for (int32_t sy = sy0; sy <= sy1; ++sy)
     {
         for (int32_t sx = sx0; sx <= sx1; ++sx)
         {
-            for (CCharacter* candidate : sectors.GetSectorCharacters(sx, sy))
-            {
-                if (candidate == player)
-                    continue;   // GetAroundCharacters 의 exclude 인자를 대신한다
-
 #if USE_MONSTER
-                // 몬스터는 몬스터를 못 때린다 — 같은 편이다.
-                //   빠뜨리면 뱀 여럿이 한 플레이어에게 몰릴 때 뒤의 뱀이 "정면의 가장 가까운 것"인
-                //   앞의 뱀을 문다(실측: 플레이어 셋 90초에 뱀→뱀 4~32회, 뱀이 죽기까지 했다).
-                //   때리는 쪽이 몬스터일 때만 거른다 — 플레이어가 뱀을 때리는 것은 그대로다.
-                //   AI 의 대상 찾기(FindAITarget)에서 몬스터를 거르는 것만으로는 안 막힌다:
-                //   AI 는 "누구를 쫓을까"를 정할 뿐이고, 실제로 무는 대상은 여기서 다시 고른다.
-                if (byMonster && candidate->_kind == CharacterKind::MONSTER)
-                    continue;
-#endif
-
-                float distSq = 0.0f;
-                if (!Combat::IsInAttackRange(*player, *candidate, distSq))
-                    continue;
-
-                if (candidate->_isDead)
-                {
-                    sawDeadInRange = true;
-                    continue;
-                }
-
-                if (target == nullptr || distSq < bestDistSq)
-                {
-                    target = candidate;
-                    bestDistSq = distSq;
-                }
+            // 몬스터는 플레이어 목록만 돈다 — 몬스터는 몬스터를 못 때린다(같은 편이다).
+            //   섞인 목록에서 종류로 거르던 시절엔 이 검사를 빠뜨리면 뱀 여럿이 한 플레이어에게 몰릴 때
+            //   뒤의 뱀이 "정면의 가장 가까운 것"인 앞의 뱀을 물었다(실측: 플레이어 셋 90초에 뱀→뱀 4~32회,
+            //   뱀이 죽기까지 했다). 지금은 목록이 갈라져 있어 뱀은 후보에 아예 안 들어온다.
+            //   AI 의 대상 찾기(FindAITarget)도 플레이어 목록만 돈다 — AI 는 "누구를 쫓을까"를 정할 뿐이고,
+            //   실제로 무는 대상은 여기서 다시 고르므로 두 자리가 다 플레이어 목록이어야 한다.
+            if (byMonster)
+            {
+                for (CPlayer* candidate : sectors.GetSectorPlayers(sx, sy))
+                    consider(candidate);
+                continue;
             }
+#endif
+            // 플레이어가 때릴 때는 보이는 것 전부(플레이어·몬스터)가 후보다
+            sectors.ForEachInSector(sx, sy, consider);
         }
     }
 
@@ -2859,13 +2856,13 @@ void CGameServer::ThinkMonster(CZone* zone, CMonster* monster)
 }
 
 // AI 가 쫓을 대상 하나를 고른다 — 시야 안에서 가장 가까운 "산 플레이어".
-//   ★ 몬스터를 거른다. 안 거르면 뱀이 옆의 뱀을 쫓아가 문다.
-//     거르는 자리가 둘이다 — 여기(누구를 쫓을까)와 PerformAttack(실제로 누구를 무나).
-//     여기만 거르면 플레이어를 쫓아간 뱀이 정면에 선 다른 뱀을 문다(실측으로 확인).
-//     PerformAttack 쪽은 "때리는 쪽이 몬스터일 때만" 거르므로 플레이어는 뱀을 그대로 때린다.
+//   ★ 플레이어 목록만 돈다. 섞인 목록에서 종류로 거르던 시절엔 안 거르면 뱀이 옆의 뱀을 쫓아가 물었다.
+//     플레이어 목록만 도는 자리가 둘이다 — 여기(누구를 쫓을까)와 PerformAttack(실제로 누구를 무나).
+//     여기만 그러면 플레이어를 쫓아간 뱀이 정면에 선 다른 뱀을 문다(실측으로 확인).
+//     PerformAttack 쪽은 "때리는 쪽이 몬스터일 때만" 플레이어 목록이므로 플레이어는 뱀을 그대로 때린다.
 CCharacter* CGameServer::FindAITarget(CZone* zone, CMonster* monster)
 {
-    // 시야(6타일)가 걸치는 섹터만 참조로 훑는다 — GetAroundCharacters(3×3, 60×60타일)를
+    // 시야(6타일)가 걸치는 섹터만 참조로 훑는다 — GetAroundPlayers(3×3, 60×60타일)를
     //   쓰지 않는 이유는 공격 본체와 같다(그건 브로드캐스트용이라 후보를 벡터에 전부 복사한다).
     const CSectorManager& sectors = zone->GetSectorManager();
     const int32_t sx0 = sectors.CalcSectorX(monster->_x - MonsterAI::SIGHT_RANGE);
@@ -2880,10 +2877,8 @@ CCharacter* CGameServer::FindAITarget(CZone* zone, CMonster* monster)
     {
         for (int32_t sx = sx0; sx <= sx1; ++sx)
         {
-            for (CCharacter* candidate : sectors.GetSectorCharacters(sx, sy))
+            for (CPlayer* candidate : sectors.GetSectorPlayers(sx, sy))   // 플레이어만 — 몬스터끼리 싸우지 않고, 자기 자신도 여기 없다
             {
-                if (candidate->_kind != CharacterKind::PLAYER)
-                    continue;   // 몬스터끼리 싸우지 않는다 (자기 자신도 여기서 걸러진다)
                 if (candidate->_isDead)
                     continue;   // 시체는 쫓지 않는다
 
@@ -3020,7 +3015,7 @@ bool CGameServer::ConsumeMoveBudget(CPlayer* player, float distSq)
 }
 
 // 두 섹터가 서로의 시야(주변 9섹터) 안인가 — 체비쇼프 거리 ≤ 1.
-//   GetAroundSectorList(SectorManager.cpp:166)가 dx,dy ∈ [-1,1]을 모으는 것과 같은 판정을
+//   GetAroundSectorList(SectorManager.cpp)가 dx,dy ∈ [-1,1]을 모으는 것과 같은 판정을
 //   섹터 목록을 만들지 않고 좌표만으로 계산한다(맵 밖 섹터는 애초에 주민이 없어 결과 동일).
 //   ※ 섹터 좌표는 존마다 별개 격자이므로, 호출부에서 반드시 같은 존인지 먼저 확인할 것.
 namespace
@@ -3041,15 +3036,25 @@ namespace
 
 void CGameServer::BroadcastEnterZone(CZone* zone, CPlayer* player, SpawnReason reason)
 {
-    _eventAroundBuffer.clear();
-    zone->GetSectorManager().GetAroundCharacters(
-        player->_sectorX, player->_sectorY, _eventAroundBuffer, player);
+    const CSectorManager& sectors = zone->GetSectorManager();
 
-    for (CCharacter* other : _eventAroundBuffer)
+    // 주변 플레이어 → 나를 본다 (아웃바운드) — 받는 쪽은 플레이어 목록뿐이다
+    _eventAroundBuffer.clear();
+    sectors.GetAroundPlayers(player->_sectorX, player->_sectorY, _eventAroundBuffer, player);
+    for (CPlayer* other : _eventAroundBuffer)
+        SendCreateOtherPlayer(other, player, reason);   // 기존 플레이어에게 신규 플레이어 생성
+
+    // 나 → 주변 전부(플레이어·몬스터)를 본다 (인바운드) — 섹터 변경의 인바운드와 같은 도우미로 두 목록을 돈다
+    CSectorManager::SectorPos around[CSectorManager::MAX_AROUND_SECTORS];
+    int32_t aroundCount = 0;
+    sectors.GetAroundSectorList(player->_sectorX, player->_sectorY, around, aroundCount);
+    for (int32_t i = 0; i < aroundCount; ++i)
     {
-        if (CPlayer* o = AsPlayer(other))
-            SendCreateOtherPlayer(o, player, reason);   // 기존 플레이어에게 신규 플레이어 생성
-        SendCreateOtherPlayer(player, other);           // 신규 플레이어에게 기존 상대(플레이어·몬스터) 생성
+        sectors.ForEachInSector(around[i].x, around[i].y, [&](CCharacter* other)
+        {
+            if (other != player)
+                SendCreateOtherPlayer(player, other);   // 신규 플레이어에게 기존 상대 생성
+        });
     }
 }
 
@@ -3057,28 +3062,21 @@ void CGameServer::BroadcastEnterZone(CZone* zone, CPlayer* player, SpawnReason r
 void CGameServer::BroadcastSpawn(CZone* zone, CCharacter* who, SpawnReason reason)
 {
     _eventAroundBuffer.clear();
-    zone->GetSectorManager().GetAroundCharacters(
-        who->_sectorX, who->_sectorY, _eventAroundBuffer, who);
+    zone->GetSectorManager().GetAroundPlayers(who->_sectorX, who->_sectorY, _eventAroundBuffer, who);
 
-    for (CCharacter* other : _eventAroundBuffer)
-    {
-        if (CPlayer* o = AsPlayer(other))
-            SendCreateOtherPlayer(o, who, reason);
-    }
+    for (CPlayer* other : _eventAroundBuffer)
+        SendCreateOtherPlayer(other, who, reason);
 }
 
 void CGameServer::BroadcastLeaveZone(CZone* zone, CCharacter* player)
 {
-    // 현재 섹터 기준 주변 DELETE
+    // 현재 섹터 기준 주변 DELETE — 받는 쪽은 플레이어 목록뿐이다
     _eventAroundBuffer.clear();
-    zone->GetSectorManager().GetAroundCharacters(
+    zone->GetSectorManager().GetAroundPlayers(
         player->_sectorX, player->_sectorY, _eventAroundBuffer, player);
 
-    for (CCharacter* other : _eventAroundBuffer)
-    {
-        if (CPlayer* o = AsPlayer(other))
-            SendDeletePlayer(o, player);
-    }
+    for (CPlayer* other : _eventAroundBuffer)
+        SendDeletePlayer(other, player);
 
     // 미처리 섹터 변경이 있으면 이전 섹터 전용 뷰어에게도 DELETE
     // (같은 프레임에 섹터 변경 + 존 이동/접속해제 시 고스트 방지)
@@ -3103,13 +3101,8 @@ void CGameServer::BroadcastLeaveZone(CZone* zone, CCharacter* player)
 
             for (int32_t i = 0; i < addedCount; ++i)
             {
-                const auto& players = zone->GetSectorManager().GetSectorCharacters(
-                    added[i].x, added[i].y);
-                for (CCharacter* other : players)
-                {
-                    if (CPlayer* o = AsPlayer(other))
-                        SendDeletePlayer(o, player);
-                }
+                for (CPlayer* other : zone->GetSectorManager().GetSectorPlayers(added[i].x, added[i].y))
+                    SendDeletePlayer(other, player);
             }
             break;
         }
@@ -3324,9 +3317,8 @@ void CGameServer::ProcessSectorChange(CZone* zone, CCharacter* player,
             _membershipInboundBuffer.clear();
             for (int32_t i = 0; i < removedCount; ++i)
             {
-                const auto& players = zone->GetSectorManager().GetSectorCharacters(removed[i].x, removed[i].y);
-                for (CCharacter* other : players)
-                    _membershipInboundBuffer.push_back(other);
+                zone->GetSectorManager().ForEachInSector(removed[i].x, removed[i].y,
+                    [&](CCharacter* other) { _membershipInboundBuffer.push_back(other); });   // 보이는 것 전부(플레이어·몬스터)
             }
             SendDeletePlayerBatch(me, _membershipInboundBuffer.data(),
                                   static_cast<int>(_membershipInboundBuffer.size()));
@@ -3334,9 +3326,8 @@ void CGameServer::ProcessSectorChange(CZone* zone, CCharacter* player,
             // 인바운드: "상대를 삭제"는 상대마다 내용이 달라 개별 송신
             for (int32_t i = 0; i < removedCount; ++i)
             {
-                const auto& players = zone->GetSectorManager().GetSectorCharacters(removed[i].x, removed[i].y);
-                for (CCharacter* other : players)
-                    SendDeletePlayer(me, other);   // 나에게 상대를 삭제
+                zone->GetSectorManager().ForEachInSector(removed[i].x, removed[i].y,
+                    [&](CCharacter* other) { SendDeletePlayer(me, other); });   // 나에게 상대를 삭제 — 보이는 것 전부
             }
 #endif
         }
@@ -3374,13 +3365,11 @@ void CGameServer::ProcessSectorChange(CZone* zone, CCharacter* player,
             _membershipInboundBuffer.clear();
             for (int32_t i = 0; i < addedCount; ++i)
             {
-                const auto& players = zone->GetSectorManager().GetSectorCharacters(added[i].x, added[i].y);
-                for (CCharacter* other : players)
+                zone->GetSectorManager().ForEachInSector(added[i].x, added[i].y, [&](CCharacter* other)
                 {
-                    if (other == player)
-                        continue;  // 멀티섹터 점프 시 자기 자신 방지
-                    _membershipInboundBuffer.push_back(other);
-                }
+                    if (other != player)   // 멀티섹터 점프 시 자기 자신 방지
+                        _membershipInboundBuffer.push_back(other);   // 보이는 것 전부(플레이어·몬스터)
+                });
             }
             SendCreatePlayerBatch(me, _membershipInboundBuffer.data(),
                                   static_cast<int>(_membershipInboundBuffer.size()));
@@ -3388,45 +3377,42 @@ void CGameServer::ProcessSectorChange(CZone* zone, CCharacter* player,
             // 인바운드: "상대를 생성"은 상대마다 내용이 달라 개별 송신
             for (int32_t i = 0; i < addedCount; ++i)
             {
-                const auto& players = zone->GetSectorManager().GetSectorCharacters(added[i].x, added[i].y);
-                for (CCharacter* other : players)
+                zone->GetSectorManager().ForEachInSector(added[i].x, added[i].y, [&](CCharacter* other)
                 {
-                    if (other == player)
-                        continue;  // 멀티섹터 점프 시 자기 자신 방지
-                    SendCreateOtherPlayer(me, other);   // 나에게 상대를 생성
-                }
+                    if (other != player)   // 멀티섹터 점프 시 자기 자신 방지
+                        SendCreateOtherPlayer(me, other);   // 나에게 상대를 생성 — 보이는 것 전부
+                });
             }
 #endif
         }
     }
 #else
+    const CSectorManager& sectors = zone->GetSectorManager();
+
     // 이탈 섹터 — 상호 DELETE
     for (int32_t i = 0; i < removedCount; ++i)
     {
-        const auto& players = zone->GetSectorManager().GetSectorCharacters(removed[i].x, removed[i].y);
-        for (CCharacter* other : players)
-        {
-            if (CPlayer* o = AsPlayer(other))
-                SendDeletePlayer(o, player);   // 상대에게 나를 삭제 — 아웃바운드
-            if (me != nullptr)
-                SendDeletePlayer(me, other);   // 나에게 상대를 삭제 — 인바운드
-        }
+        for (CPlayer* other : sectors.GetSectorPlayers(removed[i].x, removed[i].y))
+            SendDeletePlayer(other, player);   // 상대에게 나를 삭제 — 아웃바운드(받는 쪽은 플레이어뿐)
+        if (me != nullptr)
+            sectors.ForEachInSector(removed[i].x, removed[i].y,
+                [&](CCharacter* other) { SendDeletePlayer(me, other); });   // 나에게 상대를 삭제 — 인바운드(보이는 것 전부)
     }
 
     // 진입 섹터 — 상호 CREATE
     for (int32_t i = 0; i < addedCount; ++i)
     {
-        const auto& players = zone->GetSectorManager().GetSectorCharacters(added[i].x, added[i].y);
-        for (CCharacter* other : players)
+        for (CPlayer* other : sectors.GetSectorPlayers(added[i].x, added[i].y))
         {
-            if (other == player)
-                continue;  // 멀티섹터 점프 시 자기 자신 방지
-
-            if (CPlayer* o = AsPlayer(other))
-                SendCreateOtherPlayer(o, player);   // 상대에게 나를 생성 — 아웃바운드
-            if (me != nullptr)
-                SendCreateOtherPlayer(me, other);   // 나에게 상대를 생성 — 인바운드
+            if (other != player)   // 멀티섹터 점프 시 자기 자신 방지
+                SendCreateOtherPlayer(other, player);   // 상대에게 나를 생성 — 아웃바운드
         }
+        if (me != nullptr)
+            sectors.ForEachInSector(added[i].x, added[i].y, [&](CCharacter* other)
+            {
+                if (other != player)
+                    SendCreateOtherPlayer(me, other);   // 나에게 상대를 생성 — 인바운드
+            });
     }
 #endif
 }
@@ -3439,16 +3425,14 @@ void CGameServer::FanoutToSectors(CZone* zone,
                                   const CSectorManager::SectorPos* sectors, int32_t sectorCount,
                                   CSerialBuffer* pMsg, CCharacter* exclude)
 {
-    // 1패스: 유효 타겟(플레이어, exclude 제외) 선카운트
+    // 1패스: 유효 타겟(exclude 제외) 선카운트 — 목록이 플레이어뿐이다
     size_t validCount = 0;
     for (int32_t i = 0; i < sectorCount; ++i)
     {
-        const auto& players = zone->GetSectorManager().GetSectorCharacters(sectors[i].x, sectors[i].y);
-        for (CCharacter* other : players)
+        for (CPlayer* other : zone->GetSectorManager().GetSectorPlayers(sectors[i].x, sectors[i].y))
         {
-            if (other == exclude || AsPlayer(other) == nullptr)
-                continue;
-            ++validCount;
+            if (other != exclude)
+                ++validCount;
         }
     }
 
@@ -3460,16 +3444,12 @@ void CGameServer::FanoutToSectors(CZone* zone,
     size_t sentPkts = 0;
     for (int32_t i = 0; i < sectorCount; ++i)
     {
-        const auto& players = zone->GetSectorManager().GetSectorCharacters(sectors[i].x, sectors[i].y);
-        for (CCharacter* other : players)
+        for (CPlayer* other : zone->GetSectorManager().GetSectorPlayers(sectors[i].x, sectors[i].y))
         {
             if (other == exclude)
                 continue;
-            ++_tickMembershipSends;   // 멤버십 복사량(횟수) — OFF의 SendXxx 호출당 1과 동일 집계 (몬스터 포함)
-            CPlayer* p = AsPlayer(other);
-            if (p == nullptr)
-                continue;
-            if (_network->RequestSendMsg(p->_sessionId, pMsg, SendFlush::Deferred))
+            ++_tickMembershipSends;   // 멤버십 복사량(횟수) — OFF의 SendXxx 호출당 1과 동일 집계 (플레이어만 — 뱀까지 세던 옛 값과 단위가 다르다)
+            if (_network->RequestSendMsg(other->_sessionId, pMsg, SendFlush::Deferred))
                 ++sentPkts;
         }
     }
@@ -3594,29 +3574,21 @@ void CGameServer::FlushSectorUpdates()
 void CGameServer::BroadcastSectorPacket(CZone* zone, int32_t sectorX, int32_t sectorY, CSerialBuffer* pMsg)
 {
     _broadcastBuffer.clear();
-    zone->GetSectorManager().GetAroundCharacters(sectorX, sectorY, _broadcastBuffer, nullptr);
+    zone->GetSectorManager().GetAroundPlayers(sectorX, sectorY, _broadcastBuffer, nullptr);
 
     _monitor._gameLoop._broadcastCalls.Inc();
-    _monitor._gameLoop._broadcastTargets.Add(static_cast<int64_t>(_broadcastBuffer.size()));
+    _monitor._gameLoop._broadcastTargets.Add(static_cast<int64_t>(_broadcastBuffer.size()));   // 플레이어만 센다
 
-    // 유효 타겟(플레이어) 선카운트 → 배치 AddRef (원자연산 N→1)
-    size_t validCount = 0;
-    for (CCharacter* other : _broadcastBuffer)
-    {
-        if (AsPlayer(other) != nullptr)
-            ++validCount;
-    }
+    // 배치 AddRef (원자연산 N→1) — 목록이 플레이어뿐이라 선카운트가 곧 크기다
+    const size_t validCount = _broadcastBuffer.size();
     if (validCount > 0)
         pMsg->AddRef(static_cast<int64_t>(validCount));
 
     const int dataSize = pMsg->GetDataSize();
     size_t sentPkts = 0;
-    for (CCharacter* other : _broadcastBuffer)
+    for (CPlayer* other : _broadcastBuffer)
     {
-        CPlayer* p = AsPlayer(other);
-        if (p == nullptr)
-            continue;
-        if (_network->RequestSendMsg(p->_sessionId, pMsg, SendFlush::Deferred))
+        if (_network->RequestSendMsg(other->_sessionId, pMsg, SendFlush::Deferred))
             ++sentPkts;
     }
     if (sentPkts > 0)
@@ -3797,9 +3769,9 @@ void CGameServer::FlushSectorSends()
         const int32_t ry = r.second / zp.countX;
         const int32_t rx = r.second % zp.countX;
 
-        const std::vector<CCharacter*>& residents = zone->GetSectorManager().GetSectorCharacters(rx, ry);
+        const std::vector<CPlayer*>& residents = zone->GetSectorManager().GetSectorPlayers(rx, ry);
         if (residents.empty())
-            continue;   // 주민 없으면 연접 비용도 생략
+            continue;   // 받을 플레이어가 없으면(뱀만 있는 섹터 포함) 연접 비용도 생략
 
         _sectorOutbox.concatBuf.clear();
         int32_t itemCount = 0;
@@ -3832,22 +3804,19 @@ void CGameServer::FlushSectorSends()
             continue;
 
         const int concatSize = static_cast<int>(_sectorOutbox.concatBuf.size());
-        // targets = (아이템 × 주민) 전달 쌍 수 — 기존 Σ(호출별 gather 인원)과 재배열만 다르고 총량 동일
+        // targets = (아이템 × 주민) 전달 쌍 수 — 기존 Σ(호출별 gather 인원)과 재배열만 다르고 총량 동일. 주민 = 플레이어만
 #if USE_MEMBERSHIP_DIGEST
         // [Phase 4] 직송(멤버십)은 방송 지표에서 제외 — OFF의 FanoutToSectors도 _broadcastTargets를 안 늘렸다.
-        // 대신 멤버십 횟수를 OFF의 타겟당 1 집계(몬스터 포함, FanoutToSectors 2패스와 동일 산식)로 승계
+        // 대신 멤버십 횟수를 OFF의 타겟당 1 집계(플레이어만, FanoutToSectors 2패스와 동일 산식)로 승계
         // → membership_sends_rate가 A/B 등가 통제지표로 유지된다.
         targets += static_cast<int64_t>(residents.size()) * (itemCount - directCount);
         _tickMembershipSends += static_cast<int64_t>(residents.size()) * directCount;
 #else
         targets += static_cast<int64_t>(residents.size()) * itemCount;
 #endif
-        for (CCharacter* other : residents)
+        for (CPlayer* other : residents)
         {
-            CPlayer* p = AsPlayer(other);
-            if (p == nullptr)
-                continue;
-            if (_network->RequestSendRaw(p->_sessionId, _sectorOutbox.concatBuf.data(), concatSize))
+            if (_network->RequestSendRaw(other->_sessionId, _sectorOutbox.concatBuf.data(), concatSize))
             {
                 sentPkts  += itemCount;     // 논리 패킷 수 보존 (digest = 기존 패킷 itemCount개의 연접)
                 sentBytes += concatSize;    // Σ아이템 크기와 동일 → avg_pkt_bytes 통제지표 불변

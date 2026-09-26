@@ -17,12 +17,13 @@
 //        보내는 코드는 컴파일이 안 된다. 섹터 목록(CCharacter*)에서 받는 쪽을 고를 때는
 //        AsPlayer(Player.h) 로 확인 후 내려 바꾼다. 코드 전체에서 내려 바꾸는 자리는 그 한 곳뿐이다.
 //
-// [종류] _kind 로 종류를 가른다 — 정원 카운터(_playerCount), AI 대상 거르기, AsPlayer.
+// [종류] _kind 로 종류를 가른다 — 정원 카운터(_playerCount), AsPlayer, 섹터 목록 고르기(CSectorManager::AddCharacter).
 //        파생 생성자가 자기 것을 잡는다 — 여기 기본값은 PLAYER 이고 CMonster 가 MONSTER 로 덮는다.
-//        생성자 뒤에는 안 바뀐다 — AsPlayer 가 이 전제에 기댄다.
+//        생성자 뒤에는 안 바뀐다 — AsPlayer 와 섹터 목록 선택(넣을 때·뺄 때 같은 목록)이 이 전제에 기댄다.
 //
-// [컨테이너] 섹터·존은 vector<CCharacter*> 를 담는다. CActor* 가 아닌 이유 — 전투 판정이 _hp 를
-//        봐야 하는데, 섹터에서 꺼낸 것이 곧바로 CCharacter 여야 캐스팅이 없다.
+// [컨테이너] 존(_characterList)은 vector<CCharacter*> 하나(틱 순회용 — 이동 갱신은 종류가 상관없다).
+//        섹터는 목록 둘 — 플레이어(CPlayer*)와 나머지(CCharacter*), SectorManager.h [목록 둘] 참조.
+//        CActor* 가 아닌 이유 — 전투 판정이 _hp 를 봐야 하는데, 섹터에서 꺼낸 것이 곧바로 CCharacter 여야 캐스팅이 없다.
 //        "위치는 있는데 HP 없는 것"이 생기면 그때 CActor* 컨테이너를 따로 둔다.
 //
 // [가상 함수] 소멸자 말고는 두지 않는다 — CActor 의 원칙 그대로. 종류별 동작이 필요해지면 그때 정한다.

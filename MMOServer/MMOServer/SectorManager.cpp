@@ -1,9 +1,41 @@
 ﻿#include "SectorManager.h"
-#include "Character.h"
+#include "Player.h"   // AsPlayer — 종류로 목록을 고르는 자리(AddCharacter·RemoveCharacter)
 #include <algorithm>
 #include <cassert>   // 도달불가 불변식 검증 (릴리즈에서는 사라짐)
 
-const std::vector<CCharacter*> CSectorManager::EMPTY_SECTOR;
+const std::vector<CPlayer*>    CSectorManager::EMPTY_PLAYERS;
+const std::vector<CCharacter*> CSectorManager::EMPTY_OTHERS;
+
+namespace
+{
+    // 한 목록에 넣기/빼기 — 플레이어 목록과 나머지 목록이 같은 꼴이라 한 벌만 둔다.
+    template <typename T>
+    void PushTo(std::vector<T*>& list, T* c)
+    {
+        c->_sectorIndex = static_cast<int32_t>(list.size());  // push 직전 크기 = 새 슬롯 인덱스
+        list.push_back(c);
+    }
+
+    // 순서 보존 불필요 → 캐시 인덱스로 O(1) swap-and-pop (Zone::_listIndex와 동일 패턴)
+    template <typename T>
+    void PopFrom(std::vector<T*>& list, T* c)
+    {
+        int32_t idx = c->_sectorIndex;
+        // [불변식] idx는 항상 자기 목록 안 자기 자리를 가리킨다 — PushTo가 push 직전 크기로 세팅하고,
+        //   아래 swap-and-pop이 당겨온 원소의 인덱스까지 갱신한 뒤 -1로 되돌린다. 호출부 4곳
+        //   (Zone::LeaveZone·Zone::Tick, CGameServer::RecvMoveStart·RecvMoveStop)은 모두 직전까지
+        //   등록돼 있던 캐릭터를 그 등록 섹터 좌표로 넘기고, 중복 호출 경로도 없다
+        //   (LeaveZone 호출은 BroadcastLeaveZone 단 한 곳, 그 뒤엔 슬롯이 비거나 새 존에 재등록된다).
+        //   어느 목록인지는 RemoveCharacter 가 AddCharacter 와 같은 기준(_kind)으로 고른다.
+        assert(idx >= 0 && idx < static_cast<int32_t>(list.size()) && list[idx] == c);
+
+        T* back = list.back();
+        list[idx] = back;
+        back->_sectorIndex = idx;   // 당겨온 원소의 인덱스 갱신 (LeaveZone의 back->_listIndex=idx 와 동일)
+        list.pop_back();
+        c->_sectorIndex = -1;
+    }
+}
 
 CSectorManager::CSectorManager()
     : _sectorSize(0)
@@ -25,8 +57,9 @@ bool CSectorManager::Init(int32_t mapWidth, int32_t mapHeight, int32_t sectorSiz
     _sectorCountX = (mapWidth + sectorSize - 1) / sectorSize;
     _sectorCountY = (mapHeight + sectorSize - 1) / sectorSize;
 
-    // 2D 그리드 할당 (평탄화)
-    _sectors.resize(_sectorCountY * _sectorCountX);
+    // 2D 그리드 할당 (평탄화) — 목록 둘이 같은 칸 번호를 쓴다
+    _players.resize(_sectorCountY * _sectorCountX);
+    _others.resize(_sectorCountY * _sectorCountX);
 
     return true;
 }
@@ -51,51 +84,50 @@ int32_t CSectorManager::CalcSectorY(float worldY) const
     return sy;
 }
 
-void CSectorManager::AddCharacter(CCharacter* player, int32_t sectorX, int32_t sectorY)
+void CSectorManager::AddCharacter(CCharacter* character, int32_t sectorX, int32_t sectorY)
 {
     if (!IsValidSector(sectorX, sectorY))
         return;
 
-    auto& players = SectorAt(sectorY, sectorX);
-    player->_sectorIndex = static_cast<int32_t>(players.size());  // push 직전 크기 = 새 슬롯 인덱스
-    players.push_back(player);
+    // 종류로 목록을 고른다 — 여기와 RemoveCharacter 둘뿐이다. _kind 는 생성자 뒤 안 바뀌므로 둘이 어긋날 길이 없다.
+    if (CPlayer* p = AsPlayer(character))
+        PushTo(PlayersAt(sectorY, sectorX), p);
+    else
+        PushTo(OthersAt(sectorY, sectorX), character);
 }
 
-void CSectorManager::RemoveCharacter(CCharacter* player, int32_t sectorX, int32_t sectorY)
+void CSectorManager::RemoveCharacter(CCharacter* character, int32_t sectorX, int32_t sectorY)
 {
     if (!IsValidSector(sectorX, sectorY))
         return;
 
-    // 순서 보존 불필요 → 캐시 인덱스로 O(1) swap-and-pop (Zone::_listIndex와 동일 패턴)
-    auto& players = SectorAt(sectorY, sectorX);
-    int32_t idx = player->_sectorIndex;
-    // [불변식] idx는 항상 이 섹터 안 자기 자리를 가리킨다 — AddCharacter가 push 직전 크기로 세팅하고,
-    //   아래 swap-and-pop이 당겨온 원소의 인덱스까지 갱신한 뒤 -1로 되돌린다. 호출부 4곳
-    //   (Zone::LeaveZone·Zone::Tick, CGameServer::RecvMoveStart·RecvMoveStop)은 모두 직전까지
-    //   등록돼 있던 캐릭터를 그 등록 섹터 좌표로 넘기고, 중복 호출 경로도 없다
-    //   (LeaveZone 호출은 BroadcastLeaveZone 단 한 곳, 그 뒤엔 슬롯이 비거나 새 존에 재등록된다).
-    assert(idx >= 0 && idx < static_cast<int32_t>(players.size()) && players[idx] == player);
-
-    CCharacter* back = players.back();
-    players[idx] = back;
-    back->_sectorIndex = idx;   // 당겨온 원소의 인덱스 갱신 (LeaveZone의 back->_listIndex=idx 와 동일)
-    players.pop_back();
-    player->_sectorIndex = -1;
+    if (CPlayer* p = AsPlayer(character))
+        PopFrom(PlayersAt(sectorY, sectorX), p);
+    else
+        PopFrom(OthersAt(sectorY, sectorX), character);
 }
 
-const std::vector<CCharacter*>& CSectorManager::GetSectorCharacters(int32_t sectorX, int32_t sectorY) const
+const std::vector<CPlayer*>& CSectorManager::GetSectorPlayers(int32_t sectorX, int32_t sectorY) const
 {
     if (!IsValidSector(sectorX, sectorY))
-        return EMPTY_SECTOR;
+        return EMPTY_PLAYERS;
 
-    return SectorAt(sectorY, sectorX);
+    return PlayersAt(sectorY, sectorX);
 }
 
-void CSectorManager::GetAroundCharacters(int32_t sectorX, int32_t sectorY,
-                                      std::vector<CCharacter*>& outCharacters,
-                                      CCharacter* exclude) const
+const std::vector<CCharacter*>& CSectorManager::GetSectorOthers(int32_t sectorX, int32_t sectorY) const
 {
-    outCharacters.clear();
+    if (!IsValidSector(sectorX, sectorY))
+        return EMPTY_OTHERS;
+
+    return OthersAt(sectorY, sectorX);
+}
+
+void CSectorManager::GetAroundPlayers(int32_t sectorX, int32_t sectorY,
+                                      std::vector<CPlayer*>& outPlayers,
+                                      const CCharacter* exclude) const
+{
+    outPlayers.clear();
 
     SectorPos aroundSectors[MAX_AROUND_SECTORS];
     int32_t count = 0;
@@ -103,13 +135,10 @@ void CSectorManager::GetAroundCharacters(int32_t sectorX, int32_t sectorY,
 
     for (int32_t i = 0; i < count; ++i)
     {
-        const auto& players = SectorAt(aroundSectors[i].y, aroundSectors[i].x);
-        for (CCharacter* p : players)
+        for (CPlayer* p : PlayersAt(aroundSectors[i].y, aroundSectors[i].x))
         {
             if (p != exclude)
-            {
-                outCharacters.push_back(p);
-            }
+                outPlayers.push_back(p);
         }
     }
 }

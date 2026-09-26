@@ -74,9 +74,10 @@ public:
 
 #if USE_MONSTER
     // ── 몬스터 목록 ── AI 를 돌릴 대상만 모은 것. _characterList 와 별개로 둔다.
-    //   주민 목록을 안 가르는 이유는 "누구에게 보낼까"라 종류가 상관없어서였고,
+    //   _characterList 를 안 가르는 이유는 틱의 이동 갱신이 종류를 안 가려서이고,
     //   여기는 "누가 스스로 판단하나"라 종류가 곧 조건이다. 몬스터는 두 목록에 다 들어간다
-    //   (_characterList 에 있어야 눈에 보이고 맞는다).
+    //   (_characterList 에 있어야 움직인다). 섹터 쪽은 받는 쪽이 플레이어뿐이라
+    //   플레이어·나머지 둘로 갈라져 있다(SectorManager.h [목록 둘]).
     //   ★ 소유는 CGameServer 다 — 이 목록도 delete 하지 않는다(_characterList 와 같은 규칙,
     //     Zone.cpp 소멸자 주석 참조).
     //   ★ 원소 타입이 CCharacter* 가 아니라 CMonster* 인 이유 — AI 가 _aiState 같은 몬스터 전용

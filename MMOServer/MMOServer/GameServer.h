@@ -467,13 +467,13 @@ private:
     std::unordered_set<CCharacter*> _sectorChangedSet;  // 이미 기록된 플레이어 필터
 
     // 프레임 재사용 버퍼 (힙 할당 방지 — clear()로 capacity 유지)
-    std::vector<CCharacter*> _broadcastBuffer;       // BroadcastAroundSector 전용
-    std::vector<CCharacter*> _eventAroundBuffer;     // 접속/해제/존이동 전용
+    std::vector<CPlayer*> _broadcastBuffer;          // BroadcastAroundSector 전용 — 받는 쪽은 플레이어뿐
+    std::vector<CPlayer*> _eventAroundBuffer;        // 접속/해제/존이동 전용 — 같음
     std::vector<SectorChangeInfo> _tickSectorChanges;
     std::vector<CCharacter*> _tickClampedPlayers;
 #if USE_COMBAT
     // 공격 후보 버퍼는 두지 않는다 — 사거리가 걸치는 섹터의 주민 목록을 참조로 훑어 복사가 없다.
-    //   (처음엔 GetAroundCharacters 가 벡터를 요구해 _attackTargetBuffer 를 뒀었다)
+    //   (처음엔 GetAroundPlayers 의 전신이 벡터를 요구해 _attackTargetBuffer 를 뒀었다)
 
     // 죽어서 부활을 기다리는 캐릭터. 여기만 틱 너머로 포인터를 든다 —
     //   퇴장 경로(BroadcastLeaveZone·OnDisconnected)가 반드시 회수해야 한다.
@@ -526,7 +526,7 @@ private:
 
     // 비용종류별 계측 — 틱 내 누적 후 틱 끝 1회 모니터 반영 (단일 게임루프 스레드 전용 → 누적 자체엔 원자연산 불필요)
     // BroadcastAroundSector가 network/game_logic/broadcast_sync 어느 단계에서 호출돼도 이 멤버에 합산된다.
-    int64_t _tickBroadcastGatherUs = 0;   // GetAroundCharacters 주변 모으기
+    int64_t _tickBroadcastGatherUs = 0;   // GetAroundPlayers 주변 모으기
     int64_t _tickBroadcastEnqueueUs = 0;  // 수신자별 처리(복사 포함)
     int64_t _tickMembershipSends = 0;     // 멤버십 변경 복사(BroadcastAroundSector 밖 경로) 송신 횟수
     int64_t _tickMembershipUs = 0;        // 멤버십 송신(ProcessSectorChange 구간) 시간 — 틱 끝 _membershipCostUs로 반영
