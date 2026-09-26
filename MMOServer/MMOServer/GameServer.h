@@ -244,7 +244,7 @@ private:
     void OnCharacterLoaded(const DBResult& result, int64_t nowNs);     // 불러오기 결과 1건 처리 — 판정 후 스폰
 
     // 대기표 — 접속은 했지만 아직 게임에 못 들어온 세션. 세션은 아래 둘 중 하나이거나 "게임 중"이고,
-    //   셋 중 둘일 수는 없다. sessionId == -1 이 빈 자리다(CCharacter::_sessionId 와 같은 약속).
+    //   셋 중 둘일 수는 없다. sessionId == -1 이 빈 자리다(CPlayer::_sessionId 와 같은 약속).
     //   세션 번호 "전체"를 들고 있어야 같은 자리에 다른 사람이 들어왔을 때 옛 결과를 가려낸다.
     //   ★ 접속한 세션은 반드시 이 표에 자리를 잡는다 — 어느 표에도 없는 세션이 생기면
     //     "동접 = 게임 중 + 불러오는 중 + 입장 대기" 등식이 늘 틀린 채로 울려 쓸모가 없어진다.
@@ -293,8 +293,12 @@ private:
     //   기존 송신 경로는 그대로 두고 두 패스 모두 놓친 쌍만 보충한다 (중복 없음).
     void FixSameTickMoverPairs();
 
-    // 존 입장/퇴장 브로드캐스트 (주변 상호 CREATE/DELETE 통보)
-    void BroadcastEnterZone(CZone* zone, CCharacter* player, SpawnReason reason);
+    // 존 입장/퇴장 브로드캐스트
+    //   BroadcastEnterZone — 플레이어 입장: 양방향(주변 → 나를 생성, 나 → 주변을 생성)
+    //   BroadcastSpawn     — 세션 없는 것(몬스터)의 등장: 주변에 알리기만. 받는 쪽이 없으니 인바운드가 없다
+    //   BroadcastLeaveZone — 퇴장·회수: 주변에 나를 삭제 (플레이어·몬스터 공용)
+    void BroadcastEnterZone(CZone* zone, CPlayer* player, SpawnReason reason);
+    void BroadcastSpawn(CZone* zone, CCharacter* who, SpawnReason reason);
     void BroadcastLeaveZone(CZone* zone, CCharacter* player);
 
     // ── 플레이어 ID 발급 + 표시 속성 ──
@@ -308,7 +312,8 @@ private:
 
     // 단일 플레이어에게 패킷 전송 (CSerialBuffer — 소유권 1을 소비)
     // 빌더가 반환한 RefCount=1 버퍼를 넘기면, 송신 후 SubRef로 소유권을 회수한다.
-    void SendPacket(CCharacter* target, CSerialBuffer* pMsg);
+    //   받는 쪽은 CPlayer* 뿐이다 — 몬스터를 넘기면 컴파일이 안 된다(Player.h [세션]).
+    void SendPacket(CPlayer* target, CSerialBuffer* pMsg);
 
     // 주변 브로드캐스트 (CSerialBuffer — 빌더 RefCount=1 버퍼를 소비)
     void BroadcastAroundSector(CZone* zone, CCharacter* player, CSerialBuffer* pMsg, bool excludeSelf = true);
@@ -358,14 +363,14 @@ private:
     // 패킷별 전송 함수 (Fill + Send)
     void SendZoneInfo(CPlayer* target, CZone* zone);
     void SendCreateMyPlayer(CPlayer* target);
-    // target(받는 쪽)과 who(그려질 대상)가 같은 타입이라 이름으로 가른다 — 몬스터가 섹터를 옮기면 who 가 몬스터다.
-    //   target 이 몬스터(세션 -1)여도 SendPacket 의 세션 가드가 걸러 아무것도 안 나간다.
-    void SendCreateOtherPlayer(CCharacter* target, CCharacter* who, SpawnReason reason = SpawnReason::NORMAL);
-    void SendDeletePlayer(CCharacter* target, CCharacter* who);
+    // target(받는 쪽)은 CPlayer*, who(그려질 대상)는 CCharacter* — 몬스터가 섹터를 옮기면 who 가 몬스터다.
+    //   받는 쪽에 몬스터를 넘기는 코드는 타입이 막는다.
+    void SendCreateOtherPlayer(CPlayer* target, CCharacter* who, SpawnReason reason = SpawnReason::NORMAL);
+    void SendDeletePlayer(CPlayer* target, CCharacter* who);
 #if USE_MEMBERSHIP_INBOUND_BUNDLE
     // [Phase 2] 인바운드 멤버십 배치 — 상대 목록을 배치 상한씩 잘라 mover 1명에게 송신 (엔트리당 _membershipSends 1 집계)
-    void SendCreatePlayerBatch(CCharacter* target, CCharacter* const* others, int count);
-    void SendDeletePlayerBatch(CCharacter* target, CCharacter* const* others, int count);
+    void SendCreatePlayerBatch(CPlayer* target, CCharacter* const* others, int count);
+    void SendDeletePlayerBatch(CPlayer* target, CCharacter* const* others, int count);
 #endif
     void SendSyncPosition(CPlayer* target);
     void SendZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex);
@@ -374,7 +379,7 @@ private:
 #if USE_COMBAT
     // 스탯 통보 — CREATE 계열에 HP 자리가 없어 뒤따라 보낸다.
     //   호출처 9곳이 아니라 CREATE 송신 함수 3곳 안에서 부른다(갈래를 3으로 닫으려고).
-    void SendActorStats(CCharacter* target, const CCharacter* actor);
+    void SendActorStats(CPlayer* target, const CCharacter* actor);
 #endif
 
     // 벽 방향 검증 — 경계 위치에서 벽 쪽 이동 차단

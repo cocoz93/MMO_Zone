@@ -12,18 +12,14 @@
 //        위로는 CActor(좌표·섹터·이동만), 아래로는 CPlayer(계정·이동 예산·운영자)가 있다.
 //        가르는 물음 하나 — "나무나 포탈에도 말이 되나" → 되면 CActor, 안 되면 여기.
 //
-// [세션] _sessionId 는 "이 캐릭터를 조종하는 세션"이다. 조종하는 세션이 없으면(몬스터·NPC) -1.
-//        CPlayer 가 아니라 여기 두는 이유 — 섹터를 도는 송신 코드가 이미 _sessionId == -1 을
-//        "못 보냄"으로 거르고 있어서(CGameServer 의 세션 가드들 — _sessionId 로 grep), 이 필드가 여기 있으면
-//        그 가드가 그대로 몬스터 필터가 된다. 순회마다 종류를 묻는 분기를 새로 넣을 필요가 없다.
+// [세션] 조종 세션(_sessionId)은 여기 없고 CPlayer 에 있다. 패킷을 받는 쪽은 플레이어뿐이라
+//        보내는 함수(CGameServer::SendPacket 과 SendXxx)는 전부 CPlayer* 만 받는다 — 몬스터에게
+//        보내는 코드는 컴파일이 안 된다. 섹터 목록(CCharacter*)에서 받는 쪽을 고를 때는
+//        AsPlayer(Player.h) 로 확인 후 내려 바꾼다. 코드 전체에서 내려 바꾸는 자리는 그 한 곳뿐이다.
 //
-// [종류] _kind 는 _sessionId 와 뜻이 다르다 — 헷갈리면 아래 물음으로 고른다.
-//          "지금 이 캐릭터에게 패킷을 보낼 수 있나"  → _sessionId   (송신 가드)
-//          "이 캐릭터가 무엇이냐"                    → _kind        (종류 판정)
-//        둘이 실제로 갈리는 자리가 있다. 스폰 경로(CGameServer::SpawnPlayer)가 EnterZone →
-//        _sessionId 부여 순이라, EnterZone 시점엔 플레이어도 _sessionId == -1 이다.
-//        그래서 존의 정원 카운터(_playerCount)는 _sessionId 로 가르면 플레이어도 안 세어진다.
+// [종류] _kind 로 종류를 가른다 — 정원 카운터(_playerCount), AI 대상 거르기, AsPlayer.
 //        파생 생성자가 자기 것을 잡는다 — 여기 기본값은 PLAYER 이고 CMonster 가 MONSTER 로 덮는다.
+//        생성자 뒤에는 안 바뀐다 — AsPlayer 가 이 전제에 기댄다.
 //
 // [컨테이너] 섹터·존은 vector<CCharacter*> 를 담는다. CActor* 가 아닌 이유 — 전투 판정이 _hp 를
 //        봐야 하는데, 섹터에서 꺼낸 것이 곧바로 CCharacter 여야 캐스팅이 없다.
@@ -48,8 +44,6 @@ enum class CharacterKind : uint8_t
 
 class CCharacter : public CActor
 {
-    friend class CGameServer;  // 경계 계층만 _sessionId 접근 허용
-
 public:
     CCharacter();
     ~CCharacter() override;
@@ -69,7 +63,4 @@ public:
     bool     _isDead = false;        // 죽은 상태 (이동·공격 거부, 공격 대상에서 제외)
     uint64_t _lastAttackFrame = 0;   // 마지막 공격 프레임 (쿨타임 판정 — CGameServer::_frameCount 기준)
     uint64_t _deathFrame = 0;        // 죽은 프레임 (부활 시점 판정 기준)
-
-private:
-    int64_t _sessionId;   // 이 캐릭터를 조종하는 네트워크 세션 (-1: 없음 — 몬스터·NPC). CGameServer 만 접근
 };

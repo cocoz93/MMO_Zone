@@ -8,10 +8,16 @@
 #include "Inventory.h"   // USE_INVENTORY — 헤더 안에서 스스로 토글을 본다
 
 // CPlayer — 사람이 조종하는 캐릭터.
-//   좌표·섹터·이동은 CActor 에, HP·표시·조종 세션은 CCharacter 에 있다.
-//   여기 남은 것은 계정·이동 예산·운영자처럼 "사람이 붙어 있어야" 말이 되는 것뿐이다.
+//   좌표·섹터·이동은 CActor 에, HP·표시는 CCharacter 에 있다.
+//   여기 남은 것은 조종 세션·계정·이동 예산·운영자처럼 "사람이 붙어 있어야" 말이 되는 것뿐이다.
+//
+// [세션] _sessionId 는 여기에만 있다 — 패킷을 받는 쪽은 플레이어뿐이라 보내는 함수
+//        (CGameServer::SendPacket 과 SendXxx)가 전부 CPlayer* 만 받는다. 몬스터를 넘기면 컴파일이 안 된다.
+//        섹터 목록(CCharacter*)에서 받는 쪽을 고를 때는 아래 AsPlayer 로 확인 후 내려 바꾼다.
 class CPlayer : public CCharacter
 {
+    friend class CGameServer;  // 경계 계층만 _sessionId 접근 허용
+
 public:
     CPlayer();
     ~CPlayer() override;
@@ -51,4 +57,17 @@ public:
     //   서버가 틱 수로 잰다(클라 연타·매크로로 물약을 한꺼번에 마시지 못하게). 0 = 바로 쓸 수 있다.
     uint64_t _itemUseReadyFrame = 0;
 #endif
+
+private:
+    // 이 플레이어를 조종하는 네트워크 세션. -1 = 아직 없음 — 스폰 경로(CGameServer::SpawnPlayer)가
+    //   EnterZone → 세션 부여 순이라 EnterZone 시점엔 잠시 -1 이다. SendPacket 이 이 값을 검사한다.
+    int64_t _sessionId = -1;
 };
+
+// 확인 후 내려 바꾸기 — 코드 전체에서 CCharacter* 를 CPlayer* 로 내려 바꾸는 자리는 이 함수 안 한 곳뿐이다.
+//   다른 곳에서 static_cast<CPlayer*> 가 보이면 그게 곧 잘못이다. _kind 는 생성자에서만 정해지므로
+//   (Player.cpp · Monster.cpp) 이 판정은 그 뒤로 바뀌지 않는다.
+inline CPlayer* AsPlayer(CCharacter* c)
+{
+    return (c->_kind == CharacterKind::PLAYER) ? static_cast<CPlayer*>(c) : nullptr;
+}

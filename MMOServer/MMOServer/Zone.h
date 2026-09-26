@@ -64,8 +64,7 @@ public:
     int32_t GetMapHeight() const { return _mapHeight; }
     // 채널 정원·빈 채널 판정용 — _characterList.size() 가 아니라 별도 카운터다.
     //   몬스터가 정원을 차지하면 사람이 못 들어오고, 몬스터만 남은 채널은 영영 안 지워진다.
-    //   세는 기준은 _sessionId 가 아니라 _kind 다 — EnterZone 시점엔 플레이어도 세션이
-    //   아직 없다(Character.h [종류]).
+    //   세는 기준은 _kind 다(Character.h [종류]).
     int32_t GetPlayerCount() const { return _playerCount; }
     const std::vector<CCharacter*>& GetCharacters() const { return _characterList; }
 
