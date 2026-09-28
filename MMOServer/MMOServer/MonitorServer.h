@@ -596,6 +596,17 @@ private:
                << "\"} " << drop._removed[i] << "\n";
         }
         ss << "\n";
+        ss << "# HELP mmo_pickup_rejected_total Pickups refused, split by reason (the item stays on the ground)\n";
+        ss << "# TYPE mmo_pickup_rejected_total counter\n";
+        for (int i = 0; i < static_cast<int>(PickupFail::COUNT); ++i)
+        {
+            ss << "mmo_pickup_rejected_total{reason=\"" << PickupFailName(static_cast<PickupFail>(i))
+               << "\"} " << drop._pickupRejected[i] << "\n";
+        }
+        ss << "\n";
+        WriteCounter(ss, "mmo_ground_item_late_mover_deletes_total",
+                     "DELETEs sent to players who crossed a sector in the same tick as the removal (they would keep a ghost otherwise)",
+                     drop._lateMoverDeletes);
         ss << "# HELP mmo_ground_items Ground items lying in all zones right now\n";
         ss << "# TYPE mmo_ground_items gauge\n";
         ss << "mmo_ground_items " << drop._groundItems << "\n\n";

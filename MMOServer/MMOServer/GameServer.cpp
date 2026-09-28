@@ -386,6 +386,17 @@ namespace
         assert(buf->GetDataSize() == sizeof(MSG_S2C_GROUND_ITEM_DELETE));
         return buf;
     }
+
+    CSerialBuffer* MakePickupFail(PickupFail reason, int32_t itemId)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_PICKUP_FAIL::TYPE);
+        *buf << static_cast<uint8_t>(reason);
+        *buf << static_cast<int32_t>(itemId);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_PICKUP_FAIL));
+        return buf;
+    }
 #endif // USE_DROP
 
 #if USE_SECTOR_AGGREGATION
@@ -1586,6 +1597,12 @@ void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
         break;
 #endif
 
+#if USE_DROP
+    case MsgType::C2S_PICKUP:
+        RecvPickup(player, pMsg);
+        break;
+#endif
+
     default:
         // C2S_HEARTBEAT 등 — 게임 로직 처리 불필요 (타임아웃 갱신은 IOCPServer 수신 시점에서 처리)
         break;
@@ -1616,6 +1633,9 @@ uint16_t CGameServer::GetExpectedSize(MsgType type)
 #if USE_INVENTORY
     // 이 줄이 없으면 물약 쓰기가 조용히 버려진다(위 C2S_ATTACK 과 같은 함정 — 답도 로그도 없다).
     case MsgType::C2S_USE_ITEM:     return sizeof(MSG_C2S_USE_ITEM);
+#endif
+#if USE_DROP
+    case MsgType::C2S_PICKUP:       return sizeof(MSG_C2S_PICKUP);   // 몸 없음 — 헤더뿐
 #endif
     default:                        return 0;
     }
@@ -3241,6 +3261,10 @@ void CGameServer::RemoveGroundItem(CZone* zone, int32_t sectorX, int32_t sectorY
     for (CPlayer* other : _eventAroundBuffer)
         SendGroundItemDelete(other, groundId, wire, pickerId);
 
+    // 같은 틱에 섹터를 넘은 사람 — 틱 1단계(줍기)에서만 대기열이 차 있다. 사라지기(3-3)는 비운 뒤라 여기서 끝난다.
+    if (!_pendingSectorChanges.empty())
+        SendGroundItemDeleteToLateMovers(zone, sectorX, sectorY, groundId, wire, pickerId);
+
     sectors.RemoveGroundItemAt(sectorX, sectorY, index);
     _gameMonitor._drop._removed[static_cast<int>(why)].Inc();
     --_groundItemCount;
@@ -3291,6 +3315,100 @@ void CGameServer::ForgetGroundItems(CZone* zone)
     _gameMonitor._drop._removed[static_cast<int>(GroundItemRemoval::CLEANED)].Add(n);
     _groundItemCount -= n;
     _gameMonitor._drop._groundItems.Store(_groundItemCount);
+}
+
+PickupFail CGameServer::CheckPickup(const CPlayer* player, CZone* zone, PickupTarget& out) const
+{
+    if (player->_isDead)
+        return PickupFail::DEAD;
+
+    // 반경이 걸치는 섹터만 참조로 훑는다(공격 대상 찾기와 같은 꼴 — 복사 0)
+    const CSectorManager& sectors = zone->GetSectorManager();
+    const int32_t sx0 = sectors.CalcSectorX(player->_x - PICKUP_RANGE);
+    const int32_t sx1 = sectors.CalcSectorX(player->_x + PICKUP_RANGE);
+    const int32_t sy0 = sectors.CalcSectorY(player->_y - PICKUP_RANGE);
+    const int32_t sy1 = sectors.CalcSectorY(player->_y + PICKUP_RANGE);
+    const float rangeSq = PICKUP_RANGE * PICKUP_RANGE;
+
+    bool  anyInRange = false;   // 반경 안에 뭔가 있긴 했다 — "아무것도 없음(NO_ITEM)"과 "남의 것뿐(NOT_OWNER)"을 가른다
+    bool  found      = false;
+    float bestSq     = 0.0f;
+    for (int32_t sy = sy0; sy <= sy1; ++sy)
+    {
+        for (int32_t sx = sx0; sx <= sx1; ++sx)
+        {
+            const std::vector<CGroundItem>& list = sectors.GetSectorItems(sx, sy);
+            for (size_t i = 0; i < list.size(); ++i)
+            {
+                const CGroundItem& g = list[i];
+                const float dx = g.x - player->_x;
+                const float dy = g.y - player->_y;
+                const float dSq = dx * dx + dy * dy;
+                if (dSq > rangeSq)
+                    continue;
+                anyInRange = true;
+
+                // 내 것이거나(막타 친 계정) 우선 시간이 끝났으면 주울 수 있다
+                const bool mine = g.ownerAccountId == 0 || g.ownerAccountId == player->_accountId ||
+                                  _frameCount >= g.ownerUntilFrame;
+                if (!mine)
+                    continue;
+
+                if (!found || dSq < bestSq)
+                {
+                    found  = true;
+                    bestSq = dSq;
+                    out.sectorX = sx;
+                    out.sectorY = sy;
+                    out.index   = i;
+                }
+            }
+        }
+    }
+
+    if (found)
+        return PickupFail::COUNT;
+    return anyInRange ? PickupFail::NOT_OWNER : PickupFail::NO_ITEM;
+}
+
+void CGameServer::RecvPickup(CPlayer* player, CSerialBuffer* /*pMsg*/)   // 몸이 없다 — 헤더뿐
+{
+    CZone* zone = _mapManager.GetZone(player->_zoneId);
+    if (zone == nullptr)
+        return;
+
+    PickupTarget at;
+    PickupFail fail = CheckPickup(player, zone, at);
+    int32_t failItemId = 0;
+
+    if (fail == PickupFail::COUNT)
+    {
+        const CGroundItem& g = zone->GetSectorManager().GetSectorItems(at.sectorX, at.sectorY)[at.index];
+        const ItemDef* def = _gameDataFiles.Item().Find(g.item.itemId);
+        if (def == nullptr)
+        {
+            assert(false && "드랍 표 로드가 아이템 표에 없는 번호를 막는다");
+            return;
+        }
+
+        // ★ 가방 넣기가 먼저, 땅에서 빼기가 나중 — 반대면 가득 찬 가방에서 아이템이 사라진다
+        const InvAddResult r = player->_inventory.TryAdd(*def, g.item.count);
+        if (r == InvAddResult::OK)
+        {
+            _gameMonitor._inventory._itemsAdded.Add(g.item.count);   // /item 과 같은 계수기 — 가방에 들어간 개수
+            RemoveGroundItem(zone, at.sectorX, at.sectorY, at.index, GroundItemRemoval::PICKED, player->_actorId);
+            FlushInventory(player);   // 칸 패킷 + 곧바로 DB 저장(지금 경로 그대로)
+            return;
+        }
+
+        // 드랍 아이템은 표에 있고 개수 1 이상이라 TryAdd 가 돌려줄 거절은 가득(TAB_FULL)뿐이다
+        _gameMonitor._inventory._addRejected[static_cast<int>(r)].Inc();
+        fail = PickupFail::TAB_FULL;
+        failItemId = g.item.itemId;   // 클라가 어느 탭이 찼는지 안다
+    }
+
+    _gameMonitor._drop._pickupRejected[static_cast<int>(fail)].Inc();
+    SendPacket(player, MakePickupFail(fail, failItemId));
 }
 #endif // USE_DROP
 
@@ -3370,6 +3488,31 @@ namespace
         return dx <= 1 && dy <= 1;
     }
 }
+
+#if USE_DROP
+// 같은 틱에 섹터를 넘은 사람에게 땅의 아이템 DELETE — 헤더 주석. 여기(IsSectorAdjacent 뒤)에 정의하는 이유는 그 도우미가 이 위에 있어서다.
+//   판정은 BroadcastLeaveZone 셋째 덩이와 같고, 아이템은 안 움직이니 "퇴장자의 옛 섹터 = 지금 섹터"인 경우다.
+void CGameServer::SendGroundItemDeleteToLateMovers(CZone* zone, int32_t sectorX, int32_t sectorY,
+                                                   int32_t groundId, GroundItemGone wire, int32_t pickerId)
+{
+    for (const auto& change : _pendingSectorChanges)
+    {
+        CPlayer* mover = AsPlayer(change.character);   // 대기열은 섞여 있다(몬스터도 섹터를 넘는다) — 받는 쪽만
+        if (mover == nullptr || mover->_zoneId != zone->GetZoneId())
+            continue;   // 대기열은 서버 전역 — 섹터 좌표는 존마다 별개 격자라 같은 존만 비교
+        if (change.oldSectorX == mover->_sectorX && change.oldSectorY == mover->_sectorY)
+            continue;   // 원위치 복귀 — 화면과 등록이 같다
+
+        // 옛 섹터로는 보였고(화면에 있다) 새 섹터로는 안 보인다(방금 보낸 주변 DELETE 에서 빠졌다)
+        if (IsSectorAdjacent(change.oldSectorX, change.oldSectorY, sectorX, sectorY) &&
+            !IsSectorAdjacent(mover->_sectorX, mover->_sectorY, sectorX, sectorY))
+        {
+            SendGroundItemDelete(mover, groundId, wire, pickerId);
+            _gameMonitor._drop._lateMoverDeletes.Inc();
+        }
+    }
+}
+#endif
 
 // ==========================================================================
 // 존 입장/퇴장 브로드캐스트

@@ -43,6 +43,21 @@ inline const char* GroundItemRemovalName(GroundItemRemoval r)
     }
     return "?";
 }
+
+// 줍기 거절 사유의 지표 라벨 — 사유 enum 은 와이어에 실려 Protocol.h 에 있다
+inline const char* PickupFailName(PickupFail r)
+{
+    static_assert(static_cast<int>(PickupFail::COUNT) == 4, "PickupFail 을 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case PickupFail::DEAD:      return "dead";
+    case PickupFail::NO_ITEM:   return "no_item";
+    case PickupFail::NOT_OWNER: return "not_owner";
+    case PickupFail::TAB_FULL:  return "tab_full";
+    case PickupFail::COUNT:     break;
+    }
+    return "?";
+}
 #endif
 
 #if USE_INVENTORY
@@ -191,6 +206,8 @@ public:
         Counter _dropped;       // 땅에 생긴 아이템 수 (한 번 굴려 여럿이면 여럿)
         Counter _removed[static_cast<int>(GroundItemRemoval::COUNT)];   // 땅에서 빠진 수, 사유별
         Counter _groundItems;   // [게이지] 지금 땅에 있는 수 — 바꾸는 자리에서 Store
+        Counter _pickupRejected[static_cast<int>(PickupFail::COUNT)];   // 줍기 거절, 사유별
+        Counter _lateMoverDeletes;   // 같은 틱에 섹터를 넘은 사람에게 보정으로 보낸 DELETE 수
     } _drop;
 #endif
 

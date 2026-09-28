@@ -275,6 +275,25 @@ private:
     // 채널이 지워지기 직전 — 사람이 없는 채널이라 알릴 사람이 없다. 수만 세고(CLEANED) 벡터는 존과 함께 사라진다.
     void ForgetGroundItems(CZone* zone);
 
+    // 같은 틱에 섹터를 넘은 사람 보정 — RemoveGroundItem 이 주변에 DELETE 를 보낸 뒤 부른다.
+    //   RecvMoveStart 는 네트워크 처리 자리에서 섹터 등록을 바꾸고 알림은 틱 끝이라, 틱 1단계(줍기)에서는
+    //   서버 등록이 그 사람 화면보다 앞서 있다. 「옛 섹터로는 보였고 새 섹터로는 안 보이는」 이동자는
+    //   주변 DELETE 에서 빠지고, 틱 끝 이탈 처리 때는 아이템이 이미 없어 영영 안 지워진다 → 여기서 보낸다.
+    //   BroadcastLeaveZone 셋째 덩이(퇴장자에게 하는 판정)와 같은 판정이다. 대기열이 비면 아무 일도 없다.
+    void SendGroundItemDeleteToLateMovers(CZone* zone, int32_t sectorX, int32_t sectorY,
+                                          int32_t groundId, GroundItemGone wire, int32_t pickerId);
+
+    // 줍기 — Z 한 번에 2칸 안에서 내가 주울 수 있는 가장 가까운 것 하나(고르는 건 서버).
+    //   가방 넣기(TryAdd)가 먼저, 땅에서 빼기가 나중 — 반대면 가득 찬 가방에서 아이템이 사라진다.
+    void RecvPickup(CPlayer* player, CSerialBuffer* pMsg);
+
+    // 판정 — DEAD → NO_ITEM → NOT_OWNER 순으로 보고 먼저 걸린 하나. 통과면 PickupFail::COUNT 와 고른 것의 자리.
+    //   TAB_FULL 은 판정이 아니라 가방 넣기의 결과다(RecvPickup). 사유가 넷이라 값을 돌려주는 함수로 뺐다(CheckUseItem 과 같은 꼴).
+    struct PickupTarget { int32_t sectorX = 0; int32_t sectorY = 0; size_t index = 0; };
+    PickupFail CheckPickup(const CPlayer* player, CZone* zone, PickupTarget& out) const;
+
+    static constexpr float PICKUP_RANGE = 2.0f;   // 칸 — 공격 사거리(1.5)보다 조금 넉넉하게(서버 좌표는 클라 화면보다 반 왕복 늦다)
+
     static constexpr uint64_t GROUND_ITEM_LIFE_FRAMES = 60 * 25;   // 60초 — 땅에 남는 시간(플랜 ㉰)
     static constexpr uint64_t LOOT_LOCK_FRAMES        = 10 * 25;   // 10초 — 막타 친 사람이 먼저 줍는 시간(플랜 ㉯)
     static constexpr int      GROUND_ITEM_SCAN_FRAMES = 25;        // 1초에 한 번 훑는다 — 사라지는 때가 1초 늦을 수 있다
