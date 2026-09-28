@@ -23,10 +23,17 @@
     S2C_EXP:1029,
     // 인벤토리 (USE_INVENTORY) — 본인 전용. 가방 전체는 입장 때 한 번, 칸 갱신은 바뀔 때마다
     S2C_INVENTORY:1030, S2C_INVENTORY_SLOT:1031,
-    C2S_USE_ITEM:1032, S2C_USE_ITEM_FAIL:1033
+    C2S_USE_ITEM:1032, S2C_USE_ITEM_FAIL:1033,
+    // 땅의 아이템·줍기 (USE_DROP) — 땅 번호(groundId)는 캐릭터 번호와 따로 센다
+    S2C_GROUND_ITEM_CREATE:1034, S2C_GROUND_ITEM_DELETE:1035,
+    C2S_PICKUP:1036, S2C_PICKUP_FAIL:1037
   };
   // 아이템 쓰기 거절 사유 — Protocol.h UseItemFail 순서 그대로(값이 와이어에 실린다). 서버가 이 순서로 보고 먼저 걸린 하나를 보낸다
   const USE_FAIL = ['BAD_SLOT','EMPTY','NOT_USABLE','DEAD','COOLDOWN','FULL_HP'];
+  // 땅의 아이템 — Protocol.h GroundItemAppear · GroundItemGone · PickupFail 순서 그대로(값이 와이어에 실린다)
+  const GROUND_APPEAR = ['SEEN','DROP'];
+  const GROUND_GONE   = ['OUT_OF_SIGHT','PICKED','EXPIRED'];
+  const PICKUP_FAIL   = ['DEAD','NO_ITEM','NOT_OWNER','TAB_FULL'];
   // 가방 탭 구간 — Protocol.h INV_TAB_RANGES 사본(InvTab 순서: 장비·소비·기타). 칸 번호가 곧 DB 열쇠라
   //   한쪽만 고치면 웹이 엉뚱한 탭에 그린다 — Protocol.h 와 나란히 볼 것.
   const INV_TAB_RANGES = [ { first:0, n:20 }, { first:100, n:20 }, { first:200, n:20 } ];
@@ -146,6 +153,20 @@
         p.slot=dv.getUint16(o,true); p.itemId=dv.getInt32(o+2,true); p.count=dv.getInt32(o+6,true); break;
       case MSG.S2C_USE_ITEM_FAIL:                // 성공은 따로 안 온다 — 칸 갱신과 S2C_ACTOR_STATS 가 곧 결과다
         p.slot=dv.getUint16(o,true); p.reason=dv.getUint8(o+2); p.reasonName=USE_FAIL[p.reason] || ('?'+p.reason); break;
+      // ---- 땅의 아이템 (USE_DROP) — pack(1) 이라 int32·float 뒤 uint8 이 곧바로 붙는다 ----
+      //   CREATE 25B = groundId i32 · itemId i32 · count i32 · x f32 · y f32 · reason u8 (Protocol.h static_assert)
+      //   같은 groundId 가 두 번 올 수 있다 — 받는 쪽은 덮어쓴다. 주인은 안 실린다
+      case MSG.S2C_GROUND_ITEM_CREATE:
+        p.groundId=dv.getInt32(o,true); p.itemId=dv.getInt32(o+4,true); p.count=dv.getInt32(o+8,true);
+        p.x=dv.getFloat32(o+12,true); p.y=dv.getFloat32(o+16,true);
+        p.reason=dv.getUint8(o+20); p.reasonName=GROUND_APPEAR[p.reason] || ('?'+p.reason); break;
+      //   DELETE 13B = groundId i32 · reason u8 · pickerId i32 (PICKED 일 때 주운 캐릭터, 아니면 0). 모르는 번호면 받는 쪽이 버린다
+      case MSG.S2C_GROUND_ITEM_DELETE:
+        p.groundId=dv.getInt32(o,true); p.reason=dv.getUint8(o+4); p.reasonName=GROUND_GONE[p.reason] || ('?'+p.reason);
+        p.pickerId=dv.getInt32(o+5,true); break;
+      //   PICKUP_FAIL 9B = reason u8 · itemId i32 (TAB_FULL 이면 고른 아이템 — 어느 탭이 찼는지 안다). 성공은 DELETE(PICKED, 나)
+      case MSG.S2C_PICKUP_FAIL:
+        p.reason=dv.getUint8(o); p.reasonName=PICKUP_FAIL[p.reason] || ('?'+p.reason); p.itemId=dv.getInt32(o+1,true); break;
       default: break; // ZONE_CHANGE_OK/FAIL, ADMIN_* etc. — not needed for the view
     }
     return p;
@@ -186,6 +207,8 @@
       for(let i=0;i<s.length;i++) d.setUint8(4+i, s.charCodeAt(i) & 0x7F); return b; },
     // C2S_USE_ITEM: header(4) + slot u16 = 6B
     useItem(slot){ const {b,d}=hdr(6,MSG.C2S_USE_ITEM); d.setUint16(4, slot, true); return b; },
+    // C2S_PICKUP: 바디 없음 — 서버가 2칸 안에서 주울 수 있는 가장 가까운 것 하나를 고른다
+    pickup(){ return hdr(4, MSG.C2S_PICKUP).b; },
     moveStart(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_START); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     moveStop(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_STOP); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     // C2S_CHAT: header + wchar_t[] UTF-16LE, 널 종단 포함, (len+1)*2 바이트만 전송 (서버가 header.size로 역산)
@@ -199,7 +222,7 @@
     }
   };
 
-  const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, USE_FAIL, decodePacket, Reassembler, enc };
+  const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, USE_FAIL, GROUND_APPEAR, GROUND_GONE, PICKUP_FAIL, decodePacket, Reassembler, enc };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else global.Proto = API;
 })(typeof window !== 'undefined' ? window : globalThis);

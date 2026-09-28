@@ -108,7 +108,15 @@ enum class MsgType : uint16_t
     S2C_INVENTORY,          // 서버 → 클라이언트: 가방 전체 (입장 때 한 번 — 빈 칸은 안 싣는다)
     S2C_INVENTORY_SLOT,     // 서버 → 클라이언트: 가방 한 칸이 바뀜 (itemId 0 = 비었음)
     C2S_USE_ITEM,           // 클라이언트 → 서버: 이 칸의 아이템을 쓴다 (지금은 물약만)
-    S2C_USE_ITEM_FAIL       // 서버 → 클라이언트: 쓰기 거절 + 사유 (성공은 칸 갱신·체력 통보가 곧 결과다)
+    S2C_USE_ITEM_FAIL,      // 서버 → 클라이언트: 쓰기 거절 + 사유 (성공은 칸 갱신·체력 통보가 곧 결과다)
+
+    //--------------------------------------------------
+    // 땅의 아이템·줍기 (USE_DROP)
+    //--------------------------------------------------
+    S2C_GROUND_ITEM_CREATE, // 서버 → 클라이언트: 땅의 아이템이 보인다 (방금 떨어짐 · 시야에 들어옴)
+    S2C_GROUND_ITEM_DELETE, // 서버 → 클라이언트: 땅의 아이템이 안 보인다 (주움 · 사라짐 · 시야 밖)
+    C2S_PICKUP,             // 클라이언트 → 서버: 줍기 (몸 없음 — 서버가 2칸 안 가장 가까운 것을 고른다)
+    S2C_PICKUP_FAIL         // 서버 → 클라이언트: 줍기 거절 + 사유 (성공은 DELETE(PICKED, 나)·칸 갱신이 곧 결과다)
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -744,5 +752,95 @@ struct MSG_S2C_USE_ITEM_FAIL
 
     MSG_S2C_USE_ITEM_FAIL() : header{ sizeof(*this), TYPE }, slot(0), reason(0) {}
 };
+
+//==================================================
+// 땅의 아이템·줍기 (USE_DROP)
+//==================================================
+
+// 땅의 아이템 번호(groundId)는 캐릭터 번호(playerId·actorId)와 따로 센다 — 같은 값이 겹쳐도 된다.
+//   ★ 아래 enum 셋은 값이 와이어에 실린다 — 중간에 끼우지 말고 끝(COUNT 앞)에만 붙인다.
+//     WebClient/proto.js 에 같은 순서로 옮겨 둔다.
+
+// 땅의 아이템이 보이게 된 까닭 — 클라는 DROP 이면 떨어지는 그림을 그린다
+enum class GroundItemAppear : uint8_t
+{
+    SEEN = 0,   // 이미 땅에 있던 것이 시야에 들어왔다 (섹터를 넘음 · 입장)
+    DROP = 1,   // 방금 떨어졌다 (몬스터가 죽음)
+};
+
+// 땅의 아이템이 안 보이게 된 까닭
+enum class GroundItemGone : uint8_t
+{
+    OUT_OF_SIGHT = 0,   // 내가 섹터를 넘어 안 보이게 됐다 — 땅에는 그대로 있다
+    PICKED       = 1,   // 누가 주웠다 (pickerId)
+    EXPIRED      = 2,   // 오래 안 주워 사라졌다
+};
+
+// 줍기 거절 사유 — 서버는 위에서부터 차례로 보고 먼저 걸린 하나로 답한다(순서가 곧 확인 순서).
+//   TAB_FULL 만 판정이 아니라 가방 넣기(CInventory::TryAdd)의 결과다.
+enum class PickupFail : uint8_t
+{
+    DEAD,        // 죽어 있다
+    NO_ITEM,     // 2칸 안에 땅의 아이템이 없다
+    NOT_OWNER,   // 2칸 안에 있긴 한데 전부 남의 것이다 (막타 친 사람의 우선 시간 안)
+    TAB_FULL,    // 고른 것이 가방 그 탭에 다 안 들어간다 — 아이템은 땅에 그대로
+    COUNT
+};
+
+// S2C: 땅의 아이템 생성 — 떨어질 때 · 시야에 들어올 때.
+//   주인은 싣지 않는다 — 실으면 계정 번호가 새거나, "내 것" 표시가 받는 사람마다 달라져 한 장을 여럿에게 못 보낸다.
+//   남의 것은 주워 보면 NOT_OWNER 로 안다.
+//   ★ 같은 groundId 가 두 번 올 수 있다(같은 틱에 섹터를 넘은 사람) — 클라는 groundId 로 덮어쓴다.
+struct MSG_S2C_GROUND_ITEM_CREATE
+{
+    static constexpr MsgType TYPE = MsgType::S2C_GROUND_ITEM_CREATE;
+    MsgHeader header;
+    int32_t groundId;
+    int32_t itemId;    // Run/bin/ItemTable.csv
+    int32_t count;
+    float   x;
+    float   y;
+    uint8_t reason;    // GroundItemAppear
+
+    MSG_S2C_GROUND_ITEM_CREATE() : header{ sizeof(*this), TYPE }, groundId(0), itemId(0), count(0), x(0), y(0), reason(0) {}
+};
+
+// S2C: 땅의 아이템 삭제 — 모르는 groundId 면 클라는 버린다(시야를 넘나든 경우에 생긴다).
+//   주운 사람도 이 패킷을 받는다(pickerId = 자기 번호) — 클라는 자기 땅 목록에서 무엇을 몇 개 주웠는지 안다.
+struct MSG_S2C_GROUND_ITEM_DELETE
+{
+    static constexpr MsgType TYPE = MsgType::S2C_GROUND_ITEM_DELETE;
+    MsgHeader header;
+    int32_t groundId;
+    uint8_t reason;     // GroundItemGone
+    int32_t pickerId;   // PICKED 면 주운 캐릭터 번호, 아니면 0
+
+    MSG_S2C_GROUND_ITEM_DELETE() : header{ sizeof(*this), TYPE }, groundId(0), reason(0), pickerId(0) {}
+};
+
+// C2S: 줍기 — 몸이 없다. 서버가 2칸 안에서 주울 수 있는 가장 가까운 것 하나를 고른다
+//   (클라 셋이 같은 거리 판정을 따로 짜지 않게).
+struct MSG_C2S_PICKUP
+{
+    static constexpr MsgType TYPE = MsgType::C2S_PICKUP;
+    MsgHeader header;
+};
+
+// S2C: 줍기 거절 — 성공은 따로 안 알린다(주운 사람에게도 GROUND_ITEM_DELETE(PICKED) 와 칸 패킷이 곧 결과다)
+struct MSG_S2C_PICKUP_FAIL
+{
+    static constexpr MsgType TYPE = MsgType::S2C_PICKUP_FAIL;
+    MsgHeader header;
+    uint8_t reason;   // PickupFail
+    int32_t itemId;   // TAB_FULL 이면 고른 아이템(클라가 어느 탭이 찼는지 안다), 아니면 0
+
+    MSG_S2C_PICKUP_FAIL() : header{ sizeof(*this), TYPE }, reason(0), itemId(0) {}
+};
+
+// 와이어 크기 — WebClient/proto.js 가 오프셋을 손으로 옮겨 적으므로, 크기가 바뀌면 여기서 먼저 멈춘다
+static_assert(sizeof(MSG_S2C_GROUND_ITEM_CREATE) == 25, "GROUND_ITEM_CREATE 는 25B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_GROUND_ITEM_DELETE) == 13, "GROUND_ITEM_DELETE 는 13B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_PICKUP)             == 4,  "C2S_PICKUP 은 헤더뿐");
+static_assert(sizeof(MSG_S2C_PICKUP_FAIL)        == 9,  "PICKUP_FAIL 은 9B (proto.js 와 맞출 것)");
 
 #pragma pack(pop)

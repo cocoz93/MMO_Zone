@@ -389,6 +389,13 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
     case MsgType::S2C_USE_ITEM_FAIL:
         break;
 
+    // 땅의 아이템·줍기 (서버 USE_DROP) — 콘솔 클라는 땅의 아이템을 그리지 않고 줍지도 않는다(위 가방과 같은 이유).
+    //   옆에서 뱀이 죽을 때마다 오므로, 빠뜨리면 모르는 타입 로그가 화면을 떨게 한다(ce692dd 와 같은 증상).
+    case MsgType::S2C_GROUND_ITEM_CREATE:
+    case MsgType::S2C_GROUND_ITEM_DELETE:
+    case MsgType::S2C_PICKUP_FAIL:
+        break;
+
     default:
         LOG_ERROR_STREAM("Unknown message type: " << static_cast<int>(header->type));
         break;

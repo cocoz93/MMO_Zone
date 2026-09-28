@@ -245,6 +245,12 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     case MsgType::S2C_INVENTORY:          return static_cast<uint16_t>(offsetof(MSG_S2C_INVENTORY, entries));
     case MsgType::S2C_INVENTORY_SLOT:     return sizeof(MSG_S2C_INVENTORY_SLOT);
     case MsgType::S2C_USE_ITEM_FAIL:      return sizeof(MSG_S2C_USE_ITEM_FAIL);   // 더미는 아이템을 안 쓰지만 등록은 해 둔다
+    // USE_DROP: 땅의 아이템 — 위와 같은 이유로 크기만 등록한다.
+    //   ★ 더미는 공격을 안 해서 스스로 드랍을 만들지 않지만, 옆에서 사람이 뱀을 잡으면 CREATE·DELETE 가 온다.
+    //     빠뜨리면 그 순간 근처 더미가 전부 떨어진다. 줍기는 안 하니 PICKUP_FAIL 은 올 일이 없지만 등록은 해 둔다.
+    case MsgType::S2C_GROUND_ITEM_CREATE: return sizeof(MSG_S2C_GROUND_ITEM_CREATE);
+    case MsgType::S2C_GROUND_ITEM_DELETE: return sizeof(MSG_S2C_GROUND_ITEM_DELETE);
+    case MsgType::S2C_PICKUP_FAIL:        return sizeof(MSG_S2C_PICKUP_FAIL);
     default: return 0;
     }
 }
