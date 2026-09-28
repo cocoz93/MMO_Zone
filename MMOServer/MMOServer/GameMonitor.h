@@ -20,6 +20,31 @@
 #include "MonitorManager.h"   // Counter — 원자 카운터 타입만 빌려 쓴다 (코어 지표는 참조하지 않음)
 #include "Inventory.h"        // USE_INVENTORY — 넣기 결과 사유(InvAddResult) 수만큼 칸을 잡는다
 
+#if USE_DROP
+// 땅의 아이템이 땅에서 빠진 까닭 — 와이어의 GroundItemGone 과 다르다(그쪽의 OUT_OF_SIGHT 는 빠진 게 아니라 안 보이는 것,
+//   CLEANED 는 알릴 사람이 없어 와이어에 안 나간다). 빼는 자리마다 한 칸이라 등식이 한 곳의 누락도 드러낸다.
+enum class GroundItemRemoval : uint8_t
+{
+    PICKED,    // 누가 주웠다
+    EXPIRED,   // 오래 안 주워 사라졌다
+    CLEANED,   // 사람이 없는 채널이 지워지며 같이 사라졌다
+    COUNT
+};
+
+inline const char* GroundItemRemovalName(GroundItemRemoval r)
+{
+    static_assert(static_cast<int>(GroundItemRemoval::COUNT) == 3, "GroundItemRemoval 을 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case GroundItemRemoval::PICKED:  return "picked";
+    case GroundItemRemoval::EXPIRED: return "expired";
+    case GroundItemRemoval::CLEANED: return "cleaned";
+    case GroundItemRemoval::COUNT:   break;
+    }
+    return "?";
+}
+#endif
+
 #if USE_INVENTORY
 // 채팅 명령 거절 사유 — 넣기 거절(InvAddResult)과 따로 센다. 명령이 틀린 것과 가방이 찬 것은 다른 사실이다.
 enum class ChatCommandReject : uint8_t
@@ -152,6 +177,21 @@ public:
     } _inventory;
 
     DBItemSaveCounters _dbItem;   // 워커 스레드 몫 — 위 등식의 오른쪽
+#endif
+
+#if USE_DROP
+    // ══════════════════════════════════════════════════════════════
+    // 드랍 — 땅의 아이템 (USE_DROP)
+    //   ★ 등식(조용해진 뒤): _dropped = _removed[PICKED] + _removed[EXPIRED] + _removed[CLEANED] + _groundItems(게이지)
+    //     땅에서 빼는 자리가 셋이라 한 곳만 안 세도 등식이 깨진다 — 그래서 빼는 몫은 사유마다 한 칸이다.
+    // ══════════════════════════════════════════════════════════════
+    struct alignas(64) DropCounters
+    {
+        Counter _rolls;         // 드랍 표를 굴린 수 = 사람이 몬스터를 잡은 수 (아무것도 안 떨어져도 1)
+        Counter _dropped;       // 땅에 생긴 아이템 수 (한 번 굴려 여럿이면 여럿)
+        Counter _removed[static_cast<int>(GroundItemRemoval::COUNT)];   // 땅에서 빠진 수, 사유별
+        Counter _groundItems;   // [게이지] 지금 땅에 있는 수 — 바꾸는 자리에서 Store
+    } _drop;
 #endif
 
     // ══════════════════════════════════════════════════════════════

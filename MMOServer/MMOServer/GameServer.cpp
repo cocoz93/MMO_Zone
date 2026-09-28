@@ -359,6 +359,35 @@ namespace
     }
 #endif // USE_INVENTORY
 
+#if USE_DROP
+    CSerialBuffer* MakeGroundItemCreate(const CGroundItem& g, GroundItemAppear reason)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_GROUND_ITEM_CREATE::TYPE);
+        *buf << static_cast<int32_t>(g.groundId);
+        *buf << static_cast<int32_t>(g.item.itemId);
+        *buf << static_cast<int32_t>(g.item.count);
+        *buf << g.x;
+        *buf << g.y;
+        *buf << static_cast<uint8_t>(reason);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_GROUND_ITEM_CREATE));
+        return buf;
+    }
+
+    CSerialBuffer* MakeGroundItemDelete(int32_t groundId, GroundItemGone reason, int32_t pickerId)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_GROUND_ITEM_DELETE::TYPE);
+        *buf << static_cast<int32_t>(groundId);
+        *buf << static_cast<uint8_t>(reason);
+        *buf << static_cast<int32_t>(pickerId);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_GROUND_ITEM_DELETE));
+        return buf;
+    }
+#endif // USE_DROP
+
 #if USE_SECTOR_AGGREGATION
     // 섹터 묶음 — dirty 플레이어 [0,count)의 최종 상태(위치·방향·이동상태)를 직렬화.
     // 스칼라 시퀀스(<<)라 SetData 불필요. count는 선기록(백패치 불필요).
@@ -1022,6 +1051,11 @@ void CGameServer::GameLoopThread()
         TickRespawn();
 #endif
 
+#if USE_DROP
+        // 3-3) 땅의 아이템 사라지기 — 섹터 변경 대기열을 비운 뒤라 "같은 틱 이동자" 보정이 필요 없다
+        TickGroundItems();
+#endif
+
         auto phaseT3 = Clock::now();
 
         // 4) 주기적 위치 동기화 (MOVING 플레이어 → 주변 브로드캐스트)
@@ -1099,7 +1133,13 @@ void CGameServer::GameLoopThread()
             _cleanupFrameCount = 0;
 #if USE_MONSTER
             // 존을 지우기 직전에 그 존의 몬스터를 회수한다 — 안 하면 대기열에 죽은 주소가 남는다.
-            _mapManager.CleanupEmptyChannels([this](CZone* zone) { DespawnMonsters(zone, true); });
+            _mapManager.CleanupEmptyChannels([this](CZone* zone)
+            {
+#if USE_DROP
+                ForgetGroundItems(zone);   // 땅의 아이템은 세기만 — 벡터는 존과 함께 사라진다(알릴 사람이 없다)
+#endif
+                DespawnMonsters(zone, true);
+            });
 #else
             _mapManager.CleanupEmptyChannels(nullptr);
 #endif
@@ -2667,6 +2707,13 @@ void CGameServer::PerformAttack(CZone* zone, CCharacter* player)
         }
     }
 #endif
+
+#if USE_DROP
+    // ── 7) 드랍 — 사람이 몬스터를 잡았을 때만(경험치와 같은 조건) ──
+    //   막타 한 명이 주인이다(경험치와 같은 이유 — 누가 얼마나 때렸는지 몬스터가 들고 있지 않다).
+    if (CPlayer* looter = AsPlayer(player); looter != nullptr && target->_kind == CharacterKind::MONSTER)
+        DropLoot(zone, looter, static_cast<CMonster*>(target));
+#endif
 }
 
 #if USE_EXP
@@ -3108,6 +3155,145 @@ void CGameServer::DespawnMonsters(CZone* zone, bool broadcast)
 }
 #endif // USE_MONSTER
 
+#if USE_DROP
+// ==========================================================================
+// 드랍 (USE_DROP) — 땅의 아이템
+//   땅의 아이템은 섹터의 셋째 목록에 값으로 담긴다(SectorManager.h [셋째 목록]).
+// ==========================================================================
+
+void CGameServer::DropLoot(CZone* zone, CPlayer* killer, CMonster* monster)
+{
+    _gameMonitor._drop._rolls.Inc();   // 아무것도 안 떨어져도 1 — "잡은 수"와 같아야 한다
+
+    // 게임 스레드 전용 — 서버의 다른 난수 자리와 같은 꼴. 굴림 자체는 순수 함수(DropTable.h RollDrops)
+    thread_local std::mt19937 rng{ std::random_device{}() };
+    RollDrops(_gameDataFiles.Drop().RowsOf(monster->_kindId), rng, _lootBuffer);
+    if (_lootBuffer.empty())
+        return;
+
+    // 놓는 자리 — 첫 아이템은 죽은 자리, 다음부터 옆 칸. 한 점에 포개면 웹이 그림 하나만 그린다.
+    static constexpr float OFFSETS[][2] = {
+        { 0, 0 }, { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 }, { 1, 1 }, { -1, 1 }, { 1, -1 }, { -1, -1 },
+    };
+    constexpr size_t OFFSET_COUNT = sizeof(OFFSETS) / sizeof(OFFSETS[0]);
+    const float maxX = static_cast<float>(zone->GetMapWidth()) - 1.0f;    // 이동 쪽 클램프(CZone::Tick)와 같은 범위
+    const float maxY = static_cast<float>(zone->GetMapHeight()) - 1.0f;
+
+    CSectorManager& sectors = zone->GetSectorManager();
+    for (size_t i = 0; i < _lootBuffer.size(); ++i)
+    {
+        CGroundItem g;
+        g.groundId        = _nextGroundId++;
+        g.item            = _lootBuffer[i];
+        const float fx    = monster->_x + OFFSETS[i % OFFSET_COUNT][0];
+        const float fy    = monster->_y + OFFSETS[i % OFFSET_COUNT][1];
+        g.x               = fx < 0.0f ? 0.0f : (fx > maxX ? maxX : fx);
+        g.y               = fy < 0.0f ? 0.0f : (fy > maxY ? maxY : fy);
+        g.ownerAccountId  = killer->_accountId;
+        g.ownerUntilFrame = _frameCount + LOOT_LOCK_FRAMES;
+        g.expireFrame     = _frameCount + GROUND_ITEM_LIFE_FRAMES;
+
+        // 아이템마다 자기 섹터 — 경계에 떨어지면 한 번에 떨어진 것들의 섹터가 서로 다를 수 있다
+        const int32_t sx = sectors.CalcSectorX(g.x);
+        const int32_t sy = sectors.CalcSectorY(g.y);
+        sectors.AddGroundItem(g, sx, sy);
+        ++_groundItemCount;
+        _gameMonitor._drop._dropped.Inc();
+
+        _eventAroundBuffer.clear();
+        sectors.GetAroundPlayers(sx, sy, _eventAroundBuffer);
+        for (CPlayer* other : _eventAroundBuffer)
+            SendGroundItemCreate(other, g, GroundItemAppear::DROP);
+    }
+    _gameMonitor._drop._groundItems.Store(_groundItemCount);
+}
+
+void CGameServer::SendGroundItemCreate(CPlayer* target, const CGroundItem& item, GroundItemAppear reason)
+{
+    SendPacket(target, MakeGroundItemCreate(item, reason));
+}
+
+void CGameServer::SendGroundItemDelete(CPlayer* target, int32_t groundId, GroundItemGone reason, int32_t pickerId)
+{
+    SendPacket(target, MakeGroundItemDelete(groundId, reason, pickerId));
+}
+
+void CGameServer::RemoveGroundItem(CZone* zone, int32_t sectorX, int32_t sectorY, size_t index,
+                                   GroundItemRemoval why, int32_t pickerId)
+{
+    CSectorManager& sectors = zone->GetSectorManager();
+    const int32_t groundId = sectors.GetSectorItems(sectorX, sectorY)[index].groundId;   // 빼기 전에 읽는다
+
+    // 와이어의 사유 — 빼는 까닭 셋 중 알릴 사람이 있는 것은 둘뿐이다(CLEANED 는 ForgetGroundItems)
+    GroundItemGone wire = GroundItemGone::EXPIRED;
+    switch (why)
+    {
+    case GroundItemRemoval::PICKED:  wire = GroundItemGone::PICKED;  break;
+    case GroundItemRemoval::EXPIRED: wire = GroundItemGone::EXPIRED; break;
+    case GroundItemRemoval::CLEANED:
+    case GroundItemRemoval::COUNT:
+        assert(false && "CLEANED 는 알릴 사람이 없다 — ForgetGroundItems 가 센다");
+        return;
+    }
+
+    _eventAroundBuffer.clear();
+    sectors.GetAroundPlayers(sectorX, sectorY, _eventAroundBuffer);
+    for (CPlayer* other : _eventAroundBuffer)
+        SendGroundItemDelete(other, groundId, wire, pickerId);
+
+    sectors.RemoveGroundItemAt(sectorX, sectorY, index);
+    _gameMonitor._drop._removed[static_cast<int>(why)].Inc();
+    --_groundItemCount;
+    _gameMonitor._drop._groundItems.Store(_groundItemCount);
+}
+
+void CGameServer::TickGroundItems()
+{
+    if (++_groundItemScanCounter < GROUND_ITEM_SCAN_FRAMES)
+        return;
+    _groundItemScanCounter = 0;
+
+    if (_groundItemCount == 0)
+        return;   // 땅에 아무것도 없다 — 존·섹터를 훑지 않는다(부하 시험은 더미가 안 때려 늘 여기서 끝난다)
+
+    _mapManager.ForEachZone([this](CZone* zone)
+    {
+        const CSectorManager& sectors = zone->GetSectorManager();
+        for (int32_t sy = 0; sy < sectors.GetSectorCountY(); ++sy)
+        {
+            for (int32_t sx = 0; sx < sectors.GetSectorCountX(); ++sx)
+            {
+                const std::vector<CGroundItem>& list = sectors.GetSectorItems(sx, sy);
+                for (size_t i = 0; i < list.size(); )
+                {
+                    if (_frameCount >= list[i].expireFrame)
+                        RemoveGroundItem(zone, sx, sy, i, GroundItemRemoval::EXPIRED, 0);   // 뒤엣것이 i 로 온다 — 올리지 않는다
+                    else
+                        ++i;
+                }
+            }
+        }
+    });
+}
+
+void CGameServer::ForgetGroundItems(CZone* zone)
+{
+    const CSectorManager& sectors = zone->GetSectorManager();
+    int64_t n = 0;
+    for (int32_t sy = 0; sy < sectors.GetSectorCountY(); ++sy)
+    {
+        for (int32_t sx = 0; sx < sectors.GetSectorCountX(); ++sx)
+            n += static_cast<int64_t>(sectors.GetSectorItems(sx, sy).size());
+    }
+    if (n == 0)
+        return;
+
+    _gameMonitor._drop._removed[static_cast<int>(GroundItemRemoval::CLEANED)].Add(n);
+    _groundItemCount -= n;
+    _gameMonitor._drop._groundItems.Store(_groundItemCount);
+}
+#endif // USE_DROP
+
 void CGameServer::SendZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex)
 {
     SendPacket(target, MakeZoneChangeOk(target, mapId, channelIndex));
@@ -3210,6 +3396,11 @@ void CGameServer::BroadcastEnterZone(CZone* zone, CPlayer* player, SpawnReason r
             if (other != player)
                 SendCreateOtherPlayer(player, other);   // 신규 플레이어에게 기존 상대 생성
         });
+#if USE_DROP
+        // 땅의 아이템도 보인다 — 캐릭터가 아니라 셋째 목록을 따로 돈다(입장·존 이동 공통)
+        for (const CGroundItem& g : sectors.GetSectorItems(around[i].x, around[i].y))
+            SendGroundItemCreate(player, g, GroundItemAppear::SEEN);
+#endif
     }
 }
 
@@ -3568,6 +3759,28 @@ void CGameServer::ProcessSectorChange(CZone* zone, CCharacter* player,
                 if (other != player)
                     SendCreateOtherPlayer(me, other);   // 나에게 상대를 생성 — 인바운드
             });
+    }
+#endif
+
+#if USE_DROP
+    // ── 땅의 아이템 — 인바운드만 있다 ──
+    //   아이템은 움직이지 않으니 "남이 나를 본다(아웃바운드)"가 없고, 받는 쪽은 늘 나 하나다.
+    //   그래서 위 묶음·digest 토글 덩이들과 상관없이 여기 한 번만 둔다(꺼진 경로를 안 건드린다).
+    //   같은 틱에 섹터를 넘으며 방금 떨어진 것을 두 번 받거나, 모르는 것의 삭제를 받을 수 있다 —
+    //   클라는 땅 번호로 덮어쓰고 모르는 번호의 삭제는 버린다(Protocol.h MSG_S2C_GROUND_ITEM_CREATE).
+    if (me != nullptr)
+    {
+        const CSectorManager& itemSectors = zone->GetSectorManager();
+        for (int32_t i = 0; i < removedCount; ++i)
+        {
+            for (const CGroundItem& g : itemSectors.GetSectorItems(removed[i].x, removed[i].y))
+                SendGroundItemDelete(me, g.groundId, GroundItemGone::OUT_OF_SIGHT, 0);
+        }
+        for (int32_t i = 0; i < addedCount; ++i)
+        {
+            for (const CGroundItem& g : itemSectors.GetSectorItems(added[i].x, added[i].y))
+                SendGroundItemCreate(me, g, GroundItemAppear::SEEN);
+        }
     }
 #endif
 }

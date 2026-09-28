@@ -250,6 +250,36 @@ private:
 #endif
 #endif
 
+#if USE_DROP
+    // ── 드랍 (USE_DROP) ──
+    // 사람이 몬스터를 잡으면 부른다(PerformAttack 의 경험치 블록 뒤 — 같은 조건).
+    //   표의 줄마다 굴려 땅에 놓고, 아이템마다 자기 섹터 주변 플레이어에게 CREATE(DROP).
+    //   주인 = 막타 친 계정, LOOT_LOCK_FRAMES 동안 먼저 줍는다. GROUND_ITEM_LIFE_FRAMES 뒤 사라진다.
+    void DropLoot(CZone* zone, CPlayer* killer, CMonster* monster);
+
+    // 땅의 아이템 하나를 한 사람에게 보여 준다 — 떨어질 때(DROP)·시야에 들어올 때(SEEN) 공용
+    void SendGroundItemCreate(CPlayer* target, const CGroundItem& item, GroundItemAppear reason);
+    // 한 사람 화면에서 지운다 — 시야 밖(OUT_OF_SIGHT) · 주움(PICKED, pickerId) · 사라짐(EXPIRED) 공용
+    void SendGroundItemDelete(CPlayer* target, int32_t groundId, GroundItemGone reason, int32_t pickerId);
+
+    // 땅에서 빼는 한 자리 — 주변 플레이어에게 DELETE · 사유별 계수 · 게이지 · 목록에서 빼기(자리 바꿔 빼기).
+    //   줍기(PICKED)·사라지기(EXPIRED) 둘 다 여기로 온다. 채널 정리(CLEANED)는 알릴 사람이 없어 ForgetGroundItems 가 센다.
+    //   ★ 빼면 index 자리로 뒤엣것이 온다 — 훑으며 부르는 쪽은 index 를 올리지 말 것.
+    void RemoveGroundItem(CZone* zone, int32_t sectorX, int32_t sectorY, size_t index,
+                          GroundItemRemoval why, int32_t pickerId);
+
+    // 틱 3-3 — 25틱에 한 번 모든 존·섹터를 훑어 수명이 다한 것을 뺀다. 섹터 변경 대기열을 비운 뒤라
+    //   "같은 틱에 섹터를 넘은 사람" 보정이 필요 없다. 땅에 아무것도 없으면 훑지 않는다(부하 시험은 늘 그렇다).
+    void TickGroundItems();
+
+    // 채널이 지워지기 직전 — 사람이 없는 채널이라 알릴 사람이 없다. 수만 세고(CLEANED) 벡터는 존과 함께 사라진다.
+    void ForgetGroundItems(CZone* zone);
+
+    static constexpr uint64_t GROUND_ITEM_LIFE_FRAMES = 60 * 25;   // 60초 — 땅에 남는 시간(플랜 ㉰)
+    static constexpr uint64_t LOOT_LOCK_FRAMES        = 10 * 25;   // 10초 — 막타 친 사람이 먼저 줍는 시간(플랜 ㉯)
+    static constexpr int      GROUND_ITEM_SCAN_FRAMES = 25;        // 1초에 한 번 훑는다 — 사라지는 때가 1초 늦을 수 있다
+#endif
+
 #if USE_DB_WORKER
     // DB 저장 파이프라인 (dirty flag 기반 비동기 위치 저장)
     bool ShouldSave(const CPlayer* player) const;        // 저장 대상 판정(MOVING||dirty) — 주기·종료 공통
@@ -446,6 +476,13 @@ private:
 
     int32_t _defaultMapId = 0;  // 최초 접속 시 입장할 맵
     int32_t _nextPlayerId = 1;  // 전역 playerId 카운터 (싱글스레드 게임 루프)
+
+#if USE_DROP
+    int32_t _nextGroundId = 1;       // 땅의 아이템 번호 — 캐릭터 번호와 따로 센다(1초에 하나씩 떨어져도 68년)
+    int64_t _groundItemCount = 0;    // 지금 땅에 있는 수 — 바꾸는 자리에서 게이지(_gameMonitor._drop._groundItems)에 Store
+    std::vector<Item> _lootBuffer;   // 한 마리분 굴림 결과 (멤버 재사용 — 죽을 때마다 할당하지 않게)
+    int     _groundItemScanCounter = 0;   // TickGroundItems 의 25틱 세기
+#endif
 
 #if USE_GAME_DATA_FILES
     // 기획 데이터 — 기동 때 한 번 읽고 그 뒤로는 읽기만 한다(게임 스레드가 매 전투·명령에서 본다).

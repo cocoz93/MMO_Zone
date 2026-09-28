@@ -578,6 +578,28 @@ private:
         ss << "\n";
 #endif
 #endif
+
+#if USE_DROP
+        // 드랍. 등식(조용해진 뒤) = dropped = 빼는 몫의 합 + mmo_ground_items (GameMonitor.h)
+        const auto& drop = _gameMonitor._drop;
+        WriteCounter(ss, "mmo_drop_rolls_total",
+                     "Drop-table rolls = monsters killed by players (counted even when nothing drops)",
+                     drop._rolls);
+        WriteCounter(ss, "mmo_ground_items_dropped_total",
+                     "Ground items created by drops",
+                     drop._dropped);
+        ss << "# HELP mmo_ground_items_removed_total Ground items taken off the ground, split by reason\n";
+        ss << "# TYPE mmo_ground_items_removed_total counter\n";
+        for (int i = 0; i < static_cast<int>(GroundItemRemoval::COUNT); ++i)
+        {
+            ss << "mmo_ground_items_removed_total{reason=\"" << GroundItemRemovalName(static_cast<GroundItemRemoval>(i))
+               << "\"} " << drop._removed[i] << "\n";
+        }
+        ss << "\n";
+        ss << "# HELP mmo_ground_items Ground items lying in all zones right now\n";
+        ss << "# TYPE mmo_ground_items gauge\n";
+        ss << "mmo_ground_items " << drop._groundItems << "\n\n";
+#endif
     }
 
     // 입장(캐릭터 불러오기) 지표 — 전부 게임 루프가 센 값이다(GameMonitor.h 참조).

@@ -20,6 +20,11 @@ bool CGameDataFiles::LoadAll(const std::string& dir)
     if (!_spawnRegion.Load(dir + "SpawnRegion.csv"))
         return false;
 #endif
+#if USE_DROP
+    // ★ 아이템 표 "뒤" — 드랍 표의 아이템 번호·개수를 아이템 표와 대조한다
+    if (!_drop.Load(dir + "DropTable.csv", _item))
+        return false;
+#endif
 
     SLOG_INFO("[GameData] 기획 데이터 파일을 모두 읽었습니다 ({})", dir);
     return true;

@@ -162,6 +162,22 @@
 	#error "USE_INVENTORY requires USE_COMBAT=1 (물약이 체력을 채운다)"
 #endif
 
+// 드랍 — 사람이 뱀을 잡으면 드랍 표대로 아이템이 땅에 떨어지고, 근처 사람에게 보이며, 주워 가방에 넣는다.
+//   ★ 무엇을 몇 % 로 떨어뜨리나는 기획 데이터라 파일에 둔다(Run/bin/DropTable.csv).
+//     땅의 아이템은 DB 에 안 남는다 — 서버가 내려가면 사라진다(흔한 방식).
+//   1: 드랍 활성 — 표를 읽고, 죽을 때 떨어뜨리고, 섹터를 넘거나 들어올 때 보여 주고, 60초 뒤 치운다 [기본]
+//   0: 드랍 경로가 컴파일에서 빠짐 — 뱀을 잡아도 경험치만 오른다
+//   기본값이 가방·몬스터 둘을 따라가는 이유: 떨어지는 쪽(몬스터)과 담는 쪽(가방)이 둘 다 있어야 뜻이 있다.
+//   주의: 켠 채 부하 더미를 돌리려면 더미가 S2C_GROUND_ITEM_* 을 알아야 한다(더미 GetPacketSize 에 등록됨).
+//         더미는 공격을 안 해서 스스로 드랍을 만들지 않지만, 옆에서 사람이 뱀을 잡으면 받는다.
+#ifndef USE_DROP
+#define USE_DROP (USE_INVENTORY && USE_MONSTER)
+#endif
+
+#if USE_DROP && !(USE_INVENTORY && USE_MONSTER)
+	#error "USE_DROP requires USE_INVENTORY=1 and USE_MONSTER=1 (떨어지는 쪽과 담는 쪽이 다 있어야 한다)"
+#endif
+
 // 기획 데이터 파일이 하나라도 필요한가 — 표를 담는 자리(CGameDataFiles)와 CSV 도우미가 이걸 본다.
 //   표마다 토글이 따로라, "레벨 표는 끄고 아이템 표만 켠" 빌드에서도 담는 자리는 살아 있어야 한다.
 //   스폰 구역 표(SpawnRegion.csv)는 몬스터 토글을 따른다 — 뱀이 태어날 자리라 몬스터를 끄면 뜻이 없다.

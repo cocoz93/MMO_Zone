@@ -15,6 +15,9 @@
 //   - 몬스터 AI 의 대상 찾기·몬스터의 물기는 플레이어 목록만 돈다 → 뱀끼리 쫓거나 무는 일이 구조로 막힌다
 //  가르는 기준은 "받을 수 있나"다 — 종류마다 목록을 두지 않는다. NPC·펫이 생겨도 나머지 목록에 들어가고 목록은 안 는다.
 //
+// [셋째 목록] 땅의 아이템(USE_DROP) — 캐릭터가 아니라 타입이 다르다. 같은 칸 번호로 나란히 두고 값으로 담는다.
+//  시야(섹터를 넘을 때·입장할 때 보여 주기)와 줍기 반경 찾기가 이 목록을 따로 돈다.
+//
 // [사용 흐름]
 //  Init(mapWidth, mapHeight, sectorSize) → 존 생성 시 호출 (INI에서 로드된 값)
 //  CalcSectorX/Y()          → 월드 좌표에서 섹터 좌표 계산
@@ -27,6 +30,11 @@
 
 #include <cstdint>
 #include <vector>
+
+#include "BuildConfig.h"
+#if USE_DROP
+#include "GroundItem.h"   // 셋째 목록 — 땅의 아이템(값으로 담는다)
+#endif
 
 class CCharacter;
 class CPlayer;
@@ -92,6 +100,17 @@ public:
     void GetAroundSectorList(int32_t sectorX, int32_t sectorY,
                              SectorPos* outSectors, int32_t& outCount) const;
 
+#if USE_DROP
+    // ── 셋째 목록 — 땅의 아이템 ──
+    //   캐릭터가 아니라 ForEachInSector 는 안 돈다. 값으로 담는다(GroundItem.h [값으로 담는다]) —
+    //   그래서 벡터 안 자리는 빼면 바뀐다. 자리 번호는 한 번 훑는 동안만 쓰고 들고 있지 않는다.
+    void AddGroundItem(const CGroundItem& item, int32_t sectorX, int32_t sectorY);
+    const std::vector<CGroundItem>& GetSectorItems(int32_t sectorX, int32_t sectorY) const;
+    // 한 개 빼기 — 자리 바꿔 빼기(swap-and-pop)라 맨 뒤엣것이 index 자리로 온다.
+    //   훑으면서 빼는 쪽은 뺀 뒤 index 를 올리지 말 것(방금 당겨온 것을 아직 안 봤다).
+    void RemoveGroundItemAt(int32_t sectorX, int32_t sectorY, size_t index);
+#endif
+
 private:
     bool IsValidSector(int32_t sectorX, int32_t sectorY) const;
 
@@ -112,4 +131,9 @@ private:
     // 범위 밖 요청 시 반환할 빈 목록
     static const std::vector<CPlayer*>    EMPTY_PLAYERS;
     static const std::vector<CCharacter*> EMPTY_OTHERS;
+
+#if USE_DROP
+    std::vector<std::vector<CGroundItem>> _items;   // 같은 칸 번호 — 목록 둘과 나란히
+    static const std::vector<CGroundItem> EMPTY_ITEMS;
+#endif
 };

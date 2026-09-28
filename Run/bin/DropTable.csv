@@ -1,0 +1,13 @@
+# Drop table - design data, read once at startup (CDropTable). Item ids come from ItemTable.csv.
+#   One row = "this monster drops this item with this chance, min..max pieces".
+#   Each row is rolled on its own at every kill, so one kill can drop several items or nothing.
+#   chance  : percent, up to two decimals (0.5 is fine). Stored as basis points; > 0 and <= 100.
+#   min/max : 1 <= min <= max <= the item's maxStack.
+#   monster : snake (MonsterKind in Monster.h)
+#   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
+#   With the rows below a snake drops nothing 28% of the time; on average 0.92 ground items (1.22 pieces) per kill.
+itemId,monster,chance,min,max
+3,snake,60,1,2
+1,snake,25,1,1
+2,snake,5,1,1
+4,snake,2,1,1

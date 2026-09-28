@@ -6,6 +6,7 @@
 #include "LevelTable.h"
 #include "ItemTable.h"
 #include "SpawnRegionTable.h"
+#include "DropTable.h"
 
 // 담는 자리는 표가 하나라도 켜져 있으면 산다 — 표마다 토글이 따로다(USE_EXP · USE_INVENTORY · USE_MONSTER).
 //   처음엔 레벨 표 하나라 USE_EXP 안에 두었다가, 아이템 표가 붙으며 밖으로 꺼냈다.
@@ -50,6 +51,9 @@ public:
     // 맵 크기와의 대조(CheckMaps)는 여기서 안 한다 — 맵 설정은 CGameServer 가 들고 있다.
     const CSpawnRegionTable& SpawnRegions() const { return _spawnRegion; }
 #endif
+#if USE_DROP
+    const CDropTable& Drop() const { return _drop; }
+#endif
 
 private:
 #if USE_EXP
@@ -60,6 +64,9 @@ private:
 #endif
 #if USE_MONSTER
     CSpawnRegionTable _spawnRegion;
+#endif
+#if USE_DROP
+    CDropTable _drop;   // 아이템 표를 먼저 읽고 그 결과로 대조한다(LoadAll 순서)
 #endif
 };
 
