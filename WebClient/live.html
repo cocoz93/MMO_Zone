@@ -126,7 +126,20 @@ const USE_FAIL_TEXT = {
   DEAD:'쓰러진 동안에는 쓸 수 없습니다', COOLDOWN:'아직 쓸 수 없습니다 — 잠시 뒤에 다시', FULL_HP:'체력이 가득 찼습니다',
 };
 // 서버 알림 한 줄 — 채팅 칸에 [System] 으로. 채팅 명령의 답(/item 거절 등)이 여기로 온다.
-function sysMsg(t){ chatLog.push({sys:true, msg:t}); if(chatLog.length>8) chatLog.shift(); }
+//   마지막 한 줄은 속성으로도 내놓는다(헤드리스 검증용 — data-bag 과 같은 자리).
+function sysMsg(t){ chatLog.push({sys:true, msg:t}); if(chatLog.length>8) chatLog.shift(); document.documentElement.setAttribute('data-sys', t); }
+// 땅의 아이템 (USE_DROP) — 땅 번호 -> {itemId, count, x, y, dropT}. 서버가 보낸 것만 담는다(주울 수 있나는 서버가 정한다).
+//   CREATE 는 덮어쓰기 — 같은 번호가 두 번 올 수 있다(같은 틱에 섹터를 넘은 경우). 모르는 번호의 DELETE 는 버린다.
+//   주인은 안 온다 — 남의 것은 주워 보면 NOT_OWNER 로 안다(Protocol.h).
+const ground = new Map();
+const DROP_POP = 0.3;                        // 방금 떨어진 것이 튀어 올랐다 내려오는 시간(초)
+function groundChanged(){ document.documentElement.setAttribute('data-ground', JSON.stringify([...ground.keys()])); }   // 헤드리스 검증용
+function itemName(id){ const it=ITEMS.get(id); return it ? it.name : ('#'+id); }
+// 줍기 거절 사유(P.PICKUP_FAIL 이름) → 채팅 칸 [System] 문구. TAB_FULL 은 어느 탭인지 붙여야 해서 아래에서 따로 만든다
+const PICKUP_FAIL_TEXT = {
+  DEAD:'쓰러진 동안에는 주울 수 없습니다', NO_ITEM:'주울 것이 없습니다 — 가까이 가서 Z',
+  NOT_OWNER:'다른 사람이 먼저 주울 수 있는 아이템입니다 — 잠시 뒤에 다시',
+};
 // 전투 필드 기본값 — CREATE 와 부활 양쪽에서 같은 모양으로 만들려고 한 곳에 둔다
 const COMBAT_INIT = () => ({ hp:null, maxHp:null, hitT:0, hitDmg:0, swingT:0, spawnT:0, dead:false });
 const stat = { count:{}, rate:{}, bytes:0, kbps:0, connected:false };
@@ -203,10 +216,11 @@ function onPacket(p){
       //   존을 넘을 때도 이 패킷이 다시 오지만 한 접속에 한 번만 보낸다(운영자 표시는 서버 플레이어에 남는다).
       if(ADMIN_KEY && !adminSent && ws && ws.readyState===1){ ws.send(P.enc.adminLogin(ADMIN_KEY)); adminSent=true; }
       break;
+    // spawnReason 3(SPAWN) = 월드에 새로 생김 — 뱀이 깔리거나 다른 자리에서 되살아날 때. 부활 섬광을 같이 그린다
     case P.MSG.S2C_CREATE_OTHER_PLAYER: bump('ENTER');
-      others.set(p.playerId,{x:p.x,y:p.y,dir:p.direction,moveState:p.moveState,speed:p.speed||30,disp:p.displayChar,color:p.colorIndex,rx:p.x,ry:p.y,chat:null,chatT:0,...COMBAT_INIT()}); break;
+      others.set(p.playerId,{x:p.x,y:p.y,dir:p.direction,moveState:p.moveState,speed:p.speed||30,disp:p.displayChar,color:p.colorIndex,rx:p.x,ry:p.y,chat:null,chatT:0,...COMBAT_INIT(),spawnT:p.spawnReason===3?SPAWN_LIFE:0}); break;
     case P.MSG.S2C_CREATE_PLAYER_BATCH: bump('ENTER', p.count);
-      p.entries.forEach(e=>others.set(e.playerId,{x:e.x,y:e.y,dir:e.direction,moveState:e.moveState,speed:e.speed||30,disp:e.displayChar,color:e.colorIndex,rx:e.x,ry:e.y,chat:null,chatT:0,...COMBAT_INIT()})); break;
+      p.entries.forEach(e=>others.set(e.playerId,{x:e.x,y:e.y,dir:e.direction,moveState:e.moveState,speed:e.speed||30,disp:e.displayChar,color:e.colorIndex,rx:e.x,ry:e.y,chat:null,chatT:0,...COMBAT_INIT(),spawnT:e.spawnReason===3?SPAWN_LIFE:0})); break;
     case P.MSG.S2C_DELETE_PLAYER: bump('LEAVE'); others.delete(p.playerId); break;
     case P.MSG.S2C_DELETE_PLAYER_BATCH: bump('LEAVE', p.count); p.entries.forEach(e=>others.delete(e.playerId)); break;
     case P.MSG.S2C_SECTOR_UPDATES:
@@ -270,6 +284,20 @@ function onPacket(p){
     case P.MSG.S2C_ADMIN_LOGIN_FAIL: sysMsg('운영자 로그인 실패 — 주소의 ?admin= 키를 확인하세요'); break;
     // 쓰기 거절 — 성공은 따로 안 온다(칸 갱신과 S2C_ACTOR_STATS 가 곧 결과다)
     case P.MSG.S2C_USE_ITEM_FAIL: sysMsg(USE_FAIL_TEXT[p.reasonName] || ('쓰지 못했습니다 ('+p.reasonName+')')); break;
+
+    // ---- 땅의 아이템 (USE_DROP) ----
+    case P.MSG.S2C_GROUND_ITEM_CREATE:
+      ground.set(p.groundId, { itemId:p.itemId, count:p.count, x:p.x, y:p.y, dropT: p.reasonName==='DROP' ? DROP_POP : 0 });
+      groundChanged(); break;
+    case P.MSG.S2C_GROUND_ITEM_DELETE: {
+      // 내가 주웠으면 한 줄 — 무엇을 몇 개인지는 내 땅 목록이 안다(서버는 성공 알림을 따로 안 보낸다, 칸 패킷이 곧 결과)
+      const g=ground.get(p.groundId);
+      if(g && p.reasonName==='PICKED' && self && p.pickerId===self.id) sysMsg(itemName(g.itemId)+(g.count>1?' ×'+g.count:'')+' 주움');
+      ground.delete(p.groundId); groundChanged(); break; }
+    case P.MSG.S2C_PICKUP_FAIL:
+      if(p.reasonName==='TAB_FULL'){ const it=ITEMS.get(p.itemId); sysMsg((it ? INV_TAB_NAMES[it.tab]+' 가방' : '가방')+'이 가득 찼습니다'); }
+      else sysMsg(PICKUP_FAIL_TEXT[p.reasonName] || ('줍지 못했습니다 ('+p.reasonName+')'));
+      break;
   }
 }
 // 전투 패킷은 대상이 나일 수도 남일 수도 있다 — 한 곳에서 고른다.
@@ -303,12 +331,19 @@ function sendAttack(){
   if(self.dead) return;                       // 시체는 못 때린다 (서버도 dead_self 로 막지만 헛 요청을 줄인다)
   ws.send(P.enc.attack());
 }
+// 줍기 — 쓰러져 있어도 보낸다(서버가 DEAD 로 답해 [System] 한 줄이 뜬다 — 왜 안 되는지 보이게)
+function sendPickup(){
+  if(!self || !ws || ws.readyState!==1) return;
+  ws.send(P.enc.pickup());
+}
 if(!SNAP){
   addEventListener('keydown',e=>{ if(typing())return; const k=e.key.toLowerCase();
     if(k===' '||e.code==='Space'){ if(!e.repeat) sendAttack(); e.preventDefault(); return; }
     // I = 가방 열고 닫기, Esc = 닫기. 채팅 입력 중엔 위 typing() 에서 이미 빠진다
     //   e.key 가 아니라 e.code 로 본다 — 한글 입력 상태에서는 e.key 가 'ㅑ' 가 된다
     if(e.code==='KeyI' && !e.repeat){ bag.open=!bag.open; bag.hover=null; bagChanged(); e.preventDefault(); return; }
+    // Z = 줍기 — 고르는 건 서버(2칸 안에서 주울 수 있는 가장 가까운 것 하나). 누르고 있어도 한 번(e.repeat 무시)
+    if(e.code==='KeyZ'){ if(!e.repeat) sendPickup(); e.preventDefault(); return; }
     if(k==='escape' && bag.open){ bag.open=false; bag.hover=null; bagChanged(); return; }
     if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k)){ if(!keys.has(k)){keys.add(k); sendMove();} e.preventDefault(); }});
   addEventListener('keyup',e=>{ if(typing())return; const k=e.key.toLowerCase(); if(keys.delete(k)) sendMove(); });
@@ -799,6 +834,25 @@ function step(dt,t){
   if(self){ decayCombat(self,dt); if(self.chat){ self.chatT-=dt; if(self.chatT<=0)self.chat=null; } }
   others.forEach(o=>{ advance(o,dt,Math.min(1,dt*9)); decayCombat(o,dt); if(o.chat){o.chatT-=dt; if(o.chatT<=0)o.chat=null;} });
   if(me.levelUpT>0) me.levelUpT=Math.max(0,me.levelUpT-dt);   // 레벨업 문구는 나 하나뿐이라 decayCombat 밖이다
+  ground.forEach(g=>{ if(g.dropT>0) g.dropT=Math.max(0,g.dropT-dt); });   // 떨어지는 그림
+}
+// 땅의 아이템 — 캐릭터보다 먼저 그린다(발밑). 그림은 가방 칸과 같은 drawItemIcon, 개수가 1 보다 크면 오른쪽 아래 숫자
+function drawGroundItems(){
+  const hw=VW/2/ZOOM+2, hh=VH/2/ZOOM+2;
+  const box=Math.round(ZOOM*1.1);             // 캐릭터(3칸)보다 작게 — 한 칸 남짓
+  ground.forEach(g=>{
+    if(Math.abs(g.x-cam.x)>hw || Math.abs(g.y-cam.y)>hh) return;
+    const cx=sx(g.x), cy=sy(g.y);
+    const lift = g.dropT>0 ? Math.sin((1-g.dropT/DROP_POP)*Math.PI)*0.6*ZOOM : 0;   // 튀어 올랐다 내려온다
+    ctx.fillStyle='rgba(0,0,0,.28)'; ctx.beginPath(); ctx.ellipse(cx, cy+box*0.32, box*0.34, box*0.11, 0, 0, Math.PI*2); ctx.fill();
+    const X=cx-box/2, Y=cy-box/2-lift;
+    drawItemIcon(X, Y, box, g.itemId);
+    if(g.count>1){
+      ctx.font='700 '+Math.max(9,Math.round(ZOOM*0.45))+'px '+MONO; ctx.textAlign='right';
+      ctx.fillStyle='rgba(0,0,0,.7)'; ctx.fillText(String(g.count), X+box+1, Y+box+1);
+      ctx.fillStyle='#f4f4ec'; ctx.fillText(String(g.count), X+box, Y+box); ctx.textAlign='left';
+    }
+  });
 }
 // 전투 표시 타이머 감쇠 — 셋을 한 곳에서 줄인다(자리를 나누면 하나를 빠뜨려 표시가 안 꺼진다)
 function decayCombat(o,dt){
@@ -814,6 +868,7 @@ function render(t){
   ctx.save(); ctx.beginPath(); ctx.rect(VX,VY,VW,VH); ctx.clip();
   drawGround();
   drawSectorGrid(t);
+  drawGroundItems();   // 땅의 아이템 — 나무·캐릭터보다 먼저(발밑에 깔린다)
   // depth-sorted props + players
   //   유효범위(60)가 화면(30)보다 넓어서 받은 캐릭터의 대부분은 화면 밖에 있다 — 화면 밖 5칸까지만 그린다
   //   (5칸 = 스프라이트 키 3칸 + 그 위의 이름표·HP 막대·화살표가 걸칠 수 있는 폭).
@@ -842,6 +897,7 @@ let ws=null;
 function setConn(ok,txt){ stat.connected=ok; connEl.textContent=txt; connEl.className='conn '+(ok?'ok':'bad'); }
 function connect(){
   others.clear(); self=null;   // 재접속 시 유령 엔티티 제거
+  ground.clear(); groundChanged();   // 땅의 아이템도 — 입장 때 주변 것이 CREATE(SEEN) 으로 다시 온다(웹은 존 이동 수단이 없어 여기서만 비운다)
   bag.slots.clear(); adminSent=false; bagChanged();   // 가방은 입장 때 전체 목록이 다시 온다 · 운영자 로그인도 새 접속마다
   const re=new P.Reassembler(onPacket);
   ws=new WebSocket(WS_URL); ws.binaryType='arraybuffer';
