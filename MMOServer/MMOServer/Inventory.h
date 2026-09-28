@@ -5,6 +5,7 @@
 
 #include "BuildConfig.h"
 #include <Protocol/Protocol.h>   // InvTab · INV_TAB_RANGES · INVENTORY_TOTAL_SLOTS
+#include "Item.h"                // 가방 칸 하나 = Item (땅의 아이템도 같은 타입을 든다)
 
 #if USE_INVENTORY
 
@@ -56,11 +57,8 @@ bool FindInvSlot(uint16_t slot, InvTab& outTab, int& outIndex);
 class CInventory
 {
 public:
-    struct Slot
-    {
-        int32_t itemId = 0;   // 0 = 빈 칸
-        int32_t count  = 0;
-    };
+    // 칸 하나는 Item 이다(itemId 0 = 빈 칸). 따로 칸 타입을 두지 않는다 — 땅의 아이템과 같은 타입이라
+    //   줍기가 필드를 하나씩 옮겨 적지 않는다(Item.h).
 
     // def 를 count 개 넣는다.
     //   ★ 전부 들어갈 때만 넣는다 — 모자라면 아무것도 안 바꾸고 TAB_FULL.
@@ -75,7 +73,7 @@ public:
     // 한 개 줄인다 — 0 이 되면 칸을 비운다(itemId 0). 쓸 수 있는지는 부르는 쪽이 이미 봤다(빈 칸이면 단언).
     void ConsumeOne(int index);
 
-    const Slot& At(int index) const { return _slots[index]; }
+    const Item& At(int index) const { return _slots[index]; }
     static uint16_t SlotNumberOf(int index);   // 배열 색인 → 칸 번호
     int CountNonEmpty() const;
 
@@ -95,7 +93,7 @@ public:
     bool HasChanges() const { return _changed.any(); }
 
 private:
-    Slot _slots[INVENTORY_TOTAL_SLOTS];
+    Item _slots[INVENTORY_TOTAL_SLOTS];
     std::bitset<INVENTORY_TOTAL_SLOTS> _changed;
 };
 

@@ -322,7 +322,7 @@ namespace
         *buf << static_cast<uint16_t>(count);
         for (int i = 0; i < INVENTORY_TOTAL_SLOTS; ++i)
         {
-            const CInventory::Slot& s = inv.At(i);
+            const Item& s = inv.At(i);
             if (s.itemId == 0)
                 continue;
             *buf << static_cast<uint16_t>(CInventory::SlotNumberOf(i));
@@ -1917,7 +1917,7 @@ void CGameServer::FlushInventory(CPlayer* player)
     inv.TakeChanges([&](int index)
     {
         // 칸의 "최종값"을 보낸다 — 증감이 아니라서 같은 칸이 두 번 가도 결과가 같다
-        const CInventory::Slot& s = inv.At(index);
+        const Item& s = inv.At(index);
         const uint16_t slotNo = CInventory::SlotNumberOf(index);
         SendPacket(player, MakeInventorySlot(slotNo, s.itemId, s.count));
         _gameMonitor._inventory._slotUpdatesSent.Inc();
@@ -2015,7 +2015,7 @@ UseItemFail CGameServer::CheckUseItem(const CPlayer* player, uint16_t slot, int&
     if (!FindInvSlot(slot, tab, outIndex))
         return UseItemFail::BAD_SLOT;
 
-    const CInventory::Slot& s = player->_inventory.At(outIndex);
+    const Item& s = player->_inventory.At(outIndex);
     if (s.itemId == 0)
         return UseItemFail::EMPTY;
 

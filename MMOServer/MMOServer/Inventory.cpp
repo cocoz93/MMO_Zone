@@ -100,7 +100,7 @@ uint16_t CInventory::SlotNumberOf(int index)
 int CInventory::CountNonEmpty() const
 {
     int n = 0;
-    for (const Slot& s : _slots)
+    for (const Item& s : _slots)
     {
         if (s.itemId != 0)
             ++n;
@@ -121,7 +121,7 @@ InvAddResult CInventory::TryAdd(const ItemDef& def, int32_t count)
     int64_t room = 0;
     for (int i = begin; i < end; ++i)
     {
-        const Slot& s = _slots[i];
+        const Item& s = _slots[i];
         if (s.itemId == def.itemId)
             room += def.maxStack - s.count;   // 같은 아이템이 든 칸의 남은 자리
         else if (s.itemId == 0)
@@ -134,7 +134,7 @@ InvAddResult CInventory::TryAdd(const ItemDef& def, int32_t count)
     int32_t left = count;
     for (int i = begin; i < end && left > 0; ++i)
     {
-        Slot& s = _slots[i];
+        Item& s = _slots[i];
         if (s.itemId != def.itemId || s.count >= def.maxStack)
             continue;
         const int32_t put = (def.maxStack - s.count < left) ? def.maxStack - s.count : left;
@@ -146,7 +146,7 @@ InvAddResult CInventory::TryAdd(const ItemDef& def, int32_t count)
     // ⑶ 남으면 빈 칸(칸 번호 순)에 새로 놓는다
     for (int i = begin; i < end && left > 0; ++i)
     {
-        Slot& s = _slots[i];
+        Item& s = _slots[i];
         if (s.itemId != 0)
             continue;
         const int32_t put = (def.maxStack < left) ? def.maxStack : left;
@@ -163,7 +163,7 @@ InvAddResult CInventory::TryAdd(const ItemDef& def, int32_t count)
 void CInventory::ConsumeOne(int index)
 {
     assert(index >= 0 && index < INVENTORY_TOTAL_SLOTS);
-    Slot& s = _slots[index];
+    Item& s = _slots[index];
     assert(s.itemId != 0 && s.count > 0);   // 부르는 쪽(RecvUseItem)이 빈 칸을 이미 거절했다
     if (--s.count <= 0)
     {
