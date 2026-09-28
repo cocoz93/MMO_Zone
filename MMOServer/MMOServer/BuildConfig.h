@@ -164,4 +164,5 @@
 
 // 기획 데이터 파일이 하나라도 필요한가 — 표를 담는 자리(CGameDataFiles)와 CSV 도우미가 이걸 본다.
 //   표마다 토글이 따로라, "레벨 표는 끄고 아이템 표만 켠" 빌드에서도 담는 자리는 살아 있어야 한다.
-#define USE_GAME_DATA_FILES (USE_EXP || USE_INVENTORY)
+//   스폰 구역 표(SpawnRegion.csv)는 몬스터 토글을 따른다 — 뱀이 태어날 자리라 몬스터를 끄면 뜻이 없다.
+#define USE_GAME_DATA_FILES (USE_EXP || USE_INVENTORY || USE_MONSTER)

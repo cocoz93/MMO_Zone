@@ -15,6 +15,7 @@
 #include <cassert>  // 직렬화 필드 누락/폭 검증
 #include <cstring>  // memcpy — 알림 문구를 고정 배열에 옮겨 담는다
 #include <string>
+#include <random>   // USE_MONSTER — 스폰 구역 안 자리 뽑기
 
 // ==========================================================================
 // S2C 직렬화 헬퍼 (파일 로컬)
@@ -487,6 +488,26 @@ bool CGameServer::Init(ServerMode mode, int port, int maxClients,
 
     return true;
 }
+
+#if USE_GAME_DATA_FILES
+bool CGameServer::LoadGameDataFiles(const std::string& dir)
+{
+    if (!_gameDataFiles.LoadAll(dir))
+        return false;
+
+#if USE_MONSTER
+    // 스폰 구역은 맵 크기와 대조해야 해서 표만으로는 못 본다 — 맵은 Init 이 먼저 받았다(main.cpp).
+    std::vector<CSpawnRegionTable::MapSize> maps;
+    _mapManager.ForEachMapConfig([&maps](const MapConfig& mc)
+    {
+        maps.push_back({ mc.mapId, mc.mapWidth, mc.mapHeight });
+    });
+    if (!_gameDataFiles.SpawnRegions().CheckMaps(maps))
+        return false;
+#endif
+    return true;
+}
+#endif
 
 bool CGameServer::Start()
 {
@@ -2752,9 +2773,18 @@ void CGameServer::TickRespawn()
         CZone* zone = _mapManager.GetZone(dead->_zoneId);
         if (zone != nullptr)
         {
-            // 본인 포함 — 자기 부활을 자기가 알아야 클라가 조작을 다시 연다
-            BroadcastAroundSector(zone, dead,
-                MakeRespawn(dead->_actorId, dead->_x, dead->_y, dead->_hp), false);
+#if USE_MONSTER
+            // 몬스터는 같은 구역 안 다른 자리로 옮겨 되살아난다 — 제자리 부활이면 잡은 자리에 3초마다 다시 선다.
+            //   플레이어는 지금 그대로 제자리다(부활 지점·마을은 따로 정할 일).
+            if (dead->_kind == CharacterKind::MONSTER)
+                RespawnMonsterElsewhere(zone, static_cast<CMonster*>(dead));
+            else
+#endif
+            {
+                // 본인 포함 — 자기 부활을 자기가 알아야 클라가 조작을 다시 연다
+                BroadcastAroundSector(zone, dead,
+                    MakeRespawn(dead->_actorId, dead->_x, dead->_y, dead->_hp), false);
+            }
         }
 
         // 순서가 뜻을 갖지 않는 대기열이라 뒤엣것과 바꿔치기로 O(1) 제거.
@@ -2904,35 +2934,160 @@ void CGameServer::SpawnMonsters(CZone* zone)
 
     const int32_t spawnCount = (_monsterPerZone > 0) ? _monsterPerZone : MONSTERS_PER_ZONE;
 
-    for (int32_t i = 0; i < spawnCount; ++i)
+    // 구역마다 몇 마리 — 총수(INI)를 스폰 구역 표의 비율대로 정수로 딱 나눈다.
+    //   이 맵에 구역이 없는 일은 없다 — 기동 때 CheckMaps 가 설정된 맵마다 구역 ≥ 1 을 보고, 아니면 서버를 안 띄웠다.
+    std::vector<int32_t> perRegion;
+    _gameDataFiles.SpawnRegions().SplitCount(zone->GetMapId(), spawnCount, perRegion);
+
+    int32_t i = 0;   // 존 안 순번 — 첫 판단 시점을 흩는 데 쓴다
+    for (size_t region = 0; region < perRegion.size(); ++region)
     {
-        CMonster* monster = new CMonster();
-        monster->_actorId = AllocPlayerId();   // 단일 증가 카운터라 플레이어와 충돌하지 않는다
-        if (_snakeSpeed > 0)
-            monster->_speed = _snakeSpeed;     // 게임용 속도 — 0 이면 SNAKE_SPEED(15) 그대로
-
-        // 위치·방향·정지 상태·섹터 등록·주민 목록 추가를 EnterZone 이 전부 한다.
-        //   스폰 좌표는 맵 전체 균등 랜덤(CZone::CalcSpawnPos).
-        if (!zone->EnterZone(monster))
+        for (int32_t k = 0; k < perRegion[region]; ++k, ++i)
         {
-            delete monster;
-            continue;
+            CMonster* monster = new CMonster();
+            monster->_actorId = AllocPlayerId();   // 단일 증가 카운터라 플레이어와 충돌하지 않는다
+            if (_snakeSpeed > 0)
+                monster->_speed = _snakeSpeed;     // 게임용 속도 — 0 이면 SNAKE_SPEED(15) 그대로
+
+            // 자리는 배정받은 구역 안 무작위(사람 근처면 다시 뽑음). 방향·정지 상태·섹터 등록·주민 목록 추가는
+            //   EnterZoneAt 이 전부 한다.
+            float x = 0.0f;
+            float y = 0.0f;
+            PickSpawnPos(zone, static_cast<int32_t>(region), x, y);
+            if (!zone->EnterZoneAt(monster, x, y))
+            {
+                delete monster;
+                continue;
+            }
+
+            monster->_spawnRegion = static_cast<int32_t>(region);   // 부활할 때 같은 구역 안으로 간다
+            monster->_spawnX = monster->_x;   // 귀환을 넣을 때 쓴다
+            monster->_spawnY = monster->_y;
+
+            // 첫 판단 시점을 흩는다 — 다 같은 프레임에 깨어나면 한 존의 몬스터가 한 틱에 몰려
+            //   그 틱만 튄다. 판단 주기 안에서 고르게 퍼뜨린다.
+            monster->_nextThinkFrame = _frameCount + (i % MonsterAI::THINK_INTERVAL_FRAMES);
+
+            zone->AddMonster(monster);
+
+            // 주변에 알린다 — 이미 그 자리를 보고 있던 플레이어에게 CREATE 가 간다.
+            //   보는 사람이 없으면 아무에게도 안 가고, 나중에 걸어온 사람은 섹터 진입 때 받는다.
+            BroadcastSpawn(zone, monster, SpawnReason::SPAWN);
         }
+    }
 
-        monster->_spawnX = monster->_x;   // 귀환을 넣을 때 쓴다
-        monster->_spawnY = monster->_y;
+    // 구역별 마릿수 — 표를 바꾼 뒤 비율이 뜻대로 나뉘었는지 로그 한 줄로 본다(시험도 이 줄을 읽는다)
+    std::string split;
+    for (size_t region = 0; region < perRegion.size(); ++region)
+    {
+        if (region > 0)
+            split += " / ";
+        split += std::to_string(perRegion[region]);
+    }
+    SLOG_INFO("[Monster] zone {} spawned {} (regions {})", zone->GetZoneId(), i, split);
+}
 
-        // 첫 판단 시점을 흩는다 — 다 같은 프레임에 깨어나면 한 존의 몬스터가 한 틱에 몰려
-        //   그 틱만 튄다. 판단 주기 안에서 고르게 퍼뜨린다.
-        monster->_nextThinkFrame = _frameCount + (i % MonsterAI::THINK_INTERVAL_FRAMES);
+// 태어날 자리 — 구역 안 균등 무작위. 산 플레이어가 가까우면 다시 뽑는다(헤더 주석).
+void CGameServer::PickSpawnPos(CZone* zone, int32_t regionIndex, float& outX, float& outY)
+{
+    static_assert(SPAWN_CLEAR_RANGE == MonsterAI::SIGHT_RANGE,
+                  "태어나자마자 누군가를 알아채지 않게 — 비우는 반경은 뱀 시야와 같아야 한다");
 
-        zone->AddMonster(monster);
+    const std::vector<SpawnRegion>& regions = _gameDataFiles.SpawnRegions().RegionsOf(zone->GetMapId());
+    // [불변식] 색인은 SpawnMonsters 가 같은 목록에서 준 것이고, 목록은 기동 때 CheckMaps 가 비어 있지 않음을 봤다
+    assert(regionIndex >= 0 && regionIndex < static_cast<int32_t>(regions.size()));
+    const SpawnRegion& r = regions[static_cast<size_t>(regionIndex)];
 
-        // 주변에 알린다 — 이미 그 자리를 보고 있던 플레이어에게 CREATE 가 간다.
-        //   보는 사람이 없으면 아무에게도 안 가고, 나중에 걸어온 사람은 섹터 진입 때 받는다.
-        BroadcastSpawn(zone, monster, SpawnReason::SPAWN);
+    // 게임 스레드 전용 — 서버의 다른 난수 자리(Zone.cpp CalcSpawnPos · MonsterAI.cpp)와 같은 꼴
+    thread_local std::mt19937 rng{ std::random_device{}() };
+    std::uniform_real_distribution<float> distX(static_cast<float>(r.x0), static_cast<float>(r.x1));
+    std::uniform_real_distribution<float> distY(static_cast<float>(r.y0), static_cast<float>(r.y1));
+
+    for (int32_t attempt = 1; ; ++attempt)
+    {
+        outX = distX(rng);
+        outY = distY(rng);
+        if (!IsLivePlayerNear(zone, outX, outY, SPAWN_CLEAR_RANGE))
+            return;
+
+        if (attempt >= SPAWN_MAX_TRIES)
+        {
+            _gameMonitor._monster._spawnRerollExhausted.Inc();   // 다 걸렸다 — 마지막 자리를 그대로 쓴다
+            return;
+        }
+        _gameMonitor._monster._spawnRerolls.Inc();
     }
 }
+
+// (x, y) 에서 range 안에 산 플레이어가 있나 — 반경이 걸치는 섹터의 플레이어 목록만 참조로 훑는다(복사 0)
+bool CGameServer::IsLivePlayerNear(CZone* zone, float x, float y, float range) const
+{
+    const CSectorManager& sectors = zone->GetSectorManager();
+    const int32_t sx0 = sectors.CalcSectorX(x - range);
+    const int32_t sx1 = sectors.CalcSectorX(x + range);
+    const int32_t sy0 = sectors.CalcSectorY(y - range);
+    const int32_t sy1 = sectors.CalcSectorY(y + range);
+    const float rangeSq = range * range;
+
+    for (int32_t sy = sy0; sy <= sy1; ++sy)
+    {
+        for (int32_t sx = sx0; sx <= sx1; ++sx)
+        {
+            for (const CPlayer* p : sectors.GetSectorPlayers(sx, sy))
+            {
+                if (p->_isDead)
+                    continue;   // 시체 옆에 태어나는 건 괜찮다 — 알아챌 대상이 아니다
+                const float dx = p->_x - x;
+                const float dy = p->_y - y;
+                if (dx * dx + dy * dy < rangeSq)
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
+#if USE_COMBAT
+// 몬스터 부활 — 같은 구역 안 다른 자리로 옮긴다. 불리는 자리·금지 사항은 헤더 주석.
+void CGameServer::RespawnMonsterElsewhere(CZone* zone, CMonster* monster)
+{
+    // 틱 3-2 — 섹터 변경 대기열을 처리하고 비운 뒤다(GameLoopThread). 누가 TickRespawn 을 앞으로 옮기면 여기서 걸린다.
+    assert(_pendingSectorChanges.empty());
+
+    CSectorManager& sectors = zone->GetSectorManager();
+
+    // ⑴ 옛 자리 — 시체가 사라진다. 그 자리를 보던 플레이어에게만 간다
+    _eventAroundBuffer.clear();
+    sectors.GetAroundPlayers(monster->_sectorX, monster->_sectorY, _eventAroundBuffer, monster);
+    for (CPlayer* other : _eventAroundBuffer)
+        SendDeletePlayer(other, monster);
+
+    // ⑵ 새 자리 — 같은 구역 안. 섹터를 옮기는 세 줄은 RecvMoveStop 과 같은 꼴이다
+    float x = 0.0f;
+    float y = 0.0f;
+    PickSpawnPos(zone, monster->_spawnRegion, x, y);
+    monster->_x = x;
+    monster->_y = y;
+    monster->_lastSyncX = x;   // 델타 동기화 기준도 새 자리로 — 옛 자리와의 차이로 동기화가 한 번 튀지 않게
+    monster->_lastSyncY = y;
+    monster->_spawnX = x;
+    monster->_spawnY = y;
+
+    const int32_t newSectorX = sectors.CalcSectorX(x);
+    const int32_t newSectorY = sectors.CalcSectorY(y);
+    if (newSectorX != monster->_sectorX || newSectorY != monster->_sectorY)
+    {
+        sectors.RemoveCharacter(monster, monster->_sectorX, monster->_sectorY);
+        monster->_sectorX = newSectorX;
+        monster->_sectorY = newSectorY;
+        sectors.AddCharacter(monster, newSectorX, newSectorY);
+    }
+
+    // ⑶ 새 자리 주변에 등장 — CREATE(SPAWN) 뒤에 가득 찬 체력의 스탯이 따라간다(SendCreateOtherPlayer).
+    //   옛·새 자리를 둘 다 보는 사람은 ⑴ 의 DELETE 다음 이 CREATE 를 받는다 — 둘 다 곧바로 보내는 경로라 순서가 안 뒤집힌다.
+    BroadcastSpawn(zone, monster, SpawnReason::SPAWN);
+}
+#endif // USE_COMBAT
 
 // 존이 사라지기 전에 몬스터를 회수한다.
 //   broadcast=false 는 서버 종료 경로다 — 게임 스레드가 이미 끝났고 받을 세션도 없다.

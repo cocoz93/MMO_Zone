@@ -66,6 +66,7 @@ public:
                  std::vector<CCharacter*>& outClampedCharacters);
 
     int32_t GetMaxPlayersPerChannel() const { return _config.maxPlayersPerChannel; }
+    const MapConfig& GetConfig() const { return _config; }
 
     // 순회용 콜백
     template<typename Fn>
@@ -122,6 +123,14 @@ public:
     {
         for (auto& [mapId, mapInstance] : _maps)
             mapInstance.ForEachZone(std::forward<Fn>(fn));
+    }
+
+    // 등록된 맵 설정 순회 — 기동 때 기획 데이터(스폰 구역)를 맵 크기와 대조하는 데 쓴다
+    template<typename Fn>
+    void ForEachMapConfig(Fn&& fn) const
+    {
+        for (const auto& [mapId, mapInstance] : _maps)
+            fn(mapInstance.GetConfig());
     }
 
     // zoneId 인코딩/디코딩 헬퍼

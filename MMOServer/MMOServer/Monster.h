@@ -70,9 +70,13 @@ public:
                                     //   시야 안에 들어온 뱀의 절반이 플레이어를 못 알아채고 지나갔다.
     int32_t  _targetActorId  = -1;  // 추적 대상 (-1: 없음). [대상] 참조
 
-    // 스폰 지점 — 귀환(RETURN 상태)을 넣을 때 쓴다. 지금은 기록만 한다.
+    // 스폰 지점 — 귀환(RETURN 상태)을 넣을 때 쓴다. 지금은 기록만 한다(부활할 때마다 새 자리로 갱신).
     float _spawnX = 0.0f;
     float _spawnY = 0.0f;
+
+    // 태어난 구역 — 이 맵의 스폰 구역 표 색인(CSpawnRegionTable::RegionsOf). 처음 깔 때 정하고 안 바뀐다.
+    //   부활할 때 같은 구역 안에서 새 자리를 뽑으므로 구역별 마릿수가 객체 수로 지켜진다.
+    int32_t _spawnRegion = 0;
 };
 
 #endif // USE_MONSTER

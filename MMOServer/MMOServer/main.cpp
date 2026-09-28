@@ -102,7 +102,7 @@ int main()
     //   밸런스 값 없이 도는 서버는 조용히 틀린 게임이 되므로 기본값으로 때우지 않는다.
     if (!server.LoadGameDataFiles(Platform::GetExecutableDir()))
     {
-        SLOG_ERROR("[Error] 기획 데이터 파일을 못 읽었습니다 - 위 [LevelTable]·[ItemTable] 줄을 보세요");
+        SLOG_ERROR("[Error] 기획 데이터 파일을 못 읽었습니다 - 위 [LevelTable]·[ItemTable]·[SpawnRegion] 줄을 보세요");
         return 1;
     }
 #endif

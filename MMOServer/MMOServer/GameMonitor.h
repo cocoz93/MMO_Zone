@@ -105,6 +105,9 @@ public:
 
         Counter _stateTransitions;  // AI 상태 전이 총수 — 한 상태가 나머지를 삼키면 여기가 먼저 멈춘다
         Counter _thinkCalls;        // 판단을 실제로 돌린 횟수 (0 이면 AI 가 아예 안 도는 것)
+
+        Counter _spawnRerolls;          // 태어날 자리에 산 사람이 가까워 다시 뽑은 수 (처음 깔 때·부활 때 공통)
+        Counter _spawnRerollExhausted;  // 다시 뽑기를 다 써서 마지막 자리에 둔 수 — 사람이 빽빽하면 오른다
     } _monster;
 #endif
 

@@ -153,6 +153,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/GameDataCsv.cpp
     ${SRV_DIR}/ItemTable.cpp
     ${SRV_DIR}/Inventory.cpp
+    ${SRV_DIR}/SpawnRegionTable.cpp
     ${SRV_DIR}/DB/DBWorker.cpp
 )
 

@@ -16,6 +16,10 @@ bool CGameDataFiles::LoadAll(const std::string& dir)
     if (!_item.Load(dir + "ItemTable.csv"))
         return false;
 #endif
+#if USE_MONSTER
+    if (!_spawnRegion.Load(dir + "SpawnRegion.csv"))
+        return false;
+#endif
 
     SLOG_INFO("[GameData] 기획 데이터 파일을 모두 읽었습니다 ({})", dir);
     return true;

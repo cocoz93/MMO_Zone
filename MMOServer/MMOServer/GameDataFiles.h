@@ -5,8 +5,9 @@
 #include "BuildConfig.h"
 #include "LevelTable.h"
 #include "ItemTable.h"
+#include "SpawnRegionTable.h"
 
-// 담는 자리는 표가 하나라도 켜져 있으면 산다 — 표마다 토글이 따로다(USE_EXP · USE_INVENTORY).
+// 담는 자리는 표가 하나라도 켜져 있으면 산다 — 표마다 토글이 따로다(USE_EXP · USE_INVENTORY · USE_MONSTER).
 //   처음엔 레벨 표 하나라 USE_EXP 안에 두었다가, 아이템 표가 붙으며 밖으로 꺼냈다.
 #if USE_GAME_DATA_FILES
 
@@ -45,6 +46,10 @@ public:
 #if USE_INVENTORY
     const CItemTable& Item() const { return _item; }
 #endif
+#if USE_MONSTER
+    // 맵 크기와의 대조(CheckMaps)는 여기서 안 한다 — 맵 설정은 CGameServer 가 들고 있다.
+    const CSpawnRegionTable& SpawnRegions() const { return _spawnRegion; }
+#endif
 
 private:
 #if USE_EXP
@@ -52,6 +57,9 @@ private:
 #endif
 #if USE_INVENTORY
     CItemTable _item;
+#endif
+#if USE_MONSTER
+    CSpawnRegionTable _spawnRegion;
 #endif
 };
 

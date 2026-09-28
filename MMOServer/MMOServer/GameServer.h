@@ -80,9 +80,10 @@ public:
     }
 
 #if USE_GAME_DATA_FILES
-    // 기획 데이터 파일(레벨 표·아이템 표)을 읽는다 — 기동 때 한 번, DB 접속보다 "앞"에서 부른다.
+    // 기획 데이터 파일(레벨 표·아이템 표·스폰 구역 표)을 읽는다 — 기동 때 한 번, DB 접속보다 "앞"에서 부른다.
     //   실패하면 false 이고 main 이 서버를 안 띄운다. dir 은 끝에 경로 구분자가 붙은 디렉토리.
-    bool LoadGameDataFiles(const std::string& dir) { return _gameDataFiles.LoadAll(dir); }
+    //   ★ Init(맵 등록) 뒤에 불러야 한다 — 스폰 구역을 맵 크기와 대조한다(main.cpp 순서가 그렇다).
+    bool LoadGameDataFiles(const std::string& dir);
 #endif
 
 #if USE_EXP
@@ -227,7 +228,26 @@ private:
     // 시야 안에서 가장 가까운 산 플레이어 (없으면 nullptr). 몬스터는 후보에서 거른다.
     CCharacter* FindAITarget(CZone* zone, CMonster* monster);
 
+    // 태어날 자리 — 그 구역 안 무작위. 산 플레이어가 SPAWN_CLEAR_RANGE 안이면 다시 뽑고,
+    //   SPAWN_MAX_TRIES 번 다 걸리면 마지막 자리를 그대로 쓴다(사람이 빽빽하면 어디든 걸린다).
+    //   처음 깔 때와 부활 때 같이 쓴다 — 첫 사람이 채널을 만든 그 틱에 뱀이 깔리므로 처음에도 사람이 있을 수 있다.
+    void PickSpawnPos(CZone* zone, int32_t regionIndex, float& outX, float& outY);
+
+    // (x, y) 에서 range 안에 산 플레이어가 있나 — 걸치는 섹터의 플레이어 목록만 참조로 훑는다
+    bool IsLivePlayerNear(CZone* zone, float x, float y, float range) const;
+
     static constexpr int32_t MONSTERS_PER_ZONE = 30;   // 섹터 36 개에 마리당 1 개꼴
+    static constexpr float   SPAWN_CLEAR_RANGE = 6.0f; // = MonsterAI::SIGHT_RANGE — 태어나자마자 누군가를 알아채지 않게(단언이 맞춘다)
+    static constexpr int32_t SPAWN_MAX_TRIES   = 5;
+
+#if USE_COMBAT
+    // 몬스터 부활 = 같은 구역 안 다른 자리로 옮기기. 옛 자리 주변에 DELETE → 새 자리 → 새 자리 주변에 CREATE(SPAWN)+STATS.
+    //   ★ TickRespawn 이 _deadActors 를 도는 도중에 부른다 — BroadcastLeaveZone 을 쓰면 그 안의
+    //     RemoveFromDeadActors 가 순회 중인 대기열을 지운다. 그래서 섹터만 옮기는 이 함수가 따로 있다.
+    //   ★ 섹터 변경 대기열이 빈 자리(틱 3-2)에서만 부른다 — 차 있으면 이번 틱에 섹터를 넘은 사람의
+    //     화면과 서버 등록이 어긋난 채라 위 두 방송이 그 사람을 놓친다(함수 머리 단언).
+    void RespawnMonsterElsewhere(CZone* zone, CMonster* monster);
+#endif
 #endif
 
 #if USE_DB_WORKER
