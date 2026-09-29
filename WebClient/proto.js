@@ -44,6 +44,10 @@
   const U16LE = new TextDecoder('utf-16le');
   const U8 = new TextDecoder('utf-8');
 
+  // 등장 상태 조각 — Protocol.h ActorSnapshot(CREATE 셋의 맨 끝). 필드를 늘리면 여기와 아래 묶음 보폭을 같이 고칠 것
+  function readSnap(dv, o) { return { hp:dv.getInt32(o,true), maxHp:dv.getInt32(o+4,true) }; }
+  const CREATE_ENTRY_BYTES = 29;   // Protocol.h CreatePlayerBatchEntry = 몸통 21 + ActorSnapshot 8
+
   // ---- decode one packet body (dv positioned at packet start, total = header.size) ----
   function decodePacket(dv, base, size) {
     const type = dv.getUint16(base + 2, true);
@@ -58,11 +62,13 @@
         p.playerId=dv.getInt32(o,true); p.direction=dv.getUint8(o+4);
         p.displayChar=dv.getUint8(o+5); p.colorIndex=dv.getUint8(o+6);
         p.x=dv.getFloat32(o+7,true); p.y=dv.getFloat32(o+11,true); p.speed=dv.getInt32(o+15,true);
+        Object.assign(p, readSnap(dv, o+19));
         break;
       case MSG.S2C_CREATE_OTHER_PLAYER:
         p.playerId=dv.getInt32(o,true); p.direction=dv.getUint8(o+4); p.moveState=dv.getUint8(o+5);
         p.displayChar=dv.getUint8(o+6); p.colorIndex=dv.getUint8(o+7); p.spawnReason=dv.getUint8(o+8);
         p.x=dv.getFloat32(o+9,true); p.y=dv.getFloat32(o+13,true); p.speed=dv.getInt32(o+17,true);
+        Object.assign(p, readSnap(dv, o+21));
         break;
       case MSG.S2C_DELETE_PLAYER:
         p.playerId=dv.getInt32(o,true); break;
@@ -101,7 +107,8 @@
         for (let i=0;i<count;i++){
           p.entries.push({ playerId:dv.getInt32(e,true), direction:dv.getUint8(e+4), moveState:dv.getUint8(e+5),
             displayChar:dv.getUint8(e+6), colorIndex:dv.getUint8(e+7), spawnReason:dv.getUint8(e+8),
-            x:dv.getFloat32(e+9,true), y:dv.getFloat32(e+13,true), speed:dv.getInt32(e+17,true) }); e += 21;
+            x:dv.getFloat32(e+9,true), y:dv.getFloat32(e+13,true), speed:dv.getInt32(e+17,true),
+            ...readSnap(dv, e+21) }); e += CREATE_ENTRY_BYTES;
         }
         break;
       }
@@ -129,7 +136,7 @@
       case MSG.S2C_RESPAWN:
         p.targetId=dv.getInt32(o,true);
         p.x=dv.getFloat32(o+4,true); p.y=dv.getFloat32(o+8,true); p.hp=dv.getInt32(o+12,true); break;
-      case MSG.S2C_ACTOR_STATS:                  // CREATE 에 HP 자리가 없어 뒤따라 오는 것
+      case MSG.S2C_ACTOR_STATS:                  // 체력 갱신(물약·레벨업) — 등장 순간 체력은 CREATE 가 싣는다
         p.actorId=dv.getInt32(o,true); p.hp=dv.getInt32(o+4,true); p.maxHp=dv.getInt32(o+8,true); break;
       // ---- 경험치·레벨 (USE_EXP) — 본인 전용. 표는 서버 것이라 막대의 분자·분모가 같이 온다 ----
       //   #pragma pack(1) 이라 int32 뒤에 int64 가 곧바로 붙는다(패딩 없음) → 오프셋 4,8,16,24

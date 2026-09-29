@@ -446,7 +446,7 @@ private:
     void SendZoneChangeFail(CPlayer* target, uint8_t reason);
 
 #if USE_COMBAT
-    // 스탯 통보 — CREATE 계열에 HP 자리가 없어 뒤따라 보낸다.
+    // 스탯 통보 — CREATE 계열이 체력을 싣게 되어(ActorSnapshot) CREATE 뒤의 이 호출은 겹침이다. 다음 커밋에서 함수째 뺀다.
     //   호출처 9곳이 아니라 CREATE 송신 함수 3곳 안에서 부른다(갈래를 3으로 닫으려고).
     void SendActorStats(CPlayer* target, const CCharacter* actor);
 #endif

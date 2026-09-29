@@ -189,6 +189,21 @@ struct MSG_S2C_MOVE_STOP
 constexpr uint8_t DISPLAY_MONSTER_BASE = 0x01;   // 0x01~0x0F = 몬스터 종류
 constexpr uint8_t DISPLAY_SNAKE        = 0x01;   // 뱀
 
+// 등장할 때 같이 알아야 하는 상태 — CREATE 셋(MY·OTHER·묶음 엔트리)이 맨 끝에 같은 조각으로 싣는다.
+//   캐릭터가 화면에 생기는 순간 체력까지 완성된다. 예전엔 CREATE 뒤에 S2C_ACTOR_STATS 를 따로 붙였는데,
+//   그 줄을 송신 경로마다 기억해야 해서 한 경로에서 빠뜨린 적이 있다(남의 체력 막대만 안 뜸).
+//   ★ 넣는 기준 = "남의 화면에 그려지는가". 본인만 보는 수치(MP·공격력 등)는 여기 말고 본인 전용 패킷으로
+//     (S2C_EXP 와 같은 꼴) — 여기 넣으면 시야에 들어오는 모든 캐릭터·몬스터가 그 값을 실어 나른다.
+//   전투가 꺼진 빌드(USE_COMBAT=0)는 둘 다 0 — 클라는 maxHp <= 0 이면 막대를 안 그린다.
+struct ActorSnapshot
+{
+    int32_t hp;       // 현재 체력
+    int32_t maxHp;    // 최대 체력
+};
+static_assert(sizeof(ActorSnapshot) == 8,
+    "ActorSnapshot 을 늘렸으면 같이 고칠 것: GameServer.cpp WriteSnapshot · WebClient/proto.js readSnap · "
+    "아래 CREATE 크기 단언 셋 · 묶음 상한 CREATE_PLAYER_BATCH_MAX_ENTRIES");
+
 // S2C: 내 캐릭터 생성 (접속 직후)
 struct MSG_S2C_CREATE_MY_PLAYER
 {
@@ -201,8 +216,9 @@ struct MSG_S2C_CREATE_MY_PLAYER
     float x;
     float y;
     int32_t speed;
+    ActorSnapshot snap;   // 등장 상태(체력) — 맨 끝
 
-    MSG_S2C_CREATE_MY_PLAYER() : header{ sizeof(*this), TYPE }, playerId(0), direction(0), displayChar('A'), colorIndex(0), x(0), y(0), speed(0) {}
+    MSG_S2C_CREATE_MY_PLAYER() : header{ sizeof(*this), TYPE }, playerId(0), direction(0), displayChar('A'), colorIndex(0), x(0), y(0), speed(0), snap{} {}
 };
 
 // 스폰 사유 (S2C_CREATE_OTHER_PLAYER 전용)
@@ -228,9 +244,12 @@ struct MSG_S2C_CREATE_OTHER_PLAYER
     float x;
     float y;
     int32_t speed;
+    ActorSnapshot snap;   // 등장 상태(체력) — 맨 끝
 
-    MSG_S2C_CREATE_OTHER_PLAYER() : header{ sizeof(*this), TYPE }, playerId(0), direction(0), moveState(0), displayChar('A'), colorIndex(0), spawnReason(0), x(0), y(0), speed(0) {}
+    MSG_S2C_CREATE_OTHER_PLAYER() : header{ sizeof(*this), TYPE }, playerId(0), direction(0), moveState(0), displayChar('A'), colorIndex(0), spawnReason(0), x(0), y(0), speed(0), snap{} {}
 };
+static_assert(sizeof(MSG_S2C_CREATE_MY_PLAYER)    == 31, "CREATE_MY 는 31B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_CREATE_OTHER_PLAYER) == 33, "CREATE_OTHER 는 33B (proto.js 와 맞출 것)");
 
 // S2C: 캐릭터 삭제 (시야 이탈 / 퇴장)
 struct MSG_S2C_DELETE_PLAYER
@@ -361,7 +380,7 @@ struct MSG_S2C_SECTOR_UPDATES
 // 멤버십 인바운드 묶음 (USE_MEMBERSHIP_INBOUND_BUNDLE)
 //==================================================
 
-// 묶음 1엔트리 — 시야에 들어온 상대 1명의 생성 정보 (21B, pack(1))
+// 묶음 1엔트리 — 시야에 들어온 상대 1명의 생성 정보 (29B, pack(1))
 // 필드 구성은 MSG_S2C_CREATE_OTHER_PLAYER 바디와 동일 — 클라가 엔트리를 기존 CREATE 이벤트로 분해한다.
 struct CreatePlayerBatchEntry
 {
@@ -374,7 +393,9 @@ struct CreatePlayerBatchEntry
     float   x;
     float   y;
     int32_t speed;
+    ActorSnapshot snap;   // 등장 상태(체력) — 맨 끝
 };
+static_assert(sizeof(CreatePlayerBatchEntry) == 29, "묶음 엔트리는 29B (proto.js 의 묶음 보폭과 맞출 것)");
 
 // 묶음 1엔트리 — 시야에서 나간 상대 1명 (4B, MSG_S2C_DELETE_PLAYER 바디와 동일)
 struct DeletePlayerBatchEntry
@@ -383,10 +404,11 @@ struct DeletePlayerBatchEntry
 };
 
 // 배치당 최대 엔트리 수. 패킷이 MAX_PACKET_SIZE(1458B)를 넘지 않게 (SECTOR_UPDATE_MAX_ENTRIES와 동일 정책):
-//   CREATE: (1458 - 헤더4 - count2) / 엔트리21 = 최대 69개 → 여유 두고 64.
+//   CREATE: (1458 - 헤더4 - count2) / 엔트리29 = 최대 50개 → 여유 두고 48.
+//           (엔트리가 21B 일 때는 69 → 64 였다. 넘는지는 GameServer.cpp 의 static_assert 가 본다)
 //   DELETE: (1458 - 6) / 엔트리4 = 최대 363개 → 여유 두고 350.
 // 초과분은 서버가 청크 분할 송신
-constexpr int CREATE_PLAYER_BATCH_MAX_ENTRIES = 64;
+constexpr int CREATE_PLAYER_BATCH_MAX_ENTRIES = 48;
 constexpr int DELETE_PLAYER_BATCH_MAX_ENTRIES = 350;
 
 // S2C: 시야 진입 상대 묶음 — 인바운드(상대→나) CREATE N개를 mover 1명에게 1패킷으로.
@@ -524,9 +546,12 @@ struct MSG_S2C_ERROR
 //==================================================
 // 전투 (USE_COMBAT)
 //==================================================
-// 기존 구조체에는 한 필드도 넣지 않는다 — Protocol.h 한 벌을 콘솔·부하·웹·언리얼 네 클라가
-//   같이 쓰므로, 구조가 바뀌면 넷을 같이 고쳐야 하고 옛 실행파일은 조용히 깨진다.
-//   그래서 HP 통보도 CREATE에 얹지 않고 별도 타입(S2C_ACTOR_STATS)으로 뒤따라 보낸다.
+// 기존 구조체는 맨 끝에 덧붙이기만 한다 — Protocol.h 한 벌을 콘솔·부하·웹·언리얼 네 클라가 같이 쓴다.
+//   낱개 패킷은 끝에 붙은 필드를 옛 파서가 몰라도 최소 크기 검사(size >= sizeof)로 앞부분을 그대로 읽는다.
+//   가변 묶음의 엔트리는 다르다 — 보폭이 바뀌어 옛 파서는 둘째 엔트리부터 엉뚱한 자리를 읽는다.
+//   그래서 엔트리를 늘리면 모든 파서(콘솔 sizeof · 웹 proto.js 보폭)를 같은 커밋에서 고친다.
+//   체력은 처음엔 CREATE 에 자리가 없어 S2C_ACTOR_STATS 로 뒤따라 보냈다가, 송신 경로 한 곳에서
+//   빠뜨린 사고 뒤로 CREATE 끝(ActorSnapshot)에 싣는다.
 
 // C2S: 공격 (페이로드 없음 — 방향은 서버가 알고 있고, 대상은 서버가 "앞 한 칸"으로 고른다)
 struct MSG_C2S_ATTACK
@@ -581,8 +606,8 @@ struct MSG_S2C_RESPAWN
     MSG_S2C_RESPAWN() : header{ sizeof(*this), TYPE }, targetId(0), x(0), y(0), hp(0) {}
 };
 
-// S2C: 스탯 통보 — CREATE 계열에 HP 자리가 없어서 뒤따라 보낸다.
-//   시야에 들어온 상대뿐 아니라 본인에게도 보낸다(MSG_S2C_CREATE_MY_PLAYER에도 HP가 없다).
+// S2C: 스탯 통보 — 체력이 바뀔 때(물약·레벨업) 본인과 주변에 보낸다.
+//   등장 순간의 체력은 여기가 아니라 CREATE 끝의 ActorSnapshot 이 싣는다.
 struct MSG_S2C_ACTOR_STATS
 {
     static constexpr MsgType TYPE = MsgType::S2C_ACTOR_STATS;

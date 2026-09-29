@@ -46,6 +46,21 @@ namespace
         buf->Seal();
     }
 
+    // 등장 상태 조각(Protocol.h ActorSnapshot) — CREATE 빌더 셋이 맨 끝에 부른다.
+    //   조각에 필드를 늘리면 여기 한 줄 · proto.js readSnap 한 줄(Protocol.h 의 크기 단언이 알려 준다).
+    //   전투가 꺼진 빌드는 0 을 싣는다 — _hp 는 꺼져도 있지만(CCharacter) 쓰는 곳이 없어 의미가 없다.
+    inline void WriteSnapshot(CSerialBuffer* buf, const CCharacter* ch)
+    {
+#if USE_COMBAT
+        *buf << static_cast<int>(ch->_hp);
+        *buf << static_cast<int>(ch->_maxHp);
+#else
+        (void)ch;
+        *buf << static_cast<int>(0);
+        *buf << static_cast<int>(0);
+#endif
+    }
+
     // MOVE_START / MOVE_STOP은 레이아웃 동일 — 3곳/2곳에서 재사용되므로 빌더로 DRY 처리
     CSerialBuffer* MakeMoveStart(int32_t playerId, uint8_t direction, float x, float y)
     {
@@ -110,6 +125,7 @@ namespace
         *buf << target->_x;
         *buf << target->_y;
         *buf << static_cast<int>(target->_speed);
+        WriteSnapshot(buf, target);
         FinalizePacket(buf);
         assert(buf->GetDataSize() == sizeof(MSG_S2C_CREATE_MY_PLAYER));
         return buf;
@@ -128,6 +144,7 @@ namespace
         *buf << player->_x;
         *buf << player->_y;
         *buf << static_cast<int>(player->_speed);
+        WriteSnapshot(buf, player);
         FinalizePacket(buf);
         assert(buf->GetDataSize() == sizeof(MSG_S2C_CREATE_OTHER_PLAYER));
         return buf;
@@ -426,6 +443,11 @@ namespace
 #endif
 
 #if USE_MEMBERSHIP_INBOUND_BUNDLE
+    // 가득 찬 묶음(상한 × 엔트리)도 한 패킷에 들어가야 한다 — 엔트리를 늘리면 상한을 같이 줄일 것(Protocol.h 계산 주석).
+    //   여기 두는 이유는 위 가방 단언과 같다(MAX_PACKET_SIZE 가 코어 헤더에 있다).
+    static_assert(sizeof(MSG_S2C_CREATE_PLAYER_BATCH) <= MAX_PACKET_SIZE,
+                  "가득 찬 CREATE 묶음이 한 패킷(MAX_PACKET_SIZE)에 안 들어간다 — CREATE_PLAYER_BATCH_MAX_ENTRIES 를 줄일 것");
+
     // [Phase 2] 인바운드 멤버십 묶음 — 상대 [0,count)의 생성 정보를 배치 1패킷으로 직렬화.
     // 필드 순서는 MakeCreateOtherPlayer 바디와 동일 (클라가 엔트리를 기존 CREATE 이벤트로 분해).
     CSerialBuffer* MakeCreatePlayerBatch(CCharacter* const* players, int count)
@@ -445,6 +467,7 @@ namespace
             *buf << p->_x;
             *buf << p->_y;
             *buf << static_cast<int>(p->_speed);
+            WriteSnapshot(buf, p);
         }
         FinalizePacket(buf);
         assert(buf->GetDataSize() ==
@@ -2267,8 +2290,8 @@ void CGameServer::SendCreateMyPlayer(CPlayer* target)
 {
     SendPacket(target, MakeCreateMyPlayer(target));
 #if USE_COMBAT
-    // 본인 HP — MSG_S2C_CREATE_MY_PLAYER에도 HP 자리가 없다.
-    //   여기를 빠뜨리면 남의 막대는 뜨는데 내 막대만 안 뜬다.
+    // 본인 체력 — CREATE_MY 가 이미 같은 값을 싣는다(ActorSnapshot).
+    //   이 STATS 는 옮기는 동안의 겹침이라 다음 커밋에서 뺀다.
     SendActorStats(target, target);
 #endif
 }
@@ -2301,7 +2324,7 @@ void CGameServer::SendCreatePlayerBatch(CPlayer* target, CCharacter* const* othe
         SendPacket(target, MakeCreatePlayerBatch(others + i, chunk));
     }
 #if USE_COMBAT
-    // 배치 경로에도 스탯을 붙인다 — CREATE 배치에는 HP 자리가 없다.
+    // 배치 경로의 스탯 — 묶음 엔트리가 이미 같은 값을 싣는다(ActorSnapshot). 옮기는 동안의 겹침이라 다음 커밋에서 뺀다.
     //   이 함수는 USE_MEMBERSHIP_INBOUND_BUNDLE 안이라 눈에 잘 안 띄지만 현재 켜져 있어 실제로 돈다.
     //   ★ 반드시 CREATE 뒤에 — 먼저 보내면 클라가 아직 모르는 액터의 스탯이라 그냥 버린다.
     for (int i = 0; i < count; ++i)
@@ -3831,9 +3854,9 @@ void CGameServer::ProcessSectorChange(CZone* zone, CCharacter* player,
         RegisterOutboundToSectors(zone, player->_zoneId, added, addedCount,
                                   MakeCreateOtherPlayer(player, SpawnReason::NORMAL), player);
 #if USE_COMBAT
-        // ★ 이 경로는 SendCreateOtherPlayer 를 안 거치고 빌더를 직접 쓴다 — 스탯도 여기서 따로 실어야 한다.
+        // ★ 이 경로는 SendCreateOtherPlayer 를 안 거치고 빌더를 직접 쓴다 — 예전엔 스탯을 여기서 따로 실어야 했고,
         //   빠뜨렸더니 "내 HP 막대는 뜨는데 남의 것만 안 뜨는" 증상이 실제로 났다(라이브 캡처로 잡음).
-        //   반드시 CREATE 뒤에 등록할 것 — 먼저 가면 클라가 아직 모르는 액터의 스탯이라 버린다.
+        //   지금은 빌더가 체력을 싣는다(ActorSnapshot). 아래 등록은 옮기는 동안의 겹침이라 다음 커밋에서 뺀다.
         RegisterOutboundToSectors(zone, player->_zoneId, added, addedCount,
                                   MakeActorStats(player->_actorId, player->_hp, player->_maxHp), player);
 #endif
