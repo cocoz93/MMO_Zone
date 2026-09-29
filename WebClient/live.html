@@ -211,16 +211,16 @@ function onPacket(p){
   switch(p.type){
     case P.MSG.S2C_ZONE_INFO: ZONE={mapWidth:p.mapWidth,mapHeight:p.mapHeight,sectorSize:p.sectorSize}; break;
     case P.MSG.S2C_CREATE_MY_PLAYER:
-      self={id:p.playerId,x:p.x,y:p.y,dir:p.direction,moveState:0,disp:p.displayChar,color:p.colorIndex,speed:p.speed,rx:p.x,ry:p.y,...COMBAT_INIT()};
+      self={id:p.playerId,x:p.x,y:p.y,dir:p.direction,moveState:0,disp:p.displayChar,color:p.colorIndex,speed:p.speed,rx:p.x,ry:p.y,...COMBAT_INIT(),hp:p.hp,maxHp:p.maxHp};
       // 운영자 로그인은 내 캐릭터가 생긴 "뒤"에 — 서버는 플레이어가 없는 세션의 패킷을 버린다.
       //   존을 넘을 때도 이 패킷이 다시 오지만 한 접속에 한 번만 보낸다(운영자 표시는 서버 플레이어에 남는다).
       if(ADMIN_KEY && !adminSent && ws && ws.readyState===1){ ws.send(P.enc.adminLogin(ADMIN_KEY)); adminSent=true; }
       break;
     // spawnReason 3(SPAWN) = 월드에 새로 생김 — 뱀이 깔리거나 다른 자리에서 되살아날 때. 부활 섬광을 같이 그린다
     case P.MSG.S2C_CREATE_OTHER_PLAYER: bump('ENTER');
-      others.set(p.playerId,{x:p.x,y:p.y,dir:p.direction,moveState:p.moveState,speed:p.speed||30,disp:p.displayChar,color:p.colorIndex,rx:p.x,ry:p.y,chat:null,chatT:0,...COMBAT_INIT(),spawnT:p.spawnReason===3?SPAWN_LIFE:0}); break;
+      others.set(p.playerId,{x:p.x,y:p.y,dir:p.direction,moveState:p.moveState,speed:p.speed||30,disp:p.displayChar,color:p.colorIndex,rx:p.x,ry:p.y,chat:null,chatT:0,...COMBAT_INIT(),hp:p.hp,maxHp:p.maxHp,spawnT:p.spawnReason===3?SPAWN_LIFE:0}); break;
     case P.MSG.S2C_CREATE_PLAYER_BATCH: bump('ENTER', p.count);
-      p.entries.forEach(e=>others.set(e.playerId,{x:e.x,y:e.y,dir:e.direction,moveState:e.moveState,speed:e.speed||30,disp:e.displayChar,color:e.colorIndex,rx:e.x,ry:e.y,chat:null,chatT:0,...COMBAT_INIT(),spawnT:e.spawnReason===3?SPAWN_LIFE:0})); break;
+      p.entries.forEach(e=>others.set(e.playerId,{x:e.x,y:e.y,dir:e.direction,moveState:e.moveState,speed:e.speed||30,disp:e.displayChar,color:e.colorIndex,rx:e.x,ry:e.y,chat:null,chatT:0,...COMBAT_INIT(),hp:e.hp,maxHp:e.maxHp,spawnT:e.spawnReason===3?SPAWN_LIFE:0})); break;
     case P.MSG.S2C_DELETE_PLAYER: bump('LEAVE'); others.delete(p.playerId); break;
     case P.MSG.S2C_DELETE_PLAYER_BATCH: bump('LEAVE', p.count); p.entries.forEach(e=>others.delete(e.playerId)); break;
     case P.MSG.S2C_SECTOR_UPDATES:
@@ -243,7 +243,7 @@ function onPacket(p){
     // ---- 전투 (USE_COMBAT) ----
     // 서버가 판정한 결과만 그린다 — 클라는 HP를 스스로 깎지 않는다(권위는 서버).
     case P.MSG.S2C_ACTOR_STATS: {
-      // CREATE 계열에 HP 자리가 없어 뒤따라 오는 것. 본인 것도 온다.
+      // 체력 갱신(물약·레벨업) — 본인 것도 온다. 등장 순간의 체력은 위 CREATE 셋이 싣는다.
       const a=actorOf(p.actorId); if(a){ a.hp=p.hp; a.maxHp=p.maxHp; }
       break; }
     case P.MSG.S2C_ATTACK: {
@@ -482,8 +482,8 @@ function drawTinted(sheet, frame, dx, dy, dw, dh, amt){
   tctx.globalCompositeOperation='source-over';
   ctx.drawImage(TINT, 0,0,64,64, dx,dy,dw,dh);
 }
-// HP 는 서버가 S2C_ACTOR_STATS / S2C_DAMAGE 로만 준다. 값이 없으면 안 그린다 —
-//   0 으로 두면 "아직 안 왔다"와 "죽었다"가 화면에서 똑같아 보인다.
+// HP 는 서버가 CREATE(등장) / S2C_ACTOR_STATS / S2C_DAMAGE 로만 준다. 값이 없으면 안 그린다 —
+//   0 으로 두면 "아직 안 왔다"와 "죽었다"가 화면에서 똑같아 보인다. 전투가 꺼진 서버는 maxHp 0 을 보낸다.
 function drawHpBar(o,px,y){
   if(o.hp==null || o.maxHp==null || o.maxHp<=0) return;   // == 로 undefined 도 함께 거른다
   // 폭을 월드 단위(1타일)에 맞춘다 — 고정 px 로 두면 사거리 안에서 싸울 때
