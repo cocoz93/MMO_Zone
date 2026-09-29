@@ -368,7 +368,7 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
     //   빠뜨리면 아래 default 가 받을 때마다 콘솔에 한 줄을 찍는데, 렌더러가 커서를 맨 아래 줄에
     //   두고 있어 그 줄이 화면 전체를 한 줄 밀어 올린다 → 다음 프레임에 제자리로 다시 그려
     //   화면이 위아래로 떨린다(실측: 뱀이 있는 맵에서 25초에 102줄, 초당 약 4번).
-    //   스탯은 누가 시야에 들어올 때마다 오고, 몬스터가 생긴 뒤로는 공격·피해·죽음·부활도 늘 온다.
+    //   스탯은 체력이 바뀔 때(물약·레벨업) 오고, 몬스터가 생긴 뒤로는 공격·피해·죽음·부활도 늘 온다.
     case MsgType::S2C_ATTACK:
     case MsgType::S2C_DAMAGE:
     case MsgType::S2C_DEATH:

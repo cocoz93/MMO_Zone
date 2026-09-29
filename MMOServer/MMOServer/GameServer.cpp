@@ -2288,21 +2288,13 @@ void CGameServer::SendZoneInfo(CPlayer* target, CZone* zone)
 
 void CGameServer::SendCreateMyPlayer(CPlayer* target)
 {
-    SendPacket(target, MakeCreateMyPlayer(target));
-#if USE_COMBAT
-    // 본인 체력 — CREATE_MY 가 이미 같은 값을 싣는다(ActorSnapshot).
-    //   이 STATS 는 옮기는 동안의 겹침이라 다음 커밋에서 뺀다.
-    SendActorStats(target, target);
-#endif
+    SendPacket(target, MakeCreateMyPlayer(target));   // 본인 체력도 이 안에 실린다(ActorSnapshot)
 }
 
 void CGameServer::SendCreateOtherPlayer(CPlayer* target, CCharacter* who, SpawnReason reason)
 {
     ++_tickMembershipSends;   // 멤버십 변경 복사 집계 (BroadcastAroundSector 밖 경로)
     SendPacket(target, MakeCreateOtherPlayer(who, reason));
-#if USE_COMBAT
-    SendActorStats(target, who);
-#endif
 }
 
 void CGameServer::SendDeletePlayer(CPlayer* target, CCharacter* who)
@@ -2323,13 +2315,6 @@ void CGameServer::SendCreatePlayerBatch(CPlayer* target, CCharacter* const* othe
         int chunk = (std::min)(count - i, CREATE_PLAYER_BATCH_MAX_ENTRIES);
         SendPacket(target, MakeCreatePlayerBatch(others + i, chunk));
     }
-#if USE_COMBAT
-    // 배치 경로의 스탯 — 묶음 엔트리가 이미 같은 값을 싣는다(ActorSnapshot). 옮기는 동안의 겹침이라 다음 커밋에서 뺀다.
-    //   이 함수는 USE_MEMBERSHIP_INBOUND_BUNDLE 안이라 눈에 잘 안 띄지만 현재 켜져 있어 실제로 돈다.
-    //   ★ 반드시 CREATE 뒤에 — 먼저 보내면 클라가 아직 모르는 액터의 스탯이라 그냥 버린다.
-    for (int i = 0; i < count; ++i)
-        SendActorStats(target, others[i]);
-#endif
 }
 
 void CGameServer::SendDeletePlayerBatch(CPlayer* target, CCharacter* const* others, int count)
@@ -2532,7 +2517,7 @@ void CGameServer::RecvAdminLogin(CPlayer* player, CSerialBuffer* pMsg)
 // [수신자 범위의 한계] 전투 패킷은 전부 "공격자 주변 9섹터"에 뿌린다. 사거리가 1.5타일이라
 //   맞은 쪽은 반드시 그 안에 있다. 다만 맞은 쪽 주변 구경꾼 중 공격자 9섹터 밖인 사람은 못 본다 —
 //   섹터가 타일 여러 개라 실제로 겹치지 않는 경우가 드물고, 어긋나도 다음 CREATE 때
-//   S2C_ACTOR_STATS로 HP가 다시 맞춰진다. 이번 범위에서는 여기까지만 한다.
+//   HP가 다시 맞춰진다(CREATE 가 체력을 싣는다 — ActorSnapshot). 이번 범위에서는 여기까지만 한다.
 // ==========================================================================
 
 // 세션 핸들러 — 세션이 있어야 성립하는 것만 보고 본체로 넘긴다.
@@ -2896,11 +2881,6 @@ void CGameServer::RemoveFromDeadActors(CCharacter* player)
         std::remove(_deadActors.begin(), _deadActors.end(), player),
         _deadActors.end());
 }
-
-void CGameServer::SendActorStats(CPlayer* target, const CCharacter* actor)
-{
-    SendPacket(target, MakeActorStats(actor->_actorId, actor->_hp, actor->_maxHp));
-}
 #endif // USE_COMBAT
 
 #if USE_MONSTER
@@ -3173,7 +3153,7 @@ void CGameServer::RespawnMonsterElsewhere(CZone* zone, CMonster* monster)
         sectors.AddCharacter(monster, newSectorX, newSectorY);
     }
 
-    // ⑶ 새 자리 주변에 등장 — CREATE(SPAWN) 뒤에 가득 찬 체력의 스탯이 따라간다(SendCreateOtherPlayer).
+    // ⑶ 새 자리 주변에 등장 — CREATE(SPAWN) 가 가득 찬 체력을 싣는다(ActorSnapshot).
     //   옛·새 자리를 둘 다 보는 사람은 ⑴ 의 DELETE 다음 이 CREATE 를 받는다 — 둘 다 곧바로 보내는 경로라 순서가 안 뒤집힌다.
     BroadcastSpawn(zone, monster, SpawnReason::SPAWN);
 }
@@ -3851,22 +3831,14 @@ void CGameServer::ProcessSectorChange(CZone* zone, CCharacter* player,
 #if USE_MEMBERSHIP_DIGEST
         // [Phase 4] 아웃바운드: "나를 생성" 1개 빌드 → 진입 섹터들에 직송 등록.
         //           1칸 이동은 진입 섹터에 자신이 없고, 멀티섹터 점프로 자기 현재 섹터가 끼면 그 섹터만 개별 폴백
+        //   ★ 이 경로는 SendCreateOtherPlayer 를 안 거치고 빌더를 직접 쓴다. 예전엔 체력(STATS)을 여기서 따로 실어야 했고,
+        //     빠뜨렸더니 "내 HP 막대는 뜨는데 남의 것만 안 뜨는" 증상이 실제로 났다(라이브 캡처로 잡음).
+        //     지금은 빌더가 체력을 싣는다(ActorSnapshot) — 여기서 따로 붙일 것이 없다.
         RegisterOutboundToSectors(zone, player->_zoneId, added, addedCount,
                                   MakeCreateOtherPlayer(player, SpawnReason::NORMAL), player);
-#if USE_COMBAT
-        // ★ 이 경로는 SendCreateOtherPlayer 를 안 거치고 빌더를 직접 쓴다 — 예전엔 스탯을 여기서 따로 실어야 했고,
-        //   빠뜨렸더니 "내 HP 막대는 뜨는데 남의 것만 안 뜨는" 증상이 실제로 났다(라이브 캡처로 잡음).
-        //   지금은 빌더가 체력을 싣는다(ActorSnapshot). 아래 등록은 옮기는 동안의 겹침이라 다음 커밋에서 뺀다.
-        RegisterOutboundToSectors(zone, player->_zoneId, added, addedCount,
-                                  MakeActorStats(player->_actorId, player->_hp, player->_maxHp), player);
-#endif
 #else
         // 아웃바운드: "나를 생성" 1개 빌드 → 진입 섹터 전원에게 팬아웃 (자기 자신 제외)
         FanoutToSectors(zone, added, addedCount, MakeCreateOtherPlayer(player, SpawnReason::NORMAL), player);
-#if USE_COMBAT
-        FanoutToSectors(zone, added, addedCount,
-                        MakeActorStats(player->_actorId, player->_hp, player->_maxHp), player);
-#endif
 #endif
 
         // 아래는 전부 "나에게" 보내는 것이다 — 내가 플레이어가 아니면 통째로 건너뛴다

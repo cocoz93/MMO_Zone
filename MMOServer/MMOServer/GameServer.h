@@ -445,12 +445,6 @@ private:
     void SendZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex);
     void SendZoneChangeFail(CPlayer* target, uint8_t reason);
 
-#if USE_COMBAT
-    // 스탯 통보 — CREATE 계열이 체력을 싣게 되어(ActorSnapshot) CREATE 뒤의 이 호출은 겹침이다. 다음 커밋에서 함수째 뺀다.
-    //   호출처 9곳이 아니라 CREATE 송신 함수 3곳 안에서 부른다(갈래를 3으로 닫으려고).
-    void SendActorStats(CPlayer* target, const CCharacter* actor);
-#endif
-
     // 벽 방향 검증 — 경계 위치에서 벽 쪽 이동 차단
     bool IsBlockedByWall(CZone* zone, CCharacter* player, Direction dir);
 
