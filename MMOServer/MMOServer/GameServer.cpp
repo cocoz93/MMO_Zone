@@ -659,12 +659,8 @@ void CGameServer::Stop()
     }
     _sessionSlots.clear();
 
-#if USE_MONSTER
-    // 몬스터도 CGameServer 소유다 — _sessionSlots 에 없으니 따로 회수한다.
-    //   게임 스레드가 이미 끝났고(위 join) 받을 세션도 없으므로 브로드캐스트 없이 delete 만 한다.
-    //   프로세스가 곧 끝나는 길이라 실해는 없지만, 소유를 선언했으면 회수도 짝이 맞아야 한다.
-    _mapManager.ForEachZone([this](CZone* zone) { DespawnMonsters(zone, false); });
-#endif
+    // 몬스터는 여기서 안 치운다 — 소유가 존이라 _mapManager 가 소멸할 때 존과 같이 해제된다.
+    //   게임 스레드가 이미 끝나(위 join) 그 사이에 몬스터를 읽는 코드가 없다.
 }
 
 #if USE_DB_WORKER
@@ -1191,13 +1187,13 @@ void CGameServer::GameLoopThread()
         {
             _cleanupFrameCount = 0;
 #if USE_MONSTER
-            // 존을 지우기 직전에 그 존의 몬스터를 회수한다 — 안 하면 대기열에 죽은 주소가 남는다.
+            // 존을 지우기 직전에 그 존의 몬스터를 대기열에서 뺀다 — 안 빼면 존과 함께 해제된 뒤 대기열에 죽은 주소가 남는다.
             _mapManager.CleanupEmptyChannels([this](CZone* zone)
             {
 #if USE_DROP
                 ForgetGroundItems(zone);   // 땅의 아이템은 세기만 — 벡터는 존과 함께 사라진다(알릴 사람이 없다)
 #endif
-                DespawnMonsters(zone, true);
+                DespawnMonsters(zone);
             });
 #else
             _mapManager.CleanupEmptyChannels(nullptr);
@@ -3090,8 +3086,8 @@ void CGameServer::TickMonsters()
         if (!zone->IsMonsterSpawned())
             SpawnMonsters(zone);
 
-        for (CMonster* monster : zone->GetMonsters())
-            ThinkMonster(zone, monster);
+        for (const auto& monster : zone->GetMonsters())
+            ThinkMonster(zone, monster.get());
     });
 }
 
@@ -3203,7 +3199,8 @@ void CGameServer::SpawnMonsters(CZone* zone)
     {
         for (int32_t k = 0; k < perRegion[region]; ++k, ++i)
         {
-            CMonster* monster = new CMonster();
+            auto owned = std::make_unique<CMonster>();
+            CMonster* monster = owned.get();       // 빌려 쓰는 포인터 — 소유는 아래 AddMonster 에서 존으로 넘어간다
             monster->_actorId = AllocPlayerId();   // 단일 증가 카운터라 플레이어와 충돌하지 않는다
             if (_snakeSpeed > 0)
                 monster->_speed = _snakeSpeed;     // 게임용 속도 — 0 이면 SNAKE_SPEED(15) 그대로
@@ -3213,11 +3210,8 @@ void CGameServer::SpawnMonsters(CZone* zone)
             float x = 0.0f;
             float y = 0.0f;
             PickSpawnPos(zone, static_cast<int32_t>(region), x, y);
-            if (!zone->EnterZoneAt(monster, x, y))
-            {
-                delete monster;
-                continue;
-            }
+            if (zone->AddMonster(std::move(owned), x, y) == nullptr)
+                continue;   // 입장 실패 — 존이 그 자리에서 해제했다(monster 는 이제 쓰면 안 된다)
 
             monster->_spawnRegion = static_cast<int32_t>(region);   // 부활할 때 같은 구역 안으로 간다
             monster->_spawnX = monster->_x;   // 귀환을 넣을 때 쓴다
@@ -3226,8 +3220,6 @@ void CGameServer::SpawnMonsters(CZone* zone)
             // 첫 판단 시점을 흩는다 — 다 같은 프레임에 깨어나면 한 존의 몬스터가 한 틱에 몰려
             //   그 틱만 튄다. 판단 주기 안에서 고르게 퍼뜨린다.
             monster->_nextThinkFrame = _frameCount + (i % MonsterAI::THINK_INTERVAL_FRAMES);
-
-            zone->AddMonster(monster);
 
             // 주변에 알린다 — 이미 그 자리를 보고 있던 플레이어에게 CREATE 가 간다.
             //   보는 사람이 없으면 아무에게도 안 가고, 나중에 걸어온 사람은 섹터 진입 때 받는다.
@@ -3348,21 +3340,17 @@ void CGameServer::RespawnMonsterElsewhere(CZone* zone, CMonster* monster)
 }
 #endif // USE_COMBAT
 
-// 존이 사라지기 전에 몬스터를 회수한다.
-//   broadcast=false 는 서버 종료 경로다 — 게임 스레드가 이미 끝났고 받을 세션도 없다.
-void CGameServer::DespawnMonsters(CZone* zone, bool broadcast)
+// 존이 사라지기 전에 몬스터를 대기열에서 뺀다 — 해제는 존이 한다(ClearMonsters).
+void CGameServer::DespawnMonsters(CZone* zone)
 {
-    for (CMonster* monster : zone->GetMonsters())
+    for (const auto& monster : zone->GetMonsters())
     {
-        // 섹터 변경·부활 대기열에서 빼는 것이 핵심이다. 안 빼고 delete 하면
+        // 섹터 변경·부활 대기열에서 빼는 것이 핵심이다. 안 빼고 해제하면
         //   다음 틱이 해제된 주소를 밟는다(BroadcastLeaveZone 이 그 셋을 전부 훑는다).
-        if (broadcast)
-            BroadcastLeaveZone(zone, monster);
-
-        delete monster;
+        BroadcastLeaveZone(zone, monster.get());
     }
 
-    // 순회가 끝난 뒤 한 번에 비운다 — 도는 중에 LeaveZone 이 이 목록을 건드리지 않는 이유(Zone.h)
+    // 순회가 끝난 뒤 한 번에 해제한다 — 도는 중에 LeaveZone 이 이 목록을 건드리지 않는 이유(Zone.h)
     zone->ClearMonsters();
 }
 #endif // USE_MONSTER

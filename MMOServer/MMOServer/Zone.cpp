@@ -1,5 +1,6 @@
 ﻿#include "Zone.h"
 #include "Character.h"
+#include "Monster.h"   // USE_MONSTER — unique_ptr<CMonster> 를 지우려면 완전한 타입이 필요하다(헤더 안에서 스스로 토글을 본다)
 #include <algorithm>
 #include <random>
 
@@ -14,9 +15,26 @@ CZone::CZone()
 
 CZone::~CZone()
 {
-    // CCharacter의 생명주기는 CGameServer가 관리
+    // 플레이어의 생명주기는 CGameServer가 관리 — 몬스터는 _monsterList 가 멤버 소멸 때 해제한다
     _characterList.clear();
 }
+
+#if USE_MONSTER
+CMonster* CZone::AddMonster(std::unique_ptr<CMonster> monster, float x, float y)
+{
+    if (!EnterZoneAt(monster.get(), x, y))
+        return nullptr;   // 넘겨받은 객체는 여기서 해제된다 — 섹터·목록 어디에도 안 들어갔다
+
+    CMonster* raw = monster.get();
+    _monsterList.push_back(std::move(monster));
+    return raw;
+}
+
+void CZone::ClearMonsters()
+{
+    _monsterList.clear();
+}
+#endif
 
 bool CZone::Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHeight, int32_t sectorSize)
 {

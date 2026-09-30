@@ -249,9 +249,10 @@ private:
     // 존 하나에 몬스터를 깐다 — 위치·방향·섹터 등록은 CZone::EnterZone 이 전부 해 준다.
     void SpawnMonsters(CZone* zone);
 
-    // 존이 사라지기 전에 몬스터를 회수한다(빈 채널 정리 · 서버 종료).
+    // 존이 사라지기 전에 몬스터를 대기열에서 빼고 존에 해제를 맡긴다(빈 채널 정리).
     //   BroadcastLeaveZone 이 섹터 변경·부활 대기열까지 훑어 주므로 죽은 주소가 안 남는다.
-    void DespawnMonsters(CZone* zone, bool broadcast);
+    //   서버 종료 때는 안 부른다 — 게임 스레드가 끝나 대기열이 다시 돌 일이 없고, 해제는 존 소멸이 한다.
+    void DespawnMonsters(CZone* zone);
 
     // 몬스터 하나의 판단 — 대상 찾기·상태 적용·송신은 여기가, "무엇을 할까"는 MonsterAI 가.
     void ThinkMonster(CZone* zone, CMonster* monster);

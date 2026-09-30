@@ -56,7 +56,7 @@ void CMapInstance::CleanupEmptyChannels(const std::function<void(CZone*)>& onBef
     {
         if (it->first != 0 && it->second->GetPlayerCount() == 0)
         {
-            // 지우기 직전 — 존에 매달린 것을 회수할 마지막 기회다(몬스터).
+            // 지우기 직전 — 밖에서 이 존의 것을 가리키는 자리를 정리할 마지막 기회다(대기열의 몬스터).
             //   판정(위 if)과 같은 자리에 둬야 둘이 어긋나지 않는다.
             if (onBeforeErase)
                 onBeforeErase(it->second.get());
@@ -178,7 +178,7 @@ void CMapManager::CleanupEmptyChannels(const std::function<void(CZone*)>& onBefo
         });
 
         // 캐시에서 먼저 빠지지만 존 객체는 아직 살아 있다 — onBeforeErase 가 zone 포인터로
-        //   하는 일(몬스터 회수 → BroadcastLeaveZone)은 GetZone 을 안 거치므로 무관하다.
+        //   하는 일(몬스터를 대기열에서 빼기 → BroadcastLeaveZone)은 GetZone 을 안 거치므로 무관하다.
         mapInstance.CleanupEmptyChannels(onBeforeErase);
     }
 }
