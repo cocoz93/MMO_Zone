@@ -457,7 +457,7 @@ private:
                      "Hits raised to the minimum damage (attack - defense < 1), any attacker",
                      _gameMonitor._combat._damageFloored);
         WriteCounter(ss, "mmo_my_stats_sent_total",
-                     "S2C_MY_STATS packets sent (only SendMyStats sends them; one per enter)",
+                     "S2C_MY_STATS packets sent (only SendMyStats sends them; one per enter, level-up and equip change)",
                      _gameMonitor._combat._myStatsSent);
 
 #if USE_MONSTER

@@ -59,7 +59,7 @@ public:
 
     // ── 전투 스탯 ──
     //   공격력·방어력은 "최종값"이다 — 플레이어는 CGameServer::RecalcStats 가 레벨 표 + 착용 장비로 세운다.
-    //   때릴 때마다 다시 세지 않는다(바뀌는 자리가 입장·레벨업·끼우기뿐이라 때리는 경로는 필드만 읽는다).
+    //   때릴 때마다 다시 세지 않는다(바뀌는 자리가 입장·레벨업·끼우기·빼기뿐이라 때리는 경로는 필드만 읽는다).
     //   피해 = Combat::CalcDamage(때린 쪽 _attackPower, 맞는 쪽 _defense) — 최소 1.
     int32_t _hp          = CHARACTER_DEFAULT_MAX_HP;        // 현재 체력 (0 이하 = 죽음)
     int32_t _maxHp       = CHARACTER_DEFAULT_MAX_HP;        // 최대 체력

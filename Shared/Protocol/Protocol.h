@@ -121,7 +121,7 @@ enum class MsgType : uint16_t
     //--------------------------------------------------
     // 스탯·장착 (USE_COMBAT · USE_EQUIP)
     //--------------------------------------------------
-    S2C_MY_STATS,           // 서버 → 클라이언트: 내 최종 공격력·방어력 (본인 전용 — 입장·레벨업·끼우기 때)
+    S2C_MY_STATS,           // 서버 → 클라이언트: 내 최종 공격력·방어력 (본인 전용 — 입장·레벨업·끼우기·빼기 때)
     C2S_EQUIP,              // 클라이언트 → 서버: 이 가방 칸의 장비를 끼운다 (무기 칸에 있던 것은 그 칸으로 맞바꾼다)
     C2S_UNEQUIP,            // 클라이언트 → 서버: 이 착용 칸의 장비를 뺀다 (장비 탭의 첫 빈 칸으로)
     S2C_EQUIP_FAIL          // 서버 → 클라이언트: 끼우기·빼기 거절 + 사유 (성공은 칸 갱신 둘과 S2C_MY_STATS 가 곧 결과다)
@@ -931,7 +931,7 @@ struct MSG_C2S_EQUIP
 {
     static constexpr MsgType TYPE = MsgType::C2S_EQUIP;
     MsgHeader header;
-    uint16_t  slot;   // 가방 칸 번호 (장비 탭 구간)
+    uint16_t  slot;   // 가방 칸 번호 (다른 탭 칸이면 NOT_EQUIPPABLE)
 };
 
 // C2S: 이 착용 칸의 장비를 뺀다

@@ -104,14 +104,14 @@ public:
 #endif
 
 #if USE_COMBAT
-    // 스탯 함수 — 최대 체력·공격력·방어력을 이 한 곳에서 세운다(입장·레벨업 공통).
+    // 스탯 함수 — 최대 체력·공격력·방어력을 이 한 곳에서 세운다(입장·레벨업·끼우기·빼기 공통).
     //   바탕 = 레벨 표(USE_EXP) 또는 기본값(CHARACTER_DEFAULT_*, 표를 끈 빌드).
     //   ★ USE_EXP 밖에 두는 이유 — 장착(USE_EQUIP)은 경험치를 꺼도 돌고, 그때도 공격력은 여기서 세워야 한다.
     //     USE_COMBAT 안인 이유 — 스탯을 읽는 곳이 전투뿐이고, 경험치·가방·장착이 전부 USE_COMBAT 을 요구한다.
     //   refillHp = 체력을 가득 채우나(레벨업·스폰). false 면 최대치를 넘은 몫만 깎는다.
     void RecalcStats(CPlayer* player, bool refillHp);
 
-    // 본인에게 최종 공격력·방어력(S2C_MY_STATS) — 입장·레벨업(·3단계부터 끼우기·빼기). 세는 곳도 여기 한 곳.
+    // 본인에게 최종 공격력·방어력(S2C_MY_STATS) — 입장·레벨업·끼우기·빼기. 세는 곳도 여기 한 곳.
     //   존 이동 때는 안 보낸다 — 값이 안 바뀌고, 웹은 판을 안 비우며, 콘솔은 이 값을 안 그린다.
     void SendMyStats(CPlayer* player);
 #endif

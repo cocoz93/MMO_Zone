@@ -853,7 +853,7 @@ function isEquipTabSlot(slot){ const r=P.INV_TAB_RANGES[INV_TAB_FILE.get('equip'
 
 // ---- 상태창 (USE_COMBAT · USE_EQUIP) — 그리기와 마우스 판정이 같은 자리 계산(statusLayout)을 쓴다 ----
 //   자리 = 왼쪽 위, 이름표 아래. 옆 여백이 있으면 연결 표시(resize() 가 110px 로 옮긴다, 높이 약 30) 아래 12px,
-//   없으면(창 전체가 게임 화면) 연결 표시가 위 가운데로 가므로 이름표 바로 아래(110). 모양은 다른 HUD 와 같은 panel().
+//   없으면(여백 250px 미만 · 창 전체가 게임 화면) 연결 표시가 위 가운데로 가므로 이름표 바로 아래(110). 모양은 다른 HUD 와 같은 panel().
 const ST_W=220, ST_ROW=22, ST_TOP=30, ST_CELL=40;
 function statusLayout(){
   const px=14, py=(VX>=250) ? 152 : 110, pw=ST_W;
