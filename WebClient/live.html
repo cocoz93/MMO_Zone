@@ -101,7 +101,9 @@ const LEVELUP_LIFE = 1.6;                    // 레벨업 문구 표시 시간(�
 // 경험치·레벨 (USE_EXP) — 본인 것만 서버가 보낸다. self 에 안 넣는 이유는 self 가
 //   존을 넘을 때 통째로 새로 만들어져서 레벨이 같이 날아가기 때문이다(서버가 다시 보내 주긴 한다).
 //   level===null = "아직 한 장도 못 받음" → HUD 에 레벨 줄을 안 그린다.
-const me = { level:null, exp:0, base:0, next:0, levelUpT:0 };
+//   공격력·방어력(attack·defense)도 여기 — 서버가 보낸 최종값(S2C_MY_STATS, 레벨 표 + 착용 장비)을 그대로 쓴다.
+//     클라는 합을 셈하지 않는다(판정은 서버). null = 아직 한 장도 못 받음 → 상태창에 「—」.
+const me = { level:null, exp:0, base:0, next:0, levelUpT:0, attack:null, defense:null };
 // 가방 (USE_INVENTORY) — 본인 것만 온다. self 밖에 두는 이유는 me 와 같다(존을 넘을 때 self 가 새로 만들어진다).
 //   slots: 칸 번호 -> {id, c}. 서버가 보낸 칸의 "최종값"을 그대로 담는다 — 넣고 빼는 규칙은 클라가 모른다(판정은 서버).
 const bag = { slots:new Map(), open:false, tab:1, hover:null };
@@ -116,14 +118,29 @@ let ITEM_SHEET = null;                                                  // asset
 const ADMIN_KEY = q.get('admin') || '';
 let adminSent = false;
 // 헤드리스 검증용 — 가방 요약을 속성 하나로 내놓는다(data-err·data-ready 와 같은 자리). 바뀔 때만 쓴다.
+//   ★ 무기 칸(900)도 bag.slots 에 같이 담긴다(서버가 같은 칸 목록으로 보낸다) — 여기 셈에서는 가방 칸과 가른다(worn).
 function bagChanged(){
-  let total=0; bag.slots.forEach(e=>{ total+=e.c; });   // 개수 합 — 물약을 쓰면 칸 수는 그대로이고 이것만 준다
-  document.documentElement.setAttribute('data-bag', JSON.stringify({ open:bag.open, tab:bag.tab, n:bag.slots.size, total, items:ITEMS.size, sheet:!!ITEM_SHEET }));
+  let n=0, total=0, worn=0;   // 개수 합 — 물약을 쓰면 칸 수는 그대로이고 이것만 준다
+  bag.slots.forEach((e,slot)=>{ if(slot>=P.EQUIP_SLOT.WEAPON) worn++; else { n++; total+=e.c; } });
+  document.documentElement.setAttribute('data-bag', JSON.stringify({ open:bag.open, tab:bag.tab, n, total, worn, items:ITEMS.size, sheet:!!ITEM_SHEET }));
+  statsChanged();   // 무기 칸이 바뀌면 상태창 요약도 바뀐다
+}
+// 상태창 (USE_COMBAT · USE_EQUIP) — C 키로 열고 닫는다. 값은 me(레벨·공격·방어) · self(체력) · bag.slots 900(무기 칸).
+const stw = { open:false, hover:false };
+// 헤드리스 검증용 — 상태창 요약(data-bag 과 같은 자리)
+function statsChanged(){
+  const w=bag.slots.get(P.EQUIP_SLOT.WEAPON);
+  document.documentElement.setAttribute('data-stats', JSON.stringify({ open:stw.open, attack:me.attack, defense:me.defense, weapon:w?w.id:0 }));
 }
 // 아이템 쓰기 거절 사유(P.USE_FAIL 이름) → 채팅 칸 [System] 문구
 const USE_FAIL_TEXT = {
   BAD_SLOT:'없는 칸입니다', EMPTY:'빈 칸입니다', NOT_USABLE:'쓸 수 없는 아이템입니다',
   DEAD:'쓰러진 동안에는 쓸 수 없습니다', COOLDOWN:'아직 쓸 수 없습니다 — 잠시 뒤에 다시', FULL_HP:'체력이 가득 찼습니다',
+};
+// 끼우기·빼기 거절 사유(P.EQUIP_FAIL 이름) → 채팅 칸 [System] 문구
+const EQUIP_FAIL_TEXT = {
+  BAD_SLOT:'없는 칸입니다', EMPTY:'빈 칸입니다', NOT_EQUIPPABLE:'장비가 아닙니다',
+  DEAD:'쓰러진 동안에는 바꿀 수 없습니다', COOLDOWN:'아직 바꿀 수 없습니다 — 잠시 뒤에 다시', TAB_FULL:'장비 가방이 가득 차 벗을 수 없습니다',
 };
 // 서버 알림 한 줄 — 채팅 칸에 [System] 으로. 채팅 명령의 답(/item 거절 등)이 여기로 온다.
 //   마지막 한 줄은 속성으로도 내놓는다(헤드리스 검증용 — data-bag 과 같은 자리).
@@ -285,6 +302,11 @@ function onPacket(p){
     // 쓰기 거절 — 성공은 따로 안 온다(칸 갱신과 S2C_ACTOR_STATS 가 곧 결과다)
     case P.MSG.S2C_USE_ITEM_FAIL: sysMsg(USE_FAIL_TEXT[p.reasonName] || ('쓰지 못했습니다 ('+p.reasonName+')')); break;
 
+    // ---- 스탯·장착 (USE_COMBAT · USE_EQUIP) ----
+    // 내 최종 공격력·방어력 — 입장·레벨업·끼우기·빼기 때 온다. 끼우기 성공은 따로 안 온다(칸 갱신 둘 + 이 한 장이 곧 결과다)
+    case P.MSG.S2C_MY_STATS: me.attack=p.attack; me.defense=p.defense; statsChanged(); break;
+    case P.MSG.S2C_EQUIP_FAIL: sysMsg(EQUIP_FAIL_TEXT[p.reasonName] || ('바꾸지 못했습니다 ('+p.reasonName+')')); break;
+
     // ---- 땅의 아이템 (USE_DROP) ----
     case P.MSG.S2C_GROUND_ITEM_CREATE:
       ground.set(p.groundId, { itemId:p.itemId, count:p.count, x:p.x, y:p.y, dropT: p.reasonName==='DROP' ? DROP_POP : 0 });
@@ -342,9 +364,11 @@ if(!SNAP){
     // I = 가방 열고 닫기, Esc = 닫기. 채팅 입력 중엔 위 typing() 에서 이미 빠진다
     //   e.key 가 아니라 e.code 로 본다 — 한글 입력 상태에서는 e.key 가 'ㅑ' 가 된다
     if(e.code==='KeyI' && !e.repeat){ bag.open=!bag.open; bag.hover=null; bagChanged(); e.preventDefault(); return; }
+    // C = 상태창 열고 닫기 (I 와 같은 까닭으로 e.code)
+    if(e.code==='KeyC' && !e.repeat){ stw.open=!stw.open; stw.hover=false; statsChanged(); e.preventDefault(); return; }
     // Z = 줍기 — 고르는 건 서버(2칸 안에서 주울 수 있는 가장 가까운 것 하나). 누르고 있어도 한 번(e.repeat 무시)
     if(e.code==='KeyZ'){ if(!e.repeat) sendPickup(); e.preventDefault(); return; }
-    if(k==='escape' && bag.open){ bag.open=false; bag.hover=null; bagChanged(); return; }
+    if(k==='escape' && (bag.open || stw.open)){ bag.open=false; bag.hover=null; stw.open=false; stw.hover=false; bagChanged(); return; }   // 창 둘 다 닫는다
     if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k)){ if(!keys.has(k)){keys.add(k); sendMove();} e.preventDefault(); }});
   addEventListener('keyup',e=>{ if(typing())return; const k=e.key.toLowerCase(); if(keys.delete(k)) sendMove(); });
   // Enter=채팅 열기, 채팅창 내 Enter=전송/Esc=취소
@@ -356,14 +380,22 @@ if(!SNAP){
   // 가방 창 마우스 — 창 안에서만 쓴다. 창 밖은 지금처럼 아무 일도 안 한다(월드 클릭 동작이 없다).
   //   좌표는 CSS px 그대로다(캔버스가 DPR 로 변환을 걸어 그리기도 CSS px 로 한다).
   cv.addEventListener('mousemove',e=>{ const h=bag.open ? bagHit(e.offsetX,e.offsetY) : null;
-    bag.hover = h && h.slot!==undefined ? h.slot : null; cv.style.cursor = h ? 'default' : ''; });
-  cv.addEventListener('mouseleave',()=>{ bag.hover=null; });
+    const s=stw.open ? statusHit(e.offsetX,e.offsetY) : null;
+    bag.hover = h && h.slot!==undefined ? h.slot : null; stw.hover = s==='weapon';
+    cv.style.cursor = (h || s) ? 'default' : ''; });
+  cv.addEventListener('mouseleave',()=>{ bag.hover=null; stw.hover=false; });
   cv.addEventListener('mousedown',e=>{ if(e.button!==0 || !bag.open) return;
     const h=bagHit(e.offsetX,e.offsetY); if(h && h.tab!==undefined){ bag.tab=h.tab; bag.hover=null; bagChanged(); } });
-  // 두 번 누르기 = 쓰기. 쓸 수 있는지(소비 아이템·체력·대기시간)는 서버가 가르고, 안 되면 사유가 [System] 으로 온다.
-  //   클라가 미리 거르지 않는 이유 — 판정을 두 곳에 두면 어긋난다(서버가 권위).
-  cv.addEventListener('dblclick',e=>{ if(!bag.open || !ws || ws.readyState!==1) return;
-    const h=bagHit(e.offsetX,e.offsetY); if(h && h.slot!==undefined && bag.slots.has(h.slot)) ws.send(P.enc.useItem(h.slot)); });
+  // 두 번 누르기 = 가방 칸이면 쓰기·끼우기, 상태창 무기 칸이면 벗기. 되는지(물약·체력·대기시간·죽음·빈 칸)는 서버가 가르고,
+  //   안 되면 사유가 [System] 으로 온다. 클라가 미리 거르지 않는 이유 — 판정을 두 곳에 두면 어긋난다(서버가 권위).
+  //   ★ 무엇을 보낼지는 칸 번호의 구간으로만 가른다(장비 탭 칸 → C2S_EQUIP, 그 밖 → C2S_USE_ITEM) — 아이템 표를 안 본다.
+  cv.addEventListener('dblclick',e=>{ if(!ws || ws.readyState!==1) return;
+    if(stw.open && statusHit(e.offsetX,e.offsetY)==='weapon'){
+      if(bag.slots.has(P.EQUIP_SLOT.WEAPON)) ws.send(P.enc.unequip(P.EQUIP_SLOT.WEAPON));
+      return; }
+    if(!bag.open) return;
+    const h=bagHit(e.offsetX,e.offsetY); if(!h || h.slot===undefined || !bag.slots.has(h.slot)) return;
+    ws.send(isEquipTabSlot(h.slot) ? P.enc.equip(h.slot) : P.enc.useItem(h.slot)); });
 }
 function sendChat(text){
   if(!ws || ws.readyState!==1 || !self) return;
@@ -712,6 +744,7 @@ function drawHUD(){
     ctx.fillStyle = e.sys ? '#f3ecd0' : e.cmd ? 'rgba(200,215,200,.6)' : '#dfeadd'; ctx.fillText(fitText(e.msg, bw-28-nmw), bx+14+nmw, yy);
   }
 
+  if(stw.open) drawStatus();   // 채팅 패널 뒤 — 창이 좁아 채팅 자리까지 내려와도 상태창이 위에 그려진다
   if(bag.open) drawBag();   // 맨 마지막 — 창이 낮아 레이더 자리까지 내려와도 가방이 위에 그려진다
 }
 
@@ -794,14 +827,17 @@ function drawBag(){
   if(hover) drawItemTip(px, hover.c.y, hover.e);
 }
 // 마우스를 올린 칸의 설명 — 창 왼쪽(게임 화면 쪽)에 띄운다. 창 위에 띄우면 옆 칸을 가린다.
-//   "두 번 눌러 사용" 은 효과가 있는 아이템(물약)에만 — 장비·재료에 적으면 안 되는 동작을 안내하게 된다.
+//   "두 번 눌러 사용" 은 효과가 있는 아이템(물약)에만, "두 번 눌러 장착" 은 장비에만 — 재료에 적으면 안 되는 동작을 안내하게 된다.
 function drawItemTip(winX, y, e){
   const it=ITEMS.get(e.id);
   const name = it ? it.name : '#'+e.id;
+  const equip = !!it && it.tab===INV_TAB_FILE.get('equip');
   const lines=[];
   if(it && it.healHp>0) lines.push(['체력 '+it.healHp+' 회복', '#bfe8c0']);
+  if(equip && it.attack>0) lines.push(['공격력 +'+it.attack, '#bfe8c0']);
   lines.push([it ? (e.c+' / '+it.maxStack+'개') : (e.c+'개'), 'rgba(200,215,200,.8)']);
   if(it && it.healHp>0) lines.push(['두 번 눌러 사용', 'rgba(255,233,138,.9)']);
+  if(equip) lines.push(['두 번 눌러 장착', 'rgba(255,233,138,.9)']);
   const tw=156, th=58+lines.length*17+6, tx=winX-tw-10, ty=Math.min(y, H-14-th);
   ctx.fillStyle='rgba(8,12,10,.97)'; rr(tx,ty,tw,th,8); ctx.fill();   // 게임 화면 위에 뜨므로 뒤가 비치지 않게 거의 불투명
   ctx.strokeStyle='rgba(255,233,138,.35)'; ctx.lineWidth=1; ctx.stroke();
@@ -811,6 +847,68 @@ function drawItemTip(winX, y, e){
   ctx.fillStyle='rgba(180,210,180,.6)'; ctx.font='11px '+SANS; ctx.fillText(it ? INV_TAB_NAMES[it.tab] : '', tx+56, ty+41);
   ctx.strokeStyle='rgba(150,200,150,.14)'; ctx.beginPath(); ctx.moveTo(tx+10,ty+54); ctx.lineTo(tx+tw-10,ty+54); ctx.stroke();
   lines.forEach((l,i)=>{ ctx.fillStyle=l[1]; ctx.font='12px '+SANS; ctx.fillText(l[0], tx+12, ty+72+i*17); });
+}
+// 장비 탭 칸인가 — 두 번 누르기가 끼우기(C2S_EQUIP)냐 쓰기(C2S_USE_ITEM)냐를 칸 번호 구간으로만 가른다(판정은 서버)
+function isEquipTabSlot(slot){ const r=P.INV_TAB_RANGES[INV_TAB_FILE.get('equip')]; return slot>=r.first && slot<r.first+r.n; }
+
+// ---- 상태창 (USE_COMBAT · USE_EQUIP) — 그리기와 마우스 판정이 같은 자리 계산(statusLayout)을 쓴다 ----
+//   자리 = 왼쪽 위, 이름표 아래. 옆 여백이 있으면 연결 표시(resize() 가 110px 로 옮긴다, 높이 약 30) 아래 12px,
+//   없으면(창 전체가 게임 화면) 연결 표시가 위 가운데로 가므로 이름표 바로 아래(110). 모양은 다른 HUD 와 같은 panel().
+const ST_W=220, ST_ROW=22, ST_TOP=30, ST_CELL=40;
+function statusLayout(){
+  const px=14, py=(VX>=250) ? 152 : 110, pw=ST_W;
+  const ph=ST_TOP+12+4*ST_ROW+14+ST_CELL+12+24;
+  const cy=py+ST_TOP+12+4*ST_ROW+14;
+  return { px, py, pw, ph, cell:{ x:px+14, y:cy, w:ST_CELL, h:ST_CELL } };
+}
+// 마우스가 상태창 위면 'weapon'(무기 칸) · 'panel'(창 안 빈 곳), 밖이면 null
+function statusHit(x,y){
+  const L=statusLayout(), c=L.cell;
+  if(x<L.px || x>L.px+L.pw || y<L.py || y>L.py+L.ph) return null;
+  return (x>=c.x && x<=c.x+c.w && y>=c.y && y<=c.y+c.h) ? 'weapon' : 'panel';
+}
+function drawStatus(){
+  const L=statusLayout(), px=L.px, py=L.py, pw=L.pw, ph=L.ph, c=L.cell;
+  panel(px,py,pw,ph);
+  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font='600 13px '+SANS; ctx.fillText('상태', px+12, py+21);
+  ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font='11px '+SANS; ctx.fillText('C 키로 닫기', px+pw-12, py+21);
+  ctx.strokeStyle='rgba(150,200,150,.14)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(px+12,py+ST_TOP); ctx.lineTo(px+pw-12,py+ST_TOP); ctx.stroke();
+  // 경험치 숫자는 바로 위 이름표에 이미 있다 — 여기엔 레벨만(겹쳐 쓰지 않는다)
+  const rows=[
+    ['레벨',   me.level===null ? '—' : 'Lv.'+me.level],
+    ['체력',   self ? self.hp+' / '+self.maxHp : '—'],
+    ['공격력', me.attack===null ? '—' : String(me.attack)],
+    ['방어력', me.defense===null ? '—' : String(me.defense)],
+  ];
+  let y=py+ST_TOP+12+14;
+  for(const [k,v] of rows){
+    ctx.textAlign='left'; ctx.fillStyle='rgba(180,210,180,.75)'; ctx.font='12px '+SANS; ctx.fillText(k, px+14, y);
+    ctx.textAlign='right'; ctx.fillStyle='#eaf3e0'; ctx.font='600 13px '+MONO; ctx.fillText(v, px+pw-14, y);
+    y+=ST_ROW;
+  }
+  // 무기 칸 — 그림 + 이름 + 아이템 표의 공격력(보여 주기만 — 위 공격력 줄이 이미 서버가 더한 값이다)
+  ctx.strokeStyle='rgba(150,200,150,.14)'; ctx.beginPath(); ctx.moveTo(px+12,c.y-7); ctx.lineTo(px+pw-12,c.y-7); ctx.stroke();
+  ctx.fillStyle='rgba(0,0,0,.30)'; rr(c.x,c.y,c.w,c.h,5); ctx.fill();
+  ctx.strokeStyle = stw.hover ? 'rgba(255,233,138,.85)' : 'rgba(150,200,150,.16)'; ctx.lineWidth=1; ctx.stroke();
+  const w=bag.slots.get(P.EQUIP_SLOT.WEAPON), it=w ? ITEMS.get(w.id) : null;
+  ctx.textAlign='left';
+  if(w){
+    drawItemIcon(c.x,c.y,c.w,w.id);
+    ctx.fillStyle='#eaf3e0'; ctx.font='600 12px '+SANS; ctx.fillText(fitText(it ? it.name : '#'+w.id, pw-c.w-40), c.x+c.w+10, c.y+16);
+    ctx.fillStyle='#8fd6a0'; ctx.font='11px '+SANS; ctx.fillText(it && it.attack>0 ? '공격력 +'+it.attack : '', c.x+c.w+10, c.y+32);
+  } else {
+    ctx.fillStyle='rgba(180,210,180,.45)'; ctx.font='12px '+SANS; ctx.fillText('무기 없음', c.x+c.w+10, c.y+25);
+  }
+  ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font='11px '+SANS;
+  ctx.fillText(w ? '무기 칸 두 번 누르면 벗기' : '가방 장비를 두 번 누르면 끼우기', px+14, py+ph-10);
+  // 무기 칸 설명 — 창 오른쪽(게임 화면 쪽)에 띄운다. 가방 창 설명이 창 왼쪽(게임 화면 쪽)에 뜨는 것과 같은 규칙
+  if(stw.hover && w){
+    const tx=px+pw+8, ty=c.y-4, tw=150, th=44;
+    ctx.fillStyle='rgba(8,12,10,.97)'; rr(tx,ty,tw,th,6); ctx.fill();
+    ctx.strokeStyle='rgba(255,233,138,.35)'; ctx.stroke();
+    ctx.fillStyle='#f2f6ec'; ctx.font='600 12px '+SANS; ctx.fillText(fitText(it ? it.name : '#'+w.id, tw-20), tx+10, ty+17);
+    ctx.fillStyle='rgba(255,233,138,.9)'; ctx.font='11px '+SANS; ctx.fillText('두 번 눌러 벗기', tx+10, ty+34);
+  }
 }
 
 // ---- frame ----
@@ -942,7 +1040,8 @@ function parseItemTable(text){
     const c=line.split(',').map(s=>s.trim());
     const tab=INV_TAB_FILE.get(c[2]);
     if(c.length<6 || tab===undefined) continue;
-    ITEMS.set(Number(c[0]), { name:c[1], tab, maxStack:Number(c[3]), healHp:Number(c[4]), icon:Number(c[5]) });
+    // attack(7번째 칸) = 끼우면 더하는 공격력 — 보여 주기만 한다(무기 줄의 「공격력 +5」). 합은 서버가 셈한다
+    ITEMS.set(Number(c[0]), { name:c[1], tab, maxStack:Number(c[3]), healHp:Number(c[4]), icon:Number(c[5]), attack:Number(c[6]||0) });
   }
 }
 async function boot(){
