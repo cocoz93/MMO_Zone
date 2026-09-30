@@ -2,7 +2,7 @@
 // Combat — 전투 판정 (USE_COMBAT)
 //
 // [책임]
-//  - 쿨타임·사거리·생사만 보고 "되나 / 왜 안 되나"를 돌려준다
+//  - 쿨타임·사거리·생사만 보고 "되나 / 왜 안 되나"를 돌려준다 · 피해 크기를 센다(공격력 − 방어력)
 //  - 송신도, 죽은 목록 등록도, 존·섹터 조회도 하지 않는다 — 전부 CGameServer가 한다
 //
 // [왜 떼어냈나]
@@ -49,6 +49,13 @@ namespace Combat
     //   생사는 보지 않는다 — 시체를 걸러내는 건 호출자 몫이다(거부 사유를
     //   no_target / dead_target 으로 갈라야 해서, 여기서 조용히 빼면 그 구분이 사라진다).
     bool IsInAttackRange(const CCharacter& attacker, const CCharacter& target, float& outDistSq);
+
+    // 피해 계산 — 공격력 − 방어력, 최소 MIN_DAMAGE. 방어력이 아무리 높아도 한 대는 한 대다
+    //   (0 이면 "맞았는데 아무 일 없음"이라 클라가 그릴 것도, 시험이 셀 것도 없어진다).
+    //   최소로 올렸으면 outFloored = true — 표로는 거의 안 닿는 갈래라 호출자가 계수기로 센다.
+    //   때린 쪽·맞는 쪽이 플레이어든 몬스터든 같은 식이다.
+    constexpr int32_t MIN_DAMAGE = 1;
+    int32_t CalcDamage(int32_t attack, int32_t defense, bool& outFloored);
 
     // 피해 적용 — 남은 HP를 outRemainHp에 담고, 이 타격으로 죽었으면 true.
     //   _isDead·_deathFrame 기록과 부활 대기열 등록은 호출자 몫이다(대기열이 CGameServer에 있다).

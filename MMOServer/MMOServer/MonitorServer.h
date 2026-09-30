@@ -453,6 +453,12 @@ private:
         WriteCounter(ss, "mmo_respawns_total",
                      "Respawns after death (trails deaths by at most one)",
                      _gameMonitor._combat._respawnsTotal);
+        WriteCounter(ss, "mmo_damage_floored_total",
+                     "Hits raised to the minimum damage (attack - defense < 1), any attacker",
+                     _gameMonitor._combat._damageFloored);
+        WriteCounter(ss, "mmo_my_stats_sent_total",
+                     "S2C_MY_STATS packets sent (only SendMyStats sends them; one per enter)",
+                     _gameMonitor._combat._myStatsSent);
 
 #if USE_MONSTER
         // 위 값들은 "플레이어만" 센다 — 몬스터를 섞으면 기존 A/B 실측의 기준선이 오염된다.

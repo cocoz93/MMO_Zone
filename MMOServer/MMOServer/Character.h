@@ -35,6 +35,7 @@
 //     켠 빌드의 1레벨 체력이 달라져서 "같은 캐릭터인데 빌드마다 다른" 상태가 된다.
 constexpr int32_t CHARACTER_DEFAULT_MAX_HP        = 800;
 constexpr int32_t CHARACTER_DEFAULT_ATTACK_POWER  = 10;
+constexpr int32_t CHARACTER_DEFAULT_DEFENSE       = 0;
 
 // 캐릭터 종류 — 위 [종류] 참조. 와이어에는 안 실린다(클라는 displayChar 로 종류를 안다).
 enum class CharacterKind : uint8_t
@@ -57,9 +58,13 @@ public:
     uint8_t _colorIndex;    // 색상 인덱스 (0-6)
 
     // ── 전투 스탯 ──
+    //   공격력·방어력은 "최종값"이다 — 플레이어는 CGameServer::RecalcStats 가 레벨 표 + 착용 장비로 세운다.
+    //   때릴 때마다 다시 세지 않는다(바뀌는 자리가 입장·레벨업·끼우기뿐이라 때리는 경로는 필드만 읽는다).
+    //   피해 = Combat::CalcDamage(때린 쪽 _attackPower, 맞는 쪽 _defense) — 최소 1.
     int32_t _hp          = CHARACTER_DEFAULT_MAX_HP;        // 현재 체력 (0 이하 = 죽음)
     int32_t _maxHp       = CHARACTER_DEFAULT_MAX_HP;        // 최대 체력
-    int32_t _attackPower = CHARACTER_DEFAULT_ATTACK_POWER;  // 한 대당 피해량
+    int32_t _attackPower = CHARACTER_DEFAULT_ATTACK_POWER;  // 공격력 (최종값)
+    int32_t _defense     = CHARACTER_DEFAULT_DEFENSE;       // 방어력 (최종값) — 맞을 때 공격력에서 뺀다
 
     bool     _isDead = false;        // 죽은 상태 (이동·공격 거부, 공격 대상에서 제외)
     uint64_t _lastAttackFrame = 0;   // 마지막 공격 프레임 (쿨타임 판정 — CGameServer::_frameCount 기준)

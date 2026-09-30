@@ -47,6 +47,13 @@ bool IsInAttackRange(const CCharacter& attacker, const CCharacter& target, float
     return true;
 }
 
+int32_t CalcDamage(int32_t attack, int32_t defense, bool& outFloored)
+{
+    const int32_t raw = attack - defense;
+    outFloored = (raw < MIN_DAMAGE);
+    return outFloored ? MIN_DAMAGE : raw;
+}
+
 bool ApplyDamage(CCharacter& target, int32_t damage, int32_t& outRemainHp)
 {
     target._hp -= damage;

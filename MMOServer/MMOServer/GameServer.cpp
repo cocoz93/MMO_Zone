@@ -238,6 +238,18 @@ namespace
         assert(buf->GetDataSize() == sizeof(MSG_S2C_ACTOR_STATS));
         return buf;
     }
+
+    // 내 최종 공격력·방어력 — 본인 전용(SendMyStats 만 부른다)
+    CSerialBuffer* MakeMyStats(int32_t attack, int32_t defense)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_MY_STATS::TYPE);
+        *buf << static_cast<int>(attack);
+        *buf << static_cast<int>(defense);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_MY_STATS));
+        return buf;
+    }
 #endif // USE_COMBAT
 
     CSerialBuffer* MakeZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex)
@@ -1307,15 +1319,20 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
     // 0 을 줘서 레벨만 정산한다 — 경험치는 한 톨도 안 늘고, 올릴 수 있으면 올린다.
     const bool settled = GainExp(player, 0);
 
-    // GainExp 는 레벨이 올랐을 때만 스탯을 세운다. 안 올랐으면 생성자 기본값 그대로라 여기서 세운다.
-    //   지금은 스폰이 늘 만피라 refillHp=true — 죽은 채로 들어오는 경로가 생기면 그때 가른다.
-    ApplyLevelStats(player, true);
-
 #if USE_DB_WORKER
     // 바로잡은 값은 DB 와 다르다 — 안 켜면 다음 주기 저장이 건너뛰어 영영 틀린 채로 남는다.
     if (clamped || settled)
         player->_dbDirty = true;
 #endif
+#endif
+
+#if USE_COMBAT
+    // ── 스탯 세우기 — 레벨 정산 뒤 ──
+    //   GainExp 는 레벨이 올랐을 때만 스탯을 세운다. 안 올랐으면 생성자 기본값 그대로라 여기서 세운다.
+    //   지금은 스폰이 늘 만피라 refillHp=true — 죽은 채로 들어오는 경로가 생기면 그때 가른다.
+    //   ★ SendZoneInfo 보다 앞이다(위 레벨 정산 주석과 같은 이유 — CREATE 가 최대 체력을 싣는다).
+    //   USE_EXP 밖인 이유는 RecalcStats 선언 주석(GameServer.h).
+    RecalcStats(player, true);
 #endif
 
     // 1) 존 메타 정보 전송
@@ -1340,6 +1357,12 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
     //     "등록을 빼면 떨어지나" 돌연변이가 이 한 장에 매달려 있다 — "비었으면 안 보내자"로 바꾸면 둘 다
     //     조용히 아무것도 안 보게 된다.
     SendInventory(player);
+#endif
+
+#if USE_COMBAT
+    // 3-2) 본인에게 최종 공격력·방어력 — 가방 전체 뒤(클라가 무기 칸을 알고 나서 숫자를 채우게).
+    //   ★ 부하 더미도 이 한 장을 반드시 받는다 — 가방 전체와 같은 함정(등록을 빼면 전원 떨어진다).
+    SendMyStats(player);
 #endif
 
     // 4) 주변 상호 CREATE 브로드캐스트
@@ -2669,11 +2692,18 @@ void CGameServer::PerformAttack(CZone* zone, CCharacter* player)
     }
 
     // ── 4) 피해 적용 ──
+    //   ★ 한 번 센 값을 적용에도 방송에도 쓴다 — 두 자리가 따로 세면 깎인 체력과 화면의 숫자가 갈릴 수 있다.
+    //   최소 1 로 올린 타격은 때린 쪽 종류와 무관하게 센다(뱀이 방어력 높은 사람을 문 것도 여기로 온다).
+    bool floored = false;
+    const int32_t damage = Combat::CalcDamage(player->_attackPower, target->_defense, floored);
+    if (floored)
+        _gameMonitor._combat._damageFloored.Inc();
+
     int32_t remainHp = 0;
-    const bool died = Combat::ApplyDamage(*target, player->_attackPower, remainHp);
+    const bool died = Combat::ApplyDamage(*target, damage, remainHp);
 
     BroadcastAroundSector(zone, player,
-        MakeDamage(target->_actorId, player->_actorId, player->_attackPower, remainHp), false);
+        MakeDamage(target->_actorId, player->_actorId, damage, remainHp), false);
 
     if (!died)
         return;
@@ -2732,6 +2762,9 @@ void CGameServer::PerformAttack(CZone* zone, CCharacter* player)
             //   excludeSelf=false 라 본인에게도 간다(부활 방송과 같은 꼴).
             BroadcastAroundSector(zone, killer,
                 MakeActorStats(killer->_actorId, killer->_hp, killer->_maxHp), false);
+
+            // 오른 공격력·방어력은 본인에게만 — 남의 공격력은 화면에 안 쓴다(S2C_MY_STATS 는 본인 전용)
+            SendMyStats(killer);
         }
     }
 #endif
@@ -2744,19 +2777,23 @@ void CGameServer::PerformAttack(CZone* zone, CCharacter* player)
 #endif
 }
 
-#if USE_EXP
 // ==========================================================================
-// 경험치·레벨
-//   표(CLevelTable)는 기획 데이터라 파일에서 왔고, 여기서는 읽기만 한다.
-//   ★ 누적 기준 — _exp 는 "지금까지 얻은 총합"이고 표의 필요치도 같은 기준이다.
-//     레벨 안에서 다시 0부터 세지 않아서 레벨업이 한 줄이고 넘친 경험치가 안 사라진다.
+// 스탯 — 최대 체력·공격력·방어력을 세우는 한 곳
+//   공격력·방어력은 최종값을 필드에 둔다(Character.h [전투 스탯]). 때리는 경로는 필드만 읽는다.
+//   ★ USE_EXP 밖이다 — 표를 끈 빌드는 기본값을 바탕으로 쓴다(CHARACTER_DEFAULT_* = 표의 1레벨 칸).
 // ==========================================================================
-
-void CGameServer::ApplyLevelStats(CPlayer* player, bool refillHp)
+void CGameServer::RecalcStats(CPlayer* player, bool refillHp)
 {
+#if USE_EXP
     const CLevelTable& table = _gameDataFiles.Level();
     player->_maxHp       = table.MaxHp(player->_level);
     player->_attackPower = table.AttackPower(player->_level);
+    player->_defense     = table.Defense(player->_level);
+#else
+    player->_maxHp       = CHARACTER_DEFAULT_MAX_HP;
+    player->_attackPower = CHARACTER_DEFAULT_ATTACK_POWER;
+    player->_defense     = CHARACTER_DEFAULT_DEFENSE;
+#endif
 
     // 레벨이 올랐을 때만 채운다. 입장 때는 DB 가 들고 있던 체력이 아직 없으므로(스탯만 맞춘다)
     //   호출부가 정한다 — 지금은 스폰도 만피라 둘 다 true 로 들어온다.
@@ -2765,6 +2802,20 @@ void CGameServer::ApplyLevelStats(CPlayer* player, bool refillHp)
     else if (player->_hp > player->_maxHp)
         player->_hp = player->_maxHp;   // 표를 낮춘 패치 뒤엔 들고 있던 체력이 최대를 넘을 수 있다
 }
+
+void CGameServer::SendMyStats(CPlayer* player)
+{
+    SendPacket(player, MakeMyStats(player->_attackPower, player->_defense));
+    _gameMonitor._combat._myStatsSent.Inc();
+}
+
+#if USE_EXP
+// ==========================================================================
+// 경험치·레벨
+//   표(CLevelTable)는 기획 데이터라 파일에서 왔고, 여기서는 읽기만 한다.
+//   ★ 누적 기준 — _exp 는 "지금까지 얻은 총합"이고 표의 필요치도 같은 기준이다.
+//     레벨 안에서 다시 0부터 세지 않아서 레벨업이 한 줄이고 넘친 경험치가 안 사라진다.
+// ==========================================================================
 
 bool CGameServer::ClampLevelToTable(CPlayer* player)
 {
@@ -2801,7 +2852,7 @@ bool CGameServer::GainExp(CPlayer* player, int64_t amount)
     if (player->_level == before)
         return false;
 
-    ApplyLevelStats(player, true);   // 오르면 체력을 가득 채운다
+    RecalcStats(player, true);   // 오르면 체력을 가득 채운다
     _gameMonitor._exp._levelUps.Inc();
     return true;
 }

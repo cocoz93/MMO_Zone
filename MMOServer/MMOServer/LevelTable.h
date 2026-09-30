@@ -9,7 +9,7 @@
 #if USE_EXP
 
 // ==========================================================================
-// CLevelTable — 레벨별 기획 값 (필요 경험치 · 최대 체력 · 공격력)
+// CLevelTable — 레벨별 기획 값 (필요 경험치 · 최대 체력 · 공격력 · 방어력)
 //
 // [어디 것이냐] 기획 데이터다. 유저 데이터(내 레벨·내 경험치)는 DB 의 characters 행에 있고,
 //        "레벨 10 이 되려면 경험치 얼마"는 전원 공통이라 파일에 둔다. 파일인 이유는
@@ -40,6 +40,7 @@ public:
     int64_t RequiredExp(int32_t level) const;
     int32_t MaxHp(int32_t level) const;
     int32_t AttackPower(int32_t level) const;
+    int32_t Defense(int32_t level) const;
 
 private:
     struct Row
@@ -47,6 +48,7 @@ private:
         int64_t requiredExp = 0;
         int32_t maxHp       = 0;
         int32_t attackPower = 0;
+        int32_t defense     = 0;
     };
 
     bool InRange(int32_t level) const

@@ -121,6 +121,13 @@ public:
 
         Counter _deathsTotal;               // HP가 0 이하로 떨어진 횟수
         Counter _respawnsTotal;             // 부활 횟수 (deaths와 같거나 1 적은 것이 정상)
+
+        // 피해가 최소 1 로 올려진 타격 — 공격력 − 방어력이 1 미만이었다. ★ 위 값들과 달리 때린 쪽을 안 가른다
+        //   (뱀이 방어력 높은 사람을 문 것도 센다). 지금 레벨 표로는 안 닿아 평소 0 이다.
+        Counter _damageFloored;
+
+        // S2C_MY_STATS 보낸 수 — SendMyStats 한 곳에서만 센다. 입장마다 1 이라 더미 시험의 분모다.
+        Counter _myStatsSent;
     } _combat;
 
 #if USE_MONSTER

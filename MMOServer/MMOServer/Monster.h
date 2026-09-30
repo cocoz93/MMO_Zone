@@ -46,6 +46,7 @@ enum class AIState : uint8_t
 constexpr int32_t SNAKE_MAX_HP        = 30;   // 플레이어 3 대(10×3)
 constexpr int32_t SNAKE_ATTACK_POWER  = 5;    // 플레이어를 20 대에 눕힌다
 constexpr int32_t SNAKE_SPEED         = 15;   // 플레이어 최저(25)보다 느리다 — 도망칠 수 있어야 한다
+constexpr int32_t SNAKE_DEFENSE       = 0;    // 맞을 때 빼는 값 — 0 이라 플레이어가 뱀을 잡는 대수는 방어력이 생기기 전과 같다
 
 #if USE_EXP
 // 잡으면 주는 경험치. 레벨 표(LevelTable.csv)는 2레벨을 100 으로 두므로 뱀 열 마리다.

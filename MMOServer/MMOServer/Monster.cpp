@@ -18,6 +18,7 @@ CMonster::CMonster()
     _hp          = SNAKE_MAX_HP;
     _maxHp       = SNAKE_MAX_HP;
     _attackPower = SNAKE_ATTACK_POWER;
+    _defense     = SNAKE_DEFENSE;
 
     // 속도는 CActor 가 0 으로 두고 파생이 정한다(CPlayer 와 같은 규칙)
     _speed = SNAKE_SPEED;

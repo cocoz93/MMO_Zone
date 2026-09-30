@@ -3,25 +3,27 @@
 #   Level 1 must be 0, and requiredExp must strictly increase. The loader refuses the file otherwise.
 #   Level 1 maxHp/attackPower match CHARACTER_DEFAULT_* so a fresh character is unchanged.
 #   maxHp was raised 8x on 2026-09-23 (100->800 at Lv1). Keep CHARACTER_DEFAULT_MAX_HP in sync.
+#   defense added on 2026-09-30: level / 5 rounded down (Lv1-4 0 ... Lv20 4). Level 1 must match CHARACTER_DEFAULT_DEFENSE (0).
+#   Damage = attack - defense, at least 1 (Combat::CalcDamage). Snake bites for 5 -> 4 from Lv5, 1 at Lv20.
 #   Snake gives 10 exp -> level 2 costs 10 snakes, level 20 costs 1900.
-level,requiredExp,maxHp,attackPower
-1,0,800,10
-2,100,880,11
-3,300,960,12
-4,600,1040,13
-5,1000,1120,14
-6,1500,1200,15
-7,2100,1280,16
-8,2800,1360,17
-9,3600,1440,18
-10,4500,1520,19
-11,5500,1600,20
-12,6600,1680,21
-13,7800,1760,22
-14,9100,1840,23
-15,10500,1920,24
-16,12000,2000,25
-17,13600,2080,26
-18,15300,2160,27
-19,17100,2240,28
-20,19000,2320,29
+level,requiredExp,maxHp,attackPower,defense
+1,0,800,10,0
+2,100,880,11,0
+3,300,960,12,0
+4,600,1040,13,0
+5,1000,1120,14,1
+6,1500,1200,15,1
+7,2100,1280,16,1
+8,2800,1360,17,1
+9,3600,1440,18,1
+10,4500,1520,19,2
+11,5500,1600,20,2
+12,6600,1680,21,2
+13,7800,1760,22,2
+14,9100,1840,23,2
+15,10500,1920,24,3
+16,12000,2000,25,3
+17,13600,2080,26,3
+18,15300,2160,27,3
+19,17100,2240,28,3
+20,19000,2320,29,4
