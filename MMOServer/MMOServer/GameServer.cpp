@@ -324,7 +324,7 @@ namespace
     //   필드 순서는 Protocol.h 의 InventoryEntry·MSG_S2C_INVENTORY_SLOT 와 글자 그대로 같아야 한다.
 
     // 가방 전체는 한 장으로 간다(나눠 보내는 길이 없다) — 가득 찬 가방도 한 패킷에 들어가야 한다.
-    //   지금 606B(헤더 4 + 개수 2 + 10 × 60). 탭을 늘려 칸이 145개를 넘으면 여기서 컴파일이 멈춘다.
+    //   지금 616B(헤더 4 + 개수 2 + 10 × 61 — 가방 60 + 착용 1). 탭·착용 칸을 늘려 칸이 145개를 넘으면 여기서 컴파일이 멈춘다.
     //   ※ Protocol.h 가 아니라 여기 두는 이유 — 상한(MAX_PACKET_SIZE)이 코어 헤더에 있어 거기선 안 보인다.
     static_assert(sizeof(MSG_S2C_INVENTORY) <= MAX_PACKET_SIZE,
                   "가득 찬 가방 전체 목록이 한 패킷(MAX_PACKET_SIZE)에 안 들어간다 — 나눠 보내는 길을 만들 것");

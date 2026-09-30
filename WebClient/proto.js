@@ -26,7 +26,9 @@
     C2S_USE_ITEM:1032, S2C_USE_ITEM_FAIL:1033,
     // 땅의 아이템·줍기 (USE_DROP) — 땅 번호(groundId)는 캐릭터 번호와 따로 센다
     S2C_GROUND_ITEM_CREATE:1034, S2C_GROUND_ITEM_DELETE:1035,
-    C2S_PICKUP:1036, S2C_PICKUP_FAIL:1037
+    C2S_PICKUP:1036, S2C_PICKUP_FAIL:1037,
+    // 스탯·장착 (USE_COMBAT · USE_EQUIP) — 내 스탯은 본인 전용. 끼우기·빼기 성공은 칸 갱신 둘 + MY_STATS 가 곧 결과다
+    S2C_MY_STATS:1038, C2S_EQUIP:1039, C2S_UNEQUIP:1040, S2C_EQUIP_FAIL:1041
   };
   // 아이템 쓰기 거절 사유 — Protocol.h UseItemFail 순서 그대로(값이 와이어에 실린다). 서버가 이 순서로 보고 먼저 걸린 하나를 보낸다
   const USE_FAIL = ['BAD_SLOT','EMPTY','NOT_USABLE','DEAD','COOLDOWN','FULL_HP'];
@@ -37,6 +39,10 @@
   // 가방 탭 구간 — Protocol.h INV_TAB_RANGES 사본(InvTab 순서: 장비·소비·기타). 칸 번호가 곧 DB 열쇠라
   //   한쪽만 고치면 웹이 엉뚱한 탭에 그린다 — Protocol.h 와 나란히 볼 것.
   const INV_TAB_RANGES = [ { first:0, n:20 }, { first:100, n:20 }, { first:200, n:20 } ];
+  // 착용 칸 — Protocol.h EQUIP_SLOT_FIRST + EquipSlot 사본(지금은 무기 하나). 가방 탭과 따로 세고, 가방과 같은 칸 목록(S2C_INVENTORY)에 실려 온다
+  const EQUIP_SLOT = { WEAPON: 900 };
+  // 끼우기·빼기 거절 사유 — Protocol.h EquipFail 순서 그대로(값이 와이어에 실린다)
+  const EQUIP_FAIL = ['BAD_SLOT','EMPTY','NOT_EQUIPPABLE','DEAD','COOLDOWN','TAB_FULL'];
   const NAME = Object.fromEntries(Object.entries(MSG).map(([k,v])=>[v,k]));
   const DIR = { NONE:0, UP:1, DOWN:2, LEFT:3, RIGHT:4 };  // Player.h
   const MOVE = { IDLE:0, MOVING:1 };
@@ -174,6 +180,13 @@
       //   PICKUP_FAIL 9B = reason u8 · itemId i32 (TAB_FULL 이면 고른 아이템 — 어느 탭이 찼는지 안다). 성공은 DELETE(PICKED, 나)
       case MSG.S2C_PICKUP_FAIL:
         p.reason=dv.getUint8(o); p.reasonName=PICKUP_FAIL[p.reason] || ('?'+p.reason); p.itemId=dv.getInt32(o+1,true); break;
+      // ---- 스탯·장착 (USE_COMBAT · USE_EQUIP) ----
+      //   MY_STATS 12B = attack i32 · defense i32 — 최종값(레벨 표 + 착용 장비). 클라는 합을 셈하지 않는다
+      case MSG.S2C_MY_STATS:
+        p.attack=dv.getInt32(o,true); p.defense=dv.getInt32(o+4,true); break;
+      //   EQUIP_FAIL 7B = slot u16 · reason u8 (요청에 실린 칸 번호 그대로)
+      case MSG.S2C_EQUIP_FAIL:
+        p.slot=dv.getUint16(o,true); p.reason=dv.getUint8(o+2); p.reasonName=EQUIP_FAIL[p.reason] || ('?'+p.reason); break;
       default: break; // ZONE_CHANGE_OK/FAIL, ADMIN_* etc. — not needed for the view
     }
     return p;
@@ -216,6 +229,10 @@
     useItem(slot){ const {b,d}=hdr(6,MSG.C2S_USE_ITEM); d.setUint16(4, slot, true); return b; },
     // C2S_PICKUP: 바디 없음 — 서버가 2칸 안에서 주울 수 있는 가장 가까운 것 하나를 고른다
     pickup(){ return hdr(4, MSG.C2S_PICKUP).b; },
+    // C2S_EQUIP: header(4) + slot u16 = 6B — 가방 칸(장비 탭)
+    equip(slot){ const {b,d}=hdr(6,MSG.C2S_EQUIP); d.setUint16(4, slot, true); return b; },
+    // C2S_UNEQUIP: header(4) + slot u16 = 6B — 착용 칸(EQUIP_SLOT)
+    unequip(slot){ const {b,d}=hdr(6,MSG.C2S_UNEQUIP); d.setUint16(4, slot, true); return b; },
     moveStart(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_START); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     moveStop(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_STOP); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     // C2S_CHAT: header + wchar_t[] UTF-16LE, 널 종단 포함, (len+1)*2 바이트만 전송 (서버가 header.size로 역산)
@@ -229,7 +246,7 @@
     }
   };
 
-  const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, USE_FAIL, GROUND_APPEAR, GROUND_GONE, PICKUP_FAIL, decodePacket, Reassembler, enc };
+  const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, EQUIP_SLOT, USE_FAIL, EQUIP_FAIL, GROUND_APPEAR, GROUND_GONE, PICKUP_FAIL, decodePacket, Reassembler, enc };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else global.Proto = API;
 })(typeof window !== 'undefined' ? window : globalThis);

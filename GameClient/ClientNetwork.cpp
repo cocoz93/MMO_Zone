@@ -396,6 +396,12 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
     case MsgType::S2C_PICKUP_FAIL:
         break;
 
+    // 스탯·장착 (서버 USE_COMBAT · USE_EQUIP) — 콘솔 클라는 상태창을 그리지 않고 끼우지도 않는다(위 가방과 같은 이유).
+    //   내 스탯은 입장 때 반드시 한 장 오므로, 빠뜨리면 접속할 때마다 모르는 타입 로그가 한 줄 찍힌다.
+    case MsgType::S2C_MY_STATS:
+    case MsgType::S2C_EQUIP_FAIL:
+        break;
+
     default:
         LOG_ERROR_STREAM("Unknown message type: " << static_cast<int>(header->type));
         break;

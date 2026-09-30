@@ -116,7 +116,15 @@ enum class MsgType : uint16_t
     S2C_GROUND_ITEM_CREATE, // 서버 → 클라이언트: 땅의 아이템이 보인다 (방금 떨어짐 · 시야에 들어옴)
     S2C_GROUND_ITEM_DELETE, // 서버 → 클라이언트: 땅의 아이템이 안 보인다 (주움 · 사라짐 · 시야 밖)
     C2S_PICKUP,             // 클라이언트 → 서버: 줍기 (몸 없음 — 서버가 2칸 안 가장 가까운 것을 고른다)
-    S2C_PICKUP_FAIL         // 서버 → 클라이언트: 줍기 거절 + 사유 (성공은 DELETE(PICKED, 나)·칸 갱신이 곧 결과다)
+    S2C_PICKUP_FAIL,        // 서버 → 클라이언트: 줍기 거절 + 사유 (성공은 DELETE(PICKED, 나)·칸 갱신이 곧 결과다)
+
+    //--------------------------------------------------
+    // 스탯·장착 (USE_COMBAT · USE_EQUIP)
+    //--------------------------------------------------
+    S2C_MY_STATS,           // 서버 → 클라이언트: 내 최종 공격력·방어력 (본인 전용 — 입장·레벨업·끼우기 때)
+    C2S_EQUIP,              // 클라이언트 → 서버: 이 가방 칸의 장비를 끼운다 (무기 칸에 있던 것은 그 칸으로 맞바꾼다)
+    C2S_UNEQUIP,            // 클라이언트 → 서버: 이 착용 칸의 장비를 뺀다 (장비 탭의 첫 빈 칸으로)
+    S2C_EQUIP_FAIL          // 서버 → 클라이언트: 끼우기·빼기 거절 + 사유 (성공은 칸 갱신 둘과 S2C_MY_STATS 가 곧 결과다)
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -713,6 +721,24 @@ constexpr bool InvTabRangesAreValid()
 }
 static_assert(InvTabRangesAreValid(), "탭 구간이 겹치거나 칸 수의 합이 INVENTORY_TOTAL_SLOTS 와 다르다");
 
+// 착용 칸 (USE_EQUIP) — 가방 탭과 따로 센다. 칸 번호 = EQUIP_SLOT_FIRST + EquipSlot 이고, 가방과 같은 DB 테이블에 같은 열쇠(계정, 칸)로 들어간다.
+//   ★ 탭(InvTab)으로 넣지 않는 이유 — InvTab 은 "아이템이 어느 가방 탭에 들어가나"라 아이템 표의 글자(equip·use·etc)와 묶여 있다.
+//     착용 칸을 탭으로 넣으면 아이템 표가 "착용" 탭을 받게 된다.
+//   부위는 지금 무기 하나 — 장비 아이템은 전부 무기 칸에 간다. 둘째 부위가 생기는 날 아이템 표의 부위 칸과 여기 enum 을 같이 늘린다.
+//   ★ WebClient/proto.js 에 같은 값을 옮겨 둔다.
+enum class EquipSlot : uint8_t
+{
+    WEAPON,
+    COUNT
+};
+constexpr uint16_t EQUIP_SLOT_FIRST     = 900;
+constexpr int      INVENTORY_WORN_SLOTS = static_cast<int>(EquipSlot::COUNT);
+constexpr int      INVENTORY_ALL_SLOTS  = INVENTORY_TOTAL_SLOTS + INVENTORY_WORN_SLOTS;   // 가방 + 착용 — 전체 목록 패킷의 최대 칸 수
+
+static_assert(EQUIP_SLOT_FIRST >= INV_TAB_RANGES[static_cast<unsigned>(InvTab::COUNT) - 1].firstSlot +
+                                  INV_TAB_RANGES[static_cast<unsigned>(InvTab::COUNT) - 1].slotCount,
+              "착용 칸 번호가 가방 탭 구간과 겹친다");
+
 // 가방 한 칸 (10B, pack(1))
 struct InventoryEntry
 {
@@ -724,12 +750,13 @@ struct InventoryEntry
 // S2C: 가방 전체 — 입장 때 한 번.
 //   가변 길이 — 와이어에는 header + count + InventoryEntry × count 만 실린다(빈 칸은 안 싣는다).
 //   ★ 빈 가방이어도 한 장 간다(count 0). 부하 더미도 받으므로 더미가 이 타입을 몰라서는 안 된다.
+//   착용 칸(900~)도 같은 목록에 실린다 — 칸 번호로 가방인지 착용인지 가른다.
 struct MSG_S2C_INVENTORY
 {
     static constexpr MsgType TYPE = MsgType::S2C_INVENTORY;
     MsgHeader      header;
     uint16_t       count;
-    InventoryEntry entries[INVENTORY_TOTAL_SLOTS];
+    InventoryEntry entries[INVENTORY_ALL_SLOTS];
 
     MSG_S2C_INVENTORY() : header{ sizeof(*this), TYPE }, count(0), entries{} {}
 };
@@ -867,5 +894,69 @@ static_assert(sizeof(MSG_S2C_GROUND_ITEM_CREATE) == 25, "GROUND_ITEM_CREATE 는 
 static_assert(sizeof(MSG_S2C_GROUND_ITEM_DELETE) == 13, "GROUND_ITEM_DELETE 는 13B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_C2S_PICKUP)             == 4,  "C2S_PICKUP 은 헤더뿐");
 static_assert(sizeof(MSG_S2C_PICKUP_FAIL)        == 9,  "PICKUP_FAIL 은 9B (proto.js 와 맞출 것)");
+
+//==================================================
+// 스탯·장착 (USE_COMBAT · USE_EQUIP)
+//==================================================
+
+// S2C: 내 최종 공격력·방어력 — 본인에게만. 입장·레벨업·끼우기·빼기 때 보낸다(존 이동 때는 값이 안 바뀌어 안 보낸다).
+//   "최종" = 레벨 표 + 착용 장비. 클라는 합을 셈하지 않는다 — 무기가 얼마를 보태는지는 아이템 표로 보여 주기만 한다.
+//   ★ 부하 더미도 입장 때 반드시 한 장 받는다 — 더미가 이 타입을 몰라서는 안 된다.
+struct MSG_S2C_MY_STATS
+{
+    static constexpr MsgType TYPE = MsgType::S2C_MY_STATS;
+    MsgHeader header;
+    int32_t   attack;
+    int32_t   defense;
+
+    MSG_S2C_MY_STATS() : header{ sizeof(*this), TYPE }, attack(0), defense(0) {}
+};
+
+// 끼우기·빼기 거절 사유 — 서버는 위에서부터 차례로 보고 먼저 걸린 하나로 답한다(순서가 곧 확인 순서).
+//   끼우기에만 있는 것(NOT_EQUIPPABLE)과 빼기에만 있는 것(TAB_FULL)이 한 벌에 같이 있다.
+//   ★ 값이 와이어에 실린다 — 중간에 끼우지 말고 끝(COUNT 앞)에만 붙인다. WebClient/proto.js 에 같은 순서로 옮겨 둔다.
+enum class EquipFail : uint8_t
+{
+    BAD_SLOT,         // 끼우기: 장비 탭 칸이 아니다 · 빼기: 착용 칸이 아니다
+    EMPTY,            // 빈 칸
+    NOT_EQUIPPABLE,   // 끼우기: 장비 아이템이 아니다(표에서 사라진 번호 포함)
+    DEAD,             // 죽어 있다
+    COOLDOWN,         // 아직 대기 중이다(지난번에 끼우거나 뺀 지 1초가 안 됐다)
+    TAB_FULL,         // 빼기: 장비 탭에 빈 칸이 없다 — 아무것도 안 바뀐다
+    COUNT
+};
+
+// C2S: 이 가방 칸의 장비를 끼운다
+struct MSG_C2S_EQUIP
+{
+    static constexpr MsgType TYPE = MsgType::C2S_EQUIP;
+    MsgHeader header;
+    uint16_t  slot;   // 가방 칸 번호 (장비 탭 구간)
+};
+
+// C2S: 이 착용 칸의 장비를 뺀다
+struct MSG_C2S_UNEQUIP
+{
+    static constexpr MsgType TYPE = MsgType::C2S_UNEQUIP;
+    MsgHeader header;
+    uint16_t  slot;   // 착용 칸 번호 (EQUIP_SLOT_FIRST~)
+};
+
+// S2C: 끼우기·빼기 거절 — 성공은 따로 안 알린다(칸 갱신 둘과 S2C_MY_STATS 가 곧 결과다)
+struct MSG_S2C_EQUIP_FAIL
+{
+    static constexpr MsgType TYPE = MsgType::S2C_EQUIP_FAIL;
+    MsgHeader header;
+    uint16_t  slot;     // 요청에 실려 온 칸 번호 그대로
+    uint8_t   reason;   // EquipFail
+
+    MSG_S2C_EQUIP_FAIL() : header{ sizeof(*this), TYPE }, slot(0), reason(0) {}
+};
+
+static_assert(sizeof(MSG_S2C_MY_STATS)   == 12, "MY_STATS 는 12B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_EQUIP)      == 6,  "C2S_EQUIP 은 6B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_UNEQUIP)    == 6,  "C2S_UNEQUIP 은 6B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_EQUIP_FAIL) == 7,  "EQUIP_FAIL 은 7B (proto.js 와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::S2C_EQUIP_FAIL) == 1041, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");   // 문구에 긴 줄표를 쓰지 말 것 — 콘솔 클라가 CP949 로 읽어 C4566 경고
 
 #pragma pack(pop)

@@ -251,6 +251,11 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     case MsgType::S2C_GROUND_ITEM_CREATE: return sizeof(MSG_S2C_GROUND_ITEM_CREATE);
     case MsgType::S2C_GROUND_ITEM_DELETE: return sizeof(MSG_S2C_GROUND_ITEM_DELETE);
     case MsgType::S2C_PICKUP_FAIL:        return sizeof(MSG_S2C_PICKUP_FAIL);
+    // USE_COMBAT · USE_EQUIP: 스탯·장착 — 위와 같은 이유로 크기만 등록한다.
+    //   ★ S2C_MY_STATS 는 더미도 반드시 받는다 — 입장 때 본인에게 한 장 간다(S2C_EXP 와 같은 함정).
+    //     빠뜨리면 더미 전원이 접속하자마자 떨어진다. 끼우기는 안 하니 EQUIP_FAIL 은 올 일이 없지만 등록은 해 둔다.
+    case MsgType::S2C_MY_STATS:           return sizeof(MSG_S2C_MY_STATS);
+    case MsgType::S2C_EQUIP_FAIL:         return sizeof(MSG_S2C_EQUIP_FAIL);
     default: return 0;
     }
 }
