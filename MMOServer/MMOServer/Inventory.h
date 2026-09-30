@@ -4,7 +4,7 @@
 #include <cstdint>
 
 #include "BuildConfig.h"
-#include <Protocol/Protocol.h>   // InvTab · INV_TAB_RANGES · INVENTORY_TOTAL_SLOTS
+#include <Protocol/Protocol.h>   // InvTab · INV_TAB_RANGES · INVENTORY_TOTAL_SLOTS · EquipSlot · INVENTORY_ALL_SLOTS
 #include "Item.h"                // 가방 칸 하나 = Item (땅의 아이템도 같은 타입을 든다)
 
 #if USE_INVENTORY
@@ -37,17 +37,29 @@ enum class InvLoadSkip : uint8_t
 };
 const char* InvLoadSkipName(InvLoadSkip r);
 const char* UseItemFailName(UseItemFail r);     // 지표 라벨(full_hp 등) — 사유 enum 은 와이어에 실려 Protocol.h 에 있다
+const char* EquipFailName(EquipFail r);         // 지표 라벨(tab_full 등) — 위와 같은 까닭으로 enum 은 Protocol.h
 
-// 칸 번호 → 탭 + 가방 배열 색인. 구간 밖이면 false. INV_TAB_RANGES 를 돈다(탭마다 if 없음).
+// 칸 번호 → 탭 + 가방 배열 색인. 구간 밖이면 false. INV_TAB_RANGES 를 돈 다음 착용 구간을 본다(탭마다 if 없음).
+//   ★ 착용 칸(900~)이면 탭을 EQUIP 으로 돌려준다 — "그 칸에 드는 아이템의 탭"이다. 그래서 부르는 두 곳이 안 바뀐다:
+//     불러오기(LoadInventoryRows)의 탭 대조가 "무기 칸에 물약" 을 WRONG_TAB 으로 거르고, 물약 쓰기는 NOT_USABLE 로 떨어진다.
+//     COUNT 를 돌려주면 불러오기가 무기 칸 줄을 전부 WRONG_TAB 으로 버려 장착이 DB 에서 조용히 안 살아난다.
+//   가방 칸이냐 착용 칸이냐는 색인으로 가른다(IsWornIndex).
 bool FindInvSlot(uint16_t slot, InvTab& outTab, int& outIndex);
+
+// 착용 칸의 배열 색인 — 가방 칸 60 뒤에 이어 붙는다(색인 60 = 무기 칸 900).
+constexpr int WORN_BASE_INDEX = INVENTORY_TOTAL_SLOTS;
+constexpr int WornIndexOf(EquipSlot s) { return WORN_BASE_INDEX + static_cast<int>(s); }
+constexpr bool IsWornIndex(int index) { return index >= WORN_BASE_INDEX && index < INVENTORY_ALL_SLOTS; }
 
 // ==========================================================================
 // CInventory — 한 캐릭터의 가방
 //
-// [모양] 칸 60개를 빈틈없는 배열로 든다. 탭 구간(장비 0~19 · 소비 100~119 · 기타 200~219)은
-//        와이어와 DB 에만 쓰는 번호이고, 배열 색인은 탭 순서대로 이어 붙인 것이다.
+// [모양] 칸 61개를 빈틈없는 배열로 든다 — 가방 60 + 착용 1(무기). 탭 구간(장비 0~19 · 소비 100~119 · 기타 200~219)과
+//        착용 칸 번호(900~)는 와이어와 DB 에만 쓰는 번호이고, 배열 색인은 탭 순서대로 이어 붙인 뒤 착용 칸을 붙인 것이다.
+//        착용 칸도 같은 배열이라 바뀐 칸 표시·내보내기(FlushInventory)·전체 목록이 한 길로 돈다.
+//        넣기(TryAdd)는 아이템 탭의 구간만 돌아 착용 칸에 저절로 안 들어간다.
 //
-// [바뀐 칸] 가방이 스스로 적어 둔다(칸 60개 비트). 넣기든 쓰기든 같다.
+// [바뀐 칸] 가방이 스스로 적어 둔다(칸 61개 비트 — 착용 칸 포함). 넣기든 쓰기든 끼우기든 같다.
 //        내보내기(칸 패킷·DB 저장)는 CGameServer::FlushInventory 한 곳이다 — 칸을 바꾸는 길이
 //        늘어나도 패킷·저장을 따로 안 짠다. 빠뜨릴 수 있는 것은 그 호출 하나뿐이다.
 //
@@ -73,6 +85,14 @@ public:
     // 한 개 줄인다 — 0 이 되면 칸을 비운다(itemId 0). 쓸 수 있는지는 부르는 쪽이 이미 봤다(빈 칸이면 단언).
     void ConsumeOne(int index);
 
+    // 두 칸의 내용을 맞바꾼다 — 끼우기(가방 칸 ↔ 무기 칸)·빼기(무기 칸 ↔ 장비 탭의 빈 칸)가 이것 하나다.
+    //   한쪽이 비었으면 "옮기기"가 된다. 되는지(장비인가·죽었나·빈 칸이 있나)는 부르는 쪽이 이미 봤다(CGameServer::CheckEquip).
+    //   두 칸 다 바뀐 칸으로 적는다 — 내보내기(FlushInventory)가 칸 패킷 둘 + DB 두 줄로 나간다.
+    void SwapSlots(int a, int b);
+
+    // 그 탭의 첫 빈 칸(칸 번호 순) 색인. 없으면 -1.
+    int FirstEmptyInTab(InvTab tab) const;
+
     const Item& At(int index) const { return _slots[index]; }
     static uint16_t SlotNumberOf(int index);   // 배열 색인 → 칸 번호
     int CountNonEmpty() const;
@@ -83,7 +103,7 @@ public:
     {
         if (_changed.none())
             return;
-        for (int i = 0; i < INVENTORY_TOTAL_SLOTS; ++i)
+        for (int i = 0; i < INVENTORY_ALL_SLOTS; ++i)
         {
             if (_changed.test(static_cast<size_t>(i)))
                 fn(i);
@@ -93,8 +113,8 @@ public:
     bool HasChanges() const { return _changed.any(); }
 
 private:
-    Item _slots[INVENTORY_TOTAL_SLOTS];
-    std::bitset<INVENTORY_TOTAL_SLOTS> _changed;
+    Item _slots[INVENTORY_ALL_SLOTS];            // 가방 60 + 착용 칸(색인 WORN_BASE_INDEX~)
+    std::bitset<INVENTORY_ALL_SLOTS> _changed;
 };
 
 #endif // USE_INVENTORY

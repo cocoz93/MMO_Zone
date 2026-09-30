@@ -216,6 +216,27 @@ private:
 
     // 물약 대기시간 1초 — 서버 틱 수로 잰다(사용자 결정 09-23). 틱 주기가 바뀌어도 1초가 되게 FRAME_PER_SEC 로 쓴다.
     static constexpr uint64_t ITEM_USE_COOLDOWN_FRAMES = 25;   // = FRAME_PER_SEC (아래 선언보다 앞이라 숫자로 — 단언이 맞춘다)
+
+#if USE_EQUIP
+    // ── 장착 (USE_EQUIP) ──
+    // 끼우기(가방 칸 → 무기 칸, 차 있으면 맞바꿈) · 빼기(무기 칸 → 장비 탭 첫 빈 칸).
+    //   성공 = 칸 둘 맞바꾸기 → FlushInventory(칸 패킷 둘 + DB 두 줄) → RecalcStats → S2C_MY_STATS. 성공 알림은 따로 없다.
+    //   거절 = S2C_EQUIP_FAIL(요청 칸 번호, 사유) — 아무것도 안 바뀐다.
+    void RecvEquip(CPlayer* player, CSerialBuffer* pMsg);
+    void RecvUnequip(CPlayer* player, CSerialBuffer* pMsg);
+
+    // 되나 — EquipFail 순서대로 보고 먼저 걸린 하나를 돌려준다. 통과면 COUNT 이고 outFrom·outTo 에 맞바꿀 두 색인.
+    //   unequip = false 면 끼우기(slot = 가방 칸), true 면 빼기(slot = 착용 칸). 물약 CheckUseItem 과 같은 꼴 —
+    //   ★ 끼우기는 가방 칸이면 탭을 안 가린다: 물약 칸을 보내면 BAD_SLOT 이 아니라 NOT_EQUIPPABLE 이다(쓰기가 NOT_USABLE 인 것과 같다).
+    //     BAD_SLOT 은 "그런 가방 칸이 없다"(없는 번호 · 착용 칸 번호)뿐이다.
+    EquipFail CheckEquip(const CPlayer* player, uint16_t slot, bool unequip, int& outFrom, int& outTo) const;
+
+    // 받기 둘의 몸 — 판정 → 거절 답 또는 맞바꾸기·내보내기·스탯. 끼우기·빼기가 같은 길을 탄다(세는 곳도 여기).
+    void ApplyEquip(CPlayer* player, uint16_t slot, bool unequip);
+
+    // 끼우기·빼기 대기시간 1초 — 물약과 따로 센다(플랜 ㉰).
+    static constexpr uint64_t EQUIP_COOLDOWN_FRAMES = 25;   // = FRAME_PER_SEC (단언이 맞춘다)
+#endif
 #endif
 
 #if USE_MONSTER

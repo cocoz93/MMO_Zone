@@ -917,9 +917,9 @@ struct MSG_S2C_MY_STATS
 //   ★ 값이 와이어에 실린다 — 중간에 끼우지 말고 끝(COUNT 앞)에만 붙인다. WebClient/proto.js 에 같은 순서로 옮겨 둔다.
 enum class EquipFail : uint8_t
 {
-    BAD_SLOT,         // 끼우기: 장비 탭 칸이 아니다 · 빼기: 착용 칸이 아니다
+    BAD_SLOT,         // 끼우기: 그런 가방 칸이 없다(없는 번호 · 착용 칸 번호) · 빼기: 착용 칸이 아니다
     EMPTY,            // 빈 칸
-    NOT_EQUIPPABLE,   // 끼우기: 장비 아이템이 아니다(표에서 사라진 번호 포함)
+    NOT_EQUIPPABLE,   // 끼우기: 장비 아이템이 아니다 — 물약 칸을 보내도 여기다(물약 쓰기의 NOT_USABLE 과 같은 꼴) · 표에서 사라진 번호 포함
     DEAD,             // 죽어 있다
     COOLDOWN,         // 아직 대기 중이다(지난번에 끼우거나 뺀 지 1초가 안 됐다)
     TAB_FULL,         // 빼기: 장비 탭에 빈 칸이 없다 — 아무것도 안 바뀐다

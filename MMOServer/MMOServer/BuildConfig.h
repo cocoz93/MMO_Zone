@@ -178,6 +178,20 @@
 	#error "USE_DROP requires USE_INVENTORY=1 and USE_MONSTER=1 (떨어지는 쪽과 담는 쪽이 다 있어야 한다)"
 #endif
 
+// 장착 — 가방의 장비를 무기 칸(칸 번호 900)에 끼우고 빼며, 끼운 무기의 공격력이 스탯에 더해진다.
+//   ★ 무기 칸은 가방과 같은 DB 테이블·같은 저장 길(FlushInventory)을 쓴다 — DB 는 안 바뀐다.
+//   1: 장착 활성 — 끼우기·빼기 요청을 받고, 스탯 함수가 무기 몫을 더한다 [기본]
+//   0: 요청은 조용히 버려지고(크기 등록이 빠짐) 무기 몫이 0 — 칸 자리(가방 배열·와이어)는 그대로 남는다
+//   기본값이 가방을 따라가는 이유: 끼울 장비가 가방에서 온다. 가방을 끄면 같이 꺼져 아래 #error 를 안 만난다.
+//   주의: 켠 채 부하 더미를 돌려도 더미에게 새로 가는 것은 입장 때 S2C_MY_STATS 한 장뿐이다(USE_COMBAT 몫, 더미에 등록됨).
+#ifndef USE_EQUIP
+#define USE_EQUIP USE_INVENTORY
+#endif
+
+#if USE_EQUIP && !USE_INVENTORY
+	#error "USE_EQUIP requires USE_INVENTORY=1 (끼울 장비가 가방에서 온다)"
+#endif
+
 // 기획 데이터 파일이 하나라도 필요한가 — 표를 담는 자리(CGameDataFiles)와 CSV 도우미가 이걸 본다.
 //   표마다 토글이 따로라, "레벨 표는 끄고 아이템 표만 켠" 빌드에서도 담는 자리는 살아 있어야 한다.
 //   스폰 구역 표(SpawnRegion.csv)는 몬스터 토글을 따른다 — 뱀이 태어날 자리라 몬스터를 끄면 뜻이 없다.

@@ -349,7 +349,7 @@ namespace
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_INVENTORY::TYPE);
         *buf << static_cast<uint16_t>(count);
-        for (int i = 0; i < INVENTORY_TOTAL_SLOTS; ++i)
+        for (int i = 0; i < INVENTORY_ALL_SLOTS; ++i)   // 착용 칸까지 — 클라가 무기 칸도 이 한 장으로 안다
         {
             const Item& s = inv.At(i);
             if (s.itemId == 0)
@@ -386,6 +386,19 @@ namespace
         assert(buf->GetDataSize() == sizeof(MSG_S2C_USE_ITEM_FAIL));
         return buf;
     }
+
+#if USE_EQUIP
+    CSerialBuffer* MakeEquipFail(uint16_t slot, EquipFail reason)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_EQUIP_FAIL::TYPE);
+        *buf << static_cast<uint16_t>(slot);
+        *buf << static_cast<uint8_t>(reason);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_EQUIP_FAIL));
+        return buf;
+    }
+#endif
 #endif // USE_INVENTORY
 
 #if USE_DROP
@@ -1305,6 +1318,16 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
     (void)accountId;
 #endif
 
+#if USE_INVENTORY && USE_DB_WORKER
+    // ── 불러온 가방 — 스탯을 세우기 "전"에 채운다 ──
+    //   ★ 무기 칸(900)도 여기서 들어온다. 아래 레벨 정산·스탯 세우기(RecalcStats)가 무기 몫을 더하므로,
+    //     이 줄이 그보다 뒤에 있으면 무기를 끼운 채 나갔다 들어온 사람이 맨손 공격력으로 입장한다
+    //     (컴파일도 되고 화면도 멀쩡하다 — 입장 직후 S2C_MY_STATS 의 공격력만 틀린다).
+    //   가방과 계수기만 만지는 일이라 앞당겨도 다른 것이 안 바뀐다. 전체 목록(SendInventory)은 그대로 아래에서 보낸다.
+    if (place.loaded != nullptr)
+        LoadInventoryRows(player, *place.loaded);
+#endif
+
 #if USE_EXP
     // ── 레벨 정산 — 스탯을 표에서 다시 세우고, 불러온 값이 표와 어긋나면 바로잡는다 ──
     //   ★ SendZoneInfo 보다 앞이다. SendCreateMyPlayer 가 곧바로 최대 체력을 실어 보내므로
@@ -1347,11 +1370,7 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
 #endif
 
 #if USE_INVENTORY
-#if USE_DB_WORKER
-    // 3-0) 불러온 가방 — 전체 목록을 보내기 "전"에 채운다(안 그러면 첫 장이 빈 가방으로 나간다)
-    if (place.loaded != nullptr)
-        LoadInventoryRows(player, *place.loaded);
-#endif
+    // 3-0) 불러온 가방은 위에서 이미 채웠다(스탯 세우기 앞 — 무기 몫 때문). 여기서는 보내기만 한다.
     // 3-1) 본인에게 가방 전체 — 빈 가방이어도 한 장. 존 이동 때는 안 보낸다(가방이 안 바뀐다).
     //   ★ 부하 더미가 이 패킷을 받는 유일한 길이 여기다(더미는 아이템을 안 받는다). 그래서 더미 시험과
     //     "등록을 빼면 떨어지나" 돌연변이가 이 한 장에 매달려 있다 — "비었으면 안 보내자"로 바꾸면 둘 다
@@ -1643,6 +1662,16 @@ void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
         break;
 #endif
 
+#if USE_EQUIP
+    case MsgType::C2S_EQUIP:
+        RecvEquip(player, pMsg);
+        break;
+
+    case MsgType::C2S_UNEQUIP:
+        RecvUnequip(player, pMsg);
+        break;
+#endif
+
 #if USE_DROP
     case MsgType::C2S_PICKUP:
         RecvPickup(player, pMsg);
@@ -1679,6 +1708,11 @@ uint16_t CGameServer::GetExpectedSize(MsgType type)
 #if USE_INVENTORY
     // 이 줄이 없으면 물약 쓰기가 조용히 버려진다(위 C2S_ATTACK 과 같은 함정 — 답도 로그도 없다).
     case MsgType::C2S_USE_ITEM:     return sizeof(MSG_C2S_USE_ITEM);
+#endif
+#if USE_EQUIP
+    // 이 두 줄이 없으면 끼우기·빼기가 조용히 버려진다(위 물약과 같은 함정 — 거절 패킷도 안 간다).
+    case MsgType::C2S_EQUIP:        return sizeof(MSG_C2S_EQUIP);
+    case MsgType::C2S_UNEQUIP:      return sizeof(MSG_C2S_UNEQUIP);
 #endif
 #if USE_DROP
     case MsgType::C2S_PICKUP:       return sizeof(MSG_C2S_PICKUP);   // 몸 없음 — 헤더뿐
@@ -2050,7 +2084,7 @@ void CGameServer::FlushInventory(CPlayer* player)
 }
 
 #if USE_DB_WORKER
-static_assert(DB_INV_MAX_ROWS >= INVENTORY_TOTAL_SLOTS, "결과에 실을 가방 줄 수가 가방 칸 수보다 적다");
+static_assert(DB_INV_MAX_ROWS >= INVENTORY_ALL_SLOTS, "결과에 실을 가방 줄 수가 가방·착용 칸 수보다 적다");
 
 void CGameServer::LoadInventoryRows(CPlayer* player, const DBResult& result)
 {
@@ -2080,6 +2114,7 @@ void CGameServer::LoadInventoryRows(CPlayer* player, const DBResult& result)
             skip(InvLoadSkip::UNKNOWN_ITEM, r);
             continue;
         }
+        // 무기 칸(900)이면 FindInvSlot 이 탭을 EQUIP 으로 준다 — 무기 칸에 물약·재료가 든 줄도 여기서 걸린다
         if (def->tab != tab)
         {
             skip(InvLoadSkip::WRONG_TAB, r);
@@ -2174,6 +2209,96 @@ void CGameServer::RecvUseItem(CPlayer* player, CSerialBuffer* pMsg)
     if (zone != nullptr)
         BroadcastAroundSector(zone, player, MakeActorStats(player->_actorId, player->_hp, player->_maxHp), false);
 }
+
+#if USE_EQUIP
+// ==========================================================================
+// 장착 — 끼우기·빼기는 "칸 둘 맞바꾸기" 하나다(CInventory::SwapSlots).
+//   저장은 지금 가방 길 그대로(FlushInventory — 칸마다 DB 한 줄). ★ 두 줄은 따로 쓴다 — 두 문장 사이에
+//   서버가 죽으면 무기 하나를 잃거나 복제될 수 있다(여러 칸 넣기와 같은 틈, 플랜 ㉯ — 거래 때 트랜잭션 레인으로).
+// ==========================================================================
+EquipFail CGameServer::CheckEquip(const CPlayer* player, uint16_t slot, bool unequip, int& outFrom, int& outTo) const
+{
+    // EquipFail 의 순서 그대로 본다 — 여럿이 겹치면 먼저 걸린 하나로 답한다(열거 순서가 곧 확인 순서).
+    const CInventory& inv = player->_inventory;
+
+    // BAD_SLOT — 끼우기는 "가방 칸", 빼기는 "착용 칸" 이어야 한다
+    InvTab tab;
+    if (!FindInvSlot(slot, tab, outFrom) || IsWornIndex(outFrom) != unequip)
+        return EquipFail::BAD_SLOT;
+
+    // EMPTY
+    const Item& s = inv.At(outFrom);
+    if (s.itemId == 0)
+        return EquipFail::EMPTY;
+
+    // NOT_EQUIPPABLE — 끼우기만. 물약 칸을 보내도 여기서 걸린다(가방 칸이면 탭을 안 가린다 — 선언 주석)
+    //   표에서 사라진 번호도 여기로 떨어진다. 무기 칸의 것은 불러오기가 이미 장비만 들였다.
+    if (!unequip)
+    {
+        const ItemDef* def = _gameDataFiles.Item().Find(s.itemId);
+        if (def == nullptr || def->tab != InvTab::EQUIP)
+            return EquipFail::NOT_EQUIPPABLE;
+    }
+
+    if (player->_isDead)
+        return EquipFail::DEAD;
+
+    if (_frameCount < player->_equipReadyFrame)
+        return EquipFail::COOLDOWN;
+
+    // 맞바꿀 상대 — 끼우기는 무기 칸(비었든 찼든), 빼기는 장비 탭의 첫 빈 칸
+    if (!unequip)
+    {
+        outTo = WornIndexOf(EquipSlot::WEAPON);   // 부위가 무기 하나뿐 — 둘째 부위가 생기면 아이템 표의 부위 칸으로 고른다
+        return EquipFail::COUNT;
+    }
+    outTo = inv.FirstEmptyInTab(InvTab::EQUIP);
+    if (outTo < 0)
+        return EquipFail::TAB_FULL;   // 아무것도 안 바꾼다 — 무기는 그대로 끼워져 있다
+    return EquipFail::COUNT;
+}
+
+void CGameServer::RecvEquip(CPlayer* player, CSerialBuffer* pMsg)
+{
+    MSG_C2S_EQUIP recvMsg{};
+    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
+    ApplyEquip(player, recvMsg.slot, false);
+}
+
+void CGameServer::RecvUnequip(CPlayer* player, CSerialBuffer* pMsg)
+{
+    MSG_C2S_UNEQUIP recvMsg{};
+    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
+    ApplyEquip(player, recvMsg.slot, true);
+}
+
+void CGameServer::ApplyEquip(CPlayer* player, uint16_t slot, bool unequip)
+{
+    static_assert(EQUIP_COOLDOWN_FRAMES == FRAME_PER_SEC, "장착 대기시간은 1초 — 틱 주기를 바꿨으면 같이 맞출 것");
+
+    int from = -1, to = -1;
+    const EquipFail fail = CheckEquip(player, slot, unequip, from, to);
+    if (fail != EquipFail::COUNT)
+    {
+        _gameMonitor._equip._rejected[static_cast<int>(fail)].Inc();
+        SendPacket(player, MakeEquipFail(slot, fail));
+        return;
+    }
+
+    // ── 성공 — 칸 둘을 맞바꾸고 대기시간을 건다(성공했을 때만 — 거절은 안 건다) ──
+    player->_inventory.SwapSlots(from, to);
+    player->_equipReadyFrame = _frameCount + EQUIP_COOLDOWN_FRAMES;
+    if (unequip) _gameMonitor._equip._unequipped.Inc();
+    else         _gameMonitor._equip._equipped.Inc();
+
+    // 칸 패킷 둘 + DB 두 줄 → 공격력 다시 세우기 → 본인에게 새 공격력.
+    //   ★ 순서가 곧 와이어 순서다 — 칸 패킷이 MY_STATS 보다 앞선다(클라가 무기 칸을 먼저 알고 숫자를 채운다).
+    //   체력은 그대로다(refillHp=false) — 무기는 공격력만 바꾼다.
+    FlushInventory(player);
+    RecalcStats(player, false);
+    SendMyStats(player);
+}
+#endif // USE_EQUIP
 #endif // USE_INVENTORY
 
 // ==========================================================================
@@ -2793,6 +2918,19 @@ void CGameServer::RecalcStats(CPlayer* player, bool refillHp)
     player->_maxHp       = CHARACTER_DEFAULT_MAX_HP;
     player->_attackPower = CHARACTER_DEFAULT_ATTACK_POWER;
     player->_defense     = CHARACTER_DEFAULT_DEFENSE;
+#endif
+
+#if USE_EQUIP
+    // 착용 칸의 몫 — 칸마다 아이템 표의 attack 을 더한다(지금은 무기 칸 하나).
+    //   표에서 사라진 번호(패치로 지운 아이템)는 더하지 않는다 — 불러오기가 이미 건너뛰므로 평소엔 안 닿는다.
+    for (int w = 0; w < INVENTORY_WORN_SLOTS; ++w)
+    {
+        const Item& worn = player->_inventory.At(WornIndexOf(static_cast<EquipSlot>(w)));
+        if (worn.itemId == 0)
+            continue;
+        if (const ItemDef* def = _gameDataFiles.Item().Find(worn.itemId))
+            player->_attackPower += def->attack;
+    }
 #endif
 
     // 레벨이 올랐을 때만 채운다. 입장 때는 DB 가 들고 있던 체력이 아직 없으므로(스탯만 맞춘다)

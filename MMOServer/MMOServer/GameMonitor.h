@@ -199,6 +199,19 @@ public:
     } _inventory;
 
     DBItemSaveCounters _dbItem;   // 워커 스레드 몫 — 위 등식의 오른쪽
+
+#if USE_EQUIP
+    // ══════════════════════════════════════════════════════════════
+    // 장착 (USE_EQUIP) — 성공은 방향마다 한 칸, 거절은 사유마다 한 칸(배열).
+    //   세는 곳은 CGameServer::ApplyEquip 한 곳이다(끼우기·빼기가 같은 길을 탄다).
+    // ══════════════════════════════════════════════════════════════
+    struct alignas(64) EquipCounters
+    {
+        Counter _equipped;                                          // 끼우기 성공
+        Counter _unequipped;                                        // 빼기 성공
+        Counter _rejected[static_cast<int>(EquipFail::COUNT)];      // 거절, 사유별
+    } _equip;
+#endif
 #endif
 
 #if USE_DROP

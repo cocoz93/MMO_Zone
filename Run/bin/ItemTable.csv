@@ -5,9 +5,12 @@
 #   healHp   : HP restored when used. use items need >= 1, others 0.
 #   icon     : cell index on the LPC item sheet (16 cells per row, 32px). Server ignores it.
 #              Checked by eye on a numbered grid (09-23): 83 red bottle, 85 green bottle, 136 hide, 7 dagger.
+#   attack   : added to attack power while worn (2026-09-30). equip items only - others must be 0.
+#              Every equip item goes to the weapon slot (Protocol.h EquipSlot has one part for now).
+#              Lv1 attack 10 kills a snake (30 HP) in 3 hits; the dagger (+5) makes it 2.
 #   Lv1 HP is 800 and a snake bite is 5, so a small potion (200) is 40 bites.
-itemId,name,tab,maxStack,healHp,icon
-1,작은 물약,use,99,200,83
-2,큰 물약,use,99,500,85
-3,뱀 가죽,etc,99,0,136
-4,낡은 단검,equip,1,0,7
+itemId,name,tab,maxStack,healHp,icon,attack
+1,작은 물약,use,99,200,83,0
+2,큰 물약,use,99,500,85,0
+3,뱀 가죽,etc,99,0,136,0
+4,낡은 단검,equip,1,0,7,5

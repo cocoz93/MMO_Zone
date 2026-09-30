@@ -70,16 +70,16 @@ bool CItemTable::Load(const std::string& path)
     for (const DataLine& dl : lines)
     {
         SplitCsv(dl.text, cell);
-        if (cell.size() < 6)
+        if (cell.size() < 7)
         {
-            SLOG_ERROR("[ItemTable] {}줄: 칸이 {}개입니다 — itemId,name,tab,maxStack,healHp,icon 여섯이 필요합니다",
+            SLOG_ERROR("[ItemTable] {}줄: 칸이 {}개입니다 — itemId,name,tab,maxStack,healHp,icon,attack 일곱이 필요합니다",
                        dl.fileLine, cell.size());
             return false;
         }
 
-        int64_t itemId = 0, maxStack = 0, healHp = 0, icon = 0;
+        int64_t itemId = 0, maxStack = 0, healHp = 0, icon = 0, attack = 0;
         if (!ParseInt(cell[0], itemId) || !ParseInt(cell[3], maxStack) ||
-            !ParseInt(cell[4], healHp) || !ParseInt(cell[5], icon))
+            !ParseInt(cell[4], healHp) || !ParseInt(cell[5], icon) || !ParseInt(cell[6], attack))
         {
             SLOG_ERROR("[ItemTable] {}줄: 숫자여야 하는 칸이 숫자가 아닙니다 — \"{}\"", dl.fileLine, dl.text);
             return false;
@@ -142,6 +142,14 @@ bool CItemTable::Load(const std::string& path)
             return false;
         }
 
+        // ⑺ 착용 공격력 — 음수 금지. 장비가 아닌데 값이 있으면 끼울 수 없는 아이템의 값이라 아무 일도 안 한다(⑸ 와 같은 결)
+        if (attack < 0 || attack > 9999 || (tab != InvTab::EQUIP && attack != 0))
+        {
+            SLOG_ERROR("[ItemTable] {}줄: attack {} — 장비는 0~9999, 그 밖은 0 이어야 합니다 (아이템 {})",
+                       dl.fileLine, attack, itemId);
+            return false;
+        }
+
         if (static_cast<int64_t>(_rows.size()) <= itemId)
             _rows.resize(static_cast<size_t>(itemId) + 1);
 
@@ -151,6 +159,7 @@ bool CItemTable::Load(const std::string& path)
         d.tab      = tab;
         d.maxStack = static_cast<int32_t>(maxStack);
         d.healHp   = static_cast<int32_t>(healHp);
+        d.attack   = static_cast<int32_t>(attack);
         ++_count;
         ++perTab[static_cast<int>(tab)];
     }

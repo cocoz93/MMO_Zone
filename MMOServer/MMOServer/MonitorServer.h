@@ -583,6 +583,23 @@ private:
         }
         ss << "\n";
 #endif
+
+#if USE_EQUIP
+        // 장착 — 성공은 방향(op)마다, 거절은 사유마다 한 줄. 사유는 표를 돈다(늘어도 노출에서 안 빠진다).
+        const auto& eq = _gameMonitor._equip;
+        ss << "# HELP mmo_equip_total Equip / unequip requests that succeeded\n";
+        ss << "# TYPE mmo_equip_total counter\n";
+        ss << "mmo_equip_total{op=\"equip\"} "   << eq._equipped   << "\n";
+        ss << "mmo_equip_total{op=\"unequip\"} " << eq._unequipped << "\n\n";
+        ss << "# HELP mmo_equip_rejected_total Equip / unequip requests refused, split by reason\n";
+        ss << "# TYPE mmo_equip_rejected_total counter\n";
+        for (int i = 0; i < static_cast<int>(EquipFail::COUNT); ++i)
+        {
+            ss << "mmo_equip_rejected_total{reason=\"" << EquipFailName(static_cast<EquipFail>(i))
+               << "\"} " << eq._rejected[i] << "\n";
+        }
+        ss << "\n";
+#endif
 #endif
 
 #if USE_DROP

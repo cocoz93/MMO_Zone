@@ -51,6 +51,22 @@ const char* UseItemFailName(UseItemFail r)
     return "?";
 }
 
+const char* EquipFailName(EquipFail r)
+{
+    static_assert(static_cast<int>(EquipFail::COUNT) == 6, "EquipFail 을 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case EquipFail::BAD_SLOT:       return "bad_slot";
+    case EquipFail::EMPTY:          return "empty";
+    case EquipFail::NOT_EQUIPPABLE: return "not_equippable";
+    case EquipFail::DEAD:           return "dead";
+    case EquipFail::COOLDOWN:       return "cooldown";
+    case EquipFail::TAB_FULL:       return "tab_full";
+    case EquipFail::COUNT:          break;
+    }
+    return "?";
+}
+
 const char* InvLoadSkipName(InvLoadSkip r)
 {
     static_assert(static_cast<int>(InvLoadSkip::COUNT) == 5, "InvLoadSkip 을 늘렸으면 이름도 붙일 것");
@@ -80,12 +96,23 @@ bool FindInvSlot(uint16_t slot, InvTab& outTab, int& outIndex)
         }
         base += r.slotCount;
     }
+
+    // 착용 칸 — 탭은 "그 칸에 드는 아이템의 탭" 인 EQUIP(헤더 주석 참조)
+    if (slot >= EQUIP_SLOT_FIRST && slot < EQUIP_SLOT_FIRST + INVENTORY_WORN_SLOTS)
+    {
+        outTab   = InvTab::EQUIP;
+        outIndex = WORN_BASE_INDEX + (slot - EQUIP_SLOT_FIRST);
+        return true;
+    }
     return false;
 }
 
 uint16_t CInventory::SlotNumberOf(int index)
 {
-    assert(index >= 0 && index < INVENTORY_TOTAL_SLOTS);
+    assert(index >= 0 && index < INVENTORY_ALL_SLOTS);
+    if (IsWornIndex(index))
+        return static_cast<uint16_t>(EQUIP_SLOT_FIRST + (index - WORN_BASE_INDEX));
+
     int base = 0;
     for (unsigned i = 0; i < TAB_COUNT; ++i)
     {
@@ -94,7 +121,7 @@ uint16_t CInventory::SlotNumberOf(int index)
             return static_cast<uint16_t>(r.firstSlot + (index - base));
         base += r.slotCount;
     }
-    return 0;   // 닿지 않는다 — 색인이 총 칸 수 미만이면 위에서 반드시 걸린다
+    return 0;   // 닿지 않는다 — 가방 색인이 가방 칸 수 미만이면 위에서 반드시 걸린다
 }
 
 int CInventory::CountNonEmpty() const
@@ -162,7 +189,7 @@ InvAddResult CInventory::TryAdd(const ItemDef& def, int32_t count)
 
 void CInventory::ConsumeOne(int index)
 {
-    assert(index >= 0 && index < INVENTORY_TOTAL_SLOTS);
+    assert(index >= 0 && index < INVENTORY_ALL_SLOTS);
     Item& s = _slots[index];
     assert(s.itemId != 0 && s.count > 0);   // 부르는 쪽(RecvUseItem)이 빈 칸을 이미 거절했다
     if (--s.count <= 0)
@@ -173,9 +200,31 @@ void CInventory::ConsumeOne(int index)
     _changed.set(static_cast<size_t>(index));
 }
 
+void CInventory::SwapSlots(int a, int b)
+{
+    assert(a >= 0 && a < INVENTORY_ALL_SLOTS && b >= 0 && b < INVENTORY_ALL_SLOTS && a != b);
+    const Item t = _slots[a];
+    _slots[a] = _slots[b];
+    _slots[b] = t;
+    _changed.set(static_cast<size_t>(a));
+    _changed.set(static_cast<size_t>(b));
+}
+
+int CInventory::FirstEmptyInTab(InvTab tab) const
+{
+    const int begin = TabBaseIndex(tab);
+    const int end   = begin + INV_TAB_RANGES[static_cast<unsigned>(tab)].slotCount;
+    for (int i = begin; i < end; ++i)
+    {
+        if (_slots[i].itemId == 0)
+            return i;
+    }
+    return -1;
+}
+
 void CInventory::LoadSlot(int index, int32_t itemId, int32_t count)
 {
-    assert(index >= 0 && index < INVENTORY_TOTAL_SLOTS);
+    assert(index >= 0 && index < INVENTORY_ALL_SLOTS);
     _slots[index].itemId = itemId;
     _slots[index].count  = count;
     // 바뀐 칸 표시를 안 켠다 — DB 에서 온 값 그대로라 다시 쓸 일도, 클라에 칸 패킷을 보낼 일도 없다
