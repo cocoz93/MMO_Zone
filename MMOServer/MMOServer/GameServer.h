@@ -32,6 +32,7 @@
 #include "MapManager.h"
 #include "Player.h"
 #include "Combat.h"        // 전투 판정 (순수 함수 — 송신·존·섹터를 모른다)
+#include "CombatSystem.h"  // 공격 흐름 — 여기서는 그 알림(ICombatEvents)을 구현한다
 #include "MonitorManager.h"
 #include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
 #include "Common.h"
@@ -41,6 +42,9 @@
 class CSerialBuffer;
 
 class CGameServer
+#if USE_COMBAT
+    : private ICombatEvents   // 공격 흐름(CCombatSystem)의 알림 셋 — 꽂는 것은 이 클래스 자신뿐이라 비공개
+#endif
 {
 public:
     CGameServer(CMonitorManager& monitor, CGameMonitor& gameMonitor);
@@ -170,8 +174,8 @@ private:
 
 #if USE_COMBAT
     // ── 전투 (USE_COMBAT) ──
-    // 판정은 namespace Combat이 하고, 여기서는 그 결과를 세계에 적용한다
-    //   (송신 · 부활 대기열 등록 · 지표 올리기).
+    // 공격 흐름은 CCombatSystem(_combatSystem)이 하고, 여기서는 그 알림을 받아 세계에 적용한다
+    //   (송신 · 죽은 목록 등록 · 보상).
     void RecvAttack(CPlayer* player, CSerialBuffer* pMsg);
 
     // 부활 대기자 훑기 — 틱마다 1회. 존 전체를 돌지 않으려고 죽은 것만 따로 들고 있는다.
@@ -180,9 +184,10 @@ private:
     // 부활 대기열에서 빼기 — 퇴장 경로가 반드시 부른다. 안 부르면 다음 틱이 해제된 포인터를 밟는다.
     void RemoveFromDeadActors(CCharacter* player);
 
-    // 공격 본체 — 플레이어(RecvAttack)와 몬스터(ThinkMonster)가 같이 쓴다.
-    //   읽는 필드가 전부 CCharacter 것이라 세션 핸들러에서 갈라낼 수 있었다.
-    void PerformAttack(CZone* zone, CCharacter* attacker);
+    // 공격 알림 셋 (ICombatEvents) — 뜻과 순서는 CombatSystem.h. 셋 다 공격자 주변 9섹터에 방송한다.
+    void OnSwing(CZone* zone, CCharacter* attacker) override;
+    void OnHit(CZone* zone, CCharacter* attacker, CCharacter* target, int32_t damage, int32_t remainHp) override;
+    void OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target) override;   // 죽은 목록 → DEATH → 경험치 → 드랍
 #endif
 
 #if USE_INVENTORY
@@ -284,7 +289,7 @@ private:
 
 #if USE_DROP
     // ── 드랍 (USE_DROP) ──
-    // 사람이 몬스터를 잡으면 부른다(PerformAttack 의 경험치 블록 뒤 — 같은 조건).
+    // 사람이 몬스터를 잡으면 부른다(OnDeath 의 경험치 블록 뒤 — 같은 조건).
     //   표의 줄마다 굴려 땅에 놓고, 아이템마다 자기 섹터 주변 플레이어에게 CREATE(DROP).
     //   주인 = 막타 친 계정, LOOT_LOCK_FRAMES 동안 먼저 줍는다. GROUND_ITEM_LIFE_FRAMES 뒤 사라진다.
     void DropLoot(CZone* zone, CPlayer* killer, CMonster* monster);
@@ -586,6 +591,10 @@ private:
     //   퇴장 경로(BroadcastLeaveZone·OnDisconnected)가 반드시 회수해야 한다.
     //   같은 규율이 이미 dirtyMovers·_sectorChangedSet·_pendingSectorChanges에 있다.
     std::vector<CCharacter*> _deadActors;
+
+    // 공격 흐름 — 알림은 이 클래스(ICombatEvents)로 돌아온다.
+    //   ★ _gameMonitor 보다 뒤에 선언해야 한다 — 멤버는 선언 순서로 세워지므로, 앞에 두면 아직 안 묶인 참조를 넘긴다.
+    CCombatSystem _combatSystem{ _gameMonitor, *this };
 #endif
 
     // ── 섹터 아웃박스 ── 틱-지연 배칭 상태를 한 덩어리로 응집.

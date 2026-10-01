@@ -3,7 +3,7 @@
 //
 // [책임]
 //  - 쿨타임·사거리·생사만 보고 "되나 / 왜 안 되나"를 돌려준다 · 피해 크기를 센다(공격력 − 방어력)
-//  - 송신도, 죽은 목록 등록도, 존·섹터 조회도 하지 않는다 — 전부 CGameServer가 한다
+//  - 송신도, 죽은 목록 등록도, 존·섹터 조회도 하지 않는다 — 대상 찾기는 CCombatSystem, 송신·죽은 목록은 CGameServer가 한다
 //
 // [왜 떼어냈나]
 //  GameServer.cpp는 이미 2,000줄이 넘고 실험 토글이 수십 곳이다. 판정까지 거기 넣으면
@@ -11,7 +11,7 @@
 //
 // [계층 경계]
 //  CPlayer·CZone·CSerialBuffer를 모른다. 그래서 대상 "목록"도 받지 않는다 —
-//  후보를 도는 루프는 CGameServer가 돌고, 여기는 한 쌍씩만 판정한다.
+//  후보를 도는 루프는 CCombatSystem(CombatSystem.h)이 돌고, 여기는 한 쌍씩만 판정한다.
 // ==========================================================================
 #pragma once
 
@@ -58,7 +58,7 @@ namespace Combat
     int32_t CalcDamage(int32_t attack, int32_t defense, bool& outFloored);
 
     // 피해 적용 — 남은 HP를 outRemainHp에 담고, 이 타격으로 죽었으면 true.
-    //   _isDead·_deathFrame 기록과 부활 대기열 등록은 호출자 몫이다(대기열이 CGameServer에 있다).
+    //   _isDead·_deathFrame 기록은 호출자(CCombatSystem) 몫, 부활 대기열 등록은 CGameServer 몫이다(대기열이 거기 있다).
     bool ApplyDamage(CCharacter& target, int32_t damage, int32_t& outRemainHp);
 
     // 부활할 때가 됐나 (살아 있으면 항상 false)
