@@ -1498,6 +1498,20 @@ void CGameServer::RecvEnterGame(int64_t sessionId, CSerialBuffer* pMsg)
             return;
     }
 
+    // ⑴-2 계정 번호 범위 — 0(미지정)이거나 ACCOUNT_ID_MIN 이상이어야 한다. 걸리면 캐릭터 번호도 안 뽑고 끊는다.
+    //    지정 번호가 자동 번호 구간(int32 카운터, 2^31 미만)으로 내려오면 0 으로 들어온 남의 접속과 같은 행을
+    //    서로 덮어쓰고, 아래 ⑶ 중복 정리가 그 접속을 끊는다. 음수(-1 등)도 여기서 걸린다.
+    //    ※ 범위 검사일 뿐 본인 확인이 아니다 — 범위 안의 남의 번호는 인증이 붙기 전까지 못 거른다.
+    if (recvMsg.accountId != 0 && recvMsg.accountId < ACCOUNT_ID_MIN)
+    {
+        SLOG_WARN("[LOGIN] enter rejected: account out of range -> disconnect (account={}, session={})",
+                  recvMsg.accountId, sessionId);
+        PendingEnter gone;
+        TakePendingEnter(sessionId, gone);
+        _network->RequestDisconnectSession(sessionId);
+        return;
+    }
+
     // ⑵ 번호 둘. 캐릭터 번호는 언제나 새로 뽑고, 계정 번호는 들고 온 값이 있으면 그것, 없으면(0)
     //    방금 뽑은 캐릭터 번호를 그대로 쓴다 — 그래야 번호를 안 들고 온 접속이 지금까지와 똑같이 돈다.
     //    자동과 지정은 구간이 타입으로 갈린다: AllocPlayerId 는 int32 카운터라 2^31 위로 못 올라온다.
