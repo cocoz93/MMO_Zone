@@ -36,6 +36,8 @@ public:
     virtual ~ICombatEvents() = default;
 
     // 휘둘렀다 — 대상 유무와 무관하게 온다(헛스윙도 그려야 한다). → S2C_ATTACK
+    //   지금은 서버가 정면에서 대상을 고른다(논타겟팅). 꼭 필요해서 넣은 방식이 아니라서,
+    //   시간 날 때 클라가 대상을 지정하는 타겟팅으로 고칠 예정이다.
     virtual void OnSwing(CZone* zone, CCharacter* attacker) = 0;
 
     // 맞혔다 — 피해를 적용한 뒤에 온다. remainHp 는 적용 뒤 체력(0 이면 곧이어 OnDeath). → S2C_DAMAGE
