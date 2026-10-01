@@ -66,7 +66,7 @@ struct ServerConfig
 
     // [Game] 존당 몬스터 수 — 맵 넓이에 맞춰 밀도를 유지하는 값이다.
     //   맵 80×80 에 30 마리가 「한 화면에 예닐곱」 정도였으므로, 맵을 넓히면 넓이 비율만큼 올린다.
-    int         monsterPerZone = 0;  // 0 = MONSTERS_PER_ZONE(30, GameServer.h) · N>0 = 존당 N 마리
+    int         monsterPerZone = 0;  // 0 = MONSTERS_PER_ZONE(30, MonsterManager.h) · N>0 = 존당 N 마리
 
     // 게임스레드 코어 격리 (실험용) — GameCore INI에서 도출. 빈값/부적합이면 gameCore=-1, 마스크 0(=off).
     int                gameCore     = -1;  // 게임루프 전용 물리코어 (-1=격리 off). ServerCores 안의 코어여야 함.

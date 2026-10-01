@@ -201,7 +201,7 @@ Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame
 
     case AIState::CHASE:
     {
-        // 놓쳤거나(시야 밖으로 나가 CGameServer 가 nullptr 을 준다) 너무 멀어지면 포기
+        // 놓쳤거나(시야 밖으로 나가 CMonsterManager 가 nullptr 을 준다) 너무 멀어지면 포기
         if (target == nullptr || IsTooFar(monster, *target))
         {
             BeginWander(d, frame);   // 배회 기간과 주변 보는 주기를 따로 잡는다

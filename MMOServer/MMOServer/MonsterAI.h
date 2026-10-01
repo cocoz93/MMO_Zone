@@ -3,7 +3,7 @@
 //
 // [책임]
 //  - "지금 상태와 대상 하나"를 주면 "다음 상태·방향·행동"을 돌려준다
-//  - 존·섹터·송신·대상 찾기를 하지 않는다 — 전부 CGameServer가 한다
+//  - 존·섹터·송신·대상 찾기를 하지 않는다 — 대상 찾기·적용은 CMonsterManager, 송신은 CGameServer가 한다
 //
 // [Combat 과 같은 자리다]
 //  Combat 이 "때릴 수 있나"를 판정하듯 여기는 "무엇을 할까"를 판정한다.
@@ -11,7 +11,7 @@
 //
 // [계층 경계]
 //  CZone·CSerialBuffer를 모른다. 그래서 "시야 안의 후보 목록"도 받지 않는다 —
-//  후보를 훑어 가장 가까운 하나를 고르는 것은 CGameServer 가 하고, 여기는 그 하나만 본다.
+//  후보를 훑어 가장 가까운 하나를 고르는 것은 CMonsterManager 가 하고, 여기는 그 하나만 본다.
 //
 // [정면 제약]
 //  Combat::IsInAttackRange 는 정면만 인정한다(바라보는 쪽과의 내적 > 0).
@@ -61,7 +61,7 @@ namespace MonsterAI
     constexpr float LEASH_RANGE     = 12.0f;
     constexpr float LEASH_RANGE_SQ  = LEASH_RANGE * LEASH_RANGE;
 
-    // 판단 결과 — CGameServer 가 이걸 받아 상태를 적용하고, 바뀐 것만 브로드캐스트한다.
+    // 판단 결과 — CMonsterManager 가 이걸 받아 상태를 적용하고, 바뀐 것만 알린다(송신은 CGameServer).
     struct Decision
     {
         AIState   nextState;

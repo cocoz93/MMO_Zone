@@ -33,6 +33,7 @@
 #include "Player.h"
 #include "Combat.h"        // 전투 판정 (순수 함수 — 송신·존·섹터를 모른다)
 #include "CombatSystem.h"  // 공격 흐름 — 여기서는 그 알림(ICombatEvents)을 구현한다
+#include "MonsterManager.h" // 몬스터 — 여기서는 그 알림(IMonsterEvents)을 구현한다
 #include "MonitorManager.h"
 #include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
 #include "Common.h"
@@ -41,9 +42,17 @@
 
 class CSerialBuffer;
 
+// 알림 통로 둘 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속. 토글이 둘이라 머리가 네 갈래다.
+//   ICombatEvents  = 공격 흐름(CCombatSystem)의 알림 셋
+//   IMonsterEvents = 몬스터 관리자(CMonsterManager)의 알림 넷과 번호 부탁 하나
 class CGameServer
-#if USE_COMBAT
-    : private ICombatEvents   // 공격 흐름(CCombatSystem)의 알림 셋 — 꽂는 것은 이 클래스 자신뿐이라 비공개
+#if USE_COMBAT && USE_MONSTER
+    : private ICombatEvents
+    , private IMonsterEvents
+#elif USE_COMBAT
+    : private ICombatEvents
+#elif USE_MONSTER
+    : private IMonsterEvents
 #endif
 {
 public:
@@ -76,7 +85,7 @@ public:
         _snakeSpeed  = snakeSpeed;
     }
 
-    // 존당 몬스터 수 — 0 이면 MONSTERS_PER_ZONE(30). ServerConfig [Game] MonsterPerZone 참조.
+    // 존당 몬스터 수 — 0 이면 CMonsterManager::MONSTERS_PER_ZONE(30). ServerConfig [Game] MonsterPerZone 참조.
     //   Start() 전에 호출. 맵을 넓히면 같은 마리 수로는 화면이 비므로 넓이에 맞춰 같이 올린다.
     void SetMonsterPerZone(int count)
     {
@@ -179,6 +188,7 @@ private:
     void RecvAttack(CPlayer* player, CSerialBuffer* pMsg);
 
     // 부활 대기자 훑기 — 틱마다 1회. 존 전체를 돌지 않으려고 죽은 것만 따로 들고 있는다.
+    //   플레이어만 — 몬스터는 자기 존의 관리자가 따로 든다(TickMonsterRespawn).
     void TickRespawn();
 
     // 부활 대기열에서 빼기 — 퇴장 경로가 반드시 부른다. 안 부르면 다음 틱이 해제된 포인터를 밟는다.
@@ -246,45 +256,29 @@ private:
 
 #if USE_MONSTER
     // ── 몬스터 (USE_MONSTER) ──
-    // 게임 루프 1-1) — 좌표 갱신(2단계) 바로 앞에 놓는다.
-    //   2단계인 지금은 "아직 몬스터를 안 깐 존"을 찾아 스폰하는 일만 한다.
-    //   3단계에서 AI 판단이 여기 붙는다. 순서가 뒤면 AI 가 정한 방향이 한 틱씩 밀린다.
+    // 몬스터 코드(깔기·판단·부활 자리 옮기기·벽 앞 재판단)는 존마다 든 CMonsterManager 에 있다.
+    //   여기는 틱의 두 시점에 그걸 부르고, 알림을 받아 송신·번호 발급만 한다.
+
+    // 게임 루프 1-1) — 좌표 갱신(2) 바로 앞. 존마다 관리자 Tick(처음이면 깔고, 몬스터마다 판단).
+    //   순서가 뒤면 AI 가 정한 방향이 한 틱씩 밀린다.
     void TickMonsters();
 
-    // 존 하나에 몬스터를 깐다 — 위치·방향·섹터 등록은 CZone::EnterZone 이 전부 해 준다.
-    void SpawnMonsters(CZone* zone);
-
-    // 존이 사라지기 전에 몬스터를 대기열에서 빼고 존에 해제를 맡긴다(빈 채널 정리).
-    //   BroadcastLeaveZone 이 섹터 변경·부활 대기열까지 훑어 주므로 죽은 주소가 안 남는다.
-    //   서버 종료 때는 안 부른다 — 게임 스레드가 끝나 대기열이 다시 돌 일이 없고, 해제는 존 소멸이 한다.
-    void DespawnMonsters(CZone* zone);
-
-    // 몬스터 하나의 판단 — 대상 찾기·상태 적용·송신은 여기가, "무엇을 할까"는 MonsterAI 가.
-    void ThinkMonster(CZone* zone, CMonster* monster);
-
-    // 시야 안에서 가장 가까운 산 플레이어 (없으면 nullptr). 몬스터는 후보에서 거른다.
-    CCharacter* FindAITarget(CZone* zone, CMonster* monster);
-
-    // 태어날 자리 — 그 구역 안 무작위. 산 플레이어가 SPAWN_CLEAR_RANGE 안이면 다시 뽑고,
-    //   SPAWN_MAX_TRIES 번 다 걸리면 마지막 자리를 그대로 쓴다(사람이 빽빽하면 어디든 걸린다).
-    //   처음 깔 때와 부활 때 같이 쓴다 — 첫 사람이 채널을 만든 그 틱에 뱀이 깔리므로 처음에도 사람이 있을 수 있다.
-    void PickSpawnPos(CZone* zone, int32_t regionIndex, float& outX, float& outY);
-
-    // (x, y) 에서 range 안에 산 플레이어가 있나 — 걸치는 섹터의 플레이어 목록만 참조로 훑는다
-    bool IsLivePlayerNear(CZone* zone, float x, float y, float range) const;
-
-    static constexpr int32_t MONSTERS_PER_ZONE = 30;   // 섹터 36 개에 마리당 1 개꼴
-    static constexpr float   SPAWN_CLEAR_RANGE = 6.0f; // = MonsterAI::SIGHT_RANGE — 태어나자마자 누군가를 알아채지 않게(단언이 맞춘다)
-    static constexpr int32_t SPAWN_MAX_TRIES   = 5;
+    // 관리자에 넘길 묶음 — 부를 때마다 만든다. 멤버로 들지 않는 이유는 설정값(존당 마릿수·뱀 속도)이
+    //   Start() 전에 바뀌기 때문이다(SetMonsterPerZone·SetMoveSpeeds).
+    MonsterContext MakeMonsterContext();
 
 #if USE_COMBAT
-    // 몬스터 부활 = 같은 구역 안 다른 자리로 옮기기. 옛 자리 주변에 DELETE → 새 자리 → 새 자리 주변에 CREATE(SPAWN)+STATS.
-    //   ★ TickRespawn 이 _deadActors 를 도는 도중에 부른다 — BroadcastLeaveZone 을 쓰면 그 안의
-    //     RemoveFromDeadActors 가 순회 중인 대기열을 지운다. 그래서 섹터만 옮기는 이 함수가 따로 있다.
-    //   ★ 섹터 변경 대기열이 빈 자리(틱 3-2)에서만 부른다 — 차 있으면 이번 틱에 섹터를 넘은 사람의
-    //     화면과 서버 등록이 어긋난 채라 위 두 방송이 그 사람을 놓친다(함수 머리 단언).
-    void RespawnMonsterElsewhere(CZone* zone, CMonster* monster);
+    // 게임 루프 3-2) — 플레이어 부활(TickRespawn) 뒤, 존마다 관리자의 몬스터 부활.
+    //   ★ 섹터 변경 대기열이 빈 자리에서만 부른다(함수 머리 단언) — 까닭은 CMonsterManager::TickRespawn.
+    void TickMonsterRespawn();
 #endif
+
+    // 몬스터 알림과 번호 부탁 (IMonsterEvents) — 뜻은 MonsterManager.h.
+    int32_t AllocActorId() override;                                         // = AllocPlayerId — 번호 공간이 플레이어와 하나
+    void OnMonsterSpawn(CZone* zone, CMonster* monster) override;            // 주변에 CREATE(SPAWN)
+    void OnMonsterMoveStart(CZone* zone, CMonster* monster) override;        // 주변에 MOVE_START
+    void OnMonsterMoveStop(CZone* zone, CMonster* monster) override;         // 주변에 MOVE_STOP
+    void OnMonsterVanish(CZone* zone, CMonster* monster) override;           // 지금 자리 주변에 DELETE
 #endif
 
 #if USE_DROP
@@ -407,7 +401,7 @@ private:
     // 존 입장/퇴장 브로드캐스트
     //   BroadcastEnterZone — 플레이어 입장: 양방향(주변 → 나를 생성, 나 → 주변을 생성)
     //   BroadcastSpawn     — 세션 없는 것(몬스터)의 등장: 주변에 알리기만. 받는 쪽이 없으니 인바운드가 없다
-    //   BroadcastLeaveZone — 퇴장·회수: 주변에 나를 삭제 (플레이어·몬스터 공용)
+    //   BroadcastLeaveZone — 퇴장: 주변에 나를 삭제 (지금 부르는 쪽은 플레이어뿐 — 몬스터는 존과 함께 사라져 회수 경로가 없다)
     void BroadcastEnterZone(CZone* zone, CPlayer* player, SpawnReason reason);
     void BroadcastSpawn(CZone* zone, CCharacter* who, SpawnReason reason);
     void BroadcastLeaveZone(CZone* zone, CCharacter* player);
@@ -572,7 +566,7 @@ private:
     // 이동 속도 덮어쓰기(칸/초) — 0 이면 각 생성자의 기본값을 그대로 쓴다(SetMoveSpeeds)
     int _playerSpeed = 0;
     int _snakeSpeed  = 0;
-    int _monsterPerZone = 0;   // 존당 몬스터 수 — 0 이면 MONSTERS_PER_ZONE(SetMonsterPerZone)
+    int _monsterPerZone = 0;   // 존당 몬스터 수 — 0 이면 CMonsterManager::MONSTERS_PER_ZONE(SetMonsterPerZone)
 
     // 섹터 변경 배치 처리용 대기열 (프레임 내 수집 → 틱 후 일괄 처리)
     std::vector<SectorChangeInfo> _pendingSectorChanges;
@@ -587,8 +581,9 @@ private:
     // 공격 후보 버퍼는 두지 않는다 — 사거리가 걸치는 섹터의 주민 목록을 참조로 훑어 복사가 없다.
     //   (처음엔 GetAroundPlayers 의 전신이 벡터를 요구해 _attackTargetBuffer 를 뒀었다)
 
-    // 죽어서 부활을 기다리는 캐릭터. 여기만 틱 너머로 포인터를 든다 —
+    // 죽어서 부활을 기다리는 플레이어. 여기만 틱 너머로 포인터를 든다 —
     //   퇴장 경로(BroadcastLeaveZone·OnDisconnected)가 반드시 회수해야 한다.
+    //   몬스터는 여기 안 들어온다 — 자기 존의 관리자 대기열로 간다(OnDeath 가 가른다).
     //   같은 규율이 이미 dirtyMovers·_sectorChangedSet·_pendingSectorChanges에 있다.
     std::vector<CCharacter*> _deadActors;
 

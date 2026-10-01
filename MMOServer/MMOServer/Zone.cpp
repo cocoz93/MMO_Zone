@@ -1,6 +1,6 @@
 ﻿#include "Zone.h"
 #include "Character.h"
-#include "Monster.h"   // USE_MONSTER — unique_ptr<CMonster> 를 지우려면 완전한 타입이 필요하다(헤더 안에서 스스로 토글을 본다)
+#include "Monster.h"   // USE_MONSTER — 벽에 막힌 캐릭터를 CMonster 로 내려 관리자에 넘긴다(헤더 안에서 스스로 토글을 본다)
 #include <algorithm>
 #include <random>
 
@@ -15,26 +15,9 @@ CZone::CZone()
 
 CZone::~CZone()
 {
-    // 플레이어의 생명주기는 CGameServer가 관리 — 몬스터는 _monsterList 가 멤버 소멸 때 해제한다
+    // 플레이어의 생명주기는 CGameServer가 관리 — 몬스터는 _monsterManager 가 멤버 소멸 때 해제한다
     _characterList.clear();
 }
-
-#if USE_MONSTER
-CMonster* CZone::AddMonster(std::unique_ptr<CMonster> monster, float x, float y)
-{
-    if (!EnterZoneAt(monster.get(), x, y))
-        return nullptr;   // 넘겨받은 객체는 여기서 해제된다 — 섹터·목록 어디에도 안 들어갔다
-
-    CMonster* raw = monster.get();
-    _monsterList.push_back(std::move(monster));
-    return raw;
-}
-
-void CZone::ClearMonsters()
-{
-    _monsterList.clear();
-}
-#endif
 
 bool CZone::Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHeight, int32_t sectorSize)
 {
@@ -65,7 +48,7 @@ bool CZone::EnterZoneAt(CCharacter* player, float x, float y)
     if (player == nullptr)
         return false;
 
-    // 존 설정 (playerId, 표시 속성은 CGameServer가 부여 완료 상태)
+    // 존 설정 (playerId, 표시 속성은 부르는 쪽 — 플레이어는 CGameServer, 몬스터는 CMonsterManager — 이 부여 완료 상태)
     player->_zoneId = _zoneId;
     player->_direction = Direction::DOWN;
     player->_moveState = MoveState::IDLE;
@@ -146,6 +129,11 @@ void CZone::Tick(float deltaTime, std::vector<SectorChangeInfo>& outSectorChange
         {
             player->_moveState = MoveState::IDLE;
             outClampedCharacters.push_back(player);
+#if USE_MONSTER
+            // 벽에 막힌 몬스터는 다음 틱에 바로 다시 판단하게 한다 — 까닭은 CMonsterManager::OnBlockedByWall
+            if (player->_kind == CharacterKind::MONSTER)
+                _monsterManager.OnBlockedByWall(static_cast<CMonster*>(player));
+#endif
         }
 
         // 섹터 변경 판정

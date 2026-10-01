@@ -7,8 +7,8 @@
 //  - 송신·죽은 목록·보상은 하지 않는다 — 일이 생기면 ICombatEvents 로 알리고, 받는 쪽(CGameServer)이 한다
 //
 // [왜 떼어냈나]
-//  플레이어(RecvAttack)와 몬스터(ThinkMonster)가 같은 공격을 쓴다. 몬스터 코드가 존 쪽으로 가면
-//  공격도 게임 서버 밖에서 불려야 하는데, 게임 서버 함수로 두면 부르는 쪽이 게임 서버를 알아야 한다.
+//  플레이어(RecvAttack)와 몬스터(CMonsterManager::Think)가 같은 공격을 쓴다. 몬스터 코드가 존 쪽으로 가면서
+//  공격도 게임 서버 밖에서 불려야 했는데, 게임 서버 함수로 두면 부르는 쪽이 게임 서버를 알아야 한다.
 //
 // [계층 경계]
 //  CZone·CSectorManager·CCharacter 를 안다(대상 찾기). 세션·패킷(CSerialBuffer)·CGameServer 는 모른다.
@@ -51,7 +51,7 @@ class CCombatSystem
 public:
     CCombatSystem(CGameMonitor& gameMonitor, ICombatEvents& events);
 
-    // 공격 한 번 — 플레이어(RecvAttack)와 몬스터(ThinkMonster)가 같이 쓴다.
+    // 공격 한 번 — 플레이어(RecvAttack)와 몬스터(CMonsterManager::Think)가 같이 쓴다.
     //   frame 은 CGameServer::_frameCount — 쿨타임과 죽은 프레임의 기준.
     void PerformAttack(CZone* zone, CCharacter* attacker, uint64_t frame);
 

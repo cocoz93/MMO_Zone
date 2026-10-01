@@ -3,10 +3,10 @@
 //
 // [책임]
 //  - 맵 크기, CSectorManager, 캐릭터 목록 소유 (vector<CCharacter*> — 플레이어·몬스터 공통)
-//  - 몬스터 객체 소유 (_monsterList, unique_ptr) — 존과 같이 태어나고 같이 사라지므로.
-//    플레이어 객체는 접속 수명이라 CGameServer 가 소유한다
+//  - 몬스터 관리자 소유 (_monsterManager, 값) — 몬스터 객체·깔기·판단·부활은 그쪽(MonsterManager.h).
+//    존과 같이 태어나고 같이 사라지므로. 플레이어 객체는 접속 수명이라 CGameServer 가 소유한다
 //  - 캐릭터 입장/퇴장, 섹터 등록/해제 등 데이터 관리
-//  - 게임 로직(패킷 처리, 브로드캐스트)은 CGameServer가 담당
+//  - 패킷 처리·브로드캐스트는 CGameServer, 몬스터 판단은 CMonsterManager 가 담당
 //
 // [설계]
 //  - 싱글스레드 전제 (게임 로직 스레드 1개에서만 호출)
@@ -20,12 +20,9 @@
 
 #include "BuildConfig.h"
 #include "SectorManager.h"
+#include "MonsterManager.h"   // 몬스터 관리자 — 존이 값으로 든다(USE_MONSTER 가 꺼져 있으면 빈 헤더)
 
 class CCharacter;
-#if USE_MONSTER
-class CMonster;   // 전방 선언이면 된다 (Monster.h 를 끌어오지 않는다) — 단 unique_ptr 을 지우는 함수는
-                  //   완전한 타입이 필요해 몸체를 Zone.cpp 에 둔다(AddMonster·ClearMonsters·소멸자)
-#endif
 
 // Tick에서 섹터 변경이 발생한 캐릭터 정보
 struct SectorChangeInfo
@@ -41,12 +38,17 @@ public:
     CZone();
     ~CZone();
 
+    // 복사 금지 — 몬스터 관리자가 *this 를 든다. 복사하면 새 존의 관리자가 옛 존을 가리킨다.
+    //   (지금은 복사하는 코드가 없어도 형질 검사로는 "복사 가능"이 나온다 — 쓰는 날 막히게 명시한다)
+    CZone(const CZone&) = delete;
+    CZone& operator=(const CZone&) = delete;
+
     // 존 초기화 (존 ID, 맵 ID, 맵 크기, 섹터 크기)
     bool Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHeight, int32_t sectorSize);
 
     // 캐릭터 입장 — 스폰 좌표 설정, 섹터 등록
-    // actorId와 CCharacter의 생성은 CGameServer가 담당 — 삭제는 플레이어만 CGameServer,
-    //   몬스터는 AddMonster 로 넘겨받은 존이 한다
+    // actorId 발급은 CGameServer 가 담당 — 객체를 만들고 지우는 것은 플레이어는 CGameServer,
+    //   몬스터는 그 존의 몬스터 관리자(CMonsterManager)가 한다
     bool EnterZone(CCharacter* player);
 
     // 자리를 받는 입장 — 위 EnterZone 과 하는 일이 같고 스폰 좌표만 호출부가 준다(DB 에서 불러온 자리).
@@ -78,29 +80,10 @@ public:
     const CSectorManager& GetSectorManager() const { return _sectorManager; }
 
 #if USE_MONSTER
-    // ── 몬스터 목록 ── AI 를 돌릴 대상만 모은 것. _characterList 와 별개로 둔다.
-    //   _characterList 를 안 가르는 이유는 틱의 이동 갱신이 종류를 안 가려서이고,
-    //   여기는 "누가 스스로 판단하나"라 종류가 곧 조건이다. 몬스터는 두 목록에 다 들어간다
-    //   (_characterList 에 있어야 움직인다). 섹터 쪽은 받는 쪽이 플레이어뿐이라
-    //   플레이어·나머지 둘로 갈라져 있다(SectorManager.h [목록 둘]).
-    //   ★ 소유는 이 목록이다(unique_ptr) — 몬스터는 존과 수명이 같다(죽어도 지우지 않고 부활로
-    //     재사용하므로 사라지는 때는 존이 사라질 때뿐). _characterList·섹터는 여전히 빌린 포인터만 든다.
-    //   ★ 원소 타입이 CCharacter 가 아니라 CMonster 인 이유 — AI 가 _aiState 같은 몬스터 전용
-    //     필드를 읽는데, CCharacter* 로 담으면 순회마다 내려 캐스팅을 하게 되고 그 캐스팅은
-    //     "여기엔 몬스터만 들어 있다"는 전제에 기댄다. 타입으로 담으면 컴파일러가 그 전제를 지킨다.
-
-    // 넘겨받아 입장시킨다(EnterZoneAt). 성공하면 빌려 쓸 포인터를, 실패하면 nullptr 를 돌려준다 —
-    //   실패하면 넘겨받은 객체는 여기서 해제된다(섹터·목록 어디에도 안 들어갔다).
-    CMonster* AddMonster(std::unique_ptr<CMonster> monster, float x, float y);
-    const std::vector<std::unique_ptr<CMonster>>& GetMonsters() const { return _monsterList; }
-    // 전부 해제한다 — 부르기 전에 CGameServer 가 대기열에서 빼 둬야 한다(DespawnMonsters)
-    void ClearMonsters();
-
-    // 이 존에 몬스터를 이미 깔았나 — 게임 루프가 새 존을 발견하는 표식.
-    //   존 생성 직후에 부를 자리가 없어서(CreateChannel 이 private 이고 호출처가 전부
-    //   MapManager 안이다) 루프가 훑어서 채운다. 존이 지워지면 이 플래그도 같이 사라진다.
-    bool IsMonsterSpawned() const { return _monstersSpawned; }
-    void MarkMonsterSpawned() { _monstersSpawned = true; }
+    // ── 몬스터 ── 이 존의 몬스터를 소유하고 깔고 판단하는 관리자(MonsterManager.h).
+    //   게임 루프가 틱의 두 시점(1-1 판단 · 3-2 부활)에 이걸 꺼내 부른다(GetSectorManager 와 같은 꼴).
+    //   몬스터는 _characterList·섹터에도 들어간다(거기 있어야 움직이고 보인다) — 둘 다 빌린 포인터만 든다.
+    CMonsterManager& GetMonsterManager() { return _monsterManager; }
 #endif
 
 private:
@@ -122,13 +105,8 @@ private:
     int32_t _playerCount;
 
 #if USE_MONSTER
-    // AI 순회 전용 목록이자 몬스터의 소유자 — 원소는 _characterList 에도 들어 있다(같은 객체).
-    //   ★ LeaveZone 은 이 목록을 건드리지 않는다. 몬스터가 LeaveZone 을 타는 길은
-    //     CGameServer::DespawnMonsters 하나뿐인데, 거기서 이 목록을 돌며 부르기 때문이다
-    //     — 순회 중에 같은 벡터에서 원소를 빼면 동작을 보장 못 한다. 다 돈 뒤 ClearMonsters 로 비운다.
-    //   ★ 서버 종료 때는 따로 부르는 곳이 없다 — 존이 소멸하면서(멤버 소멸) 여기서 해제된다.
-    std::vector<std::unique_ptr<CMonster>> _monsterList;
-
-    bool _monstersSpawned = false;
+    // 몬스터 관리자 — 몬스터 소유·깔았나 표시·부활 대기열. *this 를 들므로 존은 복사하지 않는다(위 삭제 두 줄).
+    //   해제는 존 소멸(빈 채널 정리·서버 종료) 때 멤버 소멸로 — 밖에서 먼저 불러 줄 것이 없다.
+    CMonsterManager _monsterManager{ *this };
 #endif
 };
