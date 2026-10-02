@@ -147,6 +147,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/Monster.cpp
     ${SRV_DIR}/MonsterAI.cpp
     ${SRV_DIR}/MonsterManager.cpp
+    ${SRV_DIR}/GroundItemManager.cpp
     ${SRV_DIR}/Actor.cpp
     ${SRV_DIR}/Combat.cpp
     ${SRV_DIR}/CombatSystem.cpp

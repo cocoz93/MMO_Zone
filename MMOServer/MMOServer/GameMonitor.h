@@ -225,7 +225,7 @@ public:
         Counter _rolls;         // 드랍 표를 굴린 수 = 사람이 몬스터를 잡은 수 (아무것도 안 떨어져도 1)
         Counter _dropped;       // 땅에 생긴 아이템 수 (한 번 굴려 여럿이면 여럿)
         Counter _removed[static_cast<int>(GroundItemRemoval::COUNT)];   // 땅에서 빠진 수, 사유별
-        Counter _groundItems;   // [게이지] 지금 땅에 있는 수 — 바꾸는 자리에서 Store
+        Counter _groundItems;   // [게이지] 지금 땅에 있는 수(전 존 합계) — 존마다 땅 아이템 관리자가 바꾸는 자리에서 더하고 뺀다
         Counter _pickupRejected[static_cast<int>(PickupFail::COUNT)];   // 줍기 거절, 사유별
         Counter _lateMoverDeletes;   // 같은 틱에 섹터를 넘은 사람에게 보정으로 보낸 DELETE 수
     } _drop;

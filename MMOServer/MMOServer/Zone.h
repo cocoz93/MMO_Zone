@@ -8,6 +8,8 @@
 //  - 캐릭터 입장/퇴장, 섹터 등록/해제 등 데이터 관리
 //  - 맵 경계 규칙(맵 안 검사·클램프·벽 판정) — 맵 크기를 든 곳이 여기라서
 //  - 섹터 이동 대기열 — 담긴 옛 섹터 좌표가 이 존의 격자라서. 읽어서 CREATE/DELETE 를 보내는 것은 CGameServer
+//  - 땅 아이템 관리자 소유 (_groundItemManager, 값) — 땅 아이템 목록과 놓기·수명·줍기 고르기·개수는 그쪽
+//    (GroundItemManager.h). 무엇이 떨어질지(굴림)와 송신은 CGameServer
 //  - 패킷 처리·브로드캐스트는 CGameServer, 몬스터 판단은 CMonsterManager 가 담당
 //
 // [설계]
@@ -25,6 +27,7 @@
 #include "BuildConfig.h"
 #include "SectorManager.h"
 #include "MonsterManager.h"   // 몬스터 관리자 — 존이 값으로 든다(USE_MONSTER 가 꺼져 있으면 빈 헤더)
+#include "GroundItemManager.h" // 땅 아이템 관리자 — 존이 값으로 든다(USE_DROP 이 꺼져 있으면 빈 헤더)
 
 class CCharacter;
 
@@ -110,6 +113,12 @@ public:
     CMonsterManager& GetMonsterManager() { return _monsterManager; }
 #endif
 
+#if USE_DROP
+    // ── 땅 아이템 ── 이 존 땅에 떨어진 것과 그 규칙을 함께 든 관리자(GroundItemManager.h).
+    //   게임 서버가 떨어뜨릴 때·줍기·틱 3-3(수명 훑기)·채널 정리·시야 송신 때 꺼내 부른다(몬스터 관리자와 같은 꼴).
+    CGroundItemManager& GetGroundItemManager() { return _groundItemManager; }
+#endif
+
 private:
     // 스폰 좌표 계산 (맵 전체 랜덤)
     void CalcSpawnPos(float& outX, float& outY) const;
@@ -139,5 +148,11 @@ private:
     // 몬스터 관리자 — 몬스터 소유·깔았나 표시·부활 대기열. *this 를 들므로 존은 복사하지 않는다(위 삭제 두 줄).
     //   해제는 존 소멸(빈 채널 정리·서버 종료) 때 멤버 소멸로 — 밖에서 먼저 불러 줄 것이 없다.
     CMonsterManager _monsterManager{ *this };
+#endif
+
+#if USE_DROP
+    // 땅 아이템 관리자 — 땅 아이템(값)·규칙·이 존 개수. 칸 번호는 위 _sectorManager 와 같다(Init 이 맞춘다).
+    //   *this 를 들므로 존은 복사하지 않는다(위 삭제 두 줄).
+    CGroundItemManager _groundItemManager{ *this };
 #endif
 };

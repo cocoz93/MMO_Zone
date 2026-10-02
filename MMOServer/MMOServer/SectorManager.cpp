@@ -5,9 +5,6 @@
 
 const std::vector<CPlayer*>    CSectorManager::EMPTY_PLAYERS;
 const std::vector<CCharacter*> CSectorManager::EMPTY_OTHERS;
-#if USE_DROP
-const std::vector<CGroundItem> CSectorManager::EMPTY_ITEMS;
-#endif
 
 namespace
 {
@@ -63,9 +60,6 @@ bool CSectorManager::Init(int32_t mapWidth, int32_t mapHeight, int32_t sectorSiz
     // 2D 그리드 할당 (평탄화) — 목록 둘이 같은 칸 번호를 쓴다
     _players.resize(_sectorCountY * _sectorCountX);
     _others.resize(_sectorCountY * _sectorCountX);
-#if USE_DROP
-    _items.resize(_sectorCountY * _sectorCountX);   // 셋째 목록 — 같은 칸 번호
-#endif
 
     return true;
 }
@@ -128,33 +122,6 @@ const std::vector<CCharacter*>& CSectorManager::GetSectorOthers(int32_t sectorX,
 
     return OthersAt(sectorY, sectorX);
 }
-
-#if USE_DROP
-void CSectorManager::AddGroundItem(const CGroundItem& item, int32_t sectorX, int32_t sectorY)
-{
-    if (!IsValidSector(sectorX, sectorY))
-        return;
-    _items[sectorY * _sectorCountX + sectorX].push_back(item);
-}
-
-const std::vector<CGroundItem>& CSectorManager::GetSectorItems(int32_t sectorX, int32_t sectorY) const
-{
-    if (!IsValidSector(sectorX, sectorY))
-        return EMPTY_ITEMS;
-    return _items[sectorY * _sectorCountX + sectorX];
-}
-
-void CSectorManager::RemoveGroundItemAt(int32_t sectorX, int32_t sectorY, size_t index)
-{
-    if (!IsValidSector(sectorX, sectorY))
-        return;
-    std::vector<CGroundItem>& list = _items[sectorY * _sectorCountX + sectorX];
-    // [불변식] index 는 부르는 쪽이 방금 이 목록을 훑어 얻은 자리다(그 사이 목록을 안 바꾼다)
-    assert(index < list.size());
-    list[index] = list.back();   // 순서가 뜻이 없어 자리 바꿔 빼기로 O(1) — 캐릭터 목록(PopFrom)과 같은 꼴
-    list.pop_back();
-}
-#endif
 
 void CSectorManager::GetAroundPlayers(int32_t sectorX, int32_t sectorY,
                                       std::vector<CPlayer*>& outPlayers,

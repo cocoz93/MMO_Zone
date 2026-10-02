@@ -177,7 +177,7 @@ void CMapManager::CleanupEmptyChannels(const std::function<void(CZone*)>& onBefo
         });
 
         // 캐시에서 먼저 빠지지만 존 객체는 아직 살아 있다 — onBeforeErase 가 zone 포인터로
-        //   하는 일(땅의 아이템 세기 → ForgetGroundItems)은 GetZone 을 안 거치므로 무관하다.
+        //   하는 일(땅의 아이템 세기 → 존의 관리자 ForgetAll)은 GetZone 을 안 거치므로 무관하다.
         mapInstance.CleanupEmptyChannels(onBeforeErase);
     }
 }

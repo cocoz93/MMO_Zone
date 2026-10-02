@@ -34,6 +34,7 @@
 #include "Combat.h"        // 전투 판정 (순수 함수 — 송신·존·섹터를 모른다)
 #include "CombatSystem.h"  // 공격 흐름 — 여기서는 그 알림(ICombatEvents)을 구현한다
 #include "MonsterManager.h" // 몬스터 — 여기서는 그 알림(IMonsterEvents)을 구현한다
+#include "GroundItemManager.h" // 땅 아이템 — 여기서는 그 알림(IGroundItemEvents)을 구현한다
 #include "MonitorManager.h"
 #include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
 #include "Common.h"
@@ -42,13 +43,18 @@
 
 class CSerialBuffer;
 
-// 알림 통로 둘 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속. 토글이 둘이라 머리가 네 갈래다.
-//   ICombatEvents  = 공격 흐름(CCombatSystem)의 알림 셋
-//   IMonsterEvents = 몬스터 관리자(CMonsterManager)의 알림 넷과 번호 부탁 하나
+// 알림 통로 셋 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속. 토글이 둘이라 머리가 네 갈래다.
+//   ICombatEvents     = 공격 흐름(CCombatSystem)의 알림 셋
+//   IMonsterEvents    = 몬스터 관리자(CMonsterManager)의 알림 넷과 번호 부탁 하나
+//   IGroundItemEvents = 땅 아이템 관리자(CGroundItemManager)의 알림 둘과 번호 부탁 하나 —
+//                       USE_DROP 은 가방(→ 전투)과 몬스터가 다 켜져야 켜지므로(BuildConfig.h #error) 첫 머리에만 붙는다
 class CGameServer
 #if USE_COMBAT && USE_MONSTER
     : private ICombatEvents
     , private IMonsterEvents
+#if USE_DROP
+    , private IGroundItemEvents
+#endif
 #elif USE_COMBAT
     : private ICombatEvents
 #elif USE_MONSTER
@@ -280,30 +286,34 @@ private:
 
 #if USE_DROP
     // ── 드랍 (USE_DROP) ──
+    // 땅 아이템(목록)과 그 규칙(놓기·수명·주인·줍기 고르기·개수)은 존마다 든 CGroundItemManager 에 있다(GroundItemManager.h).
+    //   여기는 무엇이 떨어질지 굴리고, 관리자를 부르고, 알림을 받아 송신·번호 발급을 하고, 줍기의 가방·저장을 한다.
+
     // 사람이 몬스터를 잡으면 부른다(OnDeath 의 경험치 블록 뒤 — 같은 조건).
-    //   표의 줄마다 굴려 땅에 놓고, 아이템마다 자기 섹터 주변 플레이어에게 CREATE(DROP).
-    //   주인 = 막타 친 계정, LOOT_LOCK_FRAMES 동안 먼저 줍는다. GROUND_ITEM_LIFE_FRAMES 뒤 사라진다.
+    //   표의 줄마다 굴리고, 결과를 존의 관리자에게 넘겨 땅에 놓는다(아이템마다 OnGroundItemDrop 으로 돌아온다).
+    //   주인 = 막타 친 계정 — 굴림은 잡은 사람에게 주는 보상이라 경험치와 같은 이 자리에서 한다.
     void DropLoot(CZone* zone, CPlayer* killer, CMonster* monster);
+
+    // 관리자에 넘길 묶음 — 부를 때마다 만든다(MakeMonsterContext 와 같은 꼴).
+    GroundItemContext MakeGroundItemContext();
+
+    // 땅 아이템 알림과 번호 부탁 (IGroundItemEvents) — 뜻은 GroundItemManager.h.
+    int32_t AllocGroundId() override;                                         // _nextGroundId — 존을 넘어 번호 공간이 하나
+    void OnGroundItemDrop(CZone* zone, const CGroundItem& item,
+                          int32_t sectorX, int32_t sectorY) override;         // 주변에 CREATE(DROP)
+    void OnGroundItemGone(CZone* zone, int32_t sectorX, int32_t sectorY,
+                          int32_t groundId, GroundItemGone wire, int32_t pickerId) override;   // 주변 + 같은 틱 이동자에게 DELETE
 
     // 땅의 아이템 하나를 한 사람에게 보여 준다 — 떨어질 때(DROP)·시야에 들어올 때(SEEN) 공용
     void SendGroundItemCreate(CPlayer* target, const CGroundItem& item, GroundItemAppear reason);
     // 한 사람 화면에서 지운다 — 시야 밖(OUT_OF_SIGHT) · 주움(PICKED, pickerId) · 사라짐(EXPIRED) 공용
     void SendGroundItemDelete(CPlayer* target, int32_t groundId, GroundItemGone reason, int32_t pickerId);
 
-    // 땅에서 빼는 한 자리 — 주변 플레이어에게 DELETE · 사유별 계수 · 게이지 · 목록에서 빼기(자리 바꿔 빼기).
-    //   줍기(PICKED)·사라지기(EXPIRED) 둘 다 여기로 온다. 채널 정리(CLEANED)는 알릴 사람이 없어 ForgetGroundItems 가 센다.
-    //   ★ 빼면 index 자리로 뒤엣것이 온다 — 훑으며 부르는 쪽은 index 를 올리지 말 것.
-    void RemoveGroundItem(CZone* zone, int32_t sectorX, int32_t sectorY, size_t index,
-                          GroundItemRemoval why, int32_t pickerId);
-
-    // 틱 3-3 — 25틱에 한 번 모든 존·섹터를 훑어 수명이 다한 것을 뺀다. 섹터 변경 대기열을 비운 뒤라
-    //   "같은 틱에 섹터를 넘은 사람" 보정이 필요 없다. 땅에 아무것도 없으면 훑지 않는다(부하 시험은 늘 그렇다).
+    // 틱 3-3 — 25틱에 한 번 존마다 관리자의 수명 훑기(TickExpire)를 부른다. 섹터 변경 대기열을 비운 뒤라
+    //   "같은 틱에 섹터를 넘은 사람" 보정이 필요 없다. 땅에 아무것도 없는 존은 관리자가 바로 끝낸다(부하 시험은 늘 그렇다).
     void TickGroundItems();
 
-    // 채널이 지워지기 직전 — 사람이 없는 채널이라 알릴 사람이 없다. 수만 세고(CLEANED) 벡터는 존과 함께 사라진다.
-    void ForgetGroundItems(CZone* zone);
-
-    // 같은 틱에 섹터를 넘은 사람 보정 — RemoveGroundItem 이 주변에 DELETE 를 보낸 뒤 부른다.
+    // 같은 틱에 섹터를 넘은 사람 보정 — OnGroundItemGone 이 주변에 DELETE 를 보낸 뒤 부른다.
     //   RecvMoveStart 는 네트워크 처리 자리에서 섹터 등록을 바꾸고 알림은 틱 끝이라, 틱 1단계(줍기)에서는
     //   서버 등록이 그 사람 화면보다 앞서 있다. 「옛 섹터로는 보였고 새 섹터로는 안 보이는」 이동자는
     //   주변 DELETE 에서 빠지고, 틱 끝 이탈 처리 때는 아이템이 이미 없어 영영 안 지워진다 → 여기서 보낸다.
@@ -311,20 +321,11 @@ private:
     void SendGroundItemDeleteToLateMovers(CZone* zone, int32_t sectorX, int32_t sectorY,
                                           int32_t groundId, GroundItemGone wire, int32_t pickerId);
 
-    // 줍기 — Z 한 번에 2칸 안에서 내가 주울 수 있는 가장 가까운 것 하나(고르는 건 서버).
+    // 줍기 — Z 한 번에 2칸 안에서 내가 주울 수 있는 가장 가까운 것 하나(고르는 건 서버 — 존의 관리자 FindPickup).
     //   가방 넣기(TryAdd)가 먼저, 땅에서 빼기가 나중 — 반대면 가득 찬 가방에서 아이템이 사라진다.
     void RecvPickup(CPlayer* player, CSerialBuffer* pMsg);
 
-    // 판정 — DEAD → NO_ITEM → NOT_OWNER 순으로 보고 먼저 걸린 하나. 통과면 PickupFail::COUNT 와 고른 것의 자리.
-    //   TAB_FULL 은 판정이 아니라 가방 넣기의 결과다(RecvPickup). 사유가 넷이라 값을 돌려주는 함수로 뺐다(CheckUseItem 과 같은 꼴).
-    struct PickupTarget { int32_t sectorX = 0; int32_t sectorY = 0; size_t index = 0; };
-    PickupFail CheckPickup(const CPlayer* player, CZone* zone, PickupTarget& out) const;
-
-    static constexpr float PICKUP_RANGE = 2.0f;   // 칸 — 공격 사거리(1.5)보다 조금 넉넉하게(서버 좌표는 클라 화면보다 반 왕복 늦다)
-
-    static constexpr uint64_t GROUND_ITEM_LIFE_FRAMES = 60 * 25;   // 60초 — 땅에 남는 시간(플랜 ㉰)
-    static constexpr uint64_t LOOT_LOCK_FRAMES        = 10 * 25;   // 10초 — 막타 친 사람이 먼저 줍는 시간(플랜 ㉯)
-    static constexpr int      GROUND_ITEM_SCAN_FRAMES = 25;        // 1초에 한 번 훑는다 — 사라지는 때가 1초 늦을 수 있다
+    static constexpr int GROUND_ITEM_SCAN_FRAMES = 25;   // 1초에 한 번 훑는다 — 사라지는 때가 1초 늦을 수 있다
 #endif
 
 #if USE_DB_WORKER
@@ -520,7 +521,6 @@ private:
 
 #if USE_DROP
     int32_t _nextGroundId = 1;       // 땅의 아이템 번호 — 캐릭터 번호와 따로 센다(1초에 하나씩 떨어져도 68년)
-    int64_t _groundItemCount = 0;    // 지금 땅에 있는 수 — 바꾸는 자리에서 게이지(_gameMonitor._drop._groundItems)에 Store
     std::vector<Item> _lootBuffer;   // 한 마리분 굴림 결과 (멤버 재사용 — 죽을 때마다 할당하지 않게)
     int     _groundItemScanCounter = 0;   // TickGroundItems 의 25틱 세기
 #endif

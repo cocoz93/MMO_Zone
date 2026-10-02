@@ -1178,9 +1178,10 @@ void CGameServer::GameLoopThread()
             //   존과 같이 사라진다. 누가 정리를 틱 앞쪽으로 옮기면 여기서 걸린다.
             assert(_sectorOutbox.dirtyMovers.empty());
 #if USE_DROP
-            _mapManager.CleanupEmptyChannels([this](CZone* zone)
+            const GroundItemContext groundCtx = MakeGroundItemContext();
+            _mapManager.CleanupEmptyChannels([&groundCtx](CZone* zone)
             {
-                ForgetGroundItems(zone);   // 땅의 아이템은 세기만 — 벡터는 존과 함께 사라진다(알릴 사람이 없다)
+                zone->GetGroundItemManager().ForgetAll(groundCtx);   // 땅의 아이템은 세기만 — 목록은 존과 함께 사라진다(알릴 사람이 없다)
             });
 #else
             _mapManager.CleanupEmptyChannels(nullptr);
@@ -2962,8 +2963,15 @@ void CGameServer::OnMonsterVanish(CZone* zone, CMonster* monster)
 #if USE_DROP
 // ==========================================================================
 // 드랍 (USE_DROP) — 땅의 아이템
-//   땅의 아이템은 섹터의 셋째 목록에 값으로 담긴다(SectorManager.h [셋째 목록]).
+//   땅의 아이템(값)과 놓기·수명·주인·줍기 고르기·개수는 존마다 든 CGroundItemManager 에 있다(GroundItemManager.h).
+//   섹터와 같은 칸 번호로 나뉘어 있어 시야 송신이 칸 단위로 읽는다.
+//   여기는 굴림·관리자 부르기·알림을 받아 송신·번호 발급·줍기의 가방과 저장만 한다.
 // ==========================================================================
+
+GroundItemContext CGameServer::MakeGroundItemContext()
+{
+    return GroundItemContext{ *this, _gameMonitor };
+}
 
 void CGameServer::DropLoot(CZone* zone, CPlayer* killer, CMonster* monster)
 {
@@ -2975,40 +2983,9 @@ void CGameServer::DropLoot(CZone* zone, CPlayer* killer, CMonster* monster)
     if (_lootBuffer.empty())
         return;
 
-    // 놓는 자리 — 첫 아이템은 죽은 자리, 다음부터 옆 칸. 한 점에 포개면 웹이 그림 하나만 그린다.
-    static constexpr float OFFSETS[][2] = {
-        { 0, 0 }, { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 }, { 1, 1 }, { -1, 1 }, { 1, -1 }, { -1, -1 },
-    };
-    constexpr size_t OFFSET_COUNT = sizeof(OFFSETS) / sizeof(OFFSETS[0]);
-
-    CSectorManager& sectors = zone->GetSectorManager();
-    for (size_t i = 0; i < _lootBuffer.size(); ++i)
-    {
-        CGroundItem g;
-        g.groundId        = _nextGroundId++;
-        g.item            = _lootBuffer[i];
-        float fx          = monster->_x + OFFSETS[i % OFFSET_COUNT][0];
-        float fy          = monster->_y + OFFSETS[i % OFFSET_COUNT][1];
-        zone->ClampToWallLine(fx, fy);
-        g.x               = fx;
-        g.y               = fy;
-        g.ownerAccountId  = killer->_accountId;
-        g.ownerUntilFrame = _frameCount + LOOT_LOCK_FRAMES;
-        g.expireFrame     = _frameCount + GROUND_ITEM_LIFE_FRAMES;
-
-        // 아이템마다 자기 섹터 — 경계에 떨어지면 한 번에 떨어진 것들의 섹터가 서로 다를 수 있다
-        const int32_t sx = sectors.CalcSectorX(g.x);
-        const int32_t sy = sectors.CalcSectorY(g.y);
-        sectors.AddGroundItem(g, sx, sy);
-        ++_groundItemCount;
-        _gameMonitor._drop._dropped.Inc();
-
-        _eventAroundBuffer.clear();
-        sectors.GetAroundPlayers(sx, sy, _eventAroundBuffer);
-        for (CPlayer* other : _eventAroundBuffer)
-            SendGroundItemCreate(other, g, GroundItemAppear::DROP);
-    }
-    _gameMonitor._drop._groundItems.Store(_groundItemCount);
+    // 땅에 놓기는 존의 관리자가 — 아이템마다 OnGroundItemDrop 으로 돌아와 주변에 CREATE(DROP)
+    zone->GetGroundItemManager().Drop(MakeGroundItemContext(), _lootBuffer, monster->_x, monster->_y,
+                                      killer->_accountId, _frameCount);
 }
 
 void CGameServer::SendGroundItemCreate(CPlayer* target, const CGroundItem& item, GroundItemAppear reason)
@@ -3021,37 +2998,32 @@ void CGameServer::SendGroundItemDelete(CPlayer* target, int32_t groundId, Ground
     SendPacket(target, MakeGroundItemDelete(groundId, reason, pickerId));
 }
 
-void CGameServer::RemoveGroundItem(CZone* zone, int32_t sectorX, int32_t sectorY, size_t index,
-                                   GroundItemRemoval why, int32_t pickerId)
+// ── 땅 아이템 알림과 번호 부탁 (IGroundItemEvents) ── 패킷 조립·송신은 이 파일 것을 그대로 쓴다.
+
+int32_t CGameServer::AllocGroundId()
 {
-    CSectorManager& sectors = zone->GetSectorManager();
-    const int32_t groundId = sectors.GetSectorItems(sectorX, sectorY)[index].groundId;   // 빼기 전에 읽는다
+    return _nextGroundId++;
+}
 
-    // 와이어의 사유 — 빼는 까닭 셋 중 알릴 사람이 있는 것은 둘뿐이다(CLEANED 는 ForgetGroundItems)
-    GroundItemGone wire = GroundItemGone::EXPIRED;
-    switch (why)
-    {
-    case GroundItemRemoval::PICKED:  wire = GroundItemGone::PICKED;  break;
-    case GroundItemRemoval::EXPIRED: wire = GroundItemGone::EXPIRED; break;
-    case GroundItemRemoval::CLEANED:
-    case GroundItemRemoval::COUNT:
-        assert(false && "CLEANED 는 알릴 사람이 없다 — ForgetGroundItems 가 센다");
-        return;
-    }
-
+void CGameServer::OnGroundItemDrop(CZone* zone, const CGroundItem& item, int32_t sectorX, int32_t sectorY)
+{
     _eventAroundBuffer.clear();
-    sectors.GetAroundPlayers(sectorX, sectorY, _eventAroundBuffer);
+    zone->GetSectorManager().GetAroundPlayers(sectorX, sectorY, _eventAroundBuffer);
+    for (CPlayer* other : _eventAroundBuffer)
+        SendGroundItemCreate(other, item, GroundItemAppear::DROP);
+}
+
+void CGameServer::OnGroundItemGone(CZone* zone, int32_t sectorX, int32_t sectorY,
+                                   int32_t groundId, GroundItemGone wire, int32_t pickerId)
+{
+    _eventAroundBuffer.clear();
+    zone->GetSectorManager().GetAroundPlayers(sectorX, sectorY, _eventAroundBuffer);
     for (CPlayer* other : _eventAroundBuffer)
         SendGroundItemDelete(other, groundId, wire, pickerId);
 
     // 같은 틱에 섹터를 넘은 사람 — 틱 1단계(줍기)에서만 대기열이 차 있다. 사라지기(3-3)는 비운 뒤라 여기서 끝난다.
     if (!zone->GetSectorChanges().empty())
         SendGroundItemDeleteToLateMovers(zone, sectorX, sectorY, groundId, wire, pickerId);
-
-    sectors.RemoveGroundItemAt(sectorX, sectorY, index);
-    _gameMonitor._drop._removed[static_cast<int>(why)].Inc();
-    --_groundItemCount;
-    _gameMonitor._drop._groundItems.Store(_groundItemCount);
 }
 
 void CGameServer::TickGroundItems()
@@ -3060,98 +3032,12 @@ void CGameServer::TickGroundItems()
         return;
     _groundItemScanCounter = 0;
 
-    if (_groundItemCount == 0)
-        return;   // 땅에 아무것도 없다 — 존·섹터를 훑지 않는다(부하 시험은 더미가 안 때려 늘 여기서 끝난다)
-
-    _mapManager.ForEachZone([this](CZone* zone)
+    // 훑기는 존마다 관리자가 — 땅에 아무것도 없는 존은 거기서 바로 끝난다
+    const GroundItemContext ctx = MakeGroundItemContext();
+    _mapManager.ForEachZone([&](CZone* zone)
     {
-        const CSectorManager& sectors = zone->GetSectorManager();
-        for (int32_t sy = 0; sy < sectors.GetSectorCountY(); ++sy)
-        {
-            for (int32_t sx = 0; sx < sectors.GetSectorCountX(); ++sx)
-            {
-                const std::vector<CGroundItem>& list = sectors.GetSectorItems(sx, sy);
-                for (size_t i = 0; i < list.size(); )
-                {
-                    if (_frameCount >= list[i].expireFrame)
-                        RemoveGroundItem(zone, sx, sy, i, GroundItemRemoval::EXPIRED, 0);   // 뒤엣것이 i 로 온다 — 올리지 않는다
-                    else
-                        ++i;
-                }
-            }
-        }
+        zone->GetGroundItemManager().TickExpire(ctx, _frameCount);
     });
-}
-
-void CGameServer::ForgetGroundItems(CZone* zone)
-{
-    const CSectorManager& sectors = zone->GetSectorManager();
-    int64_t n = 0;
-    for (int32_t sy = 0; sy < sectors.GetSectorCountY(); ++sy)
-    {
-        for (int32_t sx = 0; sx < sectors.GetSectorCountX(); ++sx)
-            n += static_cast<int64_t>(sectors.GetSectorItems(sx, sy).size());
-    }
-    if (n == 0)
-        return;
-
-    _gameMonitor._drop._removed[static_cast<int>(GroundItemRemoval::CLEANED)].Add(n);
-    _groundItemCount -= n;
-    _gameMonitor._drop._groundItems.Store(_groundItemCount);
-}
-
-PickupFail CGameServer::CheckPickup(const CPlayer* player, CZone* zone, PickupTarget& out) const
-{
-    if (player->_isDead)
-        return PickupFail::DEAD;
-
-    // 반경이 걸치는 섹터만 참조로 훑는다(공격 대상 찾기와 같은 꼴 — 복사 0)
-    const CSectorManager& sectors = zone->GetSectorManager();
-    const int32_t sx0 = sectors.CalcSectorX(player->_x - PICKUP_RANGE);
-    const int32_t sx1 = sectors.CalcSectorX(player->_x + PICKUP_RANGE);
-    const int32_t sy0 = sectors.CalcSectorY(player->_y - PICKUP_RANGE);
-    const int32_t sy1 = sectors.CalcSectorY(player->_y + PICKUP_RANGE);
-    const float rangeSq = PICKUP_RANGE * PICKUP_RANGE;
-
-    bool  anyInRange = false;   // 반경 안에 뭔가 있긴 했다 — "아무것도 없음(NO_ITEM)"과 "남의 것뿐(NOT_OWNER)"을 가른다
-    bool  found      = false;
-    float bestSq     = 0.0f;
-    for (int32_t sy = sy0; sy <= sy1; ++sy)
-    {
-        for (int32_t sx = sx0; sx <= sx1; ++sx)
-        {
-            const std::vector<CGroundItem>& list = sectors.GetSectorItems(sx, sy);
-            for (size_t i = 0; i < list.size(); ++i)
-            {
-                const CGroundItem& g = list[i];
-                const float dx = g.x - player->_x;
-                const float dy = g.y - player->_y;
-                const float dSq = dx * dx + dy * dy;
-                if (dSq > rangeSq)
-                    continue;
-                anyInRange = true;
-
-                // 내 것이거나(막타 친 계정) 우선 시간이 끝났으면 주울 수 있다
-                const bool mine = g.ownerAccountId == 0 || g.ownerAccountId == player->_accountId ||
-                                  _frameCount >= g.ownerUntilFrame;
-                if (!mine)
-                    continue;
-
-                if (!found || dSq < bestSq)
-                {
-                    found  = true;
-                    bestSq = dSq;
-                    out.sectorX = sx;
-                    out.sectorY = sy;
-                    out.index   = i;
-                }
-            }
-        }
-    }
-
-    if (found)
-        return PickupFail::COUNT;
-    return anyInRange ? PickupFail::NOT_OWNER : PickupFail::NO_ITEM;
 }
 
 void CGameServer::RecvPickup(CPlayer* player, CSerialBuffer* /*pMsg*/)   // 몸이 없다 — 헤더뿐
@@ -3160,13 +3046,14 @@ void CGameServer::RecvPickup(CPlayer* player, CSerialBuffer* /*pMsg*/)   // 몸�
     if (zone == nullptr)
         return;
 
-    PickupTarget at;
-    PickupFail fail = CheckPickup(player, zone, at);
+    CGroundItemManager& groundItems = zone->GetGroundItemManager();
+    CGroundItemManager::PickupTarget at;
+    PickupFail fail = groundItems.FindPickup(player, _frameCount, at);
     int32_t failItemId = 0;
 
     if (fail == PickupFail::COUNT)
     {
-        const CGroundItem& g = zone->GetSectorManager().GetSectorItems(at.sectorX, at.sectorY)[at.index];
+        const CGroundItem& g = groundItems.GetSectorItems(at.sectorX, at.sectorY)[at.index];
         const ItemDef* def = _gameDataFiles.Item().Find(g.item.itemId);
         if (def == nullptr)
         {
@@ -3179,7 +3066,8 @@ void CGameServer::RecvPickup(CPlayer* player, CSerialBuffer* /*pMsg*/)   // 몸�
         if (r == InvAddResult::OK)
         {
             _gameMonitor._inventory._itemsAdded.Add(g.item.count);   // /item 과 같은 계수기 — 가방에 들어간 개수
-            RemoveGroundItem(zone, at.sectorX, at.sectorY, at.index, GroundItemRemoval::PICKED, player->_actorId);
+            groundItems.Remove(MakeGroundItemContext(), at.sectorX, at.sectorY, at.index,
+                               GroundItemRemoval::PICKED, player->_actorId);
             FlushInventory(player);   // 칸 패킷 + 곧바로 DB 저장(지금 경로 그대로)
             return;
         }
@@ -3299,8 +3187,8 @@ void CGameServer::BroadcastEnterZone(CZone* zone, CPlayer* player, SpawnReason r
                 SendCreateOtherPlayer(player, other);   // 신규 플레이어에게 기존 상대 생성
         });
 #if USE_DROP
-        // 땅의 아이템도 보인다 — 캐릭터가 아니라 셋째 목록을 따로 돈다(입장·존 이동 공통)
-        for (const CGroundItem& g : sectors.GetSectorItems(around[i].x, around[i].y))
+        // 땅의 아이템도 보인다 — 캐릭터가 아니라 땅 아이템 관리자의 같은 칸 목록을 따로 돈다(입장·존 이동 공통)
+        for (const CGroundItem& g : zone->GetGroundItemManager().GetSectorItems(around[i].x, around[i].y))
             SendGroundItemCreate(player, g, GroundItemAppear::SEEN);
 #endif
     }
@@ -3631,15 +3519,15 @@ void CGameServer::ProcessSectorChange(CZone* zone, CCharacter* player,
     //   클라는 땅 번호로 덮어쓰고 모르는 번호의 삭제는 버린다(Protocol.h MSG_S2C_GROUND_ITEM_CREATE).
     if (me != nullptr)
     {
-        const CSectorManager& itemSectors = zone->GetSectorManager();
+        const CGroundItemManager& groundItems = zone->GetGroundItemManager();   // 섹터와 같은 칸 번호
         for (int32_t i = 0; i < removedCount; ++i)
         {
-            for (const CGroundItem& g : itemSectors.GetSectorItems(removed[i].x, removed[i].y))
+            for (const CGroundItem& g : groundItems.GetSectorItems(removed[i].x, removed[i].y))
                 SendGroundItemDelete(me, g.groundId, GroundItemGone::OUT_OF_SIGHT, 0);
         }
         for (int32_t i = 0; i < addedCount; ++i)
         {
-            for (const CGroundItem& g : itemSectors.GetSectorItems(added[i].x, added[i].y))
+            for (const CGroundItem& g : groundItems.GetSectorItems(added[i].x, added[i].y))
                 SendGroundItemCreate(me, g, GroundItemAppear::SEEN);
         }
     }
