@@ -917,7 +917,7 @@ const dvec=d=> d===1?{x:0,y:-1}: d===2?{x:0,y:1}: d===3?{x:-1,y:0}: d===4?{x:1,y
 function advance(o,dt,k){
   // 데드레커닝: 서버 틱 사이를 방향·속도로 이어 그림(끊김 제거).
   // 서버 위치(o.x,o.y)를 속도로 전진시키고, 렌더(rx,ry)는 그 목표를 부드럽게 추종.
-  // 상한은 서버 CGameServer::IsBlockedByWall 과 같은 mapWidth-1 (mapWidth 를 쓰면 없는 섹터가 잠깐 표시됨).
+  // 상한은 서버 CZone::IsBlockedByWall 과 같은 mapWidth-1 (mapWidth 를 쓰면 없는 섹터가 잠깐 표시됨).
   // 서버 CZone::Tick 은 mapWidth 를 넘긴 뒤에야 mapWidth-1 로 되돌리므로, 경계에서 한 틱 정도는 서버가 더 나가 있을 수 있다.
   if(o.moveState===1){ const v=dvec(o.dir), s=o.speed||30;
     o.x=Math.max(0,Math.min(ZONE.mapWidth -1, o.x+v.x*s*dt));

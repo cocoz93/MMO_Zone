@@ -6,6 +6,7 @@
 //  - 몬스터 관리자 소유 (_monsterManager, 값) — 몬스터 객체·깔기·판단·부활은 그쪽(MonsterManager.h).
 //    존과 같이 태어나고 같이 사라지므로. 플레이어 객체는 접속 수명이라 CGameServer 가 소유한다
 //  - 캐릭터 입장/퇴장, 섹터 등록/해제 등 데이터 관리
+//  - 맵 경계 규칙(맵 안 검사·클램프·벽 판정) — 맵 크기를 든 곳이 여기라서
 //  - 패킷 처리·브로드캐스트는 CGameServer, 몬스터 판단은 CMonsterManager 가 담당
 //
 // [설계]
@@ -18,6 +19,7 @@
 #include <memory>
 #include <vector>
 
+#include "Actor.h"         // Direction — 벽 판정(IsBlockedByWall)이 방향을 받는다
 #include "BuildConfig.h"
 #include "SectorManager.h"
 #include "MonsterManager.h"   // 몬스터 관리자 — 존이 값으로 든다(USE_MONSTER 가 꺼져 있으면 빈 헤더)
@@ -53,7 +55,7 @@ public:
 
     // 자리를 받는 입장 — 위 EnterZone 과 하는 일이 같고 스폰 좌표만 호출부가 준다(DB 에서 불러온 자리).
     //   입장 절차는 이쪽 하나뿐이다: EnterZone 은 무작위 자리를 뽑아 이걸 부른다.
-    //   좌표가 맵 안인지는 호출부가 본다(CGameServer::IsValidSpawnPos) — 여기는 받은 대로 넣는다.
+    //   좌표가 맵 안인지는 호출부가 본다(IsInsideMap 으로) — 여기는 받은 대로 넣는다.
     bool EnterZoneAt(CCharacter* player, float x, float y);
 
     // 캐릭터 퇴장 — 섹터 해제, 목록에서 제거 (delete하지 않음)
@@ -69,6 +71,16 @@ public:
     int32_t GetMapId() const { return _mapId; }
     int32_t GetMapWidth() const { return _mapWidth; }
     int32_t GetMapHeight() const { return _mapHeight; }
+
+    // ── 맵 경계 ── 경계 판정은 이 넷에 모았다. 값 둘을 쓴다:
+    //   맵 안 = 0 <= 좌표 < 맵 크기 (틱 클램프가 손대지 않는 범위)
+    //   벽 선 = 맵 크기 - 1        (밖으로 나간 좌표를 되돌려 놓는 자리 · 벽에 붙었나의 기준)
+    //   콘솔 클라(GameClient PlayerManager)가 같은 식을 복제하고, 웹 클라(live.html advance)가 벽 선을 상한으로 쓴다 — 바꾸면 같이.
+    bool IsInsideMap(float x, float y) const;                     // 저장된 자리를 그대로 써도 되나 (NaN·무한대는 밖)
+    bool ClampToMap(float& x, float& y) const;                    // 맵 밖이면 가장자리(0 또는 벽 선)로 되돌림. 되돌렸으면 true
+    void ClampToWallLine(float& x, float& y) const;               // 벽 선까지 닫힌 범위로 자름 — 땅 아이템 놓을 자리
+    bool IsBlockedByWall(float x, float y, Direction dir) const;  // 벽에 붙은 채 벽 쪽으로 가려 하나
+
     // 채널 정원·빈 채널 판정용 — _characterList.size() 가 아니라 별도 카운터다.
     //   몬스터가 정원을 차지하면 사람이 못 들어오고, 몬스터만 남은 채널은 영영 안 지워진다.
     //   세는 기준은 _kind 다(Character.h [종류]).

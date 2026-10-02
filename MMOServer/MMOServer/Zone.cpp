@@ -2,6 +2,7 @@
 #include "Character.h"
 #include "Monster.h"   // USE_MONSTER — 벽에 막힌 캐릭터를 CMonster 로 내려 관리자에 넘긴다(헤더 안에서 스스로 토글을 본다)
 #include <algorithm>
+#include <cmath>       // std::isfinite — IsInsideMap
 #include <random>
 
 CZone::CZone()
@@ -118,11 +119,7 @@ void CZone::Tick(float deltaTime, std::vector<SectorChangeInfo>& outSectorChange
         }
 
         // 맵 경계 클램핑
-        bool clamped = false;
-        if (player->_x < 0.0f)          { player->_x = 0.0f; clamped = true; }
-        if (player->_x >= _mapWidth)     { player->_x = static_cast<float>(_mapWidth) - 1.0f; clamped = true; }
-        if (player->_y < 0.0f)          { player->_y = 0.0f; clamped = true; }
-        if (player->_y >= _mapHeight)    { player->_y = static_cast<float>(_mapHeight) - 1.0f; clamped = true; }
+        bool clamped = ClampToMap(player->_x, player->_y);
 
         // 경계에 닿으면 정지 → 클라이언트에 MOVE_STOP 통보 필요
         if (clamped)
@@ -153,6 +150,60 @@ void CZone::Tick(float deltaTime, std::vector<SectorChangeInfo>& outSectorChange
 
             outSectorChanges.push_back({ player, oldSectorX, oldSectorY });
         }
+    }
+}
+
+// ==========================================================================
+// 맵 경계 — 값 둘(맵 안 · 벽 선)은 Zone.h 「── 맵 경계 ──」 주석
+// ==========================================================================
+
+bool CZone::IsInsideMap(float x, float y) const
+{
+    // 이동 쪽 클램프(ClampToMap — CZone::Tick 이 부른다)와 같은 범위 — 0 <= 좌표 < 맵 크기.
+    //   식이 다르면 "입장은 되는데 첫 틱에 클램프되는" 자리가 생긴다.
+    //   NaN·무한대를 먼저 거른다 — NaN 은 비교가 전부 거짓이라 범위 검사만으로는 뜻이 안 읽힌다.
+    return std::isfinite(x) && std::isfinite(y)
+        && x >= 0.0f && x < static_cast<float>(_mapWidth)
+        && y >= 0.0f && y < static_cast<float>(_mapHeight);
+}
+
+bool CZone::ClampToMap(float& x, float& y) const
+{
+    bool clamped = false;
+    if (x < 0.0f)          { x = 0.0f; clamped = true; }
+    if (x >= _mapWidth)     { x = static_cast<float>(_mapWidth) - 1.0f; clamped = true; }
+    if (y < 0.0f)          { y = 0.0f; clamped = true; }
+    if (y >= _mapHeight)    { y = static_cast<float>(_mapHeight) - 1.0f; clamped = true; }
+    return clamped;
+}
+
+void CZone::ClampToWallLine(float& x, float& y) const
+{
+    // ClampToMap 과 식이 다르다 — 벽 선 초과·맵 크기 미만 구간도 벽 선으로 자른다(드랍이 쓰던 식 그대로).
+    const float maxX = static_cast<float>(_mapWidth) - 1.0f;
+    const float maxY = static_cast<float>(_mapHeight) - 1.0f;
+    x = x < 0.0f ? 0.0f : (x > maxX ? maxX : x);
+    y = y < 0.0f ? 0.0f : (y > maxY ? maxY : y);
+}
+
+// 벽 방향 검증 — 경계 위치에서 벽 쪽 이동 차단 (클라이언트 IsBlockedByWall과 동일)
+bool CZone::IsBlockedByWall(float x, float y, Direction dir) const
+{
+    float maxX = static_cast<float>(_mapWidth) - 1.0f;
+    float maxY = static_cast<float>(_mapHeight) - 1.0f;
+
+    bool atLeft   = (x <= 0.0f);
+    bool atRight  = (x >= maxX);
+    bool atTop    = (y <= 0.0f);
+    bool atBottom = (y >= maxY);
+
+    switch (dir)
+    {
+    case Direction::LEFT:  return atLeft;
+    case Direction::RIGHT: return atRight;
+    case Direction::UP:    return atTop;
+    case Direction::DOWN:  return atBottom;
+    default: return false;
     }
 }
 

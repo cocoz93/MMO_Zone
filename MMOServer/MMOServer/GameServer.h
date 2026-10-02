@@ -171,9 +171,6 @@ private:
     CPlayer* SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t accountId,
                          CZone* zone, const EnterPlacement& place);
 
-    // 저장된 좌표를 그대로 써도 되나 — 이동 쪽 클램프(CZone::Tick)와 같은 범위를 쓴다.
-    static bool IsValidSpawnPos(float x, float y, int32_t mapWidth, int32_t mapHeight);
-
     // 패킷 핸들러
     void RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg);
     void RecvMoveStop(CPlayer* player, CSerialBuffer* pMsg);
@@ -480,9 +477,6 @@ private:
     void SendSyncPosition(CPlayer* target);
     void SendZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex);
     void SendZoneChangeFail(CPlayer* target, uint8_t reason);
-
-    // 벽 방향 검증 — 경계 위치에서 벽 쪽 이동 차단
-    bool IsBlockedByWall(CZone* zone, CCharacter* player, Direction dir);
 
     // C2S_MOVE_START 좌표 수용의 이동량 예산 검사 — 경과분 적립 후 통과하면 소비까지 수행.
     // 반환 false면 수용하지 않고 서버 좌표를 유지한다(기존 범위초과 경로와 동일한 처리).

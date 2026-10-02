@@ -939,7 +939,7 @@ void CGameServer::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
 
         // 존 먼저, 좌표는 그 존의 크기로 본다. 저장된 맵이 없으면 zone 이 nullptr 로 남아 아래에서 기본 맵을 구한다.
         zone = _mapManager.FindOrCreateChannel(result.mapId);
-        if (zone != nullptr && IsValidSpawnPos(result.x, result.y, zone->GetMapWidth(), zone->GetMapHeight()))
+        if (zone != nullptr && zone->IsInsideMap(result.x, result.y))
         {
             place.hasPos  = true;
             place.x       = result.x;
@@ -1253,16 +1253,6 @@ void CGameServer::ProcessNetworkEvents()
         }
         _localEvents.pop();
     }
-}
-
-bool CGameServer::IsValidSpawnPos(float x, float y, int32_t mapWidth, int32_t mapHeight)
-{
-    // 이동 쪽 클램프(CZone::Tick)와 같은 범위 — 0 <= 좌표 < 맵 크기.
-    //   식이 다르면 "입장은 되는데 첫 틱에 클램프되는" 자리가 생긴다.
-    //   NaN·무한대를 먼저 거른다 — NaN 은 비교가 전부 거짓이라 범위 검사만으로는 뜻이 안 읽힌다.
-    return std::isfinite(x) && std::isfinite(y)
-        && x >= 0.0f && x < static_cast<float>(mapWidth)
-        && y >= 0.0f && y < static_cast<float>(mapHeight);
 }
 
 CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t accountId,
@@ -1761,7 +1751,7 @@ void CGameServer::RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg)
             return;
 
         // 벽 방향 검증: 벽 위치에서 벽 쪽으로 방향 전환 시 정지 처리
-        if (IsBlockedByWall(zone, player, dir))
+        if (zone->IsBlockedByWall(player->_x, player->_y, dir))
         {
             player->_moveState = MoveState::IDLE;
             player->_direction = dir;
@@ -1795,12 +1785,7 @@ void CGameServer::RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg)
             // 맵 경계 클램핑 후 수용
             float acceptX = recvMsg.x;
             float acceptY = recvMsg.y;
-            float mapW = static_cast<float>(zone->GetMapWidth());
-            float mapH = static_cast<float>(zone->GetMapHeight());
-            if (acceptX < 0.0f)    acceptX = 0.0f;
-            if (acceptX >= mapW)   acceptX = mapW - 1.0f;
-            if (acceptY < 0.0f)    acceptY = 0.0f;
-            if (acceptY >= mapH)   acceptY = mapH - 1.0f;
+            zone->ClampToMap(acceptX, acceptY);
             player->_x = acceptX;
             player->_y = acceptY;
 
@@ -1828,7 +1813,7 @@ void CGameServer::RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg)
     }
 
     // 벽 방향 검증: 벽 위치에서 벽 쪽으로 이동 시도 시 차단
-    if (IsBlockedByWall(zone, player, dir))
+    if (zone->IsBlockedByWall(player->_x, player->_y, dir))
     {
         SendSyncPosition(player);        // 본인 — 서버 권위 좌표로 되돌림
         NotifyMoveSync(zone, player);    // 주변 — 위에서 채택한 좌표를 전파.
@@ -3037,8 +3022,6 @@ void CGameServer::DropLoot(CZone* zone, CPlayer* killer, CMonster* monster)
         { 0, 0 }, { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 }, { 1, 1 }, { -1, 1 }, { 1, -1 }, { -1, -1 },
     };
     constexpr size_t OFFSET_COUNT = sizeof(OFFSETS) / sizeof(OFFSETS[0]);
-    const float maxX = static_cast<float>(zone->GetMapWidth()) - 1.0f;    // 이동 쪽 클램프(CZone::Tick)와 같은 범위
-    const float maxY = static_cast<float>(zone->GetMapHeight()) - 1.0f;
 
     CSectorManager& sectors = zone->GetSectorManager();
     for (size_t i = 0; i < _lootBuffer.size(); ++i)
@@ -3046,10 +3029,11 @@ void CGameServer::DropLoot(CZone* zone, CPlayer* killer, CMonster* monster)
         CGroundItem g;
         g.groundId        = _nextGroundId++;
         g.item            = _lootBuffer[i];
-        const float fx    = monster->_x + OFFSETS[i % OFFSET_COUNT][0];
-        const float fy    = monster->_y + OFFSETS[i % OFFSET_COUNT][1];
-        g.x               = fx < 0.0f ? 0.0f : (fx > maxX ? maxX : fx);
-        g.y               = fy < 0.0f ? 0.0f : (fy > maxY ? maxY : fy);
+        float fx          = monster->_x + OFFSETS[i % OFFSET_COUNT][0];
+        float fy          = monster->_y + OFFSETS[i % OFFSET_COUNT][1];
+        zone->ClampToWallLine(fx, fy);
+        g.x               = fx;
+        g.y               = fy;
         g.ownerAccountId  = killer->_accountId;
         g.ownerUntilFrame = _frameCount + LOOT_LOCK_FRAMES;
         g.expireFrame     = _frameCount + GROUND_ITEM_LIFE_FRAMES;
@@ -3261,30 +3245,6 @@ void CGameServer::SendZoneChangeOk(CPlayer* target, int32_t mapId, int32_t chann
 void CGameServer::SendZoneChangeFail(CPlayer* target, uint8_t reason)
 {
     SendPacket(target, MakeZoneChangeFail(reason));
-}
-
-// ==========================================================================
-// 벽 방향 검증 — 경계 위치에서 벽 쪽 이동 차단 (클라이언트 IsBlockedByWall과 동일)
-// ==========================================================================
-
-bool CGameServer::IsBlockedByWall(CZone* zone, CCharacter* player, Direction dir)
-{
-    float maxX = static_cast<float>(zone->GetMapWidth()) - 1.0f;
-    float maxY = static_cast<float>(zone->GetMapHeight()) - 1.0f;
-
-    bool atLeft   = (player->_x <= 0.0f);
-    bool atRight  = (player->_x >= maxX);
-    bool atTop    = (player->_y <= 0.0f);
-    bool atBottom = (player->_y >= maxY);
-
-    switch (dir)
-    {
-    case Direction::LEFT:  return atLeft;
-    case Direction::RIGHT: return atRight;
-    case Direction::UP:    return atTop;
-    case Direction::DOWN:  return atBottom;
-    default: return false;
-    }
 }
 
 // C2S_MOVE_START 좌표 수용의 이동량 예산 — 경과분을 적립하고, 통과하면 소비까지 수행.
