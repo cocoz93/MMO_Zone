@@ -91,7 +91,7 @@ public:
     // 게임 루프 3-2) — 때가 된 몬스터를 같은 구역 안 다른 자리로 되살린다.
     //   ★ 섹터 변경 대기열이 빈 자리에서만 부른다 — 차 있으면 이번 틱에 섹터를 넘은 사람의 화면과
     //     서버 등록이 어긋난 채라 옛 자리 DELETE·새 자리 CREATE 가 그 사람을 놓친다.
-    //     그 대기열은 게임 서버 것이라 여기서는 못 본다 — 단언은 부르는 쪽(CGameServer::TickMonsterRespawn)에 있다.
+    //     그 대기열은 이 존 것이라(CZone::GetSectorChanges) 단언을 여기 맨 앞에 둔다.
     void TickRespawn(const MonsterContext& ctx, uint64_t frame);
 #endif
 

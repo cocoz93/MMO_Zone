@@ -2,6 +2,7 @@
 #include "Character.h"
 #include "Monster.h"   // USE_MONSTER — 벽에 막힌 캐릭터를 CMonster 로 내려 관리자에 넘긴다(헤더 안에서 스스로 토글을 본다)
 #include <algorithm>
+#include <cassert>
 #include <cmath>       // std::isfinite — IsInsideMap
 #include <random>
 
@@ -82,6 +83,14 @@ void CZone::LeaveZone(CCharacter* player)
     // 섹터 해제
     _sectorManager.RemoveCharacter(player, player->_sectorX, player->_sectorY);
 
+    // 섹터 이동 대기열에서 제거 — 틱 끝 처리(게임 루프 3)가 지워진 캐릭터를 읽지 않게.
+    //   부르는 쪽(CGameServer::BroadcastLeaveZone)은 대기열을 다 읽은 뒤에 여기로 온다.
+    _sectorChangedSet.erase(player);
+    _pendingSectorChanges.erase(
+        std::remove_if(_pendingSectorChanges.begin(), _pendingSectorChanges.end(),
+            [player](const SectorChangeInfo& c) { return c.character == player; }),
+        _pendingSectorChanges.end());
+
     // 순회용 리스트에서 O(1) 삭제 (swap-and-pop, 인덱스 캐시 활용)
     int32_t idx = player->_listIndex;
     if (idx >= 0 && idx < static_cast<int32_t>(_characterList.size()))
@@ -99,8 +108,7 @@ void CZone::LeaveZone(CCharacter* player)
     player->_listIndex = -1;
 }
 
-void CZone::Tick(float deltaTime, std::vector<SectorChangeInfo>& outSectorChanges,
-                 std::vector<CCharacter*>& outClampedCharacters)
+void CZone::Tick(float deltaTime, std::vector<CCharacter*>& outClampedCharacters)
 {
     for (CCharacter* player : _characterList)
     {
@@ -134,10 +142,7 @@ void CZone::Tick(float deltaTime, std::vector<SectorChangeInfo>& outSectorChange
         }
 
         // 섹터 변경 판정
-        const int32_t oldSectorX = player->_sectorX;
-        const int32_t oldSectorY = player->_sectorY;
-        if (UpdateSector(player))
-            outSectorChanges.push_back({ player, oldSectorX, oldSectorY });
+        UpdateSectorAndQueue(player);
     }
 }
 
@@ -157,6 +162,47 @@ bool CZone::UpdateSector(CCharacter* character)
     character->_sectorY = newSectorY;
     _sectorManager.AddCharacter(character, newSectorX, newSectorY);
     return true;
+}
+
+void CZone::UpdateSectorAndQueue(CCharacter* character)
+{
+    const int32_t oldSectorX = character->_sectorX;
+    const int32_t oldSectorY = character->_sectorY;
+    if (UpdateSector(character))
+        PushSectorChange(character, oldSectorX, oldSectorY);
+}
+
+void CZone::PushSectorChange(CCharacter* character, int32_t oldSectorX, int32_t oldSectorY)
+{
+    // 이 존 캐릭터만 — 대기열을 읽는 쪽(CGameServer)이 존 비교 없이 섹터 좌표를 맞대 보는 근거다
+    assert(character->_zoneId == _zoneId);
+
+    if (!_sectorChangedSet.insert(character).second)
+        return;  // 이미 기록됨 → 최초 출발 섹터 유지
+
+    _pendingSectorChanges.push_back({ character, oldSectorX, oldSectorY });
+}
+
+const SectorChangeInfo* CZone::FindSectorChange(CCharacter* character) const
+{
+    if (_sectorChangedSet.count(character) == 0)
+        return nullptr;
+
+    for (const SectorChangeInfo& change : _pendingSectorChanges)
+    {
+        if (change.character == character)
+            return &change;
+    }
+    return nullptr;
+}
+
+void CZone::ClearSectorChanges()
+{
+    if (_pendingSectorChanges.empty())
+        return;
+
+    _pendingSectorChanges.clear();
+    _sectorChangedSet.clear();
 }
 
 // ==========================================================================

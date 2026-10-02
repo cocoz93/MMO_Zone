@@ -7,6 +7,7 @@
 //    존과 같이 태어나고 같이 사라지므로. 플레이어 객체는 접속 수명이라 CGameServer 가 소유한다
 //  - 캐릭터 입장/퇴장, 섹터 등록/해제 등 데이터 관리
 //  - 맵 경계 규칙(맵 안 검사·클램프·벽 판정) — 맵 크기를 든 곳이 여기라서
+//  - 섹터 이동 대기열 — 담긴 옛 섹터 좌표가 이 존의 격자라서. 읽어서 CREATE/DELETE 를 보내는 것은 CGameServer
 //  - 패킷 처리·브로드캐스트는 CGameServer, 몬스터 판단은 CMonsterManager 가 담당
 //
 // [설계]
@@ -17,6 +18,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <unordered_set>
 #include <vector>
 
 #include "Actor.h"         // Direction — 벽 판정(IsBlockedByWall)이 방향을 받는다
@@ -61,10 +63,9 @@ public:
     // 캐릭터 퇴장 — 섹터 해제, 목록에서 제거 (delete하지 않음)
     void LeaveZone(CCharacter* player);
 
-    // 프레임 갱신 — MOVING 캐릭터 좌표 갱신, 섹터 변경 감지
+    // 프레임 갱신 — MOVING 캐릭터 좌표 갱신, 섹터 변경 감지(섹터 이동 대기열에 넣는다)
     // outClampedCharacters: 맵 경계 클램핑으로 IDLE 전환된 캐릭터 (MOVE_STOP 브로드캐스트 필요)
-    void Tick(float deltaTime, std::vector<SectorChangeInfo>& outSectorChanges,
-             std::vector<CCharacter*>& outClampedCharacters);
+    void Tick(float deltaTime, std::vector<CCharacter*>& outClampedCharacters);
 
     // 존 정보
     int32_t GetZoneId() const { return _zoneId; }
@@ -82,8 +83,15 @@ public:
     bool IsBlockedByWall(float x, float y, Direction dir) const;  // 벽에 붙은 채 벽 쪽으로 가려 하나
 
     // ── 섹터 이동 ── 좌표를 바꾼 쪽이 부른다. 좌표가 가리키는 섹터로 등록을 옮긴다.
-    //   옮겼으면 true — 화면(CREATE/DELETE)을 고치는 것은 부른 쪽 몫이다.
-    bool UpdateSector(CCharacter* character);
+    //   화면(CREATE/DELETE)을 언제 고치느냐로 둘:
+    bool UpdateSector(CCharacter* character);           // 옮기기만. 옮겼으면 true — 화면은 부른 쪽이 바로 고친다(몬스터 부활)
+    void UpdateSectorAndQueue(CCharacter* character);   // 옮기고 섹터 이동 대기열에 — 화면은 틱 끝(게임 루프 3)에 CGameServer 가 고친다
+
+    // 섹터 이동 대기열 — 이번 틱에 섹터를 넘은 캐릭터와 첫 출발 섹터. 게임 루프 3)이 읽고 비운다.
+    //   퇴장하는 캐릭터는 LeaveZone 이 뺀다. 존이 지워지면 같이 사라진다.
+    const std::vector<SectorChangeInfo>& GetSectorChanges() const { return _pendingSectorChanges; }
+    const SectorChangeInfo* FindSectorChange(CCharacter* character) const;   // 없으면 nullptr
+    void ClearSectorChanges();
 
     // 채널 정원·빈 채널 판정용 — _characterList.size() 가 아니라 별도 카운터다.
     //   몬스터가 정원을 차지하면 사람이 못 들어오고, 몬스터만 남은 채널은 영영 안 지워진다.
@@ -106,6 +114,9 @@ private:
     // 스폰 좌표 계산 (맵 전체 랜덤)
     void CalcSpawnPos(float& outX, float& outY) const;
 
+    // 섹터 이동 대기열에 추가 (같은 캐릭터는 최초 출발 섹터만 유지)
+    void PushSectorChange(CCharacter* character, int32_t oldSectorX, int32_t oldSectorY);
+
     int32_t _zoneId;
     int32_t _mapId;
     int32_t _mapWidth;
@@ -119,6 +130,10 @@ private:
     // _characterList 중 _kind == PLAYER 인 것의 수 (채널 정원·빈 채널 판정 전용).
     //   목록에 넣고 빼는 그 자리에서만 증감한다 — 어긋나면 채널이 안 지워지거나 정원이 새어 나간다.
     int32_t _playerCount;
+
+    // 섹터 이동 대기열 (틱 안에 모음 → 게임 루프 3)에서 일괄 처리). 이 존 캐릭터만 들어온다(PushSectorChange 단언)
+    std::vector<SectorChangeInfo> _pendingSectorChanges;
+    std::unordered_set<CCharacter*> _sectorChangedSet;  // 이미 기록된 캐릭터 필터
 
 #if USE_MONSTER
     // 몬스터 관리자 — 몬스터 소유·깔았나 표시·부활 대기열. *this 를 들므로 존은 복사하지 않는다(위 삭제 두 줄).

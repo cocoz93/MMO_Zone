@@ -61,9 +61,8 @@ public:
     //     끄면 CGameServer 가 빈 콜백을 넘긴다.
     void CleanupEmptyChannels(const std::function<void(CZone*)>& onBeforeErase);
 
-    // 전체 채널 Tick
-    void TickAll(float deltaTime, std::vector<SectorChangeInfo>& outSectorChanges,
-                 std::vector<CCharacter*>& outClampedCharacters);
+    // 전체 채널 Tick — 섹터 변경은 존마다 대기열에 쌓인다(CZone::GetSectorChanges)
+    void TickAll(float deltaTime, std::vector<CCharacter*>& outClampedCharacters);
 
     int32_t GetMaxPlayersPerChannel() const { return _config.maxPlayersPerChannel; }
     const MapConfig& GetConfig() const { return _config; }
@@ -110,9 +109,8 @@ public:
     // 존 조회 (zoneId로 직접 접근)
     CZone* GetZone(int32_t zoneId);
 
-    // 전체 존 Tick — 섹터 변경 및 경계 클램핑 수집
-    void TickAll(float deltaTime, std::vector<SectorChangeInfo>& outSectorChanges,
-                 std::vector<CCharacter*>& outClampedCharacters);
+    // 전체 존 Tick — 경계 클램핑 수집. 섹터 변경은 존마다 대기열에 쌓인다(CZone::GetSectorChanges)
+    void TickAll(float deltaTime, std::vector<CCharacter*>& outClampedCharacters);
 
     // 현재 맵을 제외한 랜덤 맵 ID 반환 (-1이면 선택 불가)
     int32_t GetRandomMapId(int32_t excludeMapId) const;

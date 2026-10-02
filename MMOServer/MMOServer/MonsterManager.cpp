@@ -267,6 +267,9 @@ void CMonsterManager::QueueRespawn(CMonster* monster)
 // 부활 대기자 훑기 — 틱마다 1회. 죽은 것만 따로 들고 있어 몬스터 전체를 돌지 않는다.
 void CMonsterManager::TickRespawn(const MonsterContext& ctx, uint64_t frame)
 {
+    // 틱 3-2 — 섹터 변경 대기열을 처리하고 비운 뒤다(게임 루프 3). 까닭은 헤더 주석. 누가 이 호출을 앞으로 옮기면 여기서 걸린다.
+    assert(_zone.GetSectorChanges().empty());
+
     if (_respawnQueue.empty())
         return;
 

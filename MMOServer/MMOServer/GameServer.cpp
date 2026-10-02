@@ -566,10 +566,7 @@ bool CGameServer::Init(ServerMode mode, int port, int maxClients,
 #endif
         _broadcastBuffer.reserve(maxPerChannel);       // 주변 9섹터 단위
         _eventAroundBuffer.reserve(maxPerChannel);     // 주변 9섹터 단위
-        _pendingSectorChanges.reserve(maxPerChannel);  // 전체 서버 프레임 이벤트
-        _tickSectorChanges.reserve(maxPerChannel);     // 전체 서버 TickAll 결과
         _tickClampedPlayers.reserve(maxPerChannel);    // 전체 서버 TickAll 결과
-        _sectorChangedSet.reserve(maxPerChannel);      // 전체 서버 dedup
         _sectorOutbox.dirtyMovers.reserve(maxClients);              // 전체 서버 dirty (이동/sync 묶음 대상)
     }
 
@@ -1040,42 +1037,36 @@ void CGameServer::GameLoopThread()
         TickMonsters();
 #endif
 
-        // 2) 게임 로직 갱신 (좌표 이동 + 섹터 변경 감지 + 경계 클램핑)
-        _tickSectorChanges.clear();
+        // 2) 게임 로직 갱신 (좌표 이동 + 섹터 변경 감지 + 경계 클램핑) — 섹터 변경은 존마다 대기열에 쌓인다
         _tickClampedPlayers.clear();
-        _mapManager.TickAll(deltaTime, _tickSectorChanges, _tickClampedPlayers);
+        _mapManager.TickAll(deltaTime, _tickClampedPlayers);
 
-        // 3) 섹터 변경 배치 처리 (RecvMoveStop + TickAll 병합 → 삽입 시 중복 차단)
-        for (const auto& change : _tickSectorChanges)
-        {
-            PushSectorChange(change.character, change.oldSectorX, change.oldSectorY);
-        }
-
+        // 3) 섹터 변경 배치 처리 — 존마다 대기열(이동 패킷 + 존 틱, 넣을 때 중복 차단)을 읽어 보내고 비운다.
+        //   존마다 따로 도는 까닭: 대기열의 섹터 좌표는 그 존의 격자이고, 보내는 대상도 그 존 사람뿐이다.
         // [계측] 멤버십(섹터이동 CREATE/DELETE) 송신 시간 — 구간 1쌍으로만 측정.
         //   per-call 금지: 멤버십은 ~1.04M/s라 건당 now()를 넣으면 측정 오버헤드가 대상을 오염시킴.
         auto membT0 = Clock::now();
-        for (const auto& change : _pendingSectorChanges)
+        _mapManager.ForEachZone([this](CZone* zone)
         {
-            // 출발 섹터 == 현재 섹터이면 원위치 복귀 → 브로드캐스트 불필요
-            if (change.oldSectorX == change.character->_sectorX &&
-                change.oldSectorY == change.character->_sectorY)
-                continue;
-
-            CZone* zone = _mapManager.GetZone(change.character->_zoneId);
-            if (zone != nullptr)
+            for (const auto& change : zone->GetSectorChanges())
             {
+                // 출발 섹터 == 현재 섹터이면 원위치 복귀 → 브로드캐스트 불필요
+                if (change.oldSectorX == change.character->_sectorX &&
+                    change.oldSectorY == change.character->_sectorY)
+                    continue;
+
                 ProcessSectorChange(zone, change.character,
                                     change.oldSectorX, change.oldSectorY);
             }
-        }
-        // 같은 틱에 함께 이동한 쌍은 위 루프가 서로를 놓친다(상대는 이미 새 섹터로 옮겨간 뒤라
-        // 이탈/진입 섹터 조회에 안 걸림) → 누락된 CREATE/DELETE만 보충. 보정 비용도 멤버십 구간에 포함.
-        FixSameTickMoverPairs();
+            // 같은 틱에 함께 이동한 쌍은 위 루프가 서로를 놓친다(상대는 이미 새 섹터로 옮겨간 뒤라
+            // 이탈/진입 섹터 조회에 안 걸림) → 누락된 CREATE/DELETE만 보충. 보정 비용도 멤버십 구간에 포함.
+            FixSameTickMoverPairs(zone);
+
+            zone->ClearSectorChanges();
+        });
 
         _tickMembershipUs += std::chrono::duration_cast<std::chrono::microseconds>(
             Clock::now() - membT0).count();
-        _pendingSectorChanges.clear();
-        _sectorChangedSet.clear();
 
         // 3-1) 맵 경계 클램핑으로 정지된 플레이어에게 MOVE_STOP 브로드캐스트
         for (CCharacter* player : _tickClampedPlayers)
@@ -1183,9 +1174,8 @@ void CGameServer::GameLoopThread()
             _cleanupFrameCount = 0;
 
             // 정리는 틱 끝(5)이라 몬스터를 가리키는 게임 서버 대기열이 없다 — 존을 그대로 지워도 된다.
-            //   섹터 변경 둘은 3) 이 비웠고, 이동 묶음은 틱 끝 송신이 비웠다. 몬스터 부활 대기열은 존의 관리자 안이라
+            //   이동 묶음은 틱 끝 송신이 비웠다. 섹터 이동 대기열과 몬스터 부활 대기열은 존 안이라
             //   존과 같이 사라진다. 누가 정리를 틱 앞쪽으로 옮기면 여기서 걸린다.
-            assert(_pendingSectorChanges.empty() && _sectorChangedSet.empty());
             assert(_sectorOutbox.dirtyMovers.empty());
 #if USE_DROP
             _mapManager.CleanupEmptyChannels([this](CZone* zone)
@@ -1432,8 +1422,8 @@ void CGameServer::KickDuplicateAccount(int64_t accountId, int64_t exceptSessionI
 {
     // ⑴ 게임 중 — 정리 코드를 새로 쓰지 않고 평소 끊김 처리를 그대로 부른다. 그 안에 퇴장 방송·
     //    슬롯 해제·부활 대기열 회수·최종 저장 투입이 전부 있고, 무엇보다 **틱 중간 대기열에서 빼는
-    //    일**이 들어 있다(BroadcastLeaveZone 이 _sectorChangedSet·_pendingSectorChanges 에서 제거,
-    //    :2569~2573). 이 함수는 네트워크 이벤트 구간 한가운데서 플레이어를 지우는데, 같은 틱에
+    //    일**이 들어 있다(BroadcastLeaveZone 이 부르는 CZone::LeaveZone 이 존의 섹터 이동 대기열에서
+    //    제거). 이 함수는 네트워크 이벤트 구간 한가운데서 플레이어를 지우는데, 같은 틱에
     //    그 플레이어가 MOVE_STOP 으로 그 대기열에 들어가 있을 수 있다 — 새로 짰으면 빠뜨렸을 자리다.
     //    뒤늦게 오는 진짜 끊김 이벤트는 플레이어가 이미 없어 FindPlayer 가 nullptr 이라 무해하다.
     for (CPlayer* other : _sessionSlots)
@@ -1794,10 +1784,7 @@ void CGameServer::RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg)
 #endif
 
             // 좌표 수용으로 섹터가 변경되었을 수 있으므로 재계산
-            const int32_t oldSectorX = player->_sectorX;
-            const int32_t oldSectorY = player->_sectorY;
-            if (zone->UpdateSector(player))
-                PushSectorChange(player, oldSectorX, oldSectorY);
+            zone->UpdateSectorAndQueue(player);
         }
         // 범위 초과 또는 예산 부족 시 서버 좌표 유지 (치트 방지)
     }
@@ -1851,14 +1838,8 @@ void CGameServer::RecvMoveStop(CPlayer* player, CSerialBuffer* pMsg)
     player->_dbDirty = true;   // 정지 → IDLE 전이(주기저장 MOVING 조건에서 빠지므로 최종위치 마킹)
 #endif
 
-    // 섹터 이동 판정
-    const int32_t oldSectorX = player->_sectorX;
-    const int32_t oldSectorY = player->_sectorY;
-    if (zone->UpdateSector(player))
-    {
-        // 시야 진입/이탈 — 대기열에 추가 (틱 끝에 배치 처리)
-        PushSectorChange(player, oldSectorX, oldSectorY);
-    }
+    // 섹터 이동 판정 — 넘었으면 시야 진입/이탈을 대기열에 추가 (틱 끝에 배치 처리)
+    zone->UpdateSectorAndQueue(player);
 
     // 주변에 MOVE_STOP 브로드캐스트 (묶음 모드: dirty 마킹만)
     NotifyMoveStop(zone, player, true);
@@ -2935,10 +2916,7 @@ void CGameServer::TickMonsters()
 // 게임 루프 3-2) — 플레이어 부활(TickRespawn) 뒤, 존마다 관리자의 몬스터 부활.
 void CGameServer::TickMonsterRespawn()
 {
-    // 틱 3-2 — 섹터 변경 대기열을 처리하고 비운 뒤다(GameLoopThread). 누가 이 호출을 앞으로 옮기면 여기서 걸린다.
-    //   관리자는 이 대기열을 모르므로 단언은 부르는 이쪽에 둔다.
-    assert(_pendingSectorChanges.empty());
-
+    // 틱 3-2 — 섹터 변경 대기열을 처리하고 비운 뒤다(GameLoopThread). 단언은 관리자 안(CMonsterManager::TickRespawn)에 있다.
     const MonsterContext ctx = MakeMonsterContext();
     _mapManager.ForEachZone([&](CZone* zone)
     {
@@ -3067,7 +3045,7 @@ void CGameServer::RemoveGroundItem(CZone* zone, int32_t sectorX, int32_t sectorY
         SendGroundItemDelete(other, groundId, wire, pickerId);
 
     // 같은 틱에 섹터를 넘은 사람 — 틱 1단계(줍기)에서만 대기열이 차 있다. 사라지기(3-3)는 비운 뒤라 여기서 끝난다.
-    if (!_pendingSectorChanges.empty())
+    if (!zone->GetSectorChanges().empty())
         SendGroundItemDeleteToLateMovers(zone, sectorX, sectorY, groundId, wire, pickerId);
 
     sectors.RemoveGroundItemAt(sectorX, sectorY, index);
@@ -3276,11 +3254,11 @@ namespace
 void CGameServer::SendGroundItemDeleteToLateMovers(CZone* zone, int32_t sectorX, int32_t sectorY,
                                                    int32_t groundId, GroundItemGone wire, int32_t pickerId)
 {
-    for (const auto& change : _pendingSectorChanges)
+    for (const auto& change : zone->GetSectorChanges())
     {
         CPlayer* mover = AsPlayer(change.character);   // 대기열은 섞여 있다(몬스터도 섹터를 넘는다) — 받는 쪽만
-        if (mover == nullptr || mover->_zoneId != zone->GetZoneId())
-            continue;   // 대기열은 서버 전역 — 섹터 좌표는 존마다 별개 격자라 같은 존만 비교
+        if (mover == nullptr)
+            continue;
         if (change.oldSectorX == mover->_sectorX && change.oldSectorY == mover->_sectorY)
             continue;   // 원위치 복귀 — 화면과 등록이 같다
 
@@ -3350,31 +3328,26 @@ void CGameServer::BroadcastLeaveZone(CZone* zone, CCharacter* player)
 
     // 미처리 섹터 변경이 있으면 이전 섹터 전용 뷰어에게도 DELETE
     // (같은 프레임에 섹터 변경 + 존 이동/접속해제 시 고스트 방지)
-    if (_sectorChangedSet.count(player))
+    //   퇴장자 자신의 대기열 항목 — 아래 셋째 덩이도 쓴다. 대기열에서 빼는 것은 맨 끝 LeaveZone 이라 그때까지 유효하다.
+    const SectorChangeInfo* const leaverChange = zone->FindSectorChange(player);
+    if (leaverChange != nullptr)
     {
-        for (const auto& change : _pendingSectorChanges)
+        // 이전 섹터 전용 = old 주변에만 있고 현재 주변에는 없는 섹터
+        CSectorManager::SectorPos added[CSectorManager::MAX_AROUND_SECTORS];
+        CSectorManager::SectorPos removed[CSectorManager::MAX_AROUND_SECTORS];
+        int32_t addedCount = 0;
+        int32_t removedCount = 0;
+
+        zone->GetSectorManager().GetSectorDiff(
+            player->_sectorX, player->_sectorY,                   // 현재 섹터 (이미 갱신된 값)
+            leaverChange->oldSectorX, leaverChange->oldSectorY,   // 이전 섹터
+            added, addedCount,                                     // old 전용 섹터
+            removed, removedCount);
+
+        for (int32_t i = 0; i < addedCount; ++i)
         {
-            if (change.character != player)
-                continue;
-
-            // 이전 섹터 전용 = old 주변에만 있고 현재 주변에는 없는 섹터
-            CSectorManager::SectorPos added[CSectorManager::MAX_AROUND_SECTORS];
-            CSectorManager::SectorPos removed[CSectorManager::MAX_AROUND_SECTORS];
-            int32_t addedCount = 0;
-            int32_t removedCount = 0;
-
-            zone->GetSectorManager().GetSectorDiff(
-                player->_sectorX, player->_sectorY,    // 현재 섹터 (이미 갱신된 값)
-                change.oldSectorX, change.oldSectorY,   // 이전 섹터
-                added, addedCount,                       // old 전용 섹터
-                removed, removedCount);
-
-            for (int32_t i = 0; i < addedCount; ++i)
-            {
-                for (CPlayer* other : zone->GetSectorManager().GetSectorPlayers(added[i].x, added[i].y))
-                    SendDeletePlayer(other, player);
-            }
-            break;
+            for (CPlayer* other : zone->GetSectorManager().GetSectorPlayers(added[i].x, added[i].y))
+                SendDeletePlayer(other, player);
         }
     }
 
@@ -3395,24 +3368,17 @@ void CGameServer::BroadcastLeaveZone(CZone* zone, CCharacter* player)
     {
         int32_t leaverOldX = player->_sectorX;
         int32_t leaverOldY = player->_sectorY;
-        if (_sectorChangedSet.count(player))
+        if (leaverChange != nullptr)
         {
-            for (const auto& change : _pendingSectorChanges)
-            {
-                if (change.character == player)
-                {
-                    leaverOldX = change.oldSectorX;
-                    leaverOldY = change.oldSectorY;
-                    break;
-                }
-            }
+            leaverOldX = leaverChange->oldSectorX;
+            leaverOldY = leaverChange->oldSectorY;
         }
 
-        for (const auto& change : _pendingSectorChanges)
+        for (const auto& change : zone->GetSectorChanges())
         {
             CCharacter* mover = change.character;
-            if (mover == player || mover->_zoneId != player->_zoneId)
-                continue;   // 대기열은 서버 전역 — 섹터 좌표는 존마다 별개 격자라 같은 존만 비교
+            if (mover == player)
+                continue;
             if (change.oldSectorX == mover->_sectorX && change.oldSectorY == mover->_sectorY)
                 continue;   // 원위치 복귀 — 시야 변화 없음
 
@@ -3428,32 +3394,13 @@ void CGameServer::BroadcastLeaveZone(CZone* zone, CCharacter* player)
         }
     }
 
-    // 섹터 변경 대기열에서 제거
-    _sectorChangedSet.erase(player);
-    _pendingSectorChanges.erase(
-        std::remove_if(_pendingSectorChanges.begin(), _pendingSectorChanges.end(),
-            [player](const SectorChangeInfo& c) { return c.character == player; }),
-        _pendingSectorChanges.end());
-
 #if USE_COMBAT
-    // 부활 대기열에서도 제거 — 위 대기열들과 같은 이유다(틱 끝 TickRespawn dangling 방지).
+    // 부활 대기열에서도 제거 — 위 이동 묶음·아래 LeaveZone 의 섹터 이동 대기열과 같은 이유다(틱 끝 TickRespawn dangling 방지).
     //   죽은 채로 퇴장·존이동하는 경우가 실제 경로다(부활 3초 안에 창을 닫으면 여기로 온다).
     RemoveFromDeadActors(player);
 #endif
 
     zone->LeaveZone(player);
-}
-
-// ==========================================================================
-// 섹터 변경 대기열 삽입 — 같은 플레이어는 최초 출발 섹터만 기록
-// ==========================================================================
-
-void CGameServer::PushSectorChange(CCharacter* player, int32_t oldSectorX, int32_t oldSectorY)
-{
-    if (!_sectorChangedSet.insert(player).second)
-        return;  // 이미 기록됨 → 최초 출발 섹터 유지
-
-    _pendingSectorChanges.push_back({ player, oldSectorX, oldSectorY });
 }
 
 // ==========================================================================
@@ -3479,28 +3426,26 @@ void CGameServer::PushSectorChange(CCharacter* player, int32_t oldSectorX, int32
 //   5,000명 M≈310 → 532us/틱(1.3%). 유의미해지면 이전/현재 섹터로 버킷팅해 후보를 줄일 것.
 // ==========================================================================
 
-void CGameServer::FixSameTickMoverPairs()
+void CGameServer::FixSameTickMoverPairs(CZone* zone)
 {
-    const size_t count = _pendingSectorChanges.size();
+    const std::vector<SectorChangeInfo>& changes = zone->GetSectorChanges();
+    const size_t count = changes.size();
     if (count < 2)
         return;
 
     for (size_t i = 0; i < count; ++i)
     {
-        CCharacter* a = _pendingSectorChanges[i].character;
-        const int32_t aOldX = _pendingSectorChanges[i].oldSectorX;
-        const int32_t aOldY = _pendingSectorChanges[i].oldSectorY;
+        CCharacter* a = changes[i].character;
+        const int32_t aOldX = changes[i].oldSectorX;
+        const int32_t aOldY = changes[i].oldSectorY;
         if (aOldX == a->_sectorX && aOldY == a->_sectorY)
             continue;   // 원위치 복귀 — 틱 끝 루프의 skip 조건과 동일
 
         for (size_t j = i + 1; j < count; ++j)
         {
-            CCharacter* b = _pendingSectorChanges[j].character;
-            if (a->_zoneId != b->_zoneId)
-                continue;   // 대기열은 서버 전역 — 섹터 좌표는 존마다 별개 격자라 같은 존만 비교
-
-            const int32_t bOldX = _pendingSectorChanges[j].oldSectorX;
-            const int32_t bOldY = _pendingSectorChanges[j].oldSectorY;
+            CCharacter* b = changes[j].character;
+            const int32_t bOldX = changes[j].oldSectorX;
+            const int32_t bOldY = changes[j].oldSectorY;
             if (bOldX == b->_sectorX && bOldY == b->_sectorY)
                 continue;
 

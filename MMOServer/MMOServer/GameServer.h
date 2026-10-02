@@ -386,14 +386,12 @@ private:
     void ProcessSectorChange(CZone* zone, CCharacter* player,
                              int32_t oldSectorX, int32_t oldSectorY);
 
-    // 섹터 변경 대기열에 추가 (중복 플레이어는 최초 출발 섹터만 유지)
-    void PushSectorChange(CCharacter* player, int32_t oldSectorX, int32_t oldSectorY);
-
     // 같은 틱에 함께 이동한 쌍 보정 — 틱 끝 일괄 통보가 구조적으로 놓치는 CREATE/DELETE를 보충.
     //   ProcessSectorChange는 이탈/진입 섹터의 "틱 끝 시점" 주민을 읽는데, 상대도 같은 틱에
     //   움직였으면 그 조회에 안 걸린다 → 상호 DELETE 누락(유령) / 상호 CREATE 누락(투명인간).
     //   기존 송신 경로는 그대로 두고 두 패스 모두 놓친 쌍만 보충한다 (중복 없음).
-    void FixSameTickMoverPairs();
+    //   존마다 부른다 — 섹터 이동 대기열이 존 것이고, 다른 존끼리는 서로 안 보인다.
+    void FixSameTickMoverPairs(CZone* zone);
 
     // 존 입장/퇴장 브로드캐스트
     //   BroadcastEnterZone — 플레이어 입장: 양방향(주변 → 나를 생성, 나 → 주변을 생성)
@@ -562,14 +560,9 @@ private:
     int _snakeSpeed  = 0;
     int _monsterPerZone = 0;   // 존당 몬스터 수 — 0 이면 CMonsterManager::MONSTERS_PER_ZONE(SetMonsterPerZone)
 
-    // 섹터 변경 배치 처리용 대기열 (프레임 내 수집 → 틱 후 일괄 처리)
-    std::vector<SectorChangeInfo> _pendingSectorChanges;
-    std::unordered_set<CCharacter*> _sectorChangedSet;  // 이미 기록된 플레이어 필터
-
     // 프레임 재사용 버퍼 (힙 할당 방지 — clear()로 capacity 유지)
     std::vector<CPlayer*> _broadcastBuffer;          // BroadcastAroundSector 전용 — 받는 쪽은 플레이어뿐
     std::vector<CPlayer*> _eventAroundBuffer;        // 접속/해제/존이동 전용 — 같음
-    std::vector<SectorChangeInfo> _tickSectorChanges;
     std::vector<CCharacter*> _tickClampedPlayers;
 #if USE_COMBAT
     // 공격 후보 버퍼는 두지 않는다 — 사거리가 걸치는 섹터의 주민 목록을 참조로 훑어 복사가 없다.
@@ -578,7 +571,7 @@ private:
     // 죽어서 부활을 기다리는 플레이어. 여기만 틱 너머로 포인터를 든다 —
     //   퇴장 경로(BroadcastLeaveZone·OnDisconnected)가 반드시 회수해야 한다.
     //   몬스터는 여기 안 들어온다 — 자기 존의 관리자 대기열로 간다(OnDeath 가 가른다).
-    //   같은 규율이 이미 dirtyMovers·_sectorChangedSet·_pendingSectorChanges에 있다.
+    //   같은 규율이 이미 dirtyMovers 와 존의 섹터 이동 대기열(CZone::LeaveZone 이 뺀다)에 있다.
     std::vector<CCharacter*> _deadActors;
 
     // 공격 흐름 — 알림은 이 클래스(ICombatEvents)로 돌아온다.

@@ -68,12 +68,11 @@ void CMapInstance::CleanupEmptyChannels(const std::function<void(CZone*)>& onBef
     }
 }
 
-void CMapInstance::TickAll(float deltaTime, std::vector<SectorChangeInfo>& outSectorChanges,
-                           std::vector<CCharacter*>& outClampedCharacters)
+void CMapInstance::TickAll(float deltaTime, std::vector<CCharacter*>& outClampedCharacters)
 {
     for (auto& [channelIndex, zone] : _channels)
     {
-        zone->Tick(deltaTime, outSectorChanges, outClampedCharacters);
+        zone->Tick(deltaTime, outClampedCharacters);
     }
 }
 
@@ -192,12 +191,11 @@ CZone* CMapManager::GetZone(int32_t zoneId)
     return nullptr;
 }
 
-void CMapManager::TickAll(float deltaTime, std::vector<SectorChangeInfo>& outSectorChanges,
-                           std::vector<CCharacter*>& outClampedCharacters)
+void CMapManager::TickAll(float deltaTime, std::vector<CCharacter*>& outClampedCharacters)
 {
     for (auto& [mapId, mapInstance] : _maps)
     {
-        mapInstance.TickAll(deltaTime, outSectorChanges, outClampedCharacters);
+        mapInstance.TickAll(deltaTime, outClampedCharacters);
     }
 }
 
