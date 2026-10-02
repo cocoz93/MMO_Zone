@@ -299,12 +299,11 @@ void CMonsterManager::TickRespawn(const MonsterContext& ctx, uint64_t frame)
 // 몬스터 부활 — 같은 구역 안 다른 자리로 옮긴다. 불리는 자리·금지 사항은 헤더 주석.
 void CMonsterManager::RespawnElsewhere(const MonsterContext& ctx, CMonster* monster)
 {
-    CSectorManager& sectors = _zone.GetSectorManager();
-
     // ⑴ 옛 자리 — 시체가 사라진다. 그 자리를 보던 플레이어에게만 간다
     ctx.events.OnMonsterVanish(&_zone, monster);
 
-    // ⑵ 새 자리 — 같은 구역 안. 섹터를 옮기는 세 줄은 RecvMoveStop 과 같은 꼴이다
+    // ⑵ 새 자리 — 같은 구역 안. 섹터 옮기기는 존이 한다(UpdateSector).
+    //   섹터 이동 대기열에는 안 넣는다 — 화면은 ⑴·⑶ 이 그 자리에서 고치므로, 넣으면 다음 틱에 한 번 더 나간다
     float x = 0.0f;
     float y = 0.0f;
     PickSpawnPos(ctx, monster->_spawnRegion, x, y);
@@ -315,15 +314,7 @@ void CMonsterManager::RespawnElsewhere(const MonsterContext& ctx, CMonster* mons
     monster->_spawnX = x;
     monster->_spawnY = y;
 
-    const int32_t newSectorX = sectors.CalcSectorX(x);
-    const int32_t newSectorY = sectors.CalcSectorY(y);
-    if (newSectorX != monster->_sectorX || newSectorY != monster->_sectorY)
-    {
-        sectors.RemoveCharacter(monster, monster->_sectorX, monster->_sectorY);
-        monster->_sectorX = newSectorX;
-        monster->_sectorY = newSectorY;
-        sectors.AddCharacter(monster, newSectorX, newSectorY);
-    }
+    _zone.UpdateSector(monster);
 
     // ⑶ 새 자리 주변에 등장 — CREATE(SPAWN) 가 가득 찬 체력을 싣는다(ActorSnapshot).
     //   옛·새 자리를 둘 다 보는 사람은 ⑴ 의 DELETE 다음 이 CREATE 를 받는다 — 둘 다 곧바로 보내는 경로라 순서가 안 뒤집힌다.

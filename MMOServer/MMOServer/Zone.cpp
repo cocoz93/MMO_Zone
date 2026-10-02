@@ -134,23 +134,29 @@ void CZone::Tick(float deltaTime, std::vector<SectorChangeInfo>& outSectorChange
         }
 
         // 섹터 변경 판정
-        int32_t newSectorX = _sectorManager.CalcSectorX(player->_x);
-        int32_t newSectorY = _sectorManager.CalcSectorY(player->_y);
-
-        if (newSectorX != player->_sectorX || newSectorY != player->_sectorY)
-        {
-            int32_t oldSectorX = player->_sectorX;
-            int32_t oldSectorY = player->_sectorY;
-
-            // 섹터 데이터 갱신
-            _sectorManager.RemoveCharacter(player, oldSectorX, oldSectorY);
-            player->_sectorX = newSectorX;
-            player->_sectorY = newSectorY;
-            _sectorManager.AddCharacter(player, newSectorX, newSectorY);
-
+        const int32_t oldSectorX = player->_sectorX;
+        const int32_t oldSectorY = player->_sectorY;
+        if (UpdateSector(player))
             outSectorChanges.push_back({ player, oldSectorX, oldSectorY });
-        }
     }
+}
+
+// ==========================================================================
+// 섹터 이동
+// ==========================================================================
+
+bool CZone::UpdateSector(CCharacter* character)
+{
+    const int32_t newSectorX = _sectorManager.CalcSectorX(character->_x);
+    const int32_t newSectorY = _sectorManager.CalcSectorY(character->_y);
+    if (newSectorX == character->_sectorX && newSectorY == character->_sectorY)
+        return false;
+
+    _sectorManager.RemoveCharacter(character, character->_sectorX, character->_sectorY);
+    character->_sectorX = newSectorX;
+    character->_sectorY = newSectorY;
+    _sectorManager.AddCharacter(character, newSectorX, newSectorY);
+    return true;
 }
 
 // ==========================================================================

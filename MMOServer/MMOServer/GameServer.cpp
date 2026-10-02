@@ -1794,20 +1794,10 @@ void CGameServer::RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg)
 #endif
 
             // 좌표 수용으로 섹터가 변경되었을 수 있으므로 재계산
-            int32_t newSectorX = zone->GetSectorManager().CalcSectorX(player->_x);
-            int32_t newSectorY = zone->GetSectorManager().CalcSectorY(player->_y);
-            if (newSectorX != player->_sectorX || newSectorY != player->_sectorY)
-            {
-                int32_t oldSectorX = player->_sectorX;
-                int32_t oldSectorY = player->_sectorY;
-
-                zone->GetSectorManager().RemoveCharacter(player, oldSectorX, oldSectorY);
-                player->_sectorX = newSectorX;
-                player->_sectorY = newSectorY;
-                zone->GetSectorManager().AddCharacter(player, newSectorX, newSectorY);
-
+            const int32_t oldSectorX = player->_sectorX;
+            const int32_t oldSectorY = player->_sectorY;
+            if (zone->UpdateSector(player))
                 PushSectorChange(player, oldSectorX, oldSectorY);
-            }
         }
         // 범위 초과 또는 예산 부족 시 서버 좌표 유지 (치트 방지)
     }
@@ -1862,20 +1852,10 @@ void CGameServer::RecvMoveStop(CPlayer* player, CSerialBuffer* pMsg)
 #endif
 
     // 섹터 이동 판정
-    int32_t newSectorX = zone->GetSectorManager().CalcSectorX(player->_x);
-    int32_t newSectorY = zone->GetSectorManager().CalcSectorY(player->_y);
-
-    if (newSectorX != player->_sectorX || newSectorY != player->_sectorY)
+    const int32_t oldSectorX = player->_sectorX;
+    const int32_t oldSectorY = player->_sectorY;
+    if (zone->UpdateSector(player))
     {
-        int32_t oldSectorX = player->_sectorX;
-        int32_t oldSectorY = player->_sectorY;
-
-        // 섹터 데이터 갱신
-        zone->GetSectorManager().RemoveCharacter(player, oldSectorX, oldSectorY);
-        player->_sectorX = newSectorX;
-        player->_sectorY = newSectorY;
-        zone->GetSectorManager().AddCharacter(player, newSectorX, newSectorY);
-
         // 시야 진입/이탈 — 대기열에 추가 (틱 끝에 배치 처리)
         PushSectorChange(player, oldSectorX, oldSectorY);
     }

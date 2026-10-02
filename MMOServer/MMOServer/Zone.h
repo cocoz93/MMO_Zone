@@ -81,6 +81,10 @@ public:
     void ClampToWallLine(float& x, float& y) const;               // 벽 선까지 닫힌 범위로 자름 — 땅 아이템 놓을 자리
     bool IsBlockedByWall(float x, float y, Direction dir) const;  // 벽에 붙은 채 벽 쪽으로 가려 하나
 
+    // ── 섹터 이동 ── 좌표를 바꾼 쪽이 부른다. 좌표가 가리키는 섹터로 등록을 옮긴다.
+    //   옮겼으면 true — 화면(CREATE/DELETE)을 고치는 것은 부른 쪽 몫이다.
+    bool UpdateSector(CCharacter* character);
+
     // 채널 정원·빈 채널 판정용 — _characterList.size() 가 아니라 별도 카운터다.
     //   몬스터가 정원을 차지하면 사람이 못 들어오고, 몬스터만 남은 채널은 영영 안 지워진다.
     //   세는 기준은 _kind 다(Character.h [종류]).
