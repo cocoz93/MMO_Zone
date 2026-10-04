@@ -23,7 +23,7 @@ CZone* CMapInstance::FindOrCreateChannel(bool isAdmin)
     auto baseIt = _channels.find(0);
     if (baseIt != _channels.end())
     {
-        if (isAdmin || baseIt->second->GetPlayerCount() < _config.maxPlayersPerChannel)
+        if (HasRoom(baseIt->second.get(), isAdmin))
             return baseIt->second.get();
     }
 
@@ -32,7 +32,7 @@ CZone* CMapInstance::FindOrCreateChannel(bool isAdmin)
     {
         if (channelIndex == 0)
             continue;
-        if (isAdmin || zone->GetPlayerCount() < _config.maxPlayersPerChannel)
+        if (HasRoom(zone.get(), isAdmin))
             return zone.get();
     }
 
@@ -47,6 +47,11 @@ CZone* CMapInstance::FindChannel(int32_t channelIndex)
     if (it == _channels.end())
         return nullptr;
     return it->second.get();
+}
+
+bool CMapInstance::HasRoom(const CZone* zone, bool isAdmin) const
+{
+    return isAdmin || zone->GetPlayerCount() < _config.maxPlayersPerChannel;
 }
 
 void CMapInstance::CleanupEmptyChannels(const std::function<void(CZone*)>& onBeforeErase)
@@ -157,12 +162,53 @@ CZone* CMapManager::FindChannel(int32_t mapId, int32_t channelIndex)
     return it->second.FindChannel(channelIndex);
 }
 
-int32_t CMapManager::GetMaxPlayersPerChannel(int32_t mapId) const
+ZoneChangeTarget CMapManager::PickZoneChangeTarget(int32_t currentZoneId, int32_t targetMapId, int32_t targetChannelIndex, bool isAdmin)
 {
-    auto it = _maps.find(mapId);
-    if (it == _maps.end())
-        return -1;
-    return it->second.GetMaxPlayersPerChannel();
+    const int32_t currentMapId = GetMapIdFromZoneId(currentZoneId);
+
+    CZone* zone = nullptr;
+    CMapInstance* pickedMap = nullptr;   // 채널 지정일 때만 — 정원은 아래에서 이 맵의 규칙으로 본다
+
+    if (targetChannelIndex >= 0)
+    {
+        // ── 채널 지정 이동 (같은 맵 내) ──
+        auto it = _maps.find(currentMapId);
+        if (it != _maps.end())
+        {
+            pickedMap = &it->second;
+            zone = pickedMap->FindChannel(targetChannelIndex);
+        }
+    }
+    else
+    {
+        // ── 기존 맵 이동 (자동 채널 배정) ──
+
+        // 랜덤 맵 이동 요청 처리
+        if (targetMapId == -1)
+        {
+            targetMapId = GetRandomMapId(currentMapId);
+            if (targetMapId == -1)
+                return { nullptr, ZoneChangeReject::NOT_FOUND };
+        }
+
+        zone = FindOrCreateChannel(targetMapId, isAdmin);
+    }
+
+    if (zone == nullptr)
+        return { nullptr, ZoneChangeReject::NOT_FOUND };
+
+    // 지금 있는 존을 그대로 고른 경우 — 채널 지정·자동 배정 둘 다 거부.
+    //   통과시키면 게임 서버의 LeaveZone→EnterZone 에서 CalcSpawnPos가 좌표를 맵 전역 난수로 재추첨해,
+    //   요청만으로 순간이동이 된다(MOVE_START 이동량 예산 우회).
+    //   정원보다 먼저 본다 — 가득 찬 지금 채널을 다시 지정하면 「가득 참」이 아니라 「이미 해당 채널」이다.
+    if (zone->GetZoneId() == currentZoneId)
+        return { nullptr, ZoneChangeReject::SAME_ZONE };
+
+    // 인원 제한 체크 (admin은 스킵) — 자동 배정은 FindOrCreateChannel 이 같은 규칙(HasRoom)으로 이미 골랐다
+    if (pickedMap != nullptr && !pickedMap->HasRoom(zone, isAdmin))
+        return { nullptr, ZoneChangeReject::FULL };
+
+    return { zone, ZoneChangeReject::NONE };
 }
 
 void CMapManager::CleanupEmptyChannels(const std::function<void(CZone*)>& onBeforeErase)

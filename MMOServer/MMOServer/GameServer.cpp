@@ -278,6 +278,20 @@ namespace
         return buf;
     }
 
+    // 존 이동 거절 사유 → 와이어 값 (MSG_S2C_ZONE_CHANGE_FAIL::reason — 0: 없음, 1: 가득 참, 2: 이미 해당 채널)
+    uint8_t ToZoneChangeFailReason(ZoneChangeReject reject)
+    {
+        switch (reject)
+        {
+        case ZoneChangeReject::NOT_FOUND: return 0;
+        case ZoneChangeReject::FULL:      return 1;
+        case ZoneChangeReject::SAME_ZONE: return 2;
+        case ZoneChangeReject::NONE:      break;
+        }
+        assert(false && "거절이 아닌 결과를 실패 패킷으로 바꾸려 했다");
+        return 0;
+    }
+
     CSerialBuffer* MakeAdminLoginOk()
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
@@ -2453,73 +2467,15 @@ void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
     MSG_C2S_ZONE_CHANGE recvMsg{};
     pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
 
-    int32_t targetMapId = recvMsg.targetMapId;
-    int32_t targetChannelIndex = recvMsg.targetChannelIndex;
-
-    CZone* newZone = nullptr;
-
-    if (targetChannelIndex >= 0)
+    // 목적지 고르기(지정 채널 · 자동 배정 · 무작위 맵 · 정원 · 같은 존 거부)는 맵 관리자 몫 — 여기는 거절 사유를 패킷으로 바꿔 보낼 뿐
+    const ZoneChangeTarget target = _mapManager.PickZoneChangeTarget(
+        oldZone->GetZoneId(), recvMsg.targetMapId, recvMsg.targetChannelIndex, player->_isAdmin);
+    if (target.reject != ZoneChangeReject::NONE)
     {
-        // ── 채널 지정 이동 (같은 맵 내) ──
-        int32_t currentMapId = CMapManager::GetMapIdFromZoneId(oldZone->GetZoneId());
-
-        newZone = _mapManager.FindChannel(currentMapId, targetChannelIndex);
-        if (newZone == nullptr)
-        {
-            SendZoneChangeFail(player, 0);  // 채널 없음
-            return;
-        }
-        if (newZone->GetZoneId() == oldZone->GetZoneId())
-        {
-            SendZoneChangeFail(player, 2);  // 이미 해당 채널
-            return;
-        }
-
-        // 인원 제한 체크 (admin은 스킵)
-        if (!player->_isAdmin)
-        {
-            int32_t maxPlayers = _mapManager.GetMaxPlayersPerChannel(currentMapId);
-            if (maxPlayers > 0 && newZone->GetPlayerCount() >= maxPlayers)
-            {
-                SendZoneChangeFail(player, 1);  // 채널 가득 참
-                return;
-            }
-        }
-
-        targetMapId = currentMapId;
+        SendZoneChangeFail(player, ToZoneChangeFailReason(target.reject));
+        return;
     }
-    else
-    {
-        // ── 기존 맵 이동 (자동 채널 배정) ──
-
-        // 랜덤 맵 이동 요청 처리
-        if (targetMapId == -1)
-        {
-            int32_t currentMapId = CMapManager::GetMapIdFromZoneId(oldZone->GetZoneId());
-            targetMapId = _mapManager.GetRandomMapId(currentMapId);
-            if (targetMapId == -1)
-            {
-                SendZoneChangeFail(player, 0);
-                return;
-            }
-        }
-
-        newZone = _mapManager.FindOrCreateChannel(targetMapId, player->_isAdmin);
-        if (newZone == nullptr)
-        {
-            SendZoneChangeFail(player, 0);
-            return;
-        }
-
-        // 자동배정이 "지금 있는 존"을 그대로 돌려준 경우 — 채널 지정 분기(reason 2)와 동일하게 거부.
-        //   통과시키면 아래 LeaveZone→EnterZone의 CalcSpawnPos가 좌표를 맵 전역 난수로 재추첨해,
-        //   요청만으로 순간이동이 된다(MOVE_START 이동량 예산 우회).
-        if (newZone->GetZoneId() == oldZone->GetZoneId())
-        {
-            SendZoneChangeFail(player, 2);  // 이미 해당 채널
-            return;
-        }
-    }
+    CZone* newZone = target.zone;
 
     // ── 현재 존에서 퇴장 ──
     BroadcastLeaveZone(oldZone, player);
@@ -2569,7 +2525,7 @@ void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
     // 존 메타 정보 + 존 이동 성공 통보
     SendZoneInfo(player, newZone);
     int32_t channelIndex = CMapManager::GetChannelIndexFromZoneId(newZone->GetZoneId());
-    SendZoneChangeOk(player, targetMapId, channelIndex);
+    SendZoneChangeOk(player, newZone->GetMapId(), channelIndex);
 
 #if USE_EXP
     // ★ 레벨·경험치를 다시 보낸다 — 이 경로는 SendCreateMyPlayer 를 안 거친다.
@@ -2586,7 +2542,7 @@ void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
 // ── 운영자 인증 ──
 
 // 부하 테스트 도구용 고정 키 — 실서비스 인증 아님.
-// 와이어에 평문으로 흐르고 해시·시도 제한도 없다. admin 권한 효과는 채널 인원 제한 우회뿐(CMapInstance::FindOrCreateChannel).
+// 와이어에 평문으로 흐르고 해시·시도 제한도 없다. admin 권한 효과는 채널 인원 제한 우회뿐(CMapInstance::HasRoom).
 // 실계정 연동 단계에서 계정 DB 조회 기반 인증으로 교체한다.
 static constexpr char ADMIN_KEY[] = "admin1234";
 

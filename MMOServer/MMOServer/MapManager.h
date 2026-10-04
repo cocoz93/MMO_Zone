@@ -4,6 +4,7 @@
 // [책임]
 //  - 맵 설정 등록 및 맵별 채널(존) 관리
 //  - 채널 자동 배정 (인원 초과 시 동적 생성)
+//  - 존 이동 목적지 고르기 (지정 채널 · 자동 배정 · 무작위 맵) — 거절 사유까지 정하고, 패킷 값으로 바꾸는 건 게임 서버
 //  - 빈 동적 채널 자동 정리
 //
 // [설계]
@@ -31,6 +32,22 @@ struct MapConfig
     int32_t maxPlayersPerChannel;  // 채널당 최대 인원 (소프트 리밋)
 };
 
+// 존 이동 목적지 고르기의 거절 사유 — CMapManager::PickZoneChangeTarget
+//   사유를 정하는 건 채널 정책(여기), 패킷 값(MSG_S2C_ZONE_CHANGE_FAIL::reason)으로 바꾸는 건 게임 서버다.
+enum class ZoneChangeReject : uint8_t
+{
+    NONE,        // 거절 없음 — zone 이 목적지
+    NOT_FOUND,   // 맵·채널이 없음 (무작위 맵 후보가 없는 경우 포함)
+    FULL,        // 지정한 채널이 정원 초과 (운영자는 안 걸림)
+    SAME_ZONE,   // 지금 있는 존과 같음
+};
+
+struct ZoneChangeTarget
+{
+    CZone* zone = nullptr;                              // reject == NONE 일 때만 유효
+    ZoneChangeReject reject = ZoneChangeReject::NONE;
+};
+
 // ==========================================================================
 // CMapInstance — 단일 맵의 채널(존) 관리
 //
@@ -52,6 +69,9 @@ public:
     // 특정 채널 조회 (없으면 nullptr)
     CZone* FindChannel(int32_t channelIndex);
 
+    // 정원 규칙 — 운영자거나 인원 < 정원이면 자리가 있다. 자동 배정과 지정 채널 이동이 이것 하나로 본다
+    bool HasRoom(const CZone* zone, bool isAdmin) const;
+
     // 빈 동적 채널 정리 (channelIndex > 0이고 플레이어 0명)
     //   onBeforeErase: 존을 실제로 지우기 직전에 부른다(비어 있으면 안 부른다).
     //     CGameServer 가 여기서 그 존의 땅 아이템 관리자(ForgetAll)를 불러 센다(알릴 사람이 없어 세기만). 몬스터는 넘길 일이 없다 —
@@ -64,7 +84,6 @@ public:
     // 전체 채널 Tick — 섹터 변경은 존마다 대기열에 쌓인다(CZone::GetSectorChanges)
     void TickAll(float deltaTime, std::vector<CCharacter*>& outClampedCharacters);
 
-    int32_t GetMaxPlayersPerChannel() const { return _config.maxPlayersPerChannel; }
     const MapConfig& GetConfig() const { return _config; }
 
     // 순회용 콜백
@@ -99,8 +118,11 @@ public:
     // 특정 채널 조회 — 존재하지 않으면 nullptr (자동 생성 안 함)
     CZone* FindChannel(int32_t mapId, int32_t channelIndex);
 
-    // 맵의 채널당 최대 인원 조회 (-1: 맵 없음)
-    int32_t GetMaxPlayersPerChannel(int32_t mapId) const;
+    // 존 이동 목적지 고르기 — 지금 존에서 받은 요청(맵·채널)으로 목적지 존 또는 거절 사유를 돌려준다
+    //   targetChannelIndex >= 0 : 지금 맵의 그 채널 (targetMapId 는 안 본다) — 없음 · 같은 존 · 정원 순으로 거절
+    //   targetChannelIndex <  0 : 자동 배정 — targetMapId == -1 이면 지금 맵을 뺀 무작위 맵. 없음 · 같은 존 순으로 거절
+    //   자동 배정은 채널을 새로 만들 수 있다(FindOrCreateChannel)
+    ZoneChangeTarget PickZoneChangeTarget(int32_t currentZoneId, int32_t targetMapId, int32_t targetChannelIndex, bool isAdmin);
 
     // 빈 동적 채널 정리 (channelIndex > 0이고 플레이어 0명)
     //   onBeforeErase 는 CMapInstance 쪽으로 그대로 넘어간다 — 뜻은 거기 주석 참조.
