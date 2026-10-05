@@ -1062,20 +1062,15 @@ void CGameServer::GameLoopThread()
         auto membT0 = Clock::now();
         _mapManager.ForEachZone([this](CZone* zone)
         {
-            for (const auto& change : zone->GetSectorChanges())
-            {
-                // 출발 섹터 == 현재 섹터이면 원위치 복귀 → 브로드캐스트 불필요
-                if (CZone::IsReturnedHome(change))
-                    continue;
+            // 명단은 존이 대기열로 만들고 그 자리에서 대기열을 비운다(원위치 복귀 빼기 · 섹터 차이 · 같은 틱 쌍 판정).
+            //   여기는 보내기만 — 아래 송신은 대기열을 안 읽는다.
+            const CZone::SightChanges& sight = zone->TakeSightChanges();
+            for (const CZone::SightMove& move : sight.moves)
+                ProcessSectorChange(zone, move);
 
-                ProcessSectorChange(zone, change.character,
-                                    change.oldSectorX, change.oldSectorY);
-            }
             // 같은 틱에 함께 이동한 쌍은 위 루프가 서로를 놓친다(상대는 이미 새 섹터로 옮겨간 뒤라
             // 이탈/진입 섹터 조회에 안 걸림) → 누락된 CREATE/DELETE만 보충. 보정 비용도 멤버십 구간에 포함.
-            FixSameTickMoverPairs(zone);
-
-            zone->ClearSectorChanges();
+            SendSightPairFixes(sight.pairFixes);
         });
 
         _tickMembershipUs += std::chrono::duration_cast<std::chrono::microseconds>(
@@ -2976,9 +2971,8 @@ void CGameServer::OnGroundItemGone(CZone* zone, int32_t sectorX, int32_t sectorY
     for (CPlayer* other : _eventAroundBuffer)
         SendGroundItemDelete(other, groundId, wire, pickerId);
 
-    // 같은 틱에 섹터를 넘은 사람 — 틱 1단계(줍기)에서만 대기열이 차 있다. 사라지기(3-3)는 비운 뒤라 여기서 끝난다.
-    if (!zone->GetSectorChanges().empty())
-        SendGroundItemDeleteToLateMovers(zone, sectorX, sectorY, groundId, wire, pickerId);
+    // 같은 틱에 섹터를 넘은 사람 — 틱 1단계(줍기)에서만 대기열이 차 있다. 사라지기(3-3)는 비운 뒤라 존 조회가 빈 목록을 돌려준다.
+    SendGroundItemDeleteToLateMovers(zone, sectorX, sectorY, groundId, wire, pickerId);
 }
 
 void CGameServer::TickGroundItems()
@@ -3076,26 +3070,21 @@ bool CGameServer::ConsumeMoveBudget(CPlayer* player, float distSq)
 }
 
 #if USE_DROP
-// 같은 틱에 섹터를 넘은 사람에게 땅의 아이템 DELETE — 헤더 주석. 시야 규칙은 CSectorManager::IsAdjacent.
-//   판정은 BroadcastLeaveZone 셋째 덩이와 같고, 아이템은 안 움직이니 "퇴장자의 옛 섹터 = 지금 섹터"인 경우다.
+// 같은 틱에 섹터를 넘은 사람에게 땅의 아이템 DELETE — 헤더 주석.
+//   판정은 존(CZone::CollectLateMovers — BroadcastLeaveZone 셋째 덩이와 같은 함수)이고, 아이템은 안 움직이니
+//   "대상의 옛 섹터 = 지금 섹터"로 부른다. 옛 섹터로는 보였고(화면에 있다) 새 섹터로는 안 보이는(방금 보낸 주변 DELETE 에서 빠진) 이동자가 온다.
 void CGameServer::SendGroundItemDeleteToLateMovers(CZone* zone, int32_t sectorX, int32_t sectorY,
                                                    int32_t groundId, GroundItemGone wire, int32_t pickerId)
 {
-    for (const auto& change : zone->GetSectorChanges())
+    zone->CollectLateMovers(sectorX, sectorY, sectorX, sectorY, nullptr, _lateMoverBuffer);
+    for (CCharacter* character : _lateMoverBuffer)
     {
-        CPlayer* mover = AsPlayer(change.character);   // 대기열은 섞여 있다(몬스터도 섹터를 넘는다) — 받는 쪽만
+        CPlayer* mover = AsPlayer(character);   // 대기열은 섞여 있다(몬스터도 섹터를 넘는다) — 받는 쪽만
         if (mover == nullptr)
             continue;
-        if (CZone::IsReturnedHome(change))
-            continue;   // 원위치 복귀 — 화면과 등록이 같다
 
-        // 옛 섹터로는 보였고(화면에 있다) 새 섹터로는 안 보인다(방금 보낸 주변 DELETE 에서 빠졌다)
-        if (CSectorManager::IsAdjacent(change.oldSectorX, change.oldSectorY, sectorX, sectorY) &&
-            !CSectorManager::IsAdjacent(mover->_sectorX, mover->_sectorY, sectorX, sectorY))
-        {
-            SendGroundItemDelete(mover, groundId, wire, pickerId);
-            _gameMonitor._drop._lateMoverDeletes.Inc();
-        }
+        SendGroundItemDelete(mover, groundId, wire, pickerId);
+        _gameMonitor._drop._lateMoverDeletes.Inc();
     }
 }
 #endif
@@ -3155,27 +3144,18 @@ void CGameServer::BroadcastLeaveZone(CZone* zone, CCharacter* player)
 
     // 미처리 섹터 변경이 있으면 이전 섹터 전용 뷰어에게도 DELETE
     // (같은 프레임에 섹터 변경 + 존 이동/접속해제 시 고스트 방지)
-    //   퇴장자 자신의 대기열 항목 — 아래 셋째 덩이도 쓴다. 대기열에서 빼는 것은 맨 끝 LeaveZone 이라 그때까지 유효하다.
-    const SectorChangeInfo* const leaverChange = zone->FindSectorChange(player);
-    if (leaverChange != nullptr)
+    //   이전 섹터 전용 섹터와 퇴장자의 옛 섹터는 존이 대기열로 정한다(CZone::CollectLeaveOldOnly) — 옛 섹터는 아래 셋째 덩이도 쓴다.
+    //   대기열에서 빼는 것은 맨 끝 LeaveZone 이라 그때까지 유효하다.
+    CSectorManager::SectorPos oldOnly[CSectorManager::MAX_AROUND_SECTORS];
+    int32_t oldOnlyCount = 0;
+    int32_t leaverOldX = 0;
+    int32_t leaverOldY = 0;
+    zone->CollectLeaveOldOnly(player, oldOnly, oldOnlyCount, leaverOldX, leaverOldY);
+
+    for (int32_t i = 0; i < oldOnlyCount; ++i)
     {
-        // 이전 섹터 전용 = old 주변에만 있고 현재 주변에는 없는 섹터
-        CSectorManager::SectorPos added[CSectorManager::MAX_AROUND_SECTORS];
-        CSectorManager::SectorPos removed[CSectorManager::MAX_AROUND_SECTORS];
-        int32_t addedCount = 0;
-        int32_t removedCount = 0;
-
-        zone->GetSectorManager().GetSectorDiff(
-            player->_sectorX, player->_sectorY,                   // 현재 섹터 (이미 갱신된 값)
-            leaverChange->oldSectorX, leaverChange->oldSectorY,   // 이전 섹터
-            added, addedCount,                                     // old 전용 섹터
-            removed, removedCount);
-
-        for (int32_t i = 0; i < addedCount; ++i)
-        {
-            for (CPlayer* other : zone->GetSectorManager().GetSectorPlayers(added[i].x, added[i].y))
-                SendDeletePlayer(other, player);
-        }
+        for (CPlayer* other : zone->GetSectorManager().GetSectorPlayers(oldOnly[i].x, oldOnly[i].y))
+            SendDeletePlayer(other, player);
     }
 
 #if USE_SECTOR_AGGREGATION
@@ -3192,33 +3172,13 @@ void CGameServer::BroadcastLeaveZone(CZone* zone, CCharacter* player)
     //   위 조회는 (1) 퇴장자의 현재 섹터 주변, (2) 퇴장자의 이전 섹터 전용 뷰어 — 둘 다 이동자의
     //   "이동 후" 위치로만 걸린다. 퇴장 전엔 퇴장자를 보고 있었지만 같은 틱에 서로 멀어진 이동자는
     //   어느 쪽에도 안 걸리고, 퇴장자는 곧 사라지므로 나중에 치유될 통로조차 없다.
+    //   고르는 것은 존(CZone::CollectLateMovers — 이동 전엔 퇴장자를 보고 있었는데 위 두 조회 어디에도 안 걸리는 이동자).
+    zone->CollectLateMovers(leaverOldX, leaverOldY, player->_sectorX, player->_sectorY, player, _lateMoverBuffer);
+    for (CCharacter* mover : _lateMoverBuffer)
     {
-        int32_t leaverOldX = player->_sectorX;
-        int32_t leaverOldY = player->_sectorY;
-        if (leaverChange != nullptr)
-        {
-            leaverOldX = leaverChange->oldSectorX;
-            leaverOldY = leaverChange->oldSectorY;
-        }
-
-        for (const auto& change : zone->GetSectorChanges())
-        {
-            CCharacter* mover = change.character;
-            if (mover == player)
-                continue;
-            if (CZone::IsReturnedHome(change))
-                continue;   // 원위치 복귀 — 시야 변화 없음
-
-            // 이동 전엔 퇴장자를 보고 있었는데(클라가 들고 있음), 위 두 조회 어디에도 안 걸리는 경우만
-            if (CSectorManager::IsAdjacent(change.oldSectorX, change.oldSectorY, leaverOldX, leaverOldY) &&
-                !CSectorManager::IsAdjacent(mover->_sectorX, mover->_sectorY, player->_sectorX, player->_sectorY) &&
-                !CSectorManager::IsAdjacent(mover->_sectorX, mover->_sectorY, leaverOldX, leaverOldY))
-            {
-                if (CPlayer* m = AsPlayer(mover))
-                    SendDeletePlayer(m, player);
-                ++_tickPairFixes;
-            }
-        }
+        if (CPlayer* m = AsPlayer(mover))
+            SendDeletePlayer(m, player);
+        ++_tickPairFixes;
     }
 
 #if USE_COMBAT
@@ -3231,84 +3191,30 @@ void CGameServer::BroadcastLeaveZone(CZone* zone, CCharacter* player)
 }
 
 // ==========================================================================
-// 같은 틱 이동자 쌍 보정
-//
-// [왜 필요한가]
-//   섹터 점유는 이동 즉시 갱신되지만(CZone::Tick 의 섹터 변경 판정, RecvMoveStart/Stop) 통보는 틱 끝에 몰아서
-//   한다. 이때 ProcessSectorChange는 이탈/진입 섹터의 "틱 끝 시점" 주민을 읽으므로, 상대도 같은
-//   틱에 움직였다면 그 조회에 안 걸린다.
-//     · 서로 멀어짐 → 상호 DELETE 누락 → 클라에 유령(멈춘 캐릭터)이 남는다
-//     · 서로 같은 섹터로 수렴 → 상호 CREATE 누락 → 바로 옆인데 서로 안 보인다
-//   4방향으로 한 칸씩 걷다 같은 틱에 섹터를 넘기만 해도 발생한다. 클라에는 타임아웃 제거도
-//   전체 재동기화도 없어 스스로 복구되지 않는다.
-//
-// [무엇을 하는가]
-//   A 패스는 B의 "현재" 섹터로, B 패스는 A의 "현재" 섹터로 판정하므로
-//     A 패스 발동 = 인접(A이전, B현재),  B 패스 발동 = 인접(A현재, B이전)
-//   이다. 정말 필요한 것은 인접(A이전,B이전) → 인접(A현재,B현재)의 변화이므로,
-//   "시야가 바뀌었는데 두 패스 다 발동하지 않는" 쌍만 골라 보충한다. 기존 송신 경로는 그대로
-//   두므로 중복은 생기지 않는다(보내던 것을 다시 보내지 않음).
-//
-// [비용] 이동자 수 M에 대해 O(M²) 정수 비교. 실측 1,000명 M≈62 → 10us/틱(프레임의 0.02%),
-//   5,000명 M≈310 → 532us/틱(1.3%). 유의미해지면 이전/현재 섹터로 버킷팅해 후보를 줄일 것.
+// 같은 틱 이동자 쌍 보정 — 보내기와 계수만. 어느 쌍인가(판정)와 그 까닭은 존(Zone.cpp CZone::CollectPairFixes 머리 주석)
 // ==========================================================================
 
-void CGameServer::FixSameTickMoverPairs(CZone* zone)
+void CGameServer::SendSightPairFixes(const std::vector<CZone::SightPairFix>& fixes)
 {
-    const std::vector<SectorChangeInfo>& changes = zone->GetSectorChanges();
-    const size_t count = changes.size();
-    if (count < 2)
-        return;
-
-    for (size_t i = 0; i < count; ++i)
+    for (const CZone::SightPairFix& fix : fixes)
     {
-        CCharacter* a = changes[i].character;
-        const int32_t aOldX = changes[i].oldSectorX;
-        const int32_t aOldY = changes[i].oldSectorY;
-        if (CZone::IsReturnedHome(changes[i]))
-            continue;   // 원위치 복귀 — 틱 끝 루프의 skip 조건과 동일
-
-        for (size_t j = i + 1; j < count; ++j)
+        if (fix.visible)
         {
-            CCharacter* b = changes[j].character;
-            const int32_t bOldX = changes[j].oldSectorX;
-            const int32_t bOldY = changes[j].oldSectorY;
-            if (CZone::IsReturnedHome(changes[j]))
-                continue;
-
-            const bool wasVisible = CSectorManager::IsAdjacent(aOldX, aOldY, bOldX, bOldY);
-            const bool isVisible  = CSectorManager::IsAdjacent(a->_sectorX, a->_sectorY, b->_sectorX, b->_sectorY);
-            if (wasVisible == isVisible)
-                continue;   // 시야 변화 없음 → 통보 자체가 불필요
-
-            const bool aPassHits = CSectorManager::IsAdjacent(aOldX, aOldY, b->_sectorX, b->_sectorY);
-            const bool bPassHits = CSectorManager::IsAdjacent(a->_sectorX, a->_sectorY, bOldX, bOldY);
-
-            if (!isVisible)
-            {
-                // 보였다가 안 보임 — 두 패스 다 못 잡았을 때만 보충
-                if (!aPassHits && !bPassHits)
-                {
-                    if (CPlayer* pa = AsPlayer(a))
-                        SendDeletePlayer(pa, b);
-                    if (CPlayer* pb = AsPlayer(b))
-                        SendDeletePlayer(pb, a);
-                    ++_tickPairFixes;
-                }
-            }
-            else
-            {
-                // 안 보이다가 보임 — 두 패스 다 못 잡았을 때만 보충
-                if (aPassHits && bPassHits)
-                {
-                    if (CPlayer* pa = AsPlayer(a))
-                        SendCreateOtherPlayer(pa, b);
-                    if (CPlayer* pb = AsPlayer(b))
-                        SendCreateOtherPlayer(pb, a);
-                    ++_tickPairFixes;
-                }
-            }
+            // 안 보이다가 보임 — 서로 CREATE
+            if (CPlayer* pa = AsPlayer(fix.a))
+                SendCreateOtherPlayer(pa, fix.b);
+            if (CPlayer* pb = AsPlayer(fix.b))
+                SendCreateOtherPlayer(pb, fix.a);
         }
+        else
+        {
+            // 보였다가 안 보임 — 서로 DELETE
+            if (CPlayer* pa = AsPlayer(fix.a))
+                SendDeletePlayer(pa, fix.b);
+            if (CPlayer* pb = AsPlayer(fix.b))
+                SendDeletePlayer(pb, fix.a);
+        }
+        ++_tickPairFixes;
     }
 }
 
@@ -3316,21 +3222,19 @@ void CGameServer::FixSameTickMoverPairs(CZone* zone)
 // 섹터 변경 브로드캐스트
 // ==========================================================================
 
-void CGameServer::ProcessSectorChange(CZone* zone, CCharacter* player,
-                                      int32_t oldSectorX, int32_t oldSectorY)
+void CGameServer::ProcessSectorChange(CZone* zone, const CZone::SightMove& move)
 {
+    CCharacter* const player = move.mover;
+
     // 인바운드(상대→나)는 내가 플레이어일 때만 있다 — 몬스터·NPC 는 받는 쪽이 못 되므로
     //   수집·직렬화 자체를 건너뛴다. 아웃바운드(나→상대)는 받는 쪽이 남이라 종류와 무관하게 그대로 간다.
     CPlayer* const me = AsPlayer(player);
 
-    CSectorManager::SectorPos added[CSectorManager::MAX_AROUND_SECTORS];
-    CSectorManager::SectorPos removed[CSectorManager::MAX_AROUND_SECTORS];
-    int32_t addedCount = 0;
-    int32_t removedCount = 0;
-    zone->GetSectorManager().GetSectorDiff(
-        oldSectorX, oldSectorY,
-        player->_sectorX, player->_sectorY,
-        added, addedCount, removed, removedCount);
+    // 못 보게 된 섹터(removed) · 새로 보게 된 섹터(added) — 존이 정했다(CZone::TakeSightChanges, GetSectorDiff 출력 그대로)
+    const CSectorManager::SectorPos* const added = move.added;
+    const CSectorManager::SectorPos* const removed = move.removed;
+    const int32_t addedCount = move.addedCount;
+    const int32_t removedCount = move.removedCount;
 
 #if USE_MEMBERSHIP_FANOUT_DEDUP
     // [Phase 1] 아웃바운드(나→상대, 수신자마다 내용 동일)는 1회 빌드 후 팬아웃,

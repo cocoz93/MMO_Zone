@@ -90,14 +90,51 @@ public:
     bool UpdateSector(CCharacter* character);           // 옮기기만. 옮겼으면 true — 화면은 부른 쪽이 바로 고친다(몬스터 부활)
     void UpdateSectorAndQueue(CCharacter* character);   // 옮기고 섹터 이동 대기열에 — 화면은 틱 끝(게임 루프 3)에 CGameServer 가 고친다
 
-    // 섹터 이동 대기열 — 이번 틱에 섹터를 넘은 캐릭터와 첫 출발 섹터. 게임 루프 3)이 읽고 비운다.
+    // 섹터 이동 대기열 — 이번 틱에 섹터를 넘은 캐릭터와 첫 출발 섹터. 게임 루프 3)에 TakeSightChanges 가 읽고 비운다.
     //   퇴장하는 캐릭터는 LeaveZone 이 뺀다. 존이 지워지면 같이 사라진다.
     const std::vector<SectorChangeInfo>& GetSectorChanges() const { return _pendingSectorChanges; }
-    const SectorChangeInfo* FindSectorChange(CCharacter* character) const;   // 없으면 nullptr
-    void ClearSectorChanges();
 
     // 원위치 복귀 — 첫 출발 섹터 = 지금 섹터면 이번 틱 시야 변화가 없다(넘었다가 되돌아옴). 대기열 항목만으로 정해진다.
     static bool IsReturnedHome(const SectorChangeInfo& change);
+
+    // ── 시야 변화 ── 섹터 이동 대기열을 읽어 「누가 누구를 새로 보게 / 못 보게 됐나」를 정한다.
+    //   보내는 것(패킷·송신 방식·계수)은 CGameServer 몫이다 — 여기는 명단만 만든다(존 계층은 세션·패킷을 모른다).
+    //   명단은 섹터 단위다 — 받는 쪽이 섹터별 digest 로 묶어 보내므로 사람 단위로 펼치지 않는다.
+
+    // 섹터를 넘은 캐릭터 하나 — 못 보게 된 섹터 · 새로 보게 된 섹터(GetSectorDiff 출력 그대로)
+    struct SightMove
+    {
+        CCharacter* mover;
+        CSectorManager::SectorPos removed[CSectorManager::MAX_AROUND_SECTORS];
+        CSectorManager::SectorPos added[CSectorManager::MAX_AROUND_SECTORS];
+        int32_t removedCount;
+        int32_t addedCount;
+    };
+    // 같은 틱에 함께 움직여 위 섹터 단위 처리가 서로를 놓친 쌍 — visible 이면 서로 CREATE, 아니면 서로 DELETE
+    struct SightPairFix
+    {
+        CCharacter* a;
+        CCharacter* b;
+        bool visible;
+    };
+    struct SightChanges
+    {
+        std::vector<SightMove> moves;           // 대기열 순서 — 원위치 복귀는 뺐다
+        std::vector<SightPairFix> pairFixes;    // moves 를 다 보낸 뒤에 보낼 것
+    };
+
+    // 틱 끝(게임 루프 3) — 대기열로 명단을 만들고 대기열을 비운다. 돌려준 명단은 다음 호출까지 유효하다(존이 든 재사용 버퍼).
+    const SightChanges& TakeSightChanges();
+
+    // 틱 중간 조회 — 퇴장·땅 아이템이 일어난 자리에서 부른다(대기열은 그대로 둔다).
+    //   CollectLeaveOldOnly : 이번 틱에 섹터를 넘은 퇴장자의 「옛 자리에서만 보이던 섹터」(안 넘었으면 0개).
+    //                         outOldX/Y = 퇴장자의 옛 섹터(안 넘었으면 지금 섹터) — 아래 CollectLateMovers 에 넘긴다
+    //   CollectLateMovers   : 「이동 전엔 대상을 보고 있었는데 지금 자리로는 안 보이고, 대상의 옛 자리로도 안 걸리는」 이동자.
+    //                         대상이 안 움직이는 것(땅 아이템)이면 옛 = 지금으로 부른다. 몬스터도 돌려준다 — 받는 쪽 거르기는 부르는 쪽
+    void CollectLeaveOldOnly(CCharacter* leaver, CSectorManager::SectorPos* outSectors, int32_t& outCount,
+                             int32_t& outOldX, int32_t& outOldY) const;
+    void CollectLateMovers(int32_t targetOldX, int32_t targetOldY, int32_t targetCurX, int32_t targetCurY,
+                           const CCharacter* exclude, std::vector<CCharacter*>& out) const;
 
     // 채널 정원·빈 채널 판정용 — _characterList.size() 가 아니라 별도 카운터다.
     //   몬스터가 정원을 차지하면 사람이 못 들어오고, 몬스터만 남은 채널은 영영 안 지워진다.
@@ -128,6 +165,11 @@ private:
 
     // 섹터 이동 대기열에 추가 (같은 캐릭터는 최초 출발 섹터만 유지)
     void PushSectorChange(CCharacter* character, int32_t oldSectorX, int32_t oldSectorY);
+    const SectorChangeInfo* FindSectorChange(CCharacter* character) const;   // 없으면 nullptr
+    void ClearSectorChanges();
+
+    // 같은 틱 이동자 쌍 판정 — TakeSightChanges 가 부른다. 까닭은 Zone.cpp 머리 주석
+    void CollectPairFixes(std::vector<SightPairFix>& out) const;
 
     int32_t _zoneId;
     int32_t _mapId;
@@ -146,6 +188,9 @@ private:
     // 섹터 이동 대기열 (틱 안에 모음 → 게임 루프 3)에서 일괄 처리). 이 존 캐릭터만 들어온다(PushSectorChange 단언)
     std::vector<SectorChangeInfo> _pendingSectorChanges;
     std::unordered_set<CCharacter*> _sectorChangedSet;  // 이미 기록된 캐릭터 필터
+
+    // 시야 변화 명단 — TakeSightChanges 가 틱마다 비우고 채운다(capacity 유지)
+    SightChanges _sightChanges;
 
 #if USE_MONSTER
     // 몬스터 관리자 — 몬스터 소유·깔았나 표시·부활 대기열. *this 를 들므로 존은 복사하지 않는다(위 삭제 두 줄).

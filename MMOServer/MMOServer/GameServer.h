@@ -317,7 +317,7 @@ private:
     //   RecvMoveStart 는 네트워크 처리 자리에서 섹터 등록을 바꾸고 알림은 틱 끝이라, 틱 1단계(줍기)에서는
     //   서버 등록이 그 사람 화면보다 앞서 있다. 「옛 섹터로는 보였고 새 섹터로는 안 보이는」 이동자는
     //   주변 DELETE 에서 빠지고, 틱 끝 이탈 처리 때는 아이템이 이미 없어 영영 안 지워진다 → 여기서 보낸다.
-    //   BroadcastLeaveZone 셋째 덩이(퇴장자에게 하는 판정)와 같은 판정이다. 대기열이 비면 아무 일도 없다.
+    //   고르는 것은 존(CZone::CollectLateMovers — BroadcastLeaveZone 셋째 덩이와 같은 함수)이다. 대기열이 비면 아무 일도 없다.
     void SendGroundItemDeleteToLateMovers(CZone* zone, int32_t sectorX, int32_t sectorY,
                                           int32_t groundId, GroundItemGone wire, int32_t pickerId);
 
@@ -383,16 +383,16 @@ private:
     static constexpr int64_t ACCOUNT_ID_MIN = int64_t{ 1 } << 31;
 #endif
 
-    // 섹터 변경 시 시야 진입/이탈 브로드캐스트
-    void ProcessSectorChange(CZone* zone, CCharacter* player,
-                             int32_t oldSectorX, int32_t oldSectorY);
+    // 섹터 변경 시 시야 진입/이탈 브로드캐스트 — 어느 섹터인가는 존이 정했다(CZone::TakeSightChanges 의 moves)
+    void ProcessSectorChange(CZone* zone, const CZone::SightMove& move);
 
     // 같은 틱에 함께 이동한 쌍 보정 — 틱 끝 일괄 통보가 구조적으로 놓치는 CREATE/DELETE를 보충.
     //   ProcessSectorChange는 이탈/진입 섹터의 "틱 끝 시점" 주민을 읽는데, 상대도 같은 틱에
     //   움직였으면 그 조회에 안 걸린다 → 상호 DELETE 누락(유령) / 상호 CREATE 누락(투명인간).
     //   기존 송신 경로는 그대로 두고 두 패스 모두 놓친 쌍만 보충한다 (중복 없음).
+    //   어느 쌍인가는 존이 정했다(CZone::TakeSightChanges 의 pairFixes) — 여기는 보내기와 계수만.
     //   존마다 부른다 — 섹터 이동 대기열이 존 것이고, 다른 존끼리는 서로 안 보인다.
-    void FixSameTickMoverPairs(CZone* zone);
+    void SendSightPairFixes(const std::vector<CZone::SightPairFix>& fixes);
 
     // 존 입장/퇴장 브로드캐스트
     //   BroadcastEnterZone — 플레이어 입장: 양방향(주변 → 나를 생성, 나 → 주변을 생성)
@@ -563,6 +563,7 @@ private:
     // 프레임 재사용 버퍼 (힙 할당 방지 — clear()로 capacity 유지)
     std::vector<CPlayer*> _broadcastBuffer;          // BroadcastAroundSector 전용 — 받는 쪽은 플레이어뿐
     std::vector<CPlayer*> _eventAroundBuffer;        // 접속/해제/존이동 전용 — 같음
+    std::vector<CCharacter*> _lateMoverBuffer;       // 늦은 이동자 조회(CZone::CollectLateMovers) 전용 — 퇴장·땅 아이템이 채우고 그 자리에서 다 쓴다
     std::vector<CCharacter*> _tickClampedPlayers;
 #if USE_COMBAT
     // 공격 후보 버퍼는 두지 않는다 — 사거리가 걸치는 섹터의 주민 목록을 참조로 훑어 복사가 없다.
