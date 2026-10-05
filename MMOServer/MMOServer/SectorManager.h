@@ -25,6 +25,7 @@
 //  GetSectorPlayers/Others  → 한 섹터의 목록 둘 · ForEachInSector → 둘을 차례로
 //  GetAroundPlayers()       → 주변 9섹터 플레이어 수집 (브로드캐스트 대상)
 //  GetSectorDiff()          → 섹터 변경 시 시야 진입/이탈 섹터 계산 (CREATE/DELETE용)
+//  IsAdjacent()             → 두 섹터가 서로 보이나 (시야 규칙 — GetAroundSectorList 와 같은 판정)
 // ==========================================================================
 #pragma once
 
@@ -92,8 +93,22 @@ public:
 
     // 주변 9섹터 좌표 수집 (경계 클램핑 포함, 고정 배열)
     // outSectors: 최대 9개, outCount: 실제 개수
+    //   시야 규칙은 아래 IsAdjacent 와 같다(dx, dy ∈ [-1, 1]) — 하나를 바꾸면 다른 하나도 바꿀 것.
     void GetAroundSectorList(int32_t sectorX, int32_t sectorY,
                              SectorPos* outSectors, int32_t& outCount) const;
+
+    // 두 섹터가 서로의 시야(주변 9섹터) 안인가 — 체비쇼프 거리 ≤ 1.
+    //   GetAroundSectorList(SectorManager.cpp)가 dx,dy ∈ [-1,1]을 모으는 것과 같은 판정을
+    //   섹터 목록을 만들지 않고 좌표만으로 계산한다(맵 밖 섹터는 애초에 주민이 없어 결과 동일).
+    //   ※ 섹터 좌표는 존마다 별개 격자이므로, 호출부에서 반드시 같은 존인지 먼저 확인할 것.
+    static bool IsAdjacent(int32_t x1, int32_t y1, int32_t x2, int32_t y2)
+    {
+        int32_t dx = x1 - x2;
+        int32_t dy = y1 - y2;
+        if (dx < 0) dx = -dx;
+        if (dy < 0) dy = -dy;
+        return dx <= 1 && dy <= 1;
+    }
 
 private:
     bool IsValidSector(int32_t sectorX, int32_t sectorY) const;

@@ -96,6 +96,9 @@ public:
     const SectorChangeInfo* FindSectorChange(CCharacter* character) const;   // 없으면 nullptr
     void ClearSectorChanges();
 
+    // 원위치 복귀 — 첫 출발 섹터 = 지금 섹터면 이번 틱 시야 변화가 없다(넘었다가 되돌아옴). 대기열 항목만으로 정해진다.
+    static bool IsReturnedHome(const SectorChangeInfo& change);
+
     // 채널 정원·빈 채널 판정용 — _characterList.size() 가 아니라 별도 카운터다.
     //   몬스터가 정원을 차지하면 사람이 못 들어오고, 몬스터만 남은 채널은 영영 안 지워진다.
     //   세는 기준은 _kind 다(Character.h [종류]).

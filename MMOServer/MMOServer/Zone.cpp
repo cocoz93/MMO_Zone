@@ -209,6 +209,12 @@ void CZone::ClearSectorChanges()
     _sectorChangedSet.clear();
 }
 
+bool CZone::IsReturnedHome(const SectorChangeInfo& change)
+{
+    return change.oldSectorX == change.character->_sectorX &&
+           change.oldSectorY == change.character->_sectorY;
+}
+
 // ==========================================================================
 // 맵 경계 — 값 둘(맵 안 · 벽 선)은 Zone.h 「── 맵 경계 ──」 주석
 // ==========================================================================

@@ -1065,8 +1065,7 @@ void CGameServer::GameLoopThread()
             for (const auto& change : zone->GetSectorChanges())
             {
                 // 출발 섹터 == 현재 섹터이면 원위치 복귀 → 브로드캐스트 불필요
-                if (change.oldSectorX == change.character->_sectorX &&
-                    change.oldSectorY == change.character->_sectorY)
+                if (CZone::IsReturnedHome(change))
                     continue;
 
                 ProcessSectorChange(zone, change.character,
@@ -3076,24 +3075,8 @@ bool CGameServer::ConsumeMoveBudget(CPlayer* player, float distSq)
     return true;
 }
 
-// 두 섹터가 서로의 시야(주변 9섹터) 안인가 — 체비쇼프 거리 ≤ 1.
-//   GetAroundSectorList(SectorManager.cpp)가 dx,dy ∈ [-1,1]을 모으는 것과 같은 판정을
-//   섹터 목록을 만들지 않고 좌표만으로 계산한다(맵 밖 섹터는 애초에 주민이 없어 결과 동일).
-//   ※ 섹터 좌표는 존마다 별개 격자이므로, 호출부에서 반드시 같은 존인지 먼저 확인할 것.
-namespace
-{
-    inline bool IsSectorAdjacent(int32_t x1, int32_t y1, int32_t x2, int32_t y2)
-    {
-        int32_t dx = x1 - x2;
-        int32_t dy = y1 - y2;
-        if (dx < 0) dx = -dx;
-        if (dy < 0) dy = -dy;
-        return dx <= 1 && dy <= 1;
-    }
-}
-
 #if USE_DROP
-// 같은 틱에 섹터를 넘은 사람에게 땅의 아이템 DELETE — 헤더 주석. 여기(IsSectorAdjacent 뒤)에 정의하는 이유는 그 도우미가 이 위에 있어서다.
+// 같은 틱에 섹터를 넘은 사람에게 땅의 아이템 DELETE — 헤더 주석. 시야 규칙은 CSectorManager::IsAdjacent.
 //   판정은 BroadcastLeaveZone 셋째 덩이와 같고, 아이템은 안 움직이니 "퇴장자의 옛 섹터 = 지금 섹터"인 경우다.
 void CGameServer::SendGroundItemDeleteToLateMovers(CZone* zone, int32_t sectorX, int32_t sectorY,
                                                    int32_t groundId, GroundItemGone wire, int32_t pickerId)
@@ -3103,12 +3086,12 @@ void CGameServer::SendGroundItemDeleteToLateMovers(CZone* zone, int32_t sectorX,
         CPlayer* mover = AsPlayer(change.character);   // 대기열은 섞여 있다(몬스터도 섹터를 넘는다) — 받는 쪽만
         if (mover == nullptr)
             continue;
-        if (change.oldSectorX == mover->_sectorX && change.oldSectorY == mover->_sectorY)
+        if (CZone::IsReturnedHome(change))
             continue;   // 원위치 복귀 — 화면과 등록이 같다
 
         // 옛 섹터로는 보였고(화면에 있다) 새 섹터로는 안 보인다(방금 보낸 주변 DELETE 에서 빠졌다)
-        if (IsSectorAdjacent(change.oldSectorX, change.oldSectorY, sectorX, sectorY) &&
-            !IsSectorAdjacent(mover->_sectorX, mover->_sectorY, sectorX, sectorY))
+        if (CSectorManager::IsAdjacent(change.oldSectorX, change.oldSectorY, sectorX, sectorY) &&
+            !CSectorManager::IsAdjacent(mover->_sectorX, mover->_sectorY, sectorX, sectorY))
         {
             SendGroundItemDelete(mover, groundId, wire, pickerId);
             _gameMonitor._drop._lateMoverDeletes.Inc();
@@ -3223,13 +3206,13 @@ void CGameServer::BroadcastLeaveZone(CZone* zone, CCharacter* player)
             CCharacter* mover = change.character;
             if (mover == player)
                 continue;
-            if (change.oldSectorX == mover->_sectorX && change.oldSectorY == mover->_sectorY)
+            if (CZone::IsReturnedHome(change))
                 continue;   // 원위치 복귀 — 시야 변화 없음
 
             // 이동 전엔 퇴장자를 보고 있었는데(클라가 들고 있음), 위 두 조회 어디에도 안 걸리는 경우만
-            if (IsSectorAdjacent(change.oldSectorX, change.oldSectorY, leaverOldX, leaverOldY) &&
-                !IsSectorAdjacent(mover->_sectorX, mover->_sectorY, player->_sectorX, player->_sectorY) &&
-                !IsSectorAdjacent(mover->_sectorX, mover->_sectorY, leaverOldX, leaverOldY))
+            if (CSectorManager::IsAdjacent(change.oldSectorX, change.oldSectorY, leaverOldX, leaverOldY) &&
+                !CSectorManager::IsAdjacent(mover->_sectorX, mover->_sectorY, player->_sectorX, player->_sectorY) &&
+                !CSectorManager::IsAdjacent(mover->_sectorX, mover->_sectorY, leaverOldX, leaverOldY))
             {
                 if (CPlayer* m = AsPlayer(mover))
                     SendDeletePlayer(m, player);
@@ -3282,7 +3265,7 @@ void CGameServer::FixSameTickMoverPairs(CZone* zone)
         CCharacter* a = changes[i].character;
         const int32_t aOldX = changes[i].oldSectorX;
         const int32_t aOldY = changes[i].oldSectorY;
-        if (aOldX == a->_sectorX && aOldY == a->_sectorY)
+        if (CZone::IsReturnedHome(changes[i]))
             continue;   // 원위치 복귀 — 틱 끝 루프의 skip 조건과 동일
 
         for (size_t j = i + 1; j < count; ++j)
@@ -3290,16 +3273,16 @@ void CGameServer::FixSameTickMoverPairs(CZone* zone)
             CCharacter* b = changes[j].character;
             const int32_t bOldX = changes[j].oldSectorX;
             const int32_t bOldY = changes[j].oldSectorY;
-            if (bOldX == b->_sectorX && bOldY == b->_sectorY)
+            if (CZone::IsReturnedHome(changes[j]))
                 continue;
 
-            const bool wasVisible = IsSectorAdjacent(aOldX, aOldY, bOldX, bOldY);
-            const bool isVisible  = IsSectorAdjacent(a->_sectorX, a->_sectorY, b->_sectorX, b->_sectorY);
+            const bool wasVisible = CSectorManager::IsAdjacent(aOldX, aOldY, bOldX, bOldY);
+            const bool isVisible  = CSectorManager::IsAdjacent(a->_sectorX, a->_sectorY, b->_sectorX, b->_sectorY);
             if (wasVisible == isVisible)
                 continue;   // 시야 변화 없음 → 통보 자체가 불필요
 
-            const bool aPassHits = IsSectorAdjacent(aOldX, aOldY, b->_sectorX, b->_sectorY);
-            const bool bPassHits = IsSectorAdjacent(a->_sectorX, a->_sectorY, bOldX, bOldY);
+            const bool aPassHits = CSectorManager::IsAdjacent(aOldX, aOldY, b->_sectorX, b->_sectorY);
+            const bool bPassHits = CSectorManager::IsAdjacent(a->_sectorX, a->_sectorY, bOldX, bOldY);
 
             if (!isVisible)
             {
