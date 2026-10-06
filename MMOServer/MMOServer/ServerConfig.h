@@ -33,7 +33,7 @@
 #include "IniFile.h"              // 플랫폼 독립 INI 리더 (GetPrivateProfile* 대체)
 #include "Platform/Platform.h"    // Platform::GetExecutableDir
 #include "Common.h"
-#include "MapManager.h"
+#include "MapConfig.h"              // 맵 설정 데이터만 — MapManager.h 를 넣으면 존 층 전체가 딸려 온다
 #include <Common/ErrorLog.h>
 
 struct ServerConfig
