@@ -3562,15 +3562,16 @@ void CGameServer::BroadcastSectorPacket(CZone* zone, int32_t sectorX, int32_t se
 //            와이어 바이트·논리 패킷 수·순서 의미 불변 (coalescing이 이미 틱 끝 연접 송신이라 클라 무변경).
 // ==========================================================================
 
-// 존 최초 등록 — 그리드 크기 확정 (맵 크기는 부팅 후 불변). 방송(items)/직송(directItems)
-// 어느 쪽이 먼저 등록해도 1회만 초기화 (countX==0 센티널 — items.empty()는 직송 선행 시 오판).
+// 존 최초 등록 — 칸 배열 크기 확정 (맵 크기는 부팅 후 불변). 방송(items)/직송(directItems)
+// 어느 쪽이 먼저 등록해도 1회만 초기화 (ready 플래그 — items.empty()는 직송 선행 시 오판).
+//   격자 크기·칸 번호 식·주변 9섹터 규칙은 전부 섹터 관리자 것(CellCount·CellIndex·CellPos·GetAroundSectorList)을 쓴다 —
+//   여기 사본을 두지 않는다(아키텍처 전수검사 2번, 10-06).
 void CGameServer::EnsureZonePending(CZone* zone, SectorOutbox::ZonePending& zp)
 {
-    if (zp.countX != 0)
+    if (zp.ready)
         return;
-    zp.countX = zone->GetSectorManager().GetSectorCountX();
-    zp.countY = zone->GetSectorManager().GetSectorCountY();
-    const size_t total = static_cast<size_t>(zp.countX) * zp.countY;
+    zp.ready = true;
+    const size_t total = static_cast<size_t>(zone->GetSectorManager().CellCount());
     zp.items.resize(total);
     zp.recvEpoch.assign(total, 0);
 #if USE_MEMBERSHIP_DIGEST
@@ -3586,7 +3587,7 @@ void CGameServer::RegisterSectorItem(CZone* zone, int32_t zoneId, int32_t sector
 {
     auto& zp = _sectorOutbox.pendingByZone[zoneId];
     EnsureZonePending(zone, zp);
-    const int32_t idx = sectorY * zp.countX + sectorX;
+    const int32_t idx = zone->GetSectorManager().CellIndex(sectorX, sectorY);
     if (zp.items[idx].empty())
         _sectorOutbox.touchedSectors.emplace_back(zoneId, idx);
     zp.items[idx].push_back(pMsg);
@@ -3602,7 +3603,7 @@ void CGameServer::RegisterSectorDirectItem(CZone* zone, int32_t zoneId, int32_t 
 {
     auto& zp = _sectorOutbox.pendingByZone[zoneId];
     EnsureZonePending(zone, zp);
-    const int32_t idx = sectorY * zp.countX + sectorX;
+    const int32_t idx = zone->GetSectorManager().CellIndex(sectorX, sectorY);
     if (zp.directItems[idx].empty())
         _sectorOutbox.touchedDirectSectors.emplace_back(zoneId, idx);
     zp.directItems[idx].push_back(pMsg);
@@ -3671,26 +3672,30 @@ void CGameServer::FlushSectorSends()
         _sectorOutbox.dirtyMovers.clear();
     }
 
-    // ── 2) 수신섹터 후보 = 소스(touched)의 3×3 합집합 (epoch 마킹으로 중복 제거, clear 불필요) ──
+    // ── 2) 수신섹터 후보 = 소스(touched)의 주변 9섹터 합집합 (epoch 마킹으로 중복 제거, clear 불필요) ──
+    //   어느 9칸인가(시야 규칙)와 칸 번호 ↔ 좌표는 섹터 관리자가 정한다(GetAroundSectorList · CellPos · CellIndex) —
+    //   여기 사본을 두지 않는다. 존 조회는 3)과 같은 꼴(틱 중 존 소멸이면 건너뜀 — 보류물 해제는 4)가 책임).
     ++_sectorOutbox.flushEpoch;
     _sectorOutbox.receiverSectors.clear();
     for (const auto& t : _sectorOutbox.touchedSectors)
     {
+        CZone* zone = _mapManager.GetZone(t.first);
+        if (zone == nullptr)
+            continue;
+        const CSectorManager& sectors = zone->GetSectorManager();
         auto& zp = _sectorOutbox.pendingByZone[t.first];
-        const int32_t sy = t.second / zp.countX;
-        const int32_t sx = t.second % zp.countX;
-        const int32_t y0 = (std::max)(sy - 1, 0), y1 = (std::min)(sy + 1, zp.countY - 1);
-        const int32_t x0 = (std::max)(sx - 1, 0), x1 = (std::min)(sx + 1, zp.countX - 1);
-        for (int32_t ny = y0; ny <= y1; ++ny)
+        int32_t sx = 0, sy = 0;
+        sectors.CellPos(t.second, sx, sy);
+        CSectorManager::SectorPos around[CSectorManager::MAX_AROUND_SECTORS];
+        int32_t aroundCount = 0;
+        sectors.GetAroundSectorList(sx, sy, around, aroundCount);
+        for (int32_t i = 0; i < aroundCount; ++i)
         {
-            for (int32_t nx = x0; nx <= x1; ++nx)
+            const int32_t ridx = sectors.CellIndex(around[i].x, around[i].y);
+            if (zp.recvEpoch[ridx] != _sectorOutbox.flushEpoch)
             {
-                const int32_t ridx = ny * zp.countX + nx;
-                if (zp.recvEpoch[ridx] != _sectorOutbox.flushEpoch)
-                {
-                    zp.recvEpoch[ridx] = _sectorOutbox.flushEpoch;
-                    _sectorOutbox.receiverSectors.emplace_back(t.first, ridx);
-                }
+                zp.recvEpoch[ridx] = _sectorOutbox.flushEpoch;
+                _sectorOutbox.receiverSectors.emplace_back(t.first, ridx);
             }
         }
     }
@@ -3717,11 +3722,12 @@ void CGameServer::FlushSectorSends()
         CZone* zone = _mapManager.GetZone(r.first);
         if (zone == nullptr)
             continue;   // 틱 중 존 소멸 — 보류물 해제는 4)가 책임
+        const CSectorManager& sectors = zone->GetSectorManager();
         auto& zp = _sectorOutbox.pendingByZone[r.first];
-        const int32_t ry = r.second / zp.countX;
-        const int32_t rx = r.second % zp.countX;
+        int32_t rx = 0, ry = 0;
+        sectors.CellPos(r.second, rx, ry);
 
-        const std::vector<CPlayer*>& residents = zone->GetSectorManager().GetSectorPlayers(rx, ry);
+        const std::vector<CPlayer*>& residents = sectors.GetSectorPlayers(rx, ry);
         if (residents.empty())
             continue;   // 받을 플레이어가 없으면(뱀만 있는 섹터 포함) 연접 비용도 생략
 
@@ -3738,18 +3744,17 @@ void CGameServer::FlushSectorSends()
         }
         itemCount += directCount;
 #endif
-        const int32_t y0 = (std::max)(ry - 1, 0), y1 = (std::min)(ry + 1, zp.countY - 1);
-        const int32_t x0 = (std::max)(rx - 1, 0), x1 = (std::min)(rx + 1, zp.countX - 1);
-        for (int32_t ny = y0; ny <= y1; ++ny)
+        // 이웃 9섹터 — 시야 규칙은 섹터 관리자 것(GetAroundSectorList). 순서(y 바깥·x 안쪽, 오름차순)도 그쪽이 정한다
+        CSectorManager::SectorPos around[CSectorManager::MAX_AROUND_SECTORS];
+        int32_t aroundCount = 0;
+        sectors.GetAroundSectorList(rx, ry, around, aroundCount);
+        for (int32_t i = 0; i < aroundCount; ++i)
         {
-            for (int32_t nx = x0; nx <= x1; ++nx)
+            for (CSerialBuffer* buf : zp.items[sectors.CellIndex(around[i].x, around[i].y)])
             {
-                for (CSerialBuffer* buf : zp.items[ny * zp.countX + nx])
-                {
-                    const char* p = buf->GetReadBufferPtr();
-                    _sectorOutbox.concatBuf.insert(_sectorOutbox.concatBuf.end(), p, p + buf->GetDataSize());
-                    ++itemCount;
-                }
+                const char* p = buf->GetReadBufferPtr();
+                _sectorOutbox.concatBuf.insert(_sectorOutbox.concatBuf.end(), p, p + buf->GetDataSize());
+                ++itemCount;
             }
         }
         if (itemCount == 0)

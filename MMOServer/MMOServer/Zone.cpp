@@ -26,8 +26,8 @@ bool CZone::Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHei
     if (!_sectorManager.Init(mapWidth, mapHeight, sectorSize))
         return false;
 #if USE_DROP
-    // 땅 아이템 칸 — 섹터와 같은 칸 번호를 쓰므로 섹터를 세운 직후 그 칸 수로 맞춘다
-    _groundItemManager.Init(_sectorManager.GetSectorCountX(), _sectorManager.GetSectorCountY());
+    // 땅 아이템 칸 — 섹터와 같은 칸 번호(CellIndex)를 쓰므로 섹터를 세운 직후 부른다(칸 수는 섹터 관리자에서 읽는다)
+    _groundItemManager.Init();
 #endif
 
     _zoneId = zoneId;

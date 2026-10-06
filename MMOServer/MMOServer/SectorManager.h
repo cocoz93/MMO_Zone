@@ -16,11 +16,15 @@
 //  가르는 기준은 "받을 수 있나"다 — 종류마다 목록을 두지 않는다. NPC·펫이 생겨도 나머지 목록에 들어가고 목록은 안 는다.
 //
 // [땅의 아이템] 여기 없다 — 존의 땅 아이템 관리자가 같은 칸 번호로 든다(GroundItemManager.h).
-//  땅은 아이템을 담는 그릇이라 물건과 규칙을 그쪽이 함께 든다. 여기는 캐릭터 목록 둘만 — 칸 번호 계산(CalcSectorX/Y)은 빌려 준다.
+//  땅은 아이템을 담는 그릇이라 물건과 규칙을 그쪽이 함께 든다. 여기는 캐릭터 목록 둘만 — 격자 계산(CalcSectorX/Y · CellIndex · IsValidSector)은 빌려 준다.
+//
+// [격자 규칙은 여기 한 곳] 섹터 좌표 ↔ 칸 번호(CellIndex/CellPos) · 칸 수(CellCount) · 주변 9섹터(GetAroundSectorList) ·
+//  서로 보이나(IsAdjacent). 섹터별로 무언가를 두는 쪽(땅 아이템 관리자 · 게임 서버 송신 보류 버퍼)은 식을 베끼지 않고 이걸 부른다.
 //
 // [사용 흐름]
 //  Init(mapWidth, mapHeight, sectorSize) → 존 생성 시 호출 (INI에서 로드된 값)
 //  CalcSectorX/Y()          → 월드 좌표에서 섹터 좌표 계산
+//  CellIndex/CellPos/Count  → 섹터 좌표 ↔ 칸 번호 · 칸 수 (평탄화 규칙 — 식은 여기뿐)
 //  AddCharacter/Remove      → 섹터에 캐릭터 등록/해제 (종류로 목록을 고른다)
 //  GetSectorPlayers/Others  → 한 섹터의 목록 둘 · ForEachInSector → 둘을 차례로
 //  GetAroundPlayers()       → 주변 9섹터 플레이어 수집 (브로드캐스트 대상)
@@ -85,9 +89,23 @@ public:
 
     int32_t GetSectorSize() const { return _sectorSize; }
 
-    // 그리드 크기 (USE_BROADCAST_BUNDLE: 수신섹터 순회용)
+    // 그리드 크기 — 전체 칸을 훑는 쪽(땅 아이템 수명 훑기)이 쓴다
     int32_t GetSectorCountX() const { return _sectorCountX; }
     int32_t GetSectorCountY() const { return _sectorCountY; }
+
+    // 칸 번호 — 격자를 한 줄 배열에 까는 규칙(행 우선: y × 가로칸수 + x). 섹터별로 무언가를 두는 쪽
+    //   (여기의 목록 둘 · 땅 아이템 관리자의 목록 · 게임 서버의 송신 보류 버퍼)이 전부 이 둘을 쓴다 —
+    //   식과 가로칸수를 여기 한 곳에만 둔다(사본 금지). CellCount 는 그 배열의 크기.
+    int32_t CellIndex(int32_t sectorX, int32_t sectorY) const { return sectorY * _sectorCountX + sectorX; }
+    void    CellPos(int32_t cellIndex, int32_t& outSectorX, int32_t& outSectorY) const
+    {
+        outSectorY = cellIndex / _sectorCountX;
+        outSectorX = cellIndex % _sectorCountX;
+    }
+    int32_t CellCount() const { return _sectorCountX * _sectorCountY; }
+
+    // 격자 안의 섹터 좌표인가 — 땅 아이템 관리자도 같은 격자를 쓰므로 공개
+    bool IsValidSector(int32_t sectorX, int32_t sectorY) const;
 
     static constexpr int32_t MAX_AROUND_SECTORS = 9;
 
@@ -111,13 +129,11 @@ public:
     }
 
 private:
-    bool IsValidSector(int32_t sectorX, int32_t sectorY) const;
-
-    // 평탄화 인덱스 접근 헬퍼 — 한 칸 = 플레이어 목록 + 나머지 목록
-    std::vector<CPlayer*>&          PlayersAt(int32_t y, int32_t x)       { return _players[y * _sectorCountX + x]; }
-    const std::vector<CPlayer*>&    PlayersAt(int32_t y, int32_t x) const { return _players[y * _sectorCountX + x]; }
-    std::vector<CCharacter*>&       OthersAt(int32_t y, int32_t x)        { return _others[y * _sectorCountX + x]; }
-    const std::vector<CCharacter*>& OthersAt(int32_t y, int32_t x) const  { return _others[y * _sectorCountX + x]; }
+    // 평탄화 인덱스 접근 헬퍼 — 한 칸 = 플레이어 목록 + 나머지 목록 (칸 번호 식은 CellIndex 한 곳)
+    std::vector<CPlayer*>&          PlayersAt(int32_t y, int32_t x)       { return _players[CellIndex(x, y)]; }
+    const std::vector<CPlayer*>&    PlayersAt(int32_t y, int32_t x) const { return _players[CellIndex(x, y)]; }
+    std::vector<CCharacter*>&       OthersAt(int32_t y, int32_t x)        { return _others[CellIndex(x, y)]; }
+    const std::vector<CCharacter*>& OthersAt(int32_t y, int32_t x) const  { return _others[CellIndex(x, y)]; }
 
     int32_t _sectorSize;
     int32_t _sectorCountX;

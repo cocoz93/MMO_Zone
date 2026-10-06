@@ -14,37 +14,34 @@ CGroundItemManager::CGroundItemManager(CZone& zone)
 {
 }
 
-void CGroundItemManager::Init(int32_t sectorCountX, int32_t sectorCountY)
+void CGroundItemManager::Init()
 {
-    _sectorCountX = sectorCountX;
-    _sectorCountY = sectorCountY;
-    _items.resize(static_cast<size_t>(sectorCountY) * static_cast<size_t>(sectorCountX));
-}
-
-bool CGroundItemManager::IsValidSector(int32_t sectorX, int32_t sectorY) const
-{
-    return sectorX >= 0 && sectorX < _sectorCountX && sectorY >= 0 && sectorY < _sectorCountY;
+    // 칸 수·칸 번호는 섹터 관리자 것 — 여기서 격자 크기를 베껴 들지 않는다(식이 두 벌이 되지 않게)
+    _items.resize(static_cast<size_t>(_zone.GetSectorManager().CellCount()));
 }
 
 const std::vector<CGroundItem>& CGroundItemManager::GetSectorItems(int32_t sectorX, int32_t sectorY) const
 {
-    if (!IsValidSector(sectorX, sectorY))
+    const CSectorManager& sectors = _zone.GetSectorManager();
+    if (!sectors.IsValidSector(sectorX, sectorY))
         return EMPTY_ITEMS;
-    return _items[sectorY * _sectorCountX + sectorX];
+    return _items[sectors.CellIndex(sectorX, sectorY)];
 }
 
 void CGroundItemManager::AddAt(const CGroundItem& item, int32_t sectorX, int32_t sectorY)
 {
-    if (!IsValidSector(sectorX, sectorY))
+    const CSectorManager& sectors = _zone.GetSectorManager();
+    if (!sectors.IsValidSector(sectorX, sectorY))
         return;
-    _items[sectorY * _sectorCountX + sectorX].push_back(item);
+    _items[sectors.CellIndex(sectorX, sectorY)].push_back(item);
 }
 
 void CGroundItemManager::RemoveAt(int32_t sectorX, int32_t sectorY, size_t index)
 {
-    if (!IsValidSector(sectorX, sectorY))
+    const CSectorManager& sectors = _zone.GetSectorManager();
+    if (!sectors.IsValidSector(sectorX, sectorY))
         return;
-    std::vector<CGroundItem>& list = _items[sectorY * _sectorCountX + sectorX];
+    std::vector<CGroundItem>& list = _items[sectors.CellIndex(sectorX, sectorY)];
     // [불변식] index 는 부르는 쪽이 방금 이 목록을 훑어 얻은 자리다(그 사이 목록을 안 바꾼다)
     assert(index < list.size());
     list[index] = list.back();   // 순서가 뜻이 없어 자리 바꿔 빼기로 O(1) — 캐릭터 목록(PopFrom)과 같은 꼴
@@ -119,9 +116,10 @@ void CGroundItemManager::TickExpire(const GroundItemContext& ctx, uint64_t frame
     if (_count == 0)
         return;   // 이 존 땅에 아무것도 없다 — 섹터를 훑지 않는다(부하 시험은 더미가 안 때려 늘 여기서 끝난다)
 
-    for (int32_t sy = 0; sy < _sectorCountY; ++sy)
+    const CSectorManager& sectors = _zone.GetSectorManager();
+    for (int32_t sy = 0; sy < sectors.GetSectorCountY(); ++sy)
     {
-        for (int32_t sx = 0; sx < _sectorCountX; ++sx)
+        for (int32_t sx = 0; sx < sectors.GetSectorCountX(); ++sx)
         {
             const std::vector<CGroundItem>& list = GetSectorItems(sx, sy);
             for (size_t i = 0; i < list.size(); )
@@ -138,9 +136,10 @@ void CGroundItemManager::TickExpire(const GroundItemContext& ctx, uint64_t frame
 void CGroundItemManager::ForgetAll(const GroundItemContext& ctx)
 {
     int64_t n = 0;
-    for (int32_t sy = 0; sy < _sectorCountY; ++sy)
+    const CSectorManager& sectors = _zone.GetSectorManager();
+    for (int32_t sy = 0; sy < sectors.GetSectorCountY(); ++sy)
     {
-        for (int32_t sx = 0; sx < _sectorCountX; ++sx)
+        for (int32_t sx = 0; sx < sectors.GetSectorCountX(); ++sx)
             n += static_cast<int64_t>(GetSectorItems(sx, sy).size());
     }
     // 존마다 센 수와 실제 목록이 같아야 한다 — 어긋나면 넣고 빼는 자리 중 하나가 _count 를 빠뜨린 것

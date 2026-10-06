@@ -2,7 +2,7 @@
 // GroundItemManager — 존 하나의 땅 아이템 (USE_DROP)
 //
 // [책임]
-//  - 땅 아이템 목록 소유 — 섹터 칸마다 vector<CGroundItem>(값). 칸 번호는 섹터 관리자와 같다(Init 이 맞춘다).
+//  - 땅 아이템 목록 소유 — 섹터 칸마다 vector<CGroundItem>(값). 칸 번호·칸 수는 섹터 관리자 것을 그대로 쓴다(CellIndex·CellCount — 식의 사본을 두지 않는다).
 //    시야 송신(입장·섹터 이동)이 칸 단위로 읽는다(GetSectorItems). 넣고 빼는 자리는 이 클래스 안뿐이다
 //  - 땅 아이템의 규칙 — 놓을 자리·주인·수명 정하기(Drop) · 빼기(Remove) · 수명 훑기(TickExpire) ·
 //    주울 것 고르기(FindPickup) · 이 존에 있는 수 세기(_count, 채널 정리 때 ForgetAll)
@@ -15,7 +15,7 @@
 //  섹터 관리자는 이제 캐릭터 목록 둘만 든다 — 섹터는 땅 아이템이 시야 단위로 나뉘는 칸 번호로만 빌려 쓴다.
 //
 // [계층 경계]
-//  CZone·CSectorManager(좌표 → 칸 번호 계산만)·CPlayer(줍는 사람의 생사·좌표·계정만 읽는다)를 안다. 세션·패킷 조립·CGameServer 는 모른다.
+//  CZone·CSectorManager(좌표 → 섹터 좌표 · 칸 번호 · 격자 범위 계산만)·CPlayer(줍는 사람의 생사·좌표·계정만 읽는다)를 안다. 세션·패킷 조립·CGameServer 는 모른다.
 //  게임 서버 것(알림 통로·계수기)은 부를 때마다 GroundItemContext 로 받는다 — 몬스터 관리자와 같은 까닭
 //  (MonsterManager.h [계층 경계]). 무엇이 떨어질지(드랍 표 굴림)는 게임 서버가 정한다 — 잡은 사람에게 주는
 //  보상이라 경험치와 같은 자리다. 여기는 굴린 결과를 받아 땅에 놓는 데서 시작한다.
@@ -79,8 +79,8 @@ public:
     CGroundItemManager(const CGroundItemManager&) = delete;
     CGroundItemManager& operator=(const CGroundItemManager&) = delete;
 
-    // 칸 할당 — 존 초기화(CZone::Init)가 섹터 관리자를 세운 직후 그 칸 수로 부른다(칸 번호를 섹터와 맞춘다).
-    void Init(int32_t sectorCountX, int32_t sectorCountY);
+    // 칸 할당 — 존 초기화(CZone::Init)가 섹터 관리자를 세운 직후 부른다. 칸 수는 섹터 관리자(CellCount)에서 읽는다.
+    void Init();
 
     // 한 칸의 땅 아이템 (범위 밖이면 빈 목록) — 시야 송신(입장·섹터 이동)과 줍기 처리가 읽는다.
     //   캐릭터가 아니라 섹터의 ForEachInSector 는 안 돈다. 값으로 담는다(GroundItem.h [값으로 담는다]) —
@@ -118,8 +118,6 @@ private:
     static constexpr uint64_t GROUND_ITEM_LIFE_FRAMES = 60 * 25;   // 60초 — 땅에 남는 시간(플랜 ㉰)
     static constexpr uint64_t LOOT_LOCK_FRAMES        = 10 * 25;   // 10초 — 막타 친 사람이 먼저 줍는 시간(플랜 ㉯)
 
-    bool IsValidSector(int32_t sectorX, int32_t sectorY) const;
-
     // 한 칸에 넣기 · 한 개 빼기 — 목록을 바꾸는 자리는 이 둘뿐이다(Drop · Remove 가 부른다).
     //   빼기는 자리 바꿔 빼기(swap-and-pop)라 맨 뒤엣것이 index 자리로 온다.
     //   훑으면서 빼는 쪽은 뺀 뒤 index 를 올리지 말 것(방금 당겨온 것을 아직 안 봤다).
@@ -128,10 +126,7 @@ private:
 
     CZone& _zone;   // 나를 든 존 — 존이 나보다 오래 산다(멤버)
 
-    int32_t _sectorCountX = 0;
-    int32_t _sectorCountY = 0;
-
-    // 칸마다 땅 아이템 (평탄화: sectorY * _sectorCountX + sectorX — 섹터 관리자와 같은 칸 번호)
+    // 칸마다 땅 아이템 — 칸 번호는 섹터 관리자 CellIndex(식과 가로칸수는 그쪽 한 곳), 크기는 CellCount
     std::vector<std::vector<CGroundItem>> _items;
     static const std::vector<CGroundItem> EMPTY_ITEMS;   // 범위 밖 요청 때 돌려줄 빈 목록
 
