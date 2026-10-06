@@ -81,10 +81,6 @@ void CCombatSystem::PerformAttack(CZone* zone, CCharacter* player, uint64_t fram
     //   후보를 벡터에 전부 복사까지 한다(SectorManager.cpp GetAroundPlayers). 1.5타일 판정에 그 범위를
     //   뒤지면 동접이 커질수록 게임 루프(단일 코어)만 손해다. 여기서는 참조로 훑어 복사가 0이다.
     const CSectorManager& sectors = zone->GetSectorManager();
-    const int32_t sx0 = sectors.CalcSectorX(player->_x - Combat::ATTACK_RANGE);
-    const int32_t sx1 = sectors.CalcSectorX(player->_x + Combat::ATTACK_RANGE);
-    const int32_t sy0 = sectors.CalcSectorY(player->_y - Combat::ATTACK_RANGE);
-    const int32_t sy1 = sectors.CalcSectorY(player->_y + Combat::ATTACK_RANGE);
 
     CCharacter* target = nullptr;
     float bestDistSq = 0.0f;
@@ -113,28 +109,26 @@ void CCombatSystem::PerformAttack(CZone* zone, CCharacter* player, uint64_t fram
         }
     };
 
-    for (int32_t sy = sy0; sy <= sy1; ++sy)
+    // 어느 섹터를 도나는 섹터 관리자(ForEachSectorInRange — 사거리가 걸치는 칸만), 그 칸에서 무엇을 보나는 여기
+    sectors.ForEachSectorInRange(player->_x, player->_y, Combat::ATTACK_RANGE, [&](int32_t sx, int32_t sy)
     {
-        for (int32_t sx = sx0; sx <= sx1; ++sx)
-        {
 #if USE_MONSTER
-            // 몬스터는 플레이어 목록만 돈다 — 몬스터는 몬스터를 못 때린다(같은 편이다).
-            //   섞인 목록에서 종류로 거르던 시절엔 이 검사를 빠뜨리면 뱀 여럿이 한 플레이어에게 몰릴 때
-            //   뒤의 뱀이 "정면의 가장 가까운 것"인 앞의 뱀을 물었다(실측: 플레이어 셋 90초에 뱀→뱀 4~32회,
-            //   뱀이 죽기까지 했다). 지금은 목록이 갈라져 있어 뱀은 후보에 아예 안 들어온다.
-            //   AI 의 대상 찾기(FindAITarget)도 플레이어 목록만 돈다 — AI 는 "누구를 쫓을까"를 정할 뿐이고,
-            //   실제로 무는 대상은 여기서 다시 고르므로 두 자리가 다 플레이어 목록이어야 한다.
-            if (byMonster)
-            {
-                for (CPlayer* candidate : sectors.GetSectorPlayers(sx, sy))
-                    consider(candidate);
-                continue;
-            }
-#endif
-            // 플레이어가 때릴 때는 보이는 것 전부(플레이어·몬스터)가 후보다
-            sectors.ForEachInSector(sx, sy, consider);
+        // 몬스터는 플레이어 목록만 돈다 — 몬스터는 몬스터를 못 때린다(같은 편이다).
+        //   섞인 목록에서 종류로 거르던 시절엔 이 검사를 빠뜨리면 뱀 여럿이 한 플레이어에게 몰릴 때
+        //   뒤의 뱀이 "정면의 가장 가까운 것"인 앞의 뱀을 물었다(실측: 플레이어 셋 90초에 뱀→뱀 4~32회,
+        //   뱀이 죽기까지 했다). 지금은 목록이 갈라져 있어 뱀은 후보에 아예 안 들어온다.
+        //   AI 의 대상 찾기(FindAITarget)도 플레이어 목록만 돈다 — AI 는 "누구를 쫓을까"를 정할 뿐이고,
+        //   실제로 무는 대상은 여기서 다시 고르므로 두 자리가 다 플레이어 목록이어야 한다.
+        if (byMonster)
+        {
+            for (CPlayer* candidate : sectors.GetSectorPlayers(sx, sy))
+                consider(candidate);
+            return;
         }
-    }
+#endif
+        // 플레이어가 때릴 때는 보이는 것 전부(플레이어·몬스터)가 후보다
+        sectors.ForEachInSector(sx, sy, consider);
+    });
 
     if (target == nullptr)
     {

@@ -98,36 +98,30 @@ CCharacter* CMonsterManager::FindAITarget(CMonster* monster) const
 {
     // 시야(6타일)가 걸치는 섹터만 참조로 훑는다 — GetAroundPlayers(3×3, 60×60타일)를
     //   쓰지 않는 이유는 공격 본체와 같다(그건 브로드캐스트용이라 후보를 벡터에 전부 복사한다).
+    //   어느 섹터를 도나는 섹터 관리자(ForEachSectorInRange), 그 칸에서 무엇을 보나는 여기.
     const CSectorManager& sectors = _zone.GetSectorManager();
-    const int32_t sx0 = sectors.CalcSectorX(monster->_x - MonsterAI::SIGHT_RANGE);
-    const int32_t sx1 = sectors.CalcSectorX(monster->_x + MonsterAI::SIGHT_RANGE);
-    const int32_t sy0 = sectors.CalcSectorY(monster->_y - MonsterAI::SIGHT_RANGE);
-    const int32_t sy1 = sectors.CalcSectorY(monster->_y + MonsterAI::SIGHT_RANGE);
 
     CCharacter* best = nullptr;
     float bestDistSq = 0.0f;
 
-    for (int32_t sy = sy0; sy <= sy1; ++sy)
+    sectors.ForEachSectorInRange(monster->_x, monster->_y, MonsterAI::SIGHT_RANGE, [&](int32_t sx, int32_t sy)
     {
-        for (int32_t sx = sx0; sx <= sx1; ++sx)
+        for (CPlayer* candidate : sectors.GetSectorPlayers(sx, sy))   // 플레이어만 — 몬스터끼리 싸우지 않고, 자기 자신도 여기 없다
         {
-            for (CPlayer* candidate : sectors.GetSectorPlayers(sx, sy))   // 플레이어만 — 몬스터끼리 싸우지 않고, 자기 자신도 여기 없다
+            if (candidate->_isDead)
+                continue;   // 시체는 쫓지 않는다
+
+            float distSq = 0.0f;
+            if (!MonsterAI::IsInSight(*monster, *candidate, distSq))
+                continue;
+
+            if (best == nullptr || distSq < bestDistSq)
             {
-                if (candidate->_isDead)
-                    continue;   // 시체는 쫓지 않는다
-
-                float distSq = 0.0f;
-                if (!MonsterAI::IsInSight(*monster, *candidate, distSq))
-                    continue;
-
-                if (best == nullptr || distSq < bestDistSq)
-                {
-                    best = candidate;
-                    bestDistSq = distSq;
-                }
+                best = candidate;
+                bestDistSq = distSq;
             }
         }
-    }
+    });
 
     return best;
 }
@@ -220,32 +214,32 @@ void CMonsterManager::PickSpawnPos(const MonsterContext& ctx, int32_t regionInde
     }
 }
 
-// (x, y) 에서 range 안에 산 플레이어가 있나 — 반경이 걸치는 섹터의 플레이어 목록만 참조로 훑는다(복사 0)
+// (x, y) 에서 range 안에 산 플레이어가 있나 — 반경이 걸치는 섹터의 플레이어 목록만 참조로 훑는다(복사 0).
+//   어느 섹터를 도나는 섹터 관리자(ForEachSectorInRange). 하나 찾으면 남은 칸은 들여다보지 않는다(found).
 bool CMonsterManager::IsLivePlayerNear(float x, float y, float range) const
 {
     const CSectorManager& sectors = _zone.GetSectorManager();
-    const int32_t sx0 = sectors.CalcSectorX(x - range);
-    const int32_t sx1 = sectors.CalcSectorX(x + range);
-    const int32_t sy0 = sectors.CalcSectorY(y - range);
-    const int32_t sy1 = sectors.CalcSectorY(y + range);
     const float rangeSq = range * range;
 
-    for (int32_t sy = sy0; sy <= sy1; ++sy)
+    bool found = false;
+    sectors.ForEachSectorInRange(x, y, range, [&](int32_t sx, int32_t sy)
     {
-        for (int32_t sx = sx0; sx <= sx1; ++sx)
+        if (found)
+            return;
+        for (const CPlayer* p : sectors.GetSectorPlayers(sx, sy))
         {
-            for (const CPlayer* p : sectors.GetSectorPlayers(sx, sy))
+            if (p->_isDead)
+                continue;   // 시체 옆에 태어나는 건 괜찮다 — 알아챌 대상이 아니다
+            const float dx = p->_x - x;
+            const float dy = p->_y - y;
+            if (dx * dx + dy * dy < rangeSq)
             {
-                if (p->_isDead)
-                    continue;   // 시체 옆에 태어나는 건 괜찮다 — 알아챌 대상이 아니다
-                const float dx = p->_x - x;
-                const float dy = p->_y - y;
-                if (dx * dx + dy * dy < rangeSq)
-                    return true;
+                found = true;
+                return;
             }
         }
-    }
-    return false;
+    });
+    return found;
 }
 
 // 벽에 닿은 몬스터는 다음 틱에 바로 다시 판단하게 한다.

@@ -157,49 +157,43 @@ PickupFail CGroundItemManager::FindPickup(const CPlayer* player, uint64_t frame,
     if (player->_isDead)
         return PickupFail::DEAD;
 
-    // 반경이 걸치는 섹터만 참조로 훑는다(공격 대상 찾기와 같은 꼴 — 복사 0). 섹터 관리자는 좌표 → 칸 번호만
+    // 반경이 걸치는 섹터만 참조로 훑는다(공격 대상 찾기와 같은 꼴 — 복사 0).
+    //   어느 섹터를 도나는 섹터 관리자(ForEachSectorInRange), 그 칸에서 무엇을 보나는 여기.
     const CSectorManager& sectors = _zone.GetSectorManager();
-    const int32_t sx0 = sectors.CalcSectorX(player->_x - PICKUP_RANGE);
-    const int32_t sx1 = sectors.CalcSectorX(player->_x + PICKUP_RANGE);
-    const int32_t sy0 = sectors.CalcSectorY(player->_y - PICKUP_RANGE);
-    const int32_t sy1 = sectors.CalcSectorY(player->_y + PICKUP_RANGE);
     const float rangeSq = PICKUP_RANGE * PICKUP_RANGE;
 
     bool  anyInRange = false;   // 반경 안에 뭔가 있긴 했다 — "아무것도 없음(NO_ITEM)"과 "남의 것뿐(NOT_OWNER)"을 가른다
     bool  found      = false;
     float bestSq     = 0.0f;
-    for (int32_t sy = sy0; sy <= sy1; ++sy)
+    sectors.ForEachSectorInRange(player->_x, player->_y, PICKUP_RANGE, [&](int32_t sx, int32_t sy)
     {
-        for (int32_t sx = sx0; sx <= sx1; ++sx)
+        const std::vector<CGroundItem>& list = GetSectorItems(sx, sy);
+        for (size_t i = 0; i < list.size(); ++i)
         {
-            const std::vector<CGroundItem>& list = GetSectorItems(sx, sy);
-            for (size_t i = 0; i < list.size(); ++i)
+            const CGroundItem& g = list[i];
+            const float dx = g.x - player->_x;
+            const float dy = g.y - player->_y;
+            const float dSq = dx * dx + dy * dy;
+            if (dSq > rangeSq)
+                continue;
+            anyInRange = true;
+
+            // 내 것이거나(막타 친 계정) 우선 시간이 끝났으면 주울 수 있다
+            const bool mine = g.ownerAccountId == 0 || g.ownerAccountId == player->_accountId ||
+                              frame >= g.ownerUntilFrame;
+            if (!mine)
+                continue;
+
+            if (!found || dSq < bestSq)
             {
-                const CGroundItem& g = list[i];
-                const float dx = g.x - player->_x;
-                const float dy = g.y - player->_y;
-                const float dSq = dx * dx + dy * dy;
-                if (dSq > rangeSq)
-                    continue;
-                anyInRange = true;
-
-                // 내 것이거나(막타 친 계정) 우선 시간이 끝났으면 주울 수 있다
-                const bool mine = g.ownerAccountId == 0 || g.ownerAccountId == player->_accountId ||
-                                  frame >= g.ownerUntilFrame;
-                if (!mine)
-                    continue;
-
-                if (!found || dSq < bestSq)
-                {
-                    found  = true;
-                    bestSq = dSq;
-                    out.sectorX = sx;
-                    out.sectorY = sy;
-                    out.index   = i;
-                }
+                found  = true;
+                bestSq = dSq;
+                out.sectorX = sx;
+                out.sectorY = sy;
+                out.index   = i;
             }
         }
-    }
+    });
 
     if (found)
         return PickupFail::COUNT;
