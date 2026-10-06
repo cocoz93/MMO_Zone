@@ -2880,6 +2880,12 @@ void CGameServer::OnMonsterSpawn(CZone* zone, CMonster* monster)
     // 이미 그 자리를 보고 있던 플레이어에게 CREATE(SPAWN) 가 간다 — 가득 찬 체력을 싣는다(ActorSnapshot).
     //   보는 사람이 없으면 아무에게도 안 가고, 나중에 걸어온 사람은 섹터 진입 때 받는다.
     BroadcastSpawn(zone, monster, SpawnReason::SPAWN);
+
+    // 델타 동기화 기준점을 지금 자리로 — 방금 보낸 CREATE 가 이 좌표를 실었으니 「클라가 아는 자리」가 여기다.
+    //   플레이어의 입장·존 이동 때와 같은 꼴(SpawnPlayer·RecvZoneChange). 존 층은 이 값을 모른다 — 10-06 몬스터 관리자에서 옮김.
+    //   안 맞추면 옛 자리와의 차이로 보정 패킷(MOVE_SYNC)이 한 번 더 나갈 뿐, 위치가 틀리지는 않는다.
+    monster->_lastSyncX = monster->_x;
+    monster->_lastSyncY = monster->_y;
 }
 
 void CGameServer::OnMonsterMoveStart(CZone* zone, CMonster* monster)

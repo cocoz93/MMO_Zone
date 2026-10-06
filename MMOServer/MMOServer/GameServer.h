@@ -278,7 +278,7 @@ private:
 
     // 몬스터 알림과 번호 부탁 (IMonsterEvents) — 뜻은 MonsterManager.h.
     int32_t AllocActorId() override;                                         // = AllocPlayerId — 번호 공간이 플레이어와 하나
-    void OnMonsterSpawn(CZone* zone, CMonster* monster) override;            // 주변에 CREATE(SPAWN)
+    void OnMonsterSpawn(CZone* zone, CMonster* monster) override;            // 주변에 CREATE(SPAWN) · 동기화 기준점을 지금 자리로
     void OnMonsterMoveStart(CZone* zone, CMonster* monster) override;        // 주변에 MOVE_START
     void OnMonsterMoveStop(CZone* zone, CMonster* monster) override;         // 주변에 MOVE_STOP
     void OnMonsterVanish(CZone* zone, CMonster* monster) override;           // 지금 자리 주변에 DELETE

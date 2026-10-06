@@ -307,13 +307,13 @@ void CMonsterManager::RespawnElsewhere(const MonsterContext& ctx, CMonster* mons
 
     // ⑵ 새 자리 — 같은 구역 안. 섹터 옮기기는 존이 한다(UpdateSector).
     //   섹터 이동 대기열에는 안 넣는다 — 화면은 ⑴·⑶ 이 그 자리에서 고치므로, 넣으면 다음 틱에 한 번 더 나간다
+    //   델타 동기화 기준점(_lastSyncX/Y)은 여기서 안 건드린다 — 「클라가 이 자리를 받았다」는 송신 쪽 사실이라
+    //   CREATE 를 실제로 보내는 게임 서버(OnMonsterSpawn)가 맞춘다(10-06, 아키텍처 전수검사 3번)
     float x = 0.0f;
     float y = 0.0f;
     PickSpawnPos(ctx, monster->_spawnRegion, x, y);
     monster->_x = x;
     monster->_y = y;
-    monster->_lastSyncX = x;   // 델타 동기화 기준도 새 자리로 — 옛 자리와의 차이로 동기화가 한 번 튀지 않게
-    monster->_lastSyncY = y;
     monster->_spawnX = x;
     monster->_spawnY = y;
 
