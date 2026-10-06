@@ -9,7 +9,9 @@
 #include <errmsg.h>     // CR_SERVER_GONE_ERROR / CR_SERVER_LOST (커넥션 유실 감지)
 #include <mysqld_error.h>   // ER_NO_SUCH_TABLE — 가방 테이블이 없을 때 안내를 정확히 걸려고
 #include <cstdio>
-#include <cstring>      // strlen (JobKindDesc.sql 길이)
+#include <cstring>      // strlen (JobKindDesc.sql 길이) · memcpy (열 표로 결과 복사)
+#include <cstddef>      // offsetof (열 표 — 구조체 안의 멤버 자리)
+#include <type_traits>  // is_same_v (저장·결과 구조체의 같은 열 멤버 타입 대조)
 #include <chrono>
 
 #include <Common/ErrorLog.h>
@@ -348,34 +350,95 @@ struct JobKindDesc
     bool (*bind)(MYSQL_STMT* st, DBWorkerSlot& slot);      // 파라미터(·결과) 버퍼 바인딩 — prepare 시 1회
 };
 
+// ── characters 행의 열 표 ─────────────────────────────────────────────────
+//   저장 SQL·불러오기 SQL·바인딩 배열·결과 복사가 전부 이 표에서 나온다 — 열 하나 = 한 줄.
+//   열을 늘리면 DBSaveJob·DBResult 에 같은 이름의 멤버를 넣고 여기 한 줄 + schema.sql 한 줄이 전부다.
+//   SQL 의 ? 순서와 바인딩 배열 색인이 같은 배열을 같은 루프로 돌아 나오므로 둘이 어긋날 길이 없다
+//   (전에는 SQL 글자·b[4]·r[3]·복사 줄을 손으로 맞췄다 — 개수가 같고 순서만 틀리면 아무도 못 잡았다).
+//   MySQL 버퍼 타입은 손으로 안 적는다 — 멤버의 C++ 타입에서 MysqlTypeOf 가 정한다
+//   (float→FLOAT, int32→LONG, int64→LONGLONG. 다른 타입의 멤버를 표에 올리면 컴파일이 막는다).
+//   ※ account_id 는 표 밖이다 — 저장에선 VALUES 의 첫 ?, 불러오기에선 WHERE 의 ? 로 자리가 다르다.
+template <class T> constexpr enum_field_types MysqlTypeOf();
+template <> constexpr enum_field_types MysqlTypeOf<float>()   { return MYSQL_TYPE_FLOAT; }
+template <> constexpr enum_field_types MysqlTypeOf<int32_t>() { return MYSQL_TYPE_LONG; }
+template <> constexpr enum_field_types MysqlTypeOf<int64_t>() { return MYSQL_TYPE_LONGLONG; }
+
+// 저장 구조체와 결과 구조체의 같은 이름 멤버는 타입이 같아야 한다 — 다르면 여기서 컴파일이 막힌다
+template <class Save, class Result> constexpr size_t SameTypeSize()
+{
+    static_assert(std::is_same_v<Save, Result>, "DBSaveJob 과 DBResult 의 같은 열 멤버는 타입이 같아야 한다");
+    return sizeof(Save);
+}
+
+struct CharColumn
+{
+    const char*      name;      // DB 열 이름 — SQL 에 그대로 들어간다
+    enum_field_types type;      // MYSQL_BIND::buffer_type
+    size_t           saveOff;   // DBSaveJob 안의 자리 — 저장 파라미터 버퍼(bSave)·불러오기 결과 버퍼(bLoad) 둘 다 이 꼴
+    size_t           loadOff;   // DBResult 안의 자리 — 불러온 값을 게임 루프에 돌려줄 자리
+    size_t           size;
+};
+
+#define CHAR_COL(sqlName, member)                                                              \
+    { #sqlName, MysqlTypeOf<decltype(DBSaveJob::member)>(),                                    \
+      offsetof(DBSaveJob, member), offsetof(DBResult, member),                                 \
+      SameTypeSize<decltype(DBSaveJob::member), decltype(DBResult::member)>() }
+
+static constexpr CharColumn kCharColumns[] = {
+    CHAR_COL(x,      x),
+    CHAR_COL(y,      y),
+    CHAR_COL(map_id, mapId),
+    CHAR_COL(level,  level),
+    CHAR_COL(exp,    exp),
+};
+#undef CHAR_COL
+static constexpr int kCharColCount = static_cast<int>(sizeof(kCharColumns) / sizeof(kCharColumns[0]));
+
+// 표에서 문장 둘을 조립한다 — 프로그램 시작 때 한 번. kKinds 가 c_str() 를 들고 있으므로 수명은 정적.
+//   저장: INSERT INTO characters (account_id,x,y,…) VALUES (?,?,…) ON DUPLICATE KEY UPDATE x=?,y=?,…
+//   불러오기: SELECT x,y,… FROM characters WHERE account_id=?
+static std::string BuildSaveSql()
+{
+    std::string cols = "account_id", marks = "?", sets;
+    for (const CharColumn& c : kCharColumns)
+    {
+        cols  += ','; cols  += c.name;
+        marks += ",?";
+        if (!sets.empty()) sets += ',';
+        sets  += c.name; sets += "=?";
+    }
+    return "INSERT INTO characters (" + cols + ") VALUES (" + marks + ") ON DUPLICATE KEY UPDATE " + sets;
+}
+
+static std::string BuildLoadSql()
+{
+    std::string cols;
+    for (const CharColumn& c : kCharColumns)
+    {
+        if (!cols.empty()) cols += ',';
+        cols += c.name;
+    }
+    return "SELECT " + cols + " FROM characters WHERE account_id=?";
+}
+
+static const std::string kSaveSql = BuildSaveSql();
+static const std::string kLoadSql = BuildLoadSql();
+
 // ── 위치 저장 ─────────────────────────────────────────────────────────────
 static bool BindPositionParams(MYSQL_STMT* st, DBWorkerSlot& slot)
 {
-    // VALUES 6개 + ON DUPLICATE KEY UPDATE 5개 = ? 11개
-    //   (x·y·map_id·level·exp 는 양쪽이 같은 버퍼를 참조한다 — 값을 한 번만 복사하면 된다)
-    MYSQL_BIND b[11] = {};
-    b[0].buffer_type = MYSQL_TYPE_LONGLONG; b[0].buffer = &slot.bAccountId;
-    b[1].buffer_type = MYSQL_TYPE_FLOAT;    b[1].buffer = &slot.bX;
-    b[2].buffer_type = MYSQL_TYPE_FLOAT;    b[2].buffer = &slot.bY;
-    b[3].buffer_type = MYSQL_TYPE_LONG;     b[3].buffer = &slot.bMapId;
-    b[4].buffer_type = MYSQL_TYPE_LONG;     b[4].buffer = &slot.bLevel;
-    b[5].buffer_type = MYSQL_TYPE_LONGLONG; b[5].buffer = &slot.bExp;
-    b[6]  = b[1];  // UPDATE x      = 같은 bX
-    b[7]  = b[2];  // UPDATE y      = 같은 bY
-    b[8]  = b[3];  // UPDATE map_id = 같은 bMapId
-    b[9]  = b[4];  // UPDATE level  = 같은 bLevel
-    b[10] = b[5];  // UPDATE exp    = 같은 bExp
+    // ? = account_id 1개 + VALUES 의 열 N개 + ON DUPLICATE KEY UPDATE 의 열 N개
+    //   (UPDATE 쪽은 VALUES 쪽과 같은 버퍼를 참조한다 — 값을 한 번만 복사하면 된다)
+    MYSQL_BIND b[1 + 2 * kCharColCount] = {};
+    b[0].buffer_type = MYSQL_TYPE_LONGLONG; b[0].buffer = &slot.bSave.accountId;
+    for (int i = 0; i < kCharColCount; ++i)
+    {
+        const CharColumn& c = kCharColumns[i];
+        b[1 + i].buffer_type = c.type;
+        b[1 + i].buffer      = reinterpret_cast<char*>(&slot.bSave) + c.saveOff;
+        b[1 + kCharColCount + i] = b[1 + i];
+    }
     return mysql_stmt_bind_param(st, b) == 0;
-}
-
-static void CopyPositionValues(DBWorkerSlot& slot, const DBSaveJob& job)
-{
-    slot.bAccountId = job.accountId;
-    slot.bX         = job.x;
-    slot.bY         = job.y;
-    slot.bMapId     = job.mapId;
-    slot.bLevel     = job.level;
-    slot.bExp       = job.exp;
 }
 
 // ── 캐릭터 불러오기 ───────────────────────────────────────────────────────
@@ -383,19 +446,19 @@ static bool BindLoadCharacter(MYSQL_STMT* st, DBWorkerSlot& slot)
 {
     // 파라미터 1개 (WHERE account_id=?)
     MYSQL_BIND p[1] = {};
-    p[0].buffer_type = MYSQL_TYPE_LONGLONG; p[0].buffer = &slot.bLoadAccountId;
+    p[0].buffer_type = MYSQL_TYPE_LONGLONG; p[0].buffer = &slot.bLoad.accountId;
     if (mysql_stmt_bind_param(st, p) != 0)
         return false;
 
-    // 결과 5열 (x, y, map_id, level, exp) — fetch 가 슬롯 버퍼에 바로 채운다.
-    //   다섯 열 모두 NOT NULL 고정폭이고 열 타입과 버퍼 타입이 같아(FLOAT→float, INT→int32,
+    // 결과 N열 — 표 순서 그대로, fetch 가 slot.bLoad 의 멤버에 바로 채운다.
+    //   열 전부 NOT NULL 고정폭이고 열 타입과 버퍼 타입이 같아(FLOAT→float, INT→int32,
     //   BIGINT→int64) 변환·잘림이 없다. is_null·length·error 는 비워 두면 라이브러리가 내부 값으로 채운다.
-    MYSQL_BIND r[5] = {};
-    r[0].buffer_type = MYSQL_TYPE_FLOAT;    r[0].buffer = &slot.bLoadX;
-    r[1].buffer_type = MYSQL_TYPE_FLOAT;    r[1].buffer = &slot.bLoadY;
-    r[2].buffer_type = MYSQL_TYPE_LONG;     r[2].buffer = &slot.bLoadMapId;
-    r[3].buffer_type = MYSQL_TYPE_LONG;     r[3].buffer = &slot.bLoadLevel;
-    r[4].buffer_type = MYSQL_TYPE_LONGLONG; r[4].buffer = &slot.bLoadExp;
+    MYSQL_BIND r[kCharColCount] = {};
+    for (int i = 0; i < kCharColCount; ++i)
+    {
+        r[i].buffer_type = kCharColumns[i].type;
+        r[i].buffer      = reinterpret_cast<char*>(&slot.bLoad) + kCharColumns[i].saveOff;
+    }
     return mysql_stmt_bind_result(st, r) == 0;
 }
 
@@ -437,13 +500,8 @@ static bool BindLoadInventory(MYSQL_STMT* st, DBWorkerSlot& slot)
 
 // DBJobKind 순서 그대로 — 인덱스가 곧 종류다.
 static const JobKindDesc kKinds[] = {
-    /* SAVE_POSITION  */ { "save_position",
-                           "INSERT INTO characters (account_id,x,y,map_id,level,exp) VALUES (?,?,?,?,?,?) "
-                           "ON DUPLICATE KEY UPDATE x=?,y=?,map_id=?,level=?,exp=?",
-                           BindPositionParams },
-    /* LOAD_CHARACTER */ { "load_character",
-                           "SELECT x,y,map_id,level,exp FROM characters WHERE account_id=?",
-                           BindLoadCharacter },
+    /* SAVE_POSITION  */ { "save_position",  kSaveSql.c_str(), BindPositionParams },   // 문장은 열 표(kCharColumns)에서 조립
+    /* LOAD_CHARACTER */ { "load_character", kLoadSql.c_str(), BindLoadCharacter },
 #if USE_INVENTORY
     /* SAVE_ITEM_SLOT */ { "save_item_slot",
                            "INSERT INTO inventory (account_id,slot,item_id,count) VALUES (?,?,?,?) "
@@ -577,8 +635,8 @@ bool CDBWorker::ExecSave(DBWorkerSlot& slot, const DBSaveJob& job)
     if (slot.mysql == nullptr || slot.stmt[kSaveIdx] == nullptr)
         return false;   // 커넥션/stmt 없음(재연결 대기 중) — 즉시 실패, 무한 대기 없음
 
-    // 바인딩 버퍼에 이번 잡 값 복사 (stmt는 이 버퍼 주소를 이미 가리킴 → execute만 하면 됨)
-    CopyPositionValues(slot, job);
+    // 바인딩 버퍼에 이번 잡 값 복사 (stmt는 이 버퍼의 멤버 주소를 이미 가리킴 → execute만 하면 됨)
+    slot.bSave = job;
 
     MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmt[kSaveIdx]);
     if (mysql_stmt_execute(st) == 0)
@@ -602,7 +660,7 @@ bool CDBWorker::ExecSave(DBWorkerSlot& slot, const DBSaveJob& job)
 CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out)
 {
     MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmt[kLoadIdx]);
-    slot.bLoadAccountId = job.accountId;
+    slot.bLoad.accountId = job.accountId;
 
     // 오류 분류 — 유실(재연결 후 다시 해 볼 값어치가 있다)과 그 밖(다시 해도 같다)을 가른다.
     //   errno·메시지는 free_result 가 지우기 전에 먼저 읽는다.
@@ -628,12 +686,11 @@ CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJo
     switch (rc)
     {
     case 0:
-        out.x     = slot.bLoadX;
-        out.y     = slot.bLoadY;
-        out.mapId = slot.bLoadMapId;
-        out.level = slot.bLoadLevel;
-        out.exp   = slot.bLoadExp;
-        outcome   = LoadOutcome::FOUND;
+        // 표의 열을 slot.bLoad 에서 out 으로 — 멤버 이름이 같고 두 구조체 안의 자리만 다르다
+        for (const CharColumn& c : kCharColumns)
+            memcpy(reinterpret_cast<char*>(&out) + c.loadOff,
+                   reinterpret_cast<const char*>(&slot.bLoad) + c.saveOff, c.size);
+        outcome = LoadOutcome::FOUND;
         break;
 
     case MYSQL_NO_DATA:

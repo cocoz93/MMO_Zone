@@ -50,6 +50,8 @@ class CMonitorManager;
 // 저장 잡 = 값 스냅샷 (포인터 없음 → 플레이어가 사라져도 안전)
 //   ※ level·exp 는 USE_EXP 로 안 가른다 — 열은 테이블에 늘 있고, 숫자 둘을 싣는 값이
 //     "토글마다 문장이 갈리는" 값보다 훨씬 싸다. 토글이 가르는 것은 "값이 바뀌는 코드" 쪽이다.
+//   ※ DB 열과의 대응은 DBWorker.cpp 의 열 표(kCharColumns) 한 곳에만 있다 — 열을 늘리면
+//     여기와 DBResult 에 같은 이름의 멤버를 넣고 표에 한 줄. SQL·바인딩·복사는 표에서 나온다.
 struct DBSaveJob
 {
     int64_t accountId;
@@ -158,7 +160,7 @@ struct DBResult
     int64_t      accountId;
     int64_t      sessionId;   // 요청 때 실어 보낸 값 그대로
     int64_t      requestNs;   // 요청 때 실어 보낸 값 그대로
-    float        x;           // ↓ FOUND 일 때만 유효
+    float        x;           // ↓ FOUND 일 때만 유효 — 멤버 이름이 DBSaveJob 과 같아야 한다(열 표가 이름으로 잇는다)
     float        y;
     int32_t      mapId;
     int32_t      level;
@@ -184,18 +186,8 @@ struct DBWorkerSlot
     size_t                   loadCount = 0;   // queue 안의 불러오기 수(mutex 보호) — 저장 상한과 따로 센다
     void*                    mysql = nullptr; // 실제 MYSQL* (헤더 오염 차단 위해 void*)
     void*                    stmt[DB_JOB_KIND_COUNT] = {};   // MYSQL_STMT* — 종류별 prepared 핸들 (커넥션 종속)
-    int64_t                  bAccountId = 0;  // ↓ 저장 stmt 파라미터 바인딩 버퍼 (execute 직전 잡 값 복사)
-    float                    bX = 0.0f;
-    float                    bY = 0.0f;
-    int32_t                  bMapId = 0;
-    int32_t                  bLevel = 1;
-    int64_t                  bExp = 0;
-    int64_t                  bLoadAccountId = 0;   // ↓ 불러오기 stmt — 파라미터 1개
-    float                    bLoadX = 0.0f;        // ↓ 불러오기 stmt — 결과 5열 (fetch 가 여기에 채운다)
-    float                    bLoadY = 0.0f;
-    int32_t                  bLoadMapId = 0;
-    int32_t                  bLoadLevel = 1;
-    int64_t                  bLoadExp = 0;
+    DBSaveJob                bSave{};         // 저장 stmt 파라미터 버퍼 — execute 직전 잡을 통째로 복사. 열 표(kCharColumns)가 멤버 자리를 가리킨다
+    DBSaveJob                bLoad{};         // 불러오기 stmt — accountId 가 WHERE 파라미터, 나머지 멤버가 결과 열(fetch 가 채운다)
 #if USE_INVENTORY
     size_t                   itemCount = 0;         // queue 안의 아이템 저장 수(mutex 보호) — 저장 상한과 따로 센다
     int64_t                  bItemAccountId = 0;    // ↓ 가방 칸 저장 stmt 파라미터
