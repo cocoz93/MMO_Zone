@@ -327,7 +327,7 @@ constexpr float POS_QUANT_SCALE     = 512.0f;
 constexpr float POS_QUANT_INV_SCALE = 1.0f / 512.0f;   // 2의 거듭제곱이라 나눗셈 오차 없음
 
 // 눈금이 uint16에 담기는 맵 크기 상한. 좌표 최댓값은 (맵크기 - 1)이므로 (128-1) × 512 = 65,024 ≤ 65,535.
-// 129부터는 넘쳐서 좌표가 조용히 깨진다 — CZone::Init이 기동 시 막는다.
+// 129부터는 넘쳐서 좌표가 조용히 깨진다 — 게임 서버가 맵 등록 전에 막는다(CGameServer::Init, RegisterMap 직전).
 constexpr int32_t POS_QUANT_MAX_MAP_SIZE = 128;
 
 // 좌표 → 눈금. 반올림(+0.5f)이어야 한다. 절삭이면 오차가 늘 음수 쪽으로만 생겨서,

@@ -54,7 +54,8 @@ bool CZone::EnterZoneAt(CCharacter* player, float x, float y)
     if (player == nullptr)
         return false;
 
-    // 존 설정 (playerId, 표시 속성은 부르는 쪽 — 플레이어는 CGameServer, 몬스터는 CMonsterManager — 이 부여 완료 상태)
+    // 존 설정 (playerId 는 부르는 쪽이 부여 완료 상태. 표시 속성은 게임 서버가 넣는다 — 플레이어는 입장 전,
+    //   몬스터는 입장 직후 스폰 콜백(OnMonsterSpawn)에서. 존은 표시 속성을 안 본다)
     player->_zoneId = _zoneId;
     player->_direction = Direction::DOWN;
     player->_moveState = MoveState::IDLE;

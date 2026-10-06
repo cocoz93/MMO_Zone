@@ -1,5 +1,4 @@
 ﻿#include "MapManager.h"
-#include <Protocol/Protocol.h>
 #include <random>
 
 // ==========================================================================
@@ -113,10 +112,8 @@ bool CMapManager::RegisterMap(const MapConfig& config)
     if (config.maxPlayersPerChannel <= 0)
         return false;
 
-    // 섹터 묶음이 좌표를 눈금(uint16)으로 실어 나른다 — 맵이 상한을 넘으면 좌표가 조용히 깨지므로 등록 단계에서 막는다.
-    // 채널마다 반복되는 CZone::Init이 아니라 여기서 보는 건, 맵 크기가 채널이 아니라 맵의 속성이기 때문이다.
-    if (config.mapWidth > POS_QUANT_MAX_MAP_SIZE || config.mapHeight > POS_QUANT_MAX_MAP_SIZE)
-        return false;
+    // ※ 「맵이 패킷 좌표 눈금(uint16)에 담기는 크기인가」는 여기서 안 본다 — 와이어 사정이라 패킷을 아는
+    //   게임 서버가 RegisterMap 을 부르기 전에 본다(CGameServer::Init). 맵 관리자는 그 상한을 모른다.
 
     // 중복 맵 등록 방지
     if (_maps.find(config.mapId) != _maps.end())

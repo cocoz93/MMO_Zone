@@ -594,6 +594,10 @@ bool CGameServer::Init(ServerMode mode, int port, int maxClients,
 
         for (int32_t i = 0; i < mapCount; ++i)
         {
+            // 섹터 묶음이 좌표를 눈금(uint16)으로 실어 나른다 — 맵이 상한(POS_QUANT_MAX_MAP_SIZE)을 넘으면 좌표가
+            //   조용히 깨지므로 등록 전에 막는다. 와이어 사정이라 패킷을 모르는 맵 관리자가 아니라 여기서 본다(10-06).
+            if (maps[i].mapWidth > POS_QUANT_MAX_MAP_SIZE || maps[i].mapHeight > POS_QUANT_MAX_MAP_SIZE)
+                return false;
             if (!_mapManager.RegisterMap(maps[i]))
                 return false;
         }
@@ -2902,6 +2906,12 @@ int32_t CGameServer::AllocActorId()
 
 void CGameServer::OnMonsterSpawn(CZone* zone, CMonster* monster)
 {
+    // 표시 문자 — 클라가 사람 대신 몬스터 스프라이트를 고르는 패킷 값(Protocol.h DISPLAY_MONSTER_BASE).
+    //   플레이어의 CalcDisplayChar 처럼 게임 서버가 넣는다 — 존 층(몬스터 생성자)은 이 값을 모른다(10-06).
+    //   첫 스폰·부활 둘 다 존 입장 직후 이 콜백을 곧바로 부르므로, 아래 CREATE 보다 늦는 일이 없다.
+    //   몬스터 종류가 늘면 여기서 _kindId → DISPLAY_* 로 가른다.
+    monster->_displayChar = DISPLAY_SNAKE;
+
     // 이미 그 자리를 보고 있던 플레이어에게 CREATE(SPAWN) 가 간다 — 가득 찬 체력을 싣는다(ActorSnapshot).
     //   보는 사람이 없으면 아무에게도 안 가고, 나중에 걸어온 사람은 섹터 진입 때 받는다.
     BroadcastSpawn(zone, monster, SpawnReason::SPAWN);
