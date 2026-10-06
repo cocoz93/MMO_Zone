@@ -12,17 +12,14 @@
 #include <cstring>      // strlen (JobKindDesc.sql 길이)
 #include <chrono>
 
-#include "MonitorManager.h"
 #include <Common/ErrorLog.h>
 #include "CoreAffinity.h"
-#if USE_INVENTORY
-#include "GameMonitor.h"    // DBItemSaveCounters — 아이템 저장 계수기(게임 쪽 그릇)
-#endif
+#include "GameMonitor.h"    // DBSaveCounters · DBItemSaveCounters — 저장 지표의 그릇(게임 쪽). 코어 그릇(CMonitorManager)은 안 본다(10-06)
 
 #pragma comment(lib, "libmysql.lib")
 
-CDBWorker::CDBWorker(CMonitorManager& monitor)
-    : _monitor(monitor)
+CDBWorker::CDBWorker(DBSaveCounters& counters)
+    : _counters(counters)
 {
 }
 
@@ -35,8 +32,8 @@ bool CDBWorker::Start(const DBConfig& config, int workerCount, int queueMax)
 {
     _config      = config;
     _workerCount = (workerCount > 0) ? workerCount : 1;
-    if (_workerCount > CMonitorManager::MAX_DB_WORKERS)
-        _workerCount = CMonitorManager::MAX_DB_WORKERS;   // 지표 배열 상한에 맞춤
+    if (_workerCount > DBSaveCounters::MAX_WORKERS)
+        _workerCount = DBSaveCounters::MAX_WORKERS;   // 큐 깊이 게이지 배열 상한에 맞춤
     _queueMax    = (queueMax > 0) ? queueMax : 20000;
 
     // 멀티스레드 안전 초기화 — 워커 스레드 생성 "전"에 메인에서 1회
@@ -69,7 +66,7 @@ bool CDBWorker::Start(const DBConfig& config, int workerCount, int queueMax)
 
     _perWorker.assign(_workerCount, {});
     _perWorkerIdx.assign(_workerCount, {});
-    _monitor._dbWorkerCount.Store(_workerCount);   // 지표 노출 상한
+    _counters._workerCount.Store(_workerCount);   // 지표 노출 상한
 
     // 커넥션 확보 후 워커 스레드 시작 (각 슬롯 커넥션은 해당 워커만 단독 사용)
     _stop.store(false);
@@ -135,7 +132,7 @@ size_t CDBWorker::PushToSlot(DBWorkerSlot& slot, const DBJob* jobs, size_t count
     const size_t dropped = count - take;
     if (dropped > 0)
     {
-        _monitor._dbDroppedJobs.Add(static_cast<int64_t>(dropped));
+        _counters._droppedJobs.Add(static_cast<int64_t>(dropped));
         SLOG_ERROR("[DB] backpressure drop — worker={} dropped={} (queue full, max={})",
                    slot.index, dropped, _queueMax);
     }
@@ -292,7 +289,7 @@ void CDBWorker::WorkerThread(int idx)
         //   그 커넥션을 앞선 저장이 먼저 밟아 내리면, 뒤의 불러오기는 아무도 재연결을 안 해 본 상태로 온다.
         bool reconnectFailedThisBatch = (slot.mysql == nullptr);
 
-        _monitor._dbQueueDepth[idx].Store(static_cast<int64_t>(local.size()));  // 워커별 게이지
+        _counters._queueDepth[idx].Store(static_cast<int64_t>(local.size()));  // 워커별 게이지
 
         static_assert(DB_JOB_KIND_COUNT == (USE_INVENTORY ? 3 : 2), "DBJobKind 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
         for (const DBJob& job : local)
@@ -301,9 +298,9 @@ void CDBWorker::WorkerThread(int idx)
             {
             case DBJobKind::SAVE_POSITION:
                 if (ExecSave(slot, job.save))   // 유실 시 ExecSave가 stmt/mysql을 null로 만듦
-                    _monitor._dbSavedJobs.Inc();
+                    _counters._savedJobs.Inc();
                 else
-                    _monitor._dbFailedJobs.Inc();
+                    _counters._failedJobs.Inc();
                 break;
 
             case DBJobKind::LOAD_CHARACTER:

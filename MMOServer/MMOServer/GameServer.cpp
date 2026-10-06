@@ -710,7 +710,7 @@ void CGameServer::Stop()
 
 bool CGameServer::InitDB(const DBConfig& dbConfig, int savePeriodSec, int workerCount, int queueMax)
 {
-    _dbWorker = std::make_unique<CDBWorker>(_monitor);
+    _dbWorker = std::make_unique<CDBWorker>(_gameMonitor._db);   // 저장 파이프라인 지표는 게임 그릇(10-06 코어에서 옮김)
 #if USE_INVENTORY
     _dbWorker->SetItemSaveCounters(&_gameMonitor._dbItem);   // Start 전에 — 워커 스레드가 뜨기 전에 자리를 알려 둔다
 #endif
@@ -1191,10 +1191,10 @@ void CGameServer::GameLoopThread()
         _monitor._gameLoop._broadcastGatherUs.Add(_tickBroadcastGatherUs);
         _monitor._gameLoop._broadcastEnqueueUs.Add(_tickBroadcastEnqueueUs);
         _monitor._gameLoop._flushSendUs.Add(std::chrono::duration_cast<std::chrono::microseconds>(flushT1 - flushT0).count());
-        _monitor._gameLoop._membershipSends.Add(_tickMembershipSends);      // 멤버십 변경 복사량(횟수)
-        _monitor._gameLoop._membershipCostUs.Add(_tickMembershipUs);        // 멤버십 변경 송신 시간
-        _monitor._gameLoop._membershipPairFixes.Add(_tickPairFixes);        // 같은 틱 이동자 쌍 보정 건수
-        _monitor._gameLoop._moveBudgetRejects.Add(_tickMoveBudgetRejects);  // 이동 예산 거부 건수
+        _gameMonitor._sector._membershipSends.Add(_tickMembershipSends);      // 멤버십 변경 복사량(횟수) — 게임 그릇(10-06 코어에서 옮김)
+        _gameMonitor._sector._membershipCostUs.Add(_tickMembershipUs);        // 멤버십 변경 송신 시간
+        _gameMonitor._sector._membershipPairFixes.Add(_tickPairFixes);        // 같은 틱 이동자 쌍 보정 건수
+        _gameMonitor._sector._moveBudgetRejects.Add(_tickMoveBudgetRejects);  // 이동 예산 거부 건수
         _tickBroadcastGatherUs = 0;
         _tickBroadcastEnqueueUs = 0;
         _tickMembershipSends = 0;
@@ -2536,7 +2536,7 @@ void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
         return;
     }
 
-    _monitor._gameLoop._zoneChangeCount.Inc();
+    _gameMonitor._sector._zoneChangeCount.Inc();
 
 #if USE_DB_WORKER
     player->_dbDirty = true;   // 존/맵 이동 → 위치·map_id 변경, 저장 대상

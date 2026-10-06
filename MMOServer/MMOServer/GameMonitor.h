@@ -139,6 +139,21 @@ struct alignas(64) DBItemSaveCounters
 };
 #endif
 
+// DB 저장 파이프라인 지표 — DB 워커 스레드가 센다(CDBWorker 가 생성자로 참조를 받는다). 위 DBItemSaveCounters 와 같은 쪽.
+//   10-06 코어(CMonitorManager::_db*)에서 옮김 — DB 워커는 게임 프로젝트 구성요소라 그릇도 게임 쪽이어야 한다
+//   (아키텍처 전수검사 8번). 노출 이름(mmo_db_*)은 그대로다 — 기존 게이트(mmo_db_dropped_total 0 · queue_depth 지속 상승)가 안 흐려진다.
+//   USE_DB_WORKER=0 이어도 남겨 0 으로 노출된다(입장 지표와 같은 이유).
+struct alignas(64) DBSaveCounters
+{
+    static constexpr int MAX_WORKERS = 16;   // 큐 깊이 게이지 배열 상한 — CDBWorker::Start 가 워커 수를 여기에 맞춰 자른다
+
+    Counter _savedJobs;                 // UPSERT 성공 누적
+    Counter _failedJobs;                // UPSERT 실패 누적
+    Counter _droppedJobs;               // 백프레셔 드롭 누적(슬롯 큐 상한 초과)
+    Counter _queueDepth[MAX_WORKERS];   // 워커별 게이지: 마지막 배치 인출량
+    Counter _workerCount;               // 노출 루프 상한(CDBWorker::Start 에서 설정)
+};
+
 class CGameMonitor
 {
 public:
@@ -281,7 +296,7 @@ public:
     // 입장 — 캐릭터 불러오기 (USE_DB_WORKER)
     //
     // ★ 전부 게임 루프 스레드가 센다. DB 워커는 결과에 코드만 실어 보내고, 세는 일은
-    //   게임 루프가 결과를 꺼낼 때 한다 → 쓰는 스레드가 하나고, 코어(ServerCore)의
+    //   게임 루프가 결과를 꺼낼 때 한다 → 쓰는 스레드가 하나고, 저장 지표(_db — 10-06 코어에서 옮김)의
     //   mmo_db_saved_total·mmo_db_failed_total 은 계속 "저장"만 센다(같은 이름이 두 가지를
     //   세면 기존 게이트가 흐려진다).
     //
@@ -339,4 +354,33 @@ public:
             _latencySumUs.Add(us);
         }
     } _enter;
+
+    // ══════════════════════════════════════════════════════════════
+    // 섹터·존 — 이 게임의 규칙 이름이 든 지표. 10-06 코어 GameLoopCounters 에서 옮김(아키텍처 전수검사 8번).
+    //   코어에 남긴 것은 어느 게임 루프에나 있는 값(틱·단계 시간·이벤트 큐·브로드캐스트 호출·비용·분포)뿐이다.
+    //   게임 루프 스레드만 쓴다(틱 끝에 한 번 더한다).
+    // ══════════════════════════════════════════════════════════════
+    struct alignas(64) SectorCounters
+    {
+        Counter _zoneChangeCount;       // 존 이동 횟수
+
+        // 멤버십 변경(섹터 이동·입장·퇴장) CREATE/DELETE 복사 횟수 — _broadcastTargets(계측 대상 복사)와 비교해
+        //   비계측 복사의 비중을 가늠한다.
+        Counter _membershipSends;
+
+        // 멤버십 변경 송신 시간(µs) — 틱 끝 섹터 이동 구간 전용. game_logic 단계에 섞여 있던 것을 분리해 잰다.
+        //   접속·퇴장(BroadcastEnter/LeaveZone)은 네트워크 단계라 안 들어간다.
+        Counter _membershipCostUs;
+
+        // 같은 틱 이동자 쌍 보정 건수 — 틱 끝 일괄 통보가 놓친 CREATE/DELETE 를 보충한 수.
+        //   0 에 수렴하면 보정이 불필요한 부하, 지속 증가면 정상(이동자 밀집도에 비례).
+        Counter _membershipPairFixes;
+
+        // C2S_MOVE_START 좌표 수용을 이동량 예산 초과로 거부한 횟수 — 정직한 클라는 0.
+        //   0 이 아니면 치트 시도이거나 예산 계수(MOVE_BUDGET_SLACK)가 빡빡하다는 신호.
+        Counter _moveBudgetRejects;
+    } _sector;
+
+    // DB 저장 파이프라인 — 정의는 위 DBSaveCounters(DB 워커가 참조로 받는다)
+    DBSaveCounters _db;
 };

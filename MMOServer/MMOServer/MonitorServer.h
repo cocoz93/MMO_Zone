@@ -145,8 +145,6 @@ private:
                      "Total accepts rejected by game event queue overload", _monitor._acceptRejectedByQueue);
         WriteCounter(ss, "mmo_session_timed_out_total",
                      "Total session timeouts", _monitor._sessionTimedOut);
-        WriteCounter(ss, "mmo_cheat_detected_total",
-                     "Total cheat detections", _monitor._gameLoop._cheatDetected);
         WriteCounter(ss, "mmo_packet_errors_total",
                      "Total packet errors", _monitor._packetErrors);
         WriteCounter(ss, "mmo_send_queue_overflow_total",
@@ -156,7 +154,7 @@ private:
         WriteCounter(ss, "mmo_recv_buffer_overflow_total",
                      "Total recv buffer overflows", _monitor._recvBufferOverflow);
         WriteCounter(ss, "mmo_zone_change_total",
-                     "Total zone changes", _monitor._gameLoop._zoneChangeCount);
+                     "Total zone changes", _gameMonitor._sector._zoneChangeCount);   // 게임 그릇(10-06 코어에서 옮김) — 이름은 그대로
         WriteCounter(ss, "mmo_send_contention_total",
                      "Total PostSend contentions (backed off because another thread was submitting)", _monitor._sendContention);
         WriteCounter(ss, "mmo_recv_contention_total",
@@ -183,28 +181,28 @@ private:
                      "Total broadcast target players", _monitor._gameLoop._broadcastTargets);
         WriteCounter(ss, "mmo_membership_sends_total",
                      "Uncounted membership-change copies (sector-change/enter/leave); compare vs broadcast_targets",
-                     _monitor._gameLoop._membershipSends);
+                     _gameMonitor._sector._membershipSends);
         WriteCounter(ss, "mmo_membership_pair_fix_total",
                      "Same-tick mover-pair CREATE/DELETE compensations (missed by tick-end batch notify)",
-                     _monitor._gameLoop._membershipPairFixes);
+                     _gameMonitor._sector._membershipPairFixes);
         WriteCounter(ss, "mmo_move_budget_rejects_total",
                      "C2S_MOVE_START coordinate accepts rejected by move budget (0 expected for honest clients)",
-                     _monitor._gameLoop._moveBudgetRejects);
+                     _gameMonitor._sector._moveBudgetRejects);
 
-        // ── DB 저장 파이프라인 (USE_DB_WORKER) — dirty flag 비동기 저장 ──
+        // ── DB 저장 파이프라인 (USE_DB_WORKER) — dirty flag 비동기 저장. 그릇은 게임 쪽(CGameMonitor::_db, 10-06), 이름은 그대로 ──
         WriteCounter(ss, "mmo_db_saved_total",
-                     "Total player rows saved (UPSERT ok)", _monitor._dbSavedJobs);
+                     "Total player rows saved (UPSERT ok)", _gameMonitor._db._savedJobs);
         WriteCounter(ss, "mmo_db_failed_total",
-                     "Total DB save failures", _monitor._dbFailedJobs);
+                     "Total DB save failures", _gameMonitor._db._failedJobs);
         WriteCounter(ss, "mmo_db_dropped_total",
-                     "Total jobs dropped by backpressure (slot queue full)", _monitor._dbDroppedJobs);
-        if (_monitor._dbWorkerCount > 0)
+                     "Total jobs dropped by backpressure (slot queue full)", _gameMonitor._db._droppedJobs);
+        if (_gameMonitor._db._workerCount > 0)
         {
             ss << "# HELP mmo_db_queue_depth Jobs pulled in last drain, per DB worker (sustained growth = worker falling behind)\n";
             ss << "# TYPE mmo_db_queue_depth gauge\n";
-            const int64_t dbCount = _monitor._dbWorkerCount;
-            for (int i = 0; i < dbCount && i < CMonitorManager::MAX_DB_WORKERS; ++i)
-                ss << "mmo_db_queue_depth{dbworker=\"" << i << "\"} " << _monitor._dbQueueDepth[i] << "\n";
+            const int64_t dbCount = _gameMonitor._db._workerCount;
+            for (int i = 0; i < dbCount && i < DBSaveCounters::MAX_WORKERS; ++i)
+                ss << "mmo_db_queue_depth{dbworker=\"" << i << "\"} " << _gameMonitor._db._queueDepth[i] << "\n";
             ss << "\n";
         }
 
@@ -320,7 +318,7 @@ private:
         ss << "# TYPE mmo_membership_cost_seconds_total counter\n";
         ss << std::fixed << std::setprecision(6);
         ss << "mmo_membership_cost_seconds_total "
-           << (static_cast<double>(_monitor._gameLoop._membershipCostUs) / 1000000.0) << "\n";
+           << (static_cast<double>(_gameMonitor._sector._membershipCostUs) / 1000000.0) << "\n";
         ss << std::defaultfloat;
         ss << "\n";
 

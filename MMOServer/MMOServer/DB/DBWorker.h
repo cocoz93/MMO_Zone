@@ -94,10 +94,14 @@ struct DBInvRow
 //   넘는 줄은 싣지 않고 수만 센다(DBResult::invOverflow → 게임 쪽 "too_many_rows" 계수기).
 constexpr int DB_INV_MAX_ROWS = 120;
 
-// 아이템 저장 계수기 — 워커 스레드가 센다. 정의는 게임 쪽(GameMonitor.h)이고 여기선 가리키기만 한다.
+// 아이템 저장 지표 — 워커 스레드가 센다. 정의는 게임 쪽(GameMonitor.h)이고 여기선 가리키기만 한다.
 //   코어(CMonitorManager)에 안 넣는 이유 — 넣으면 별도 저장소(ServerCore)를 고치게 된다.
 struct DBItemSaveCounters;
 #endif
+
+// 저장 파이프라인 지표(저장 성공·실패·드롭·큐 깊이·워커 수) — 위와 같은 쪽(GameMonitor.h), 생성자로 참조를 받는다.
+//   10-06 코어 CMonitorManager::_db* 에서 옮김 — DB 워커는 게임 프로젝트 구성요소라 코어 그릇을 안 본다.
+struct DBSaveCounters;
 
 // 작업 종류 — 큐 원소에 붙는 표시. 워커와 게임 루프가 switch 로 가른다.
 //   ※ 종류를 늘리면 COUNT 가 바뀌고, 각 switch 옆의 static_assert 가 컴파일을 막아
@@ -212,7 +216,7 @@ struct DBWorkerSlot
 class CDBWorker
 {
 public:
-    explicit CDBWorker(CMonitorManager& monitor);
+    explicit CDBWorker(DBSaveCounters& counters);   // 저장 파이프라인 지표 자리 — 게임 그릇(CGameMonitor::_db)
     ~CDBWorker();
 
     // K 커넥션 + K 워커 스레드 시작. 하나라도 접속 실패 시 전체 롤백 후 false (fail-fast).
@@ -290,7 +294,7 @@ private:
         return static_cast<int>(static_cast<uint64_t>(accountId) % static_cast<uint64_t>(_workerCount));
     }
 
-    CMonitorManager& _monitor;
+    DBSaveCounters&  _counters;   // 저장 성공·실패·드롭·큐 깊이·워커 수 — 게임 그릇(GameMonitor.h DBSaveCounters)
     DBConfig         _config;
     int              _workerCount = 1;
     int              _queueMax    = 20000;
