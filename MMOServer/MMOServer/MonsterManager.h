@@ -85,7 +85,7 @@ public:
     void Tick(const MonsterContext& ctx, uint64_t frame);
 
 #if USE_COMBAT
-    // 죽은 몬스터를 부활 대기열에 넣는다 — 게임 서버의 죽음 알림(OnDeath)이 부른다.
+    // 죽은 몬스터를 부활 대기열에 넣는다 — CCombatSystem 이 죽음을 확정한 자리에서 부른다(존 안의 일, 게임 서버를 안 거친다).
     void QueueRespawn(CMonster* monster);
 
     // 게임 루프 3-2) — 때가 된 몬스터를 같은 구역 안 다른 자리로 되살린다.

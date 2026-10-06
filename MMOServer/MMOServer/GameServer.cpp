@@ -2604,24 +2604,16 @@ void CGameServer::OnHit(CZone* zone, CCharacter* attacker, CCharacter* target, i
         MakeDamage(target->_actorId, attacker->_actorId, damage, remainHp), false);
 }
 
-// 죽었다 — 죽은 목록 → 죽음 방송 → 경험치 → 드랍, 이 순서다.
+// 죽었다 — 플레이어 죽은 목록 → 죽음 방송 → 경험치 → 드랍, 이 순서다.
 //   ★ 순서를 바꾸면 레벨업 체력(ACTOR_STATS)이 죽음(DEATH)보다 먼저 가 화면이 뒤집힌다.
-//   죽음 필드(_isDead·_deathFrame·_moveState)와 죽음 계수는 CCombatSystem 이 이미 적었다.
+//   죽음 필드(_isDead·_deathFrame·_moveState)와 죽음 계수는 CCombatSystem 이 이미 적었고,
+//   죽은 몬스터는 CCombatSystem 이 자기 존의 부활 대기열에 이미 넣었다(존 안의 일) — 여기는 플레이어 것만 든다.
 void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
 {
-    // 죽은 쪽으로 부활 대기열을 가른다 — 몬스터는 자기 존의 관리자가, 플레이어는 여기서 든다.
+    // 플레이어 죽은 목록 — 부활 자리·시간이 임시 사양(제자리 3초)이라 아직 게임 서버가 든다(10-05 결정).
     //   몬스터를 여기 넣으면 존이 지워질 때 밖에서 빼 줘야 하는 약속이 다시 생긴다(MonsterManager.h [왜 떼어냈나]).
-#if USE_MONSTER
-    if (target->_kind == CharacterKind::MONSTER)
-    {
-        assert(target->_zoneId == zone->GetZoneId());   // 사거리 안에서 맞았다 — 같은 존이다
-        zone->GetMonsterManager().QueueRespawn(static_cast<CMonster*>(target));
-    }
-    else
-#endif
-    {
+    if (AsPlayer(target) != nullptr)
         _deadActors.push_back(target);
-    }
 
     BroadcastAroundSector(zone, attacker, MakeDeath(target->_actorId), false);
 

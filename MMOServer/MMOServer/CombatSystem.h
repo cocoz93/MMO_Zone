@@ -28,7 +28,7 @@ class CGameMonitor;
 
 // 공격 흐름이 일이 생길 때 부르는 알림 — CGameServer 가 구현한다(패킷 조립·송신·죽은 목록·보상).
 //   "패킷을 보내라"가 아니라 "무슨 일이 있었다"로 알린다 — 패킷 조립 함수는 GameServer.cpp 안에 있고,
-//   죽은 것을 어느 목록에 넣을지도 받는 쪽이 정한다.
+//   플레이어 죽은 목록은 받는 쪽이 들고, 몬스터 부활 대기열은 여기서 넣는다(존 안의 일 — 10-06).
 //   ★ 순수 가상이라 하나를 빠뜨리면 컴파일이 안 된다(함수를 넘기는 방식이면 첫 죽음 때 실행 중에야 터진다).
 class ICombatEvents
 {
@@ -43,8 +43,8 @@ public:
     // 맞혔다 — 피해를 적용한 뒤에 온다. remainHp 는 적용 뒤 체력(0 이면 곧이어 OnDeath). → S2C_DAMAGE
     virtual void OnHit(CZone* zone, CCharacter* attacker, CCharacter* target, int32_t damage, int32_t remainHp) = 0;
 
-    // 죽었다 — 죽음 필드(_isDead·_deathFrame·_moveState)와 죽음 계수를 적은 뒤에 온다.
-    //   받는 쪽 몫: 죽은 목록 넣기 → S2C_DEATH → 보상(경험치·드랍), 이 순서.
+    // 죽었다 — 죽음 필드(_isDead·_deathFrame·_moveState)와 죽음 계수를 적고, 몬스터면 자기 존의 부활 대기열에 넣은 뒤에 온다.
+    //   받는 쪽 몫: 플레이어 죽은 목록 넣기 → S2C_DEATH → 보상(경험치·드랍), 이 순서.
     virtual void OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target) = 0;
 };
 

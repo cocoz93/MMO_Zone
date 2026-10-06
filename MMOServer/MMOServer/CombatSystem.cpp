@@ -7,6 +7,10 @@
 #include "SectorManager.h"   // 사거리가 걸치는 섹터 훑기
 #include "Player.h"          // GetSectorPlayers 가 CPlayer* 를 돌려준다 — CCharacter* 로 넘기려면 완전한 타입이 필요
 #include "GameMonitor.h"     // 공격·죽음 계수기
+#if USE_MONSTER
+#include "Monster.h"         // 죽은 몬스터를 부활 대기열에 넣을 때 CMonster* 로 내려 바꾼다 — 완전한 타입이 필요
+#endif
+#include <cassert>
 
 CCombatSystem::CCombatSystem(CGameMonitor& gameMonitor, ICombatEvents& events)
     : _gameMonitor(gameMonitor)
@@ -172,13 +176,25 @@ void CCombatSystem::PerformAttack(CZone* zone, CCharacter* player, uint64_t fram
     // ★ 죽음은 "당한 쪽"으로 가른다 — 때린 쪽(byMonster)으로 가르면
     //   플레이어가 뱀을 죽인 것이 "플레이어 죽음"으로 세어진다.
 #if USE_MONSTER
-    if (target->_kind == CharacterKind::MONSTER) _gameMonitor._monster._deathsTotal.Inc();
-    else                                         _gameMonitor._combat._deathsTotal.Inc();
+    if (target->_kind == CharacterKind::MONSTER)
+    {
+        _gameMonitor._monster._deathsTotal.Inc();
+
+        // 죽은 몬스터는 자기 존의 부활 대기열로 — 존 안의 일이라 여기(존 층)서 넣는다(10-06, 게임 서버 OnDeath 에서 옮김).
+        //   게임 서버에 맡기면 몬스터가 죽는 길이 늘 때마다(스킬 등) 거기서 이 분기를 또 적어야 하고, 빠뜨리면 영영 안 살아난다.
+        //   플레이어 죽은 목록은 게임 서버 것(OnDeath) — 부활 자리·시간이 아직 임시 사양이라 그쪽에 둔다(10-05 결정).
+        assert(target->_zoneId == zone->GetZoneId());   // 사거리 안에서 맞았다 — 같은 존이다
+        zone->GetMonsterManager().QueueRespawn(static_cast<CMonster*>(target));
+    }
+    else
+    {
+        _gameMonitor._combat._deathsTotal.Inc();
+    }
 #else
     _gameMonitor._combat._deathsTotal.Inc();
 #endif
 
-    // 죽은 목록 · 죽음 방송 · 보상(경험치·드랍)은 받는 쪽 몫 — 순서는 ICombatEvents::OnDeath 주석
+    // 플레이어 죽은 목록 · 죽음 방송 · 보상(경험치·드랍)은 받는 쪽 몫 — 순서는 ICombatEvents::OnDeath 주석
     _events.OnDeath(zone, player, target);
 }
 

@@ -276,7 +276,7 @@ void CMonsterManager::TickRespawn(const MonsterContext& ctx, uint64_t frame)
     for (size_t i = 0; i < _respawnQueue.size(); )
     {
         CMonster* dead = _respawnQueue[i];
-        assert(dead->_zoneId == _zone.GetZoneId());   // 넣는 쪽(OnDeath)이 죽은 몬스터의 존을 골랐다
+        assert(dead->_zoneId == _zone.GetZoneId());   // 넣는 쪽(CCombatSystem::PerformAttack)이 맞은 자리의 존 관리자에 넣었다
 
         if (!Combat::IsRespawnDue(*dead, frame))
         {
