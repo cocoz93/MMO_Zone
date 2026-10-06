@@ -213,18 +213,19 @@ ZoneChangeTarget CMapManager::PickZoneChangeTarget(int32_t currentZoneId, int32_
 
 void CMapManager::CleanupEmptyChannels(const std::function<void(CZone*)>& onBeforeErase)
 {
-    for (auto& [mapId, mapInstance] : _maps)
+    // 「빈 동적 채널인가」 판정은 실제로 지우는 CMapInstance 한 곳뿐이다 — 여기는 지우기 직전 알림을 받아
+    //   조회표(_zoneCache)에서 빼고 게임 서버의 콜백을 이어 부른다. 같은 판정을 여기서 한 번 더 돌리지 않는다
+    //   (전에는 캐시 빼기용으로 조건을 한 벌 더 들고 있었다 — 10-06, 아키텍처 전수검사 5번).
+    //   순서 — 조회표에서 먼저 빼고 콜백: 콜백이 하는 일(땅의 아이템 세기 → 존의 관리자 ForgetAll)은
+    //   zone 포인터로만 하고 GetZone 을 안 거치므로 무관하다. 존 객체는 콜백이 끝난 뒤 지워진다.
+    for (auto& entry : _maps)
     {
-        // 삭제 전 캐시에서 빈 동적 채널 제거
-        mapInstance.ForEachZone([&](CZone* zone)
+        entry.second.CleanupEmptyChannels([&](CZone* zone)
         {
-            if (zone->GetZoneId() != MakeZoneId(mapId, 0) && zone->GetPlayerCount() == 0)
-                _zoneCache.erase(zone->GetZoneId());
+            _zoneCache.erase(zone->GetZoneId());
+            if (onBeforeErase)
+                onBeforeErase(zone);
         });
-
-        // 캐시에서 먼저 빠지지만 존 객체는 아직 살아 있다 — onBeforeErase 가 zone 포인터로
-        //   하는 일(땅의 아이템 세기 → 존의 관리자 ForgetAll)은 GetZone 을 안 거치므로 무관하다.
-        mapInstance.CleanupEmptyChannels(onBeforeErase);
     }
 }
 

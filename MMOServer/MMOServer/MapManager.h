@@ -77,6 +77,7 @@ public:
     //     CGameServer 가 여기서 그 존의 땅 아이템 관리자(ForgetAll)를 불러 센다(알릴 사람이 없어 세기만). 몬스터는 넘길 일이 없다 —
     //     존의 몬스터 관리자가 몬스터와 부활 대기열을 함께 들고 존과 같이 해제된다. "후보를 돌려주고 밖에서 지운다"로
     //     안 하는 이유는 그러면 "빈 채널인가/기본 채널인가" 판정이 호출자 쪽에도 한 벌 더 생기기 때문이다.
+    //     맵 관리자의 조회표(_zoneCache) 빼기도 같은 까닭으로 이 콜백을 거친다 — 판정은 여기 하나뿐이어야 한다.
     //   ★ 이 인자는 USE_MONSTER 밖에 둔다 — MapManager 가 빌드 토글을 알 이유가 없다.
     //     끄면 CGameServer 가 빈 콜백을 넘긴다.
     void CleanupEmptyChannels(const std::function<void(CZone*)>& onBeforeErase);
@@ -124,8 +125,8 @@ public:
     //   자동 배정은 채널을 새로 만들 수 있다(FindOrCreateChannel)
     ZoneChangeTarget PickZoneChangeTarget(int32_t currentZoneId, int32_t targetMapId, int32_t targetChannelIndex, bool isAdmin);
 
-    // 빈 동적 채널 정리 (channelIndex > 0이고 플레이어 0명)
-    //   onBeforeErase 는 CMapInstance 쪽으로 그대로 넘어간다 — 뜻은 거기 주석 참조.
+    // 빈 동적 채널 정리 (channelIndex > 0이고 플레이어 0명) — 판정은 CMapInstance 한 곳.
+    //   여기는 지우기 직전 알림을 가로채 조회표(_zoneCache)에서 빼고 onBeforeErase 를 이어 부른다 — 뜻은 CMapInstance 주석 참조.
     void CleanupEmptyChannels(const std::function<void(CZone*)>& onBeforeErase);
 
     // 존 조회 (zoneId로 직접 접근)
