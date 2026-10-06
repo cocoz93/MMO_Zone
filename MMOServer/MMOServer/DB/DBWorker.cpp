@@ -350,151 +350,175 @@ struct JobKindDesc
     bool (*bind)(MYSQL_STMT* st, DBWorkerSlot& slot);      // 파라미터(·결과) 버퍼 바인딩 — prepare 시 1회
 };
 
-// ── characters 행의 열 표 ─────────────────────────────────────────────────
-//   저장 SQL·불러오기 SQL·바인딩 배열·결과 복사가 전부 이 표에서 나온다 — 열 하나 = 한 줄.
-//   열을 늘리면 DBSaveJob·DBResult 에 같은 이름의 멤버를 넣고 여기 한 줄 + schema.sql 한 줄이 전부다.
+// ── 행의 열 표 — characters · inventory─────────────────────────────────────────────────
+//   테이블마다 표 하나 — 저장 SQL·불러오기 SQL·바인딩 배열·결과 복사가 전부 표에서 나온다. 열 하나 = 한 줄.
+//   열을 늘리면 저장 구조체·결과 구조체에 같은 이름의 멤버를 넣고 표에 한 줄 + schema.sql 한 줄이 전부다.
 //   SQL 의 ? 순서와 바인딩 배열 색인이 같은 배열을 같은 루프로 돌아 나오므로 둘이 어긋날 길이 없다
 //   (전에는 SQL 글자·b[4]·r[3]·복사 줄을 손으로 맞췄다 — 개수가 같고 순서만 틀리면 아무도 못 잡았다).
 //   MySQL 버퍼 타입은 손으로 안 적는다 — 멤버의 C++ 타입에서 MysqlTypeOf 가 정한다
 //   (float→FLOAT, int32→LONG, int64→LONGLONG. 다른 타입의 멤버를 표에 올리면 컴파일이 막는다).
 //   ※ account_id 는 표 밖이다 — 저장에선 VALUES 의 첫 ?, 불러오기에선 WHERE 의 ? 로 자리가 다르다.
+//   ※ key = 기본 키의 일부인 열(가방의 slot) — ON DUPLICATE KEY UPDATE 쪽 ? 에서 뺀다.
 template <class T> constexpr enum_field_types MysqlTypeOf();
 template <> constexpr enum_field_types MysqlTypeOf<float>()   { return MYSQL_TYPE_FLOAT; }
 template <> constexpr enum_field_types MysqlTypeOf<int32_t>() { return MYSQL_TYPE_LONG; }
 template <> constexpr enum_field_types MysqlTypeOf<int64_t>() { return MYSQL_TYPE_LONGLONG; }
 
 // 저장 구조체와 결과 구조체의 같은 이름 멤버는 타입이 같아야 한다 — 다르면 여기서 컴파일이 막힌다
-template <class Save, class Result> constexpr size_t SameTypeSize()
+template <class Save, class Load> constexpr size_t SameTypeSize()
 {
-    static_assert(std::is_same_v<Save, Result>, "DBSaveJob 과 DBResult 의 같은 열 멤버는 타입이 같아야 한다");
+    static_assert(std::is_same_v<Save, Load>, "저장 구조체와 결과 구조체의 같은 열 멤버는 타입이 같아야 한다");
     return sizeof(Save);
 }
 
-struct CharColumn
+struct DbColumn
 {
     const char*      name;      // DB 열 이름 — SQL 에 그대로 들어간다
     enum_field_types type;      // MYSQL_BIND::buffer_type
-    size_t           saveOff;   // DBSaveJob 안의 자리 — 저장 파라미터 버퍼(bSave)·불러오기 결과 버퍼(bLoad) 둘 다 이 꼴
-    size_t           loadOff;   // DBResult 안의 자리 — 불러온 값을 게임 루프에 돌려줄 자리
+    size_t           saveOff;   // 저장 구조체 안의 자리 — 저장 파라미터 버퍼·불러오기 결과 버퍼 둘 다 이 꼴(슬롯의 bSave/bLoad·bItem/bInvLoad)
+    size_t           loadOff;   // 결과 구조체 안의 자리 — 불러온 값을 게임 루프에 돌려줄 자리
     size_t           size;
+    bool             key;       // true = 기본 키의 일부 — ON DUPLICATE KEY UPDATE 쪽 ? 에서 뺀다
 };
 
-#define CHAR_COL(sqlName, member)                                                              \
-    { #sqlName, MysqlTypeOf<decltype(DBSaveJob::member)>(),                                    \
-      offsetof(DBSaveJob, member), offsetof(DBResult, member),                                 \
-      SameTypeSize<decltype(DBSaveJob::member), decltype(DBResult::member)>() }
+#define DB_COL(SaveT, LoadT, sqlName, member, isKey)                                           \
+    { #sqlName, MysqlTypeOf<decltype(SaveT::member)>(),                                        \
+      offsetof(SaveT, member), offsetof(LoadT, member),                                        \
+      SameTypeSize<decltype(SaveT::member), decltype(LoadT::member)>(), isKey }
 
-static constexpr CharColumn kCharColumns[] = {
-    CHAR_COL(x,      x),
-    CHAR_COL(y,      y),
-    CHAR_COL(map_id, mapId),
-    CHAR_COL(level,  level),
-    CHAR_COL(exp,    exp),
+// characters 행 — 저장 DBSaveJob · 결과 DBResult
+static constexpr DbColumn kCharColumns[] = {
+    DB_COL(DBSaveJob, DBResult, x,      x,     false),
+    DB_COL(DBSaveJob, DBResult, y,      y,     false),
+    DB_COL(DBSaveJob, DBResult, map_id, mapId, false),
+    DB_COL(DBSaveJob, DBResult, level,  level, false),
+    DB_COL(DBSaveJob, DBResult, exp,    exp,   false),
 };
-#undef CHAR_COL
 static constexpr int kCharColCount = static_cast<int>(sizeof(kCharColumns) / sizeof(kCharColumns[0]));
 
-// 표에서 문장 둘을 조립한다 — 프로그램 시작 때 한 번. kKinds 가 c_str() 를 들고 있으므로 수명은 정적.
-//   저장: INSERT INTO characters (account_id,x,y,…) VALUES (?,?,…) ON DUPLICATE KEY UPDATE x=?,y=?,…
-//   불러오기: SELECT x,y,… FROM characters WHERE account_id=?
-static std::string BuildSaveSql()
+#if USE_INVENTORY
+// inventory 행 — 저장 DBItemSlotJob · 결과 DBInvRow(한 줄). slot 은 기본 키 (account_id, slot) 의 일부라 UPDATE 에 안 들어간다
+static constexpr DbColumn kInvColumns[] = {
+    DB_COL(DBItemSlotJob, DBInvRow, slot,    slot,   true),
+    DB_COL(DBItemSlotJob, DBInvRow, item_id, itemId, false),
+    DB_COL(DBItemSlotJob, DBInvRow, count,   count,  false),
+};
+static constexpr int kInvColCount = static_cast<int>(sizeof(kInvColumns) / sizeof(kInvColumns[0]));
+#endif
+#undef DB_COL
+
+static constexpr int kMaxCols = 8;   // 바인딩 배열 크기 — 표가 이보다 길어지면 아래 static_assert 가 막는다
+static_assert(kCharColCount <= kMaxCols, "kCharColumns 가 kMaxCols 를 넘었다");
+#if USE_INVENTORY
+static_assert(kInvColCount <= kMaxCols, "kInvColumns 가 kMaxCols 를 넘었다");
+#endif
+
+// 표에서 문장을 조립한다 — 프로그램 시작 때 한 번. kKinds 가 c_str() 를 들고 있으므로 수명은 정적.
+//   저장: INSERT INTO <표> (account_id,열,…) VALUES (?,?,…) ON DUPLICATE KEY UPDATE 열=?,…(key 열은 뺀다)
+//   불러오기: SELECT 열,… FROM <표> WHERE account_id=?<꼬리>
+static std::string BuildUpsertSql(const char* table, const DbColumn* cols, int n)
 {
-    std::string cols = "account_id", marks = "?", sets;
-    for (const CharColumn& c : kCharColumns)
+    std::string names = "account_id", marks = "?", sets;
+    for (int i = 0; i < n; ++i)
     {
-        cols  += ','; cols  += c.name;
+        names += ','; names += cols[i].name;
         marks += ",?";
+        if (cols[i].key)
+            continue;
         if (!sets.empty()) sets += ',';
-        sets  += c.name; sets += "=?";
+        sets += cols[i].name; sets += "=?";
     }
-    return "INSERT INTO characters (" + cols + ") VALUES (" + marks + ") ON DUPLICATE KEY UPDATE " + sets;
+    return std::string("INSERT INTO ") + table + " (" + names + ") VALUES (" + marks + ") ON DUPLICATE KEY UPDATE " + sets;
 }
 
-static std::string BuildLoadSql()
+static std::string BuildSelectSql(const char* table, const DbColumn* cols, int n, const char* tail)
 {
-    std::string cols;
-    for (const CharColumn& c : kCharColumns)
+    std::string names;
+    for (int i = 0; i < n; ++i)
     {
-        if (!cols.empty()) cols += ',';
-        cols += c.name;
+        if (i > 0) names += ',';
+        names += cols[i].name;
     }
-    return "SELECT " + cols + " FROM characters WHERE account_id=?";
+    return "SELECT " + names + " FROM " + table + " WHERE account_id=?" + tail;
 }
 
-static const std::string kSaveSql = BuildSaveSql();
-static const std::string kLoadSql = BuildLoadSql();
+static const std::string kSaveSql = BuildUpsertSql("characters", kCharColumns, kCharColCount);
+static const std::string kLoadSql = BuildSelectSql("characters", kCharColumns, kCharColCount, "");
+#if USE_INVENTORY
+static const std::string kItemSaveSql = BuildUpsertSql("inventory", kInvColumns, kInvColCount);
+// 가방 불러오기 — 빈 칸(item_id 0)은 안 읽는다. 칸 순서로 받는다(줄이 넘칠 때 어느 줄을 버릴지가 늘 같게).
+static const std::string kLoadInvSql  = BuildSelectSql("inventory", kInvColumns, kInvColCount, " AND item_id<>0 ORDER BY slot");
+#endif
+
+// 저장 파라미터 — ? 는 account_id 1개 + VALUES 의 열 n개 + UPDATE 의 열(key 제외). UPDATE 쪽은 VALUES 쪽과 같은 버퍼를
+//   참조한다(값을 한 번만 복사하면 된다). saveBuf 는 저장 구조체 꼴의 슬롯 버퍼.
+static bool BindUpsertParams(MYSQL_STMT* st, void* saveBuf, int64_t* accountIdBuf, const DbColumn* cols, int n)
+{
+    MYSQL_BIND b[1 + 2 * kMaxCols] = {};
+    b[0].buffer_type = MYSQL_TYPE_LONGLONG; b[0].buffer = accountIdBuf;
+    int k = 1 + n;   // UPDATE 쪽 ? 가 시작하는 자리
+    for (int i = 0; i < n; ++i)
+    {
+        b[1 + i].buffer_type = cols[i].type;
+        b[1 + i].buffer      = static_cast<char*>(saveBuf) + cols[i].saveOff;
+        if (!cols[i].key)
+            b[k++] = b[1 + i];
+    }
+    return mysql_stmt_bind_param(st, b) == 0;
+}
+
+// 불러오기 — 파라미터는 account_id 1개, 결과는 표 순서 그대로 loadBuf(저장 구조체 꼴)의 멤버에 fetch 가 바로 채운다.
+//   열 전부 NOT NULL 고정폭이고 열 타입과 버퍼 타입이 같아(FLOAT→float, INT→int32, BIGINT→int64) 변환·잘림이 없다.
+//   is_null·length·error 는 비워 두면 라이브러리가 내부 값으로 채운다.
+static bool BindSelect(MYSQL_STMT* st, void* loadBuf, int64_t* accountIdBuf, const DbColumn* cols, int n)
+{
+    MYSQL_BIND p[1] = {};
+    p[0].buffer_type = MYSQL_TYPE_LONGLONG; p[0].buffer = accountIdBuf;
+    if (mysql_stmt_bind_param(st, p) != 0)
+        return false;
+
+    MYSQL_BIND r[kMaxCols] = {};
+    for (int i = 0; i < n; ++i)
+    {
+        r[i].buffer_type = cols[i].type;
+        r[i].buffer      = static_cast<char*>(loadBuf) + cols[i].saveOff;
+    }
+    return mysql_stmt_bind_result(st, r) == 0;
+}
+
+// fetch 가 채운 loadBuf 의 열을 결과 구조체 dst 로 — 멤버 이름이 같고 두 구조체 안의 자리만 다르다
+static void CopyColumns(void* dst, const void* loadBuf, const DbColumn* cols, int n)
+{
+    for (int i = 0; i < n; ++i)
+        memcpy(static_cast<char*>(dst) + cols[i].loadOff, static_cast<const char*>(loadBuf) + cols[i].saveOff, cols[i].size);
+}
 
 // ── 위치 저장 ─────────────────────────────────────────────────────────────
 static bool BindPositionParams(MYSQL_STMT* st, DBWorkerSlot& slot)
 {
-    // ? = account_id 1개 + VALUES 의 열 N개 + ON DUPLICATE KEY UPDATE 의 열 N개
-    //   (UPDATE 쪽은 VALUES 쪽과 같은 버퍼를 참조한다 — 값을 한 번만 복사하면 된다)
-    MYSQL_BIND b[1 + 2 * kCharColCount] = {};
-    b[0].buffer_type = MYSQL_TYPE_LONGLONG; b[0].buffer = &slot.bSave.accountId;
-    for (int i = 0; i < kCharColCount; ++i)
-    {
-        const CharColumn& c = kCharColumns[i];
-        b[1 + i].buffer_type = c.type;
-        b[1 + i].buffer      = reinterpret_cast<char*>(&slot.bSave) + c.saveOff;
-        b[1 + kCharColCount + i] = b[1 + i];
-    }
-    return mysql_stmt_bind_param(st, b) == 0;
+    // ? 11개 = account_id + 다섯 열 + UPDATE 다섯 열
+    return BindUpsertParams(st, &slot.bSave, &slot.bSave.accountId, kCharColumns, kCharColCount);
 }
 
 // ── 캐릭터 불러오기 ───────────────────────────────────────────────────────
 static bool BindLoadCharacter(MYSQL_STMT* st, DBWorkerSlot& slot)
 {
-    // 파라미터 1개 (WHERE account_id=?)
-    MYSQL_BIND p[1] = {};
-    p[0].buffer_type = MYSQL_TYPE_LONGLONG; p[0].buffer = &slot.bLoad.accountId;
-    if (mysql_stmt_bind_param(st, p) != 0)
-        return false;
-
-    // 결과 N열 — 표 순서 그대로, fetch 가 slot.bLoad 의 멤버에 바로 채운다.
-    //   열 전부 NOT NULL 고정폭이고 열 타입과 버퍼 타입이 같아(FLOAT→float, INT→int32,
-    //   BIGINT→int64) 변환·잘림이 없다. is_null·length·error 는 비워 두면 라이브러리가 내부 값으로 채운다.
-    MYSQL_BIND r[kCharColCount] = {};
-    for (int i = 0; i < kCharColCount; ++i)
-    {
-        r[i].buffer_type = kCharColumns[i].type;
-        r[i].buffer      = reinterpret_cast<char*>(&slot.bLoad) + kCharColumns[i].saveOff;
-    }
-    return mysql_stmt_bind_result(st, r) == 0;
+    return BindSelect(st, &slot.bLoad, &slot.bLoad.accountId, kCharColumns, kCharColCount);
 }
 
 #if USE_INVENTORY
 // ── 가방 칸 저장 ─────────────────────────────────────────────────────────
 static bool BindItemSlotParams(MYSQL_STMT* st, DBWorkerSlot& slot)
 {
-    // VALUES 4개 + ON DUPLICATE KEY UPDATE 2개 = ? 6개 (item_id·count 는 양쪽이 같은 버퍼를 참조한다)
-    MYSQL_BIND b[6] = {};
-    b[0].buffer_type = MYSQL_TYPE_LONGLONG; b[0].buffer = &slot.bItemAccountId;
-    b[1].buffer_type = MYSQL_TYPE_LONG;     b[1].buffer = &slot.bItemSlot;
-    b[2].buffer_type = MYSQL_TYPE_LONG;     b[2].buffer = &slot.bItemId;
-    b[3].buffer_type = MYSQL_TYPE_LONG;     b[3].buffer = &slot.bItemCount;
-    b[4] = b[2];   // UPDATE item_id = 같은 bItemId
-    b[5] = b[3];   // UPDATE count   = 같은 bItemCount
-    return mysql_stmt_bind_param(st, b) == 0;
+    // ? 6개 = account_id + slot·item_id·count + UPDATE item_id·count (slot 은 key 라 UPDATE 에 없다)
+    return BindUpsertParams(st, &slot.bItem, &slot.bItem.accountId, kInvColumns, kInvColCount);
 }
 
 // ── 가방 불러오기 (불러오기 잡의 둘째 문장 — 작업 종류가 아니다) ──────────
-//   빈 칸(item_id 0)은 안 읽는다. 칸 순서로 받는다 — 줄이 넘칠 때 어느 줄을 버릴지가 늘 같게.
-static const char* kLoadInvSql =
-    "SELECT slot,item_id,count FROM inventory WHERE account_id=? AND item_id<>0 ORDER BY slot";
-
+//   문장은 열 표(kInvColumns)에서 조립한 kLoadInvSql — 빈 칸을 거르는 꼬리(item_id<>0 ORDER BY slot)는 거기 있다.
 static bool BindLoadInventory(MYSQL_STMT* st, DBWorkerSlot& slot)
 {
-    MYSQL_BIND p[1] = {};
-    p[0].buffer_type = MYSQL_TYPE_LONGLONG; p[0].buffer = &slot.bInvAccountId;
-    if (mysql_stmt_bind_param(st, p) != 0)
-        return false;
-
-    // 결과 3열 — 셋 다 NOT NULL INT 라 int32 버퍼로 변환·잘림 없이 받는다
-    MYSQL_BIND r[3] = {};
-    r[0].buffer_type = MYSQL_TYPE_LONG; r[0].buffer = &slot.bInvSlot;
-    r[1].buffer_type = MYSQL_TYPE_LONG; r[1].buffer = &slot.bInvItemId;
-    r[2].buffer_type = MYSQL_TYPE_LONG; r[2].buffer = &slot.bInvCount;
-    return mysql_stmt_bind_result(st, r) == 0;
+    return BindSelect(st, &slot.bInvLoad, &slot.bInvLoad.accountId, kInvColumns, kInvColCount);
 }
 #endif
 
@@ -503,10 +527,7 @@ static const JobKindDesc kKinds[] = {
     /* SAVE_POSITION  */ { "save_position",  kSaveSql.c_str(), BindPositionParams },   // 문장은 열 표(kCharColumns)에서 조립
     /* LOAD_CHARACTER */ { "load_character", kLoadSql.c_str(), BindLoadCharacter },
 #if USE_INVENTORY
-    /* SAVE_ITEM_SLOT */ { "save_item_slot",
-                           "INSERT INTO inventory (account_id,slot,item_id,count) VALUES (?,?,?,?) "
-                           "ON DUPLICATE KEY UPDATE item_id=?,count=?",
-                           BindItemSlotParams },
+    /* SAVE_ITEM_SLOT */ { "save_item_slot", kItemSaveSql.c_str(), BindItemSlotParams },   // 열 표 kInvColumns
 #endif
 };
 static_assert(sizeof(kKinds) / sizeof(kKinds[0]) == DB_JOB_KIND_COUNT,
@@ -580,7 +601,7 @@ bool CDBWorker::PrepareStmt(DBWorkerSlot& slot)
             CloseStmts(slot);
             return false;
         }
-        if (mysql_stmt_prepare(st, kLoadInvSql, static_cast<unsigned long>(strlen(kLoadInvSql))) != 0)
+        if (mysql_stmt_prepare(st, kLoadInvSql.c_str(), static_cast<unsigned long>(kLoadInvSql.size())) != 0)
         {
             LogPrepareFailure("load_inventory", st);
             mysql_stmt_close(st);
@@ -686,10 +707,7 @@ CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJo
     switch (rc)
     {
     case 0:
-        // 표의 열을 slot.bLoad 에서 out 으로 — 멤버 이름이 같고 두 구조체 안의 자리만 다르다
-        for (const CharColumn& c : kCharColumns)
-            memcpy(reinterpret_cast<char*>(&out) + c.loadOff,
-                   reinterpret_cast<const char*>(&slot.bLoad) + c.saveOff, c.size);
+        CopyColumns(&out, &slot.bLoad, kCharColumns, kCharColCount);   // 표의 열을 slot.bLoad 에서 out 으로
         outcome = LoadOutcome::FOUND;
         break;
 
@@ -745,7 +763,7 @@ CDBWorker::LoadOutcome CDBWorker::RunInventoryLoad(DBWorkerSlot& slot, const DBL
     MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmtLoadInv);
     if (st == nullptr)
         return LoadOutcome::QUERY_ERROR;   // PrepareStmt 가 캐릭터 문장과 함께 세우므로 닿지 않는다 — 닿으면 실패로
-    slot.bInvAccountId = job.accountId;
+    slot.bInvLoad.accountId = job.accountId;
 
     if (mysql_stmt_execute(st) != 0)
         return ClassifyStmtError(st, "load inventory execute", job.accountId);
@@ -764,7 +782,7 @@ CDBWorker::LoadOutcome CDBWorker::RunInventoryLoad(DBWorkerSlot& slot, const DBL
             return e;
         }
         if (out.invCount < DB_INV_MAX_ROWS)
-            out.inv[out.invCount++] = DBInvRow{ slot.bInvSlot, slot.bInvItemId, slot.bInvCount };
+            CopyColumns(&out.inv[out.invCount++], &slot.bInvLoad, kInvColumns, kInvColCount);   // 표의 열을 한 줄로
         else
             ++out.invOverflow;
     }
@@ -775,10 +793,7 @@ CDBWorker::LoadOutcome CDBWorker::RunInventoryLoad(DBWorkerSlot& slot, const DBL
 CDBWorker::LoadOutcome CDBWorker::RunItemSaveOnce(DBWorkerSlot& slot, const DBItemSlotJob& job)
 {
     MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmt[kItemIdx]);
-    slot.bItemAccountId = job.accountId;
-    slot.bItemSlot      = job.slot;
-    slot.bItemId        = job.itemId;
-    slot.bItemCount     = job.count;
+    slot.bItem = job;   // 잡과 버퍼가 같은 꼴이라 통째로 (stmt 는 이 버퍼의 멤버 주소를 이미 가리킨다)
     if (mysql_stmt_execute(st) == 0)
         return LoadOutcome::FOUND;   // 성공
     return ClassifyStmtError(st, "save item slot", job.accountId);

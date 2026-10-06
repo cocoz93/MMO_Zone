@@ -85,6 +85,7 @@ struct DBItemSlotJob
 
 // 불러온 가방 한 줄 — DB 값 그대로(검사는 게임 스레드가 한다: 칸 범위·아이템 표·탭·쌓임 한도).
 //   칸 번호를 int32 로 받는 이유 — 행이 망가져 있으면 음수나 큰 값일 수 있다. 줄이기 전에 걸러야 한다.
+//   멤버 이름은 DBItemSlotJob 과 같아야 한다 — 열 표(DBWorker.cpp kInvColumns)가 이름으로 잇는다.
 struct DBInvRow
 {
     int32_t slot;
@@ -190,15 +191,9 @@ struct DBWorkerSlot
     DBSaveJob                bLoad{};         // 불러오기 stmt — accountId 가 WHERE 파라미터, 나머지 멤버가 결과 열(fetch 가 채운다)
 #if USE_INVENTORY
     size_t                   itemCount = 0;         // queue 안의 아이템 저장 수(mutex 보호) — 저장 상한과 따로 센다
-    int64_t                  bItemAccountId = 0;    // ↓ 가방 칸 저장 stmt 파라미터
-    int32_t                  bItemSlot = 0;
-    int32_t                  bItemId = 0;
-    int32_t                  bItemCount = 0;
+    DBItemSlotJob            bItem{};               // 가방 칸 저장 stmt 파라미터 버퍼 — 잡을 통째로 복사. 열 표(kInvColumns)가 멤버 자리를 가리킨다
     void*                    stmtLoadInv = nullptr; // 가방 불러오기 stmt — 작업 종류가 아니라 불러오기 잡의 "둘째 문장"
-    int64_t                  bInvAccountId = 0;     // ↓ 가방 불러오기 파라미터 1개 · 결과 3열
-    int32_t                  bInvSlot = 0;
-    int32_t                  bInvItemId = 0;
-    int32_t                  bInvCount = 0;
+    DBItemSlotJob            bInvLoad{};            // 가방 불러오기 stmt — accountId 가 WHERE 파라미터, 나머지 멤버가 결과 열(fetch 가 줄마다 채운다)
 #endif
     int                      index = 0;
 };
