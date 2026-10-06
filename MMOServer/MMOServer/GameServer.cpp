@@ -2672,20 +2672,15 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
 // ==========================================================================
 // 스탯 — 최대 체력·공격력·방어력을 세우는 한 곳
 //   공격력·방어력은 최종값을 필드에 둔다(Character.h [전투 스탯]). 때리는 경로는 필드만 읽는다.
-//   ★ USE_EXP 밖이다 — 표를 끈 빌드는 기본값을 바탕으로 쓴다(CHARACTER_DEFAULT_* = 표의 1레벨 칸).
+//   바탕은 레벨 표 하나다 — 표는 전투(USE_COMBAT)가 켜지면 늘 읽는다(경험치를 꺼도 1레벨 줄은 바탕 스탯이라 필요).
+//   코드 상수(CHARACTER_DEFAULT_*)는 10-06 에 없앴다 — 표와 두 벌이었고, 전투를 끈 빌드는 스탯을 안 보낸다(WriteSnapshot 0).
 // ==========================================================================
 void CGameServer::RecalcStats(CPlayer* player, bool refillHp)
 {
-#if USE_EXP
     const CLevelTable& table = _gameDataFiles.Level();
     player->_maxHp       = table.MaxHp(player->_level);
     player->_attackPower = table.AttackPower(player->_level);
     player->_defense     = table.Defense(player->_level);
-#else
-    player->_maxHp       = CHARACTER_DEFAULT_MAX_HP;
-    player->_attackPower = CHARACTER_DEFAULT_ATTACK_POWER;
-    player->_defense     = CHARACTER_DEFAULT_DEFENSE;
-#endif
 
 #if USE_EQUIP
     // 착용 칸의 몫 — 칸마다 아이템 표의 attack 을 더한다(지금은 무기 칸 하나).

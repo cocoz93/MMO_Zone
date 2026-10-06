@@ -8,8 +8,9 @@
 #include "SpawnRegionTable.h"
 #include "DropTable.h"
 
-// 담는 자리는 표가 하나라도 켜져 있으면 산다 — 표마다 토글이 따로다(USE_EXP · USE_INVENTORY · USE_MONSTER).
+// 담는 자리는 표가 하나라도 켜져 있으면 산다 — 표마다 토글이 따로다(레벨 표 USE_COMBAT · USE_INVENTORY · USE_MONSTER).
 //   처음엔 레벨 표 하나라 USE_EXP 안에 두었다가, 아이템 표가 붙으며 밖으로 꺼냈다.
+//   레벨 표가 경험치가 아니라 전투를 따르는 까닭은 LevelTable.h(1레벨 줄 = 바탕 스탯의 유일한 출처).
 #if USE_GAME_DATA_FILES
 
 // ==========================================================================
@@ -41,7 +42,7 @@ public:
     //   한 표라도 실패하면 곧바로 false — 뒤엣것을 마저 읽어 봐야 어차피 안 띄운다.
     bool LoadAll(const std::string& dir);
 
-#if USE_EXP
+#if USE_COMBAT
     const CLevelTable& Level() const { return _level; }
 #endif
 #if USE_INVENTORY
@@ -56,7 +57,7 @@ public:
 #endif
 
 private:
-#if USE_EXP
+#if USE_COMBAT
     CLevelTable _level;
 #endif
 #if USE_INVENTORY

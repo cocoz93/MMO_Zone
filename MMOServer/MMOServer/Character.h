@@ -29,13 +29,9 @@
 // [가상 함수] 소멸자 말고는 두지 않는다 — CActor 의 원칙 그대로. 종류별 동작이 필요해지면 그때 정한다.
 // ==========================================================================
 
-// 스탯 기본값 — 종류별 값은 파생이 정한다 (플레이어는 지금 이 값 그대로)
-//   ★ USE_EXP 가 켜져 있으면 스폰 때 레벨 표(LevelTable.csv)가 곧바로 덮어쓴다.
-//     그래서 이 값은 표의 1레벨 칸과 반드시 같아야 한다 — 어긋나면 토글을 끈 빌드와
-//     켠 빌드의 1레벨 체력이 달라져서 "같은 캐릭터인데 빌드마다 다른" 상태가 된다.
-constexpr int32_t CHARACTER_DEFAULT_MAX_HP        = 800;
-constexpr int32_t CHARACTER_DEFAULT_ATTACK_POWER  = 10;
-constexpr int32_t CHARACTER_DEFAULT_DEFENSE       = 0;
+// 스탯 기본값은 코드에 두지 않는다(10-06, 아키텍처 전수검사 6번 — 전에는 CHARACTER_DEFAULT_* 상수가 표의 1레벨 칸과 두 벌이었다).
+//   플레이어는 레벨 표(LevelTable.csv)가 정본이고 CGameServer::RecalcStats 가 채운다. 몬스터는 파생 생성자가 종류 값을 넣는다.
+//   아래 멤버의 0 은 「아직 안 정해짐」이다 — 전투를 끈 빌드는 0 그대로 두고, 스냅샷도 0 을 싣는다(GameServer.cpp WriteSnapshot).
 
 // 캐릭터 종류 — 위 [종류] 참조. 와이어에는 안 실린다(클라는 displayChar 로 종류를 안다).
 enum class CharacterKind : uint8_t
@@ -61,10 +57,11 @@ public:
     //   공격력·방어력은 "최종값"이다 — 플레이어는 CGameServer::RecalcStats 가 레벨 표 + 착용 장비로 세운다.
     //   때릴 때마다 다시 세지 않는다(바뀌는 자리가 입장·레벨업·끼우기·빼기뿐이라 때리는 경로는 필드만 읽는다).
     //   피해 = Combat::CalcDamage(때린 쪽 _attackPower, 맞는 쪽 _defense) — 최소 1.
-    int32_t _hp          = CHARACTER_DEFAULT_MAX_HP;        // 현재 체력 (0 이하 = 죽음)
-    int32_t _maxHp       = CHARACTER_DEFAULT_MAX_HP;        // 최대 체력
-    int32_t _attackPower = CHARACTER_DEFAULT_ATTACK_POWER;  // 공격력 (최종값)
-    int32_t _defense     = CHARACTER_DEFAULT_DEFENSE;       // 방어력 (최종값) — 맞을 때 공격력에서 뺀다
+    //   초기값 0 = 아직 안 정해짐 — 플레이어는 RecalcStats(표), 몬스터는 파생 생성자가 채운다(위 주석).
+    int32_t _hp          = 0;   // 현재 체력 (0 이하 = 죽음)
+    int32_t _maxHp       = 0;   // 최대 체력
+    int32_t _attackPower = 0;   // 공격력 (최종값)
+    int32_t _defense     = 0;   // 방어력 (최종값) — 맞을 때 공격력에서 뺀다
 
     bool     _isDead = false;        // 죽은 상태 (이동·공격 거부, 공격 대상에서 제외)
     uint64_t _lastAttackFrame = 0;   // 마지막 공격 프레임 (쿨타임 판정 — CGameServer::_frameCount 기준)

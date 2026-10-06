@@ -1,9 +1,10 @@
 # Level table - design data, read once at startup (CLevelTable).
 #   requiredExp is CUMULATIVE: total exp needed to REACH that level, not per-level.
 #   Level 1 must be 0, and requiredExp must strictly increase. The loader refuses the file otherwise.
-#   Level 1 maxHp/attackPower match CHARACTER_DEFAULT_* so a fresh character is unchanged.
-#   maxHp was raised 8x on 2026-09-23 (100->800 at Lv1). Keep CHARACTER_DEFAULT_MAX_HP in sync.
-#   defense added on 2026-09-30: level / 5 rounded down (Lv1-4 0 ... Lv20 4). Level 1 must match CHARACTER_DEFAULT_DEFENSE (0).
+#   The level 1 row IS the base stat of a fresh character - the only source (no code constant since 2026-10-06).
+#   The table is loaded whenever combat is on (USE_COMBAT), even with USE_EXP=0 - only requiredExp needs USE_EXP.
+#   maxHp was raised 8x on 2026-09-23 (100->800 at Lv1).
+#   defense added on 2026-09-30: level / 5 rounded down (Lv1-4 0 ... Lv20 4).
 #   Damage = attack - defense, at least 1 (Combat::CalcDamage). Snake bites for 5 -> 4 from Lv5, 1 at Lv20.
 #   Snake gives 10 exp -> level 2 costs 10 snakes, level 20 costs 1900.
 level,requiredExp,maxHp,attackPower,defense

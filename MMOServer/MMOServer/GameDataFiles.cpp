@@ -8,7 +8,7 @@ bool CGameDataFiles::LoadAll(const std::string& dir)
 {
     // 표가 늘어나면 여기 형제로 한 줄씩 붙는다. 하나라도 false 면 그 자리에서 끝낸다 —
     //   "레벨 표는 읽었는데 아이템 표는 못 읽은" 반쪽 상태로 서버를 띄우지 않는다.
-#if USE_EXP
+#if USE_COMBAT   // 레벨 표는 전투를 따른다(바탕 스탯) — 경험치만 끈 빌드도 읽는다
     if (!_level.Load(dir + "LevelTable.csv"))
         return false;
 #endif

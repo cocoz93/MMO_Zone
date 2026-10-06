@@ -1,6 +1,6 @@
 ﻿#include "LevelTable.h"
 
-#if USE_EXP
+#if USE_COMBAT   // 헤더와 같은 토글 — 까닭은 LevelTable.h
 
 #include <cassert>
 
@@ -124,4 +124,4 @@ int32_t CLevelTable::Defense(int32_t level) const
     return _rows[static_cast<size_t>(level)].defense;
 }
 
-#endif // USE_EXP
+#endif // USE_COMBAT
