@@ -305,7 +305,7 @@ void CDBWorker::WorkerThread(int idx)
 
             case DBJobKind::LOAD_CHARACTER:
             {
-                // 코어 지표(_dbSavedJobs·_dbFailedJobs)는 건드리지 않는다 — 그 둘은 "저장"만 세는 기존 게이트다.
+                // 저장 지표(_counters._savedJobs·_failedJobs)는 건드리지 않는다 — 그 둘은 "저장"만 세는 기존 게이트다.
                 //   불러오기는 결과에 코드만 실어 보내고, 세는 일은 게임 스레드가 결과를 꺼낼 때 한다.
                 //   성공이든 실패든 결과는 반드시 하나 돌려준다 — 안 돌려주면 요청자가 영영 기다린다.
                 DBResult result{};
@@ -316,7 +316,7 @@ void CDBWorker::WorkerThread(int idx)
 
 #if USE_INVENTORY
             case DBJobKind::SAVE_ITEM_SLOT:
-                // 코어 지표(_dbSavedJobs·_dbFailedJobs)는 "위치 저장"만 센다 — 아이템은 게임 쪽 계수기로 따로(ExecItemSave)
+                // 저장 지표(_counters._savedJobs·_failedJobs)는 "위치 저장"만 센다 — 아이템은 _itemCounters 로 따로(ExecItemSave)
                 ExecItemSave(slot, job.item, reconnectFailedThisBatch);
                 break;
 #endif
