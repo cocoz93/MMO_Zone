@@ -11,7 +11,8 @@
 
 #include "Item.h"
 
-enum class MonsterKind : uint8_t;   // Monster.h — 표는 종류 번호만 쓴다(몬스터 헤더를 끌어오지 않는다)
+enum class MonsterKind : uint8_t;   // Monster.h — 이 헤더는 종류 번호만 쓴다(몬스터 헤더를 끌어오지 않는다)
+                                    //   .cpp 는 파일의 이름을 번호로 바꾸느라 Monster.h 를 본다 — 임시(DropTable.cpp 머리)
 class CItemTable;
 
 // ==========================================================================

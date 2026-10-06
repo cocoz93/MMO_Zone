@@ -7,6 +7,9 @@
 #include "GameDataCsv.h"
 #include "ItemTable.h"
 #include "Monster.h"   // MonsterKind — 파일의 몬스터 이름을 종류 번호로
+                       //   ★ 임시 — 기획 데이터 표 중 몬스터 클래스 헤더를 보는 건 여기뿐이다(다른 표는 BuildConfig·CSV 도우미만).
+                       //     몬스터 표가 생기면 몬스터 칸도 아이템 칸(items.Find)처럼 표 대조로 바뀌고, 이 include 와 MonsterKind 는 사라진다.
+                       //     enum 만 작은 헤더로 떼지 않은 까닭 — 사라질 enum 을 여러 표가 기대는 공용 타입으로 굳히게 된다.
 
 using GameDataCsv::DataLine;
 using GameDataCsv::ReadDataLines;
