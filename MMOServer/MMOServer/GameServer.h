@@ -302,7 +302,7 @@ private:
     void OnGroundItemDrop(CZone* zone, const CGroundItem& item,
                           int32_t sectorX, int32_t sectorY) override;         // 주변에 CREATE(DROP)
     void OnGroundItemGone(CZone* zone, int32_t sectorX, int32_t sectorY,
-                          int32_t groundId, GroundItemGone wire, int32_t pickerId) override;   // 주변 + 같은 틱 이동자에게 DELETE
+                          int32_t groundId, GroundItemRemoval why, int32_t pickerId) override;   // 주변 + 같은 틱 이동자에게 DELETE — 와이어 값 변환은 여기
 
     // 땅의 아이템 하나를 한 사람에게 보여 준다 — 떨어질 때(DROP)·시야에 들어올 때(SEEN) 공용
     void SendGroundItemCreate(CPlayer* target, const CGroundItem& item, GroundItemAppear reason);

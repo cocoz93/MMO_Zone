@@ -35,53 +35,6 @@ const char* InvAddResultName(InvAddResult r)
     return "?";
 }
 
-const char* UseItemFailName(UseItemFail r)
-{
-    static_assert(static_cast<int>(UseItemFail::COUNT) == 6, "UseItemFail 을 늘렸으면 이름도 붙일 것");
-    switch (r)
-    {
-    case UseItemFail::BAD_SLOT:   return "bad_slot";
-    case UseItemFail::EMPTY:      return "empty";
-    case UseItemFail::NOT_USABLE: return "not_usable";
-    case UseItemFail::DEAD:       return "dead";
-    case UseItemFail::COOLDOWN:   return "cooldown";
-    case UseItemFail::FULL_HP:    return "full_hp";
-    case UseItemFail::COUNT:      break;
-    }
-    return "?";
-}
-
-const char* EquipFailName(EquipFail r)
-{
-    static_assert(static_cast<int>(EquipFail::COUNT) == 6, "EquipFail 을 늘렸으면 이름도 붙일 것");
-    switch (r)
-    {
-    case EquipFail::BAD_SLOT:       return "bad_slot";
-    case EquipFail::EMPTY:          return "empty";
-    case EquipFail::NOT_EQUIPPABLE: return "not_equippable";
-    case EquipFail::DEAD:           return "dead";
-    case EquipFail::COOLDOWN:       return "cooldown";
-    case EquipFail::TAB_FULL:       return "tab_full";
-    case EquipFail::COUNT:          break;
-    }
-    return "?";
-}
-
-const char* InvLoadSkipName(InvLoadSkip r)
-{
-    static_assert(static_cast<int>(InvLoadSkip::COUNT) == 5, "InvLoadSkip 을 늘렸으면 이름도 붙일 것");
-    switch (r)
-    {
-    case InvLoadSkip::BAD_SLOT:      return "bad_slot";
-    case InvLoadSkip::UNKNOWN_ITEM:  return "unknown_item";
-    case InvLoadSkip::WRONG_TAB:     return "wrong_tab";
-    case InvLoadSkip::BAD_COUNT:     return "bad_count";
-    case InvLoadSkip::TOO_MANY_ROWS: return "too_many_rows";
-    case InvLoadSkip::COUNT:         break;
-    }
-    return "?";
-}
-
 bool FindInvSlot(uint16_t slot, InvTab& outTab, int& outIndex)
 {
     int base = 0;

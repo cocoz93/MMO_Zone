@@ -292,6 +292,36 @@ namespace
         return 0;
     }
 
+#if USE_DROP
+    // 땅 아이템 쪽 사유 → 와이어 값. 사유를 정하는 건 존의 땅 아이템 관리자(GroundItem.h), 패킷 값으로 바꾸는 건 여기 —
+    //   위 ToZoneChangeFailReason 과 같은 꼴(10-06, 아키텍처 전수검사 7번). 존 층은 Protocol.h 를 모른다.
+    GroundItemGone ToGroundItemGone(GroundItemRemoval why)
+    {
+        switch (why)
+        {
+        case GroundItemRemoval::PICKED:  return GroundItemGone::PICKED;
+        case GroundItemRemoval::EXPIRED: return GroundItemGone::EXPIRED;
+        case GroundItemRemoval::CLEANED:   // 알릴 사람이 없는 사유 — 관리자가 알림을 안 보낸다
+        case GroundItemRemoval::COUNT:   break;
+        }
+        assert(false && "와이어에 안 나가는 사유를 DELETE 로 바꾸려 했다");
+        return GroundItemGone::EXPIRED;
+    }
+
+    PickupFail ToPickupFail(PickupReject reject)
+    {
+        switch (reject)
+        {
+        case PickupReject::DEAD:      return PickupFail::DEAD;
+        case PickupReject::NO_ITEM:   return PickupFail::NO_ITEM;
+        case PickupReject::NOT_OWNER: return PickupFail::NOT_OWNER;
+        case PickupReject::NONE:      break;
+        }
+        assert(false && "거절이 아닌 결과를 실패 패킷으로 바꾸려 했다");
+        return PickupFail::NO_ITEM;
+    }
+#endif
+
     CSerialBuffer* MakeAdminLoginOk()
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
@@ -2957,8 +2987,10 @@ void CGameServer::OnGroundItemDrop(CZone* zone, const CGroundItem& item, int32_t
 }
 
 void CGameServer::OnGroundItemGone(CZone* zone, int32_t sectorX, int32_t sectorY,
-                                   int32_t groundId, GroundItemGone wire, int32_t pickerId)
+                                   int32_t groundId, GroundItemRemoval why, int32_t pickerId)
 {
+    const GroundItemGone wire = ToGroundItemGone(why);   // 사유 → 와이어 값은 여기서 — 관리자는 패킷을 모른다
+
     _eventAroundBuffer.clear();
     zone->GetSectorManager().GetAroundPlayers(sectorX, sectorY, _eventAroundBuffer);
     for (CPlayer* other : _eventAroundBuffer)
@@ -2990,10 +3022,11 @@ void CGameServer::RecvPickup(CPlayer* player, CSerialBuffer* /*pMsg*/)   // 몸�
 
     CGroundItemManager& groundItems = zone->GetGroundItemManager();
     CGroundItemManager::PickupTarget at;
-    PickupFail fail = groundItems.FindPickup(player, _frameCount, at);
+    const PickupReject reject = groundItems.FindPickup(player, _frameCount, at);   // 존의 판정(그 층의 어휘)
+    PickupFail fail = (reject == PickupReject::NONE) ? PickupFail::COUNT : ToPickupFail(reject);   // 와이어 값으로는 여기서
     int32_t failItemId = 0;
 
-    if (fail == PickupFail::COUNT)
+    if (reject == PickupReject::NONE)
     {
         const CGroundItem& g = groundItems.GetSectorItems(at.sectorX, at.sectorY)[at.index];
         const ItemDef* def = _gameDataFiles.Item().Find(g.item.itemId);

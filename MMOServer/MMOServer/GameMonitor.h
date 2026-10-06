@@ -19,32 +19,17 @@
 #include "BuildConfig.h"      // USE_MONSTER — 몬스터 카운터 묶음을 토글 안에 둔다
 #include "MonitorManager.h"   // Counter — 원자 카운터 타입만 빌려 쓴다 (코어 지표는 참조하지 않음)
 #include "Inventory.h"        // USE_INVENTORY — 넣기 결과 사유(InvAddResult) 수만큼 칸을 잡는다
+#include "GroundItem.h"       // USE_DROP — 땅에서 빠진 까닭(GroundItemRemoval, 땅 아이템 관리자의 어휘) 수만큼 칸을 잡는다
+
+// [사유 enum 의 집 — 규칙 하나] 사유는 그것을 정하는 층의 헤더에 산다(10-06, 아키텍처 전수검사 7번).
+//   존·엔티티 층이 정하는 것: GroundItemRemoval·PickupReject(GroundItem.h) · ZoneChangeReject(MapManager.h) · InvAddResult(Inventory.h)
+//   게임 서버가 정하는 것: UseItemFail·EquipFail·PickupFail(와이어 enum 그대로 — 정하는 쪽이 패킷을 아는 층이라 변환이 없다) ·
+//                        InvLoadSkip·ChatCommandReject(계수기만 쓰는 사유라 여기)
+//   여기(계수기)는 COUNT 로 칸을 잡고 이름표를 두는 자리일 뿐, 사유를 정하지 않는다.
 
 #if USE_DROP
-// 땅의 아이템이 땅에서 빠진 까닭 — 와이어의 GroundItemGone 과 다르다(그쪽의 OUT_OF_SIGHT 는 빠진 게 아니라 안 보이는 것,
-//   CLEANED 는 알릴 사람이 없어 와이어에 안 나간다). 빼는 자리마다 한 칸이라 등식이 한 곳의 누락도 드러낸다.
-enum class GroundItemRemoval : uint8_t
-{
-    PICKED,    // 누가 주웠다
-    EXPIRED,   // 오래 안 주워 사라졌다
-    CLEANED,   // 사람이 없는 채널이 지워지며 같이 사라졌다
-    COUNT
-};
-
-inline const char* GroundItemRemovalName(GroundItemRemoval r)
-{
-    static_assert(static_cast<int>(GroundItemRemoval::COUNT) == 3, "GroundItemRemoval 을 늘렸으면 이름도 붙일 것");
-    switch (r)
-    {
-    case GroundItemRemoval::PICKED:  return "picked";
-    case GroundItemRemoval::EXPIRED: return "expired";
-    case GroundItemRemoval::CLEANED: return "cleaned";
-    case GroundItemRemoval::COUNT:   break;
-    }
-    return "?";
-}
-
-// 줍기 거절 사유의 지표 라벨 — 사유 enum 은 와이어에 실려 Protocol.h 에 있다
+// 줍기 거절 사유의 지표 라벨 — 와이어 enum(Protocol.h PickupFail) 그대로 센다. 존의 판정(PickupReject)은 게임 서버가
+//   와이어 값으로 바꾸고, 가방이 찬 것(TAB_FULL)은 게임 서버가 정하므로 세는 자리가 게임 서버(RecvPickup) 하나다.
 inline const char* PickupFailName(PickupFail r)
 {
     static_assert(static_cast<int>(PickupFail::COUNT) == 4, "PickupFail 을 늘렸으면 이름도 붙일 것");
@@ -79,6 +64,67 @@ inline const char* ChatCommandRejectName(ChatCommandReject r)
     case ChatCommandReject::UNKNOWN_COMMAND: return "unknown_command";
     case ChatCommandReject::BAD_ARGS:        return "bad_args";
     case ChatCommandReject::COUNT:           break;
+    }
+    return "?";
+}
+
+// 불러올 때 건너뛴 줄의 사유 — DB 행이 망가졌거나 표가 바뀌어 지금 규칙에 안 맞는 줄. 평소엔 전부 0 이다.
+//   정하는 쪽은 게임 서버(LoadInventoryRows)이고 가방(CInventory)은 이 값을 만들지 않는다 — 그래서 가방 헤더가 아니라 여기(10-06).
+//   ★ 깎아서 넣지 않는다(수량 초과를 한도로 줄이는 식) — 깎으면 무엇이 사라졌는지 아무도 모른다. 세고 건너뛴다.
+enum class InvLoadSkip : uint8_t
+{
+    BAD_SLOT,        // 칸 번호가 어느 탭 구간에도 없다
+    UNKNOWN_ITEM,    // 아이템 표에 없는 번호(패치로 지운 아이템)
+    WRONG_TAB,       // 아이템의 탭과 칸의 탭이 다르다
+    BAD_COUNT,       // 개수가 0 이하이거나 쌓임 한도를 넘는다
+    TOO_MANY_ROWS,   // 결과에 다 못 실은 줄(DB_INV_MAX_ROWS 초과)
+    COUNT
+};
+
+inline const char* InvLoadSkipName(InvLoadSkip r)
+{
+    static_assert(static_cast<int>(InvLoadSkip::COUNT) == 5, "InvLoadSkip 을 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case InvLoadSkip::BAD_SLOT:      return "bad_slot";
+    case InvLoadSkip::UNKNOWN_ITEM:  return "unknown_item";
+    case InvLoadSkip::WRONG_TAB:     return "wrong_tab";
+    case InvLoadSkip::BAD_COUNT:     return "bad_count";
+    case InvLoadSkip::TOO_MANY_ROWS: return "too_many_rows";
+    case InvLoadSkip::COUNT:         break;
+    }
+    return "?";
+}
+
+// 쓰기·장착 거절의 지표 라벨 — 사유 enum 은 게임 서버가 정하고 와이어에 실려 Protocol.h 에 있다(CheckUseItem·CheckEquip).
+inline const char* UseItemFailName(UseItemFail r)
+{
+    static_assert(static_cast<int>(UseItemFail::COUNT) == 6, "UseItemFail 을 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case UseItemFail::BAD_SLOT:   return "bad_slot";
+    case UseItemFail::EMPTY:      return "empty";
+    case UseItemFail::NOT_USABLE: return "not_usable";
+    case UseItemFail::DEAD:       return "dead";
+    case UseItemFail::COOLDOWN:   return "cooldown";
+    case UseItemFail::FULL_HP:    return "full_hp";
+    case UseItemFail::COUNT:      break;
+    }
+    return "?";
+}
+
+inline const char* EquipFailName(EquipFail r)
+{
+    static_assert(static_cast<int>(EquipFail::COUNT) == 6, "EquipFail 을 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case EquipFail::BAD_SLOT:       return "bad_slot";
+    case EquipFail::EMPTY:          return "empty";
+    case EquipFail::NOT_EQUIPPABLE: return "not_equippable";
+    case EquipFail::DEAD:           return "dead";
+    case EquipFail::COOLDOWN:       return "cooldown";
+    case EquipFail::TAB_FULL:       return "tab_full";
+    case EquipFail::COUNT:          break;
     }
     return "?";
 }

@@ -3,8 +3,7 @@
 #include "Zone.h"             // 나를 든 존 — 섹터·벽 선 자르기
 #include "SectorManager.h"    // 좌표 → 칸 번호 (CalcSectorX/Y)
 #include "Player.h"           // 줍는 사람의 생사·좌표·계정
-#include "GameMonitor.h"      // 드랍 계수기 · GroundItemRemoval
-#include <Protocol/Protocol.h> // GroundItemGone · PickupFail
+#include "GameMonitor.h"      // 드랍 계수기 (사유 enum 은 GroundItem.h — 이 파일은 Protocol.h 를 모른다, 10-06)
 #include <cassert>
 
 const std::vector<CGroundItem> CGroundItemManager::EMPTY_ITEMS;
@@ -90,20 +89,11 @@ void CGroundItemManager::Remove(const GroundItemContext& ctx, int32_t sectorX, i
 {
     const int32_t groundId = GetSectorItems(sectorX, sectorY)[index].groundId;   // 빼기 전에 읽는다
 
-    // 와이어의 사유 — 빼는 까닭 셋 중 알릴 사람이 있는 것은 둘뿐이다(CLEANED 는 ForgetAll)
-    GroundItemGone wire = GroundItemGone::EXPIRED;
-    switch (why)
-    {
-    case GroundItemRemoval::PICKED:  wire = GroundItemGone::PICKED;  break;
-    case GroundItemRemoval::EXPIRED: wire = GroundItemGone::EXPIRED; break;
-    case GroundItemRemoval::CLEANED:
-    case GroundItemRemoval::COUNT:
-        assert(false && "CLEANED 는 알릴 사람이 없다 — ForgetAll 이 센다");
-        return;
-    }
+    // 빼는 까닭 셋 중 알릴 사람이 있는 것은 둘뿐이다(CLEANED 는 ForgetAll) — 와이어 값으로 바꾸는 건 게임 서버
+    assert((why == GroundItemRemoval::PICKED || why == GroundItemRemoval::EXPIRED) && "CLEANED 는 알릴 사람이 없다 — ForgetAll 이 센다");
 
     // 주변 DELETE · 같은 틱에 섹터를 넘은 사람 보정 — 받을 사람 고르기와 송신은 게임 서버(OnGroundItemGone)
-    ctx.events.OnGroundItemGone(&_zone, sectorX, sectorY, groundId, wire, pickerId);
+    ctx.events.OnGroundItemGone(&_zone, sectorX, sectorY, groundId, why, pickerId);
 
     RemoveAt(sectorX, sectorY, index);
     ctx.monitor._drop._removed[static_cast<int>(why)].Inc();
@@ -152,10 +142,10 @@ void CGroundItemManager::ForgetAll(const GroundItemContext& ctx)
     ctx.monitor._drop._groundItems.Add(-n);
 }
 
-PickupFail CGroundItemManager::FindPickup(const CPlayer* player, uint64_t frame, PickupTarget& out) const
+PickupReject CGroundItemManager::FindPickup(const CPlayer* player, uint64_t frame, PickupTarget& out) const
 {
     if (player->_isDead)
-        return PickupFail::DEAD;
+        return PickupReject::DEAD;
 
     // 반경이 걸치는 섹터만 참조로 훑는다(공격 대상 찾기와 같은 꼴 — 복사 0).
     //   어느 섹터를 도나는 섹터 관리자(ForEachSectorInRange), 그 칸에서 무엇을 보나는 여기.
@@ -196,8 +186,8 @@ PickupFail CGroundItemManager::FindPickup(const CPlayer* player, uint64_t frame,
     });
 
     if (found)
-        return PickupFail::COUNT;
-    return anyInRange ? PickupFail::NOT_OWNER : PickupFail::NO_ITEM;
+        return PickupReject::NONE;
+    return anyInRange ? PickupReject::NOT_OWNER : PickupReject::NO_ITEM;
 }
 
 #endif // USE_DROP

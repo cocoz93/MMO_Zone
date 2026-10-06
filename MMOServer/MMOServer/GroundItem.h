@@ -30,4 +30,41 @@ struct CGroundItem
     uint64_t expireFrame     = 0;     // 이 틱이 지나면 사라진다
 };
 
+// ── 사유 enum 은 정하는 쪽의 어휘다(10-06, 아키텍처 전수검사 7번) ──
+//   아래 둘은 땅 아이템 관리자가 정한다. 와이어 값(Protocol.h GroundItemGone·PickupFail)으로 바꾸는 건 게임 서버의 일이고
+//   (ToZoneChangeFailReason 과 같은 꼴), 계수기(GameMonitor.h)는 COUNT 와 이름표만 빌린다. 이 헤더는 패킷을 모른다.
+
+// 땅에서 빠진 까닭 — 와이어의 GroundItemGone 과 다르다(그쪽의 OUT_OF_SIGHT 는 빠진 게 아니라 안 보이는 것,
+//   CLEANED 는 알릴 사람이 없어 와이어에 안 나간다). 빼는 자리마다 한 칸이라 계수기 등식이 한 곳의 누락도 드러낸다.
+enum class GroundItemRemoval : uint8_t
+{
+    PICKED,    // 누가 주웠다
+    EXPIRED,   // 오래 안 주워 사라졌다
+    CLEANED,   // 사람이 없는 채널이 지워지며 같이 사라졌다
+    COUNT
+};
+
+inline const char* GroundItemRemovalName(GroundItemRemoval r)
+{
+    static_assert(static_cast<int>(GroundItemRemoval::COUNT) == 3, "GroundItemRemoval 을 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case GroundItemRemoval::PICKED:  return "picked";
+    case GroundItemRemoval::EXPIRED: return "expired";
+    case GroundItemRemoval::CLEANED: return "cleaned";
+    case GroundItemRemoval::COUNT:   break;
+    }
+    return "?";
+}
+
+// 줍기 판정 결과(FindPickup) — DEAD → NO_ITEM → NOT_OWNER 순으로 보고 먼저 걸린 하나, 통과면 NONE.
+//   가방이 가득 찬 것(TAB_FULL)은 판정이 아니라 가방 넣기의 결과라 여기 없다 — 게임 서버가 와이어 PickupFail 로 바로 센다.
+enum class PickupReject : uint8_t
+{
+    NONE,        // 주울 것이 있다
+    DEAD,        // 죽어 있다
+    NO_ITEM,     // 반경 안에 아무것도 없다
+    NOT_OWNER,   // 있긴 한데 전부 남의 것이다(주인 우선 시간 안)
+};
+
 #endif // USE_DROP

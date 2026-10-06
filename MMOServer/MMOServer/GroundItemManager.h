@@ -37,12 +37,8 @@ class CZone;
 class CPlayer;
 class CGameMonitor;
 
-// 앞 선언 — 정의는 Protocol.h(GroundItemGone·PickupFail)와 GameMonitor.h(GroundItemRemoval).
-//   Zone.h 가 이 헤더를 끌어오므로 그 둘을 존을 쓰는 파일 전부에 퍼뜨리지 않으려고 바탕 타입만 적는다.
-//   정의와 바탕 타입이 다르면 컴파일이 막는다.
-enum class GroundItemGone : uint8_t;
-enum class PickupFail : uint8_t;
-enum class GroundItemRemoval : uint8_t;
+// 사유 enum(GroundItemRemoval·PickupReject)은 GroundItem.h — 이 층의 어휘다. 와이어 enum(Protocol.h GroundItemGone·PickupFail)은
+//   여기서 모른다. 바꾸는 건 게임 서버(10-06 — 전에는 이 관리자가 Protocol.h 를 포함하고 변환까지 했다).
 
 // 땅 아이템 쪽이 게임 서버에 부탁하는 것 — CGameServer 가 구현한다(세션·송신·번호 계수기가 거기 있다).
 //   IMonsterEvents 와 같은 꼴: "패킷을 보내라"가 아니라 "무슨 일이 있었다"로 알리고, 패킷 조립은 받는 쪽이 한다.
@@ -59,9 +55,10 @@ public:
     virtual void OnGroundItemDrop(CZone* zone, const CGroundItem& item, int32_t sectorX, int32_t sectorY) = 0;
 
     // 빠지기 직전 — 아직 목록에 있다. 주변 플레이어에게 DELETE, 이번 틱에 섹터를 넘은 사람에게는 보정 DELETE.
-    //   wire 는 PICKED(pickerId = 주운 사람)·EXPIRED(pickerId = 0) 둘뿐이다(채널 정리는 알릴 사람이 없다).
+    //   why 는 PICKED(pickerId = 주운 사람)·EXPIRED(pickerId = 0) 둘뿐이다(CLEANED 는 알릴 사람이 없어 ForgetAll 이 센다).
+    //   와이어 값(GroundItemGone)으로 바꾸는 건 받는 쪽 — 여기는 「왜 빠졌나」만 말한다.
     virtual void OnGroundItemGone(CZone* zone, int32_t sectorX, int32_t sectorY,
-                                  int32_t groundId, GroundItemGone wire, int32_t pickerId) = 0;
+                                  int32_t groundId, GroundItemRemoval why, int32_t pickerId) = 0;
 };
 
 // 부를 때마다 넘기는 묶음 — 게임 서버가 만든다(존을 만들 때 꽂지 않는다. MonsterContext 와 같은 까닭).
@@ -107,10 +104,11 @@ public:
     // 채널이 지워지기 직전 — 사람이 없는 채널이라 알릴 사람이 없다. 수만 세고(CLEANED) 목록은 존과 함께 사라진다.
     void ForgetAll(const GroundItemContext& ctx);
 
-    // 줍기 판정 — DEAD → NO_ITEM → NOT_OWNER 순으로 보고 먼저 걸린 하나. 통과면 PickupFail::COUNT 와 고른 것의 자리.
+    // 줍기 판정 — DEAD → NO_ITEM → NOT_OWNER 순으로 보고 먼저 걸린 하나. 통과면 PickupReject::NONE 과 고른 것의 자리.
     //   TAB_FULL 은 판정이 아니라 가방 넣기의 결과다(CGameServer::RecvPickup). 사유가 넷이라 값을 돌려주는 함수로 뺐다(CheckUseItem 과 같은 꼴).
+    //   돌려주는 건 이 층의 어휘(GroundItem.h) — 와이어 PickupFail 로 바꾸는 건 게임 서버.
     struct PickupTarget { int32_t sectorX = 0; int32_t sectorY = 0; size_t index = 0; };
-    PickupFail FindPickup(const CPlayer* player, uint64_t frame, PickupTarget& out) const;
+    PickupReject FindPickup(const CPlayer* player, uint64_t frame, PickupTarget& out) const;
 
 private:
     static constexpr float PICKUP_RANGE = 2.0f;   // 칸 — 공격 사거리(1.5)보다 조금 넉넉하게(서버 좌표는 클라 화면보다 반 왕복 늦다)
