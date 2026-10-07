@@ -69,7 +69,8 @@ inline const char* ChatCommandRejectName(ChatCommandReject r)
 }
 
 // 불러올 때 건너뛴 줄의 사유 — DB 행이 망가졌거나 표가 바뀌어 지금 규칙에 안 맞는 줄. 평소엔 전부 0 이다.
-//   정하는 쪽은 게임 서버(LoadInventoryRows)이고 가방(CInventory)은 이 값을 만들지 않는다 — 그래서 가방 헤더가 아니라 여기(10-06).
+//   칸·아이템 번호 사유는 게임 서버(LoadInventoryRows)가, 탭·개수 사유는 가방(LoadSlot → InvLoadResult)이 정한다.
+//   두 층의 사유를 한 계수기로 세므로 라벨은 여기 두고, 가방 사유는 게임 서버가 옮긴다(10-07).
 //   ★ 깎아서 넣지 않는다(수량 초과를 한도로 줄이는 식) — 깎으면 무엇이 사라졌는지 아무도 모른다. 세고 건너뛴다.
 enum class InvLoadSkip : uint8_t
 {

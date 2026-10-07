@@ -2082,6 +2082,22 @@ void CGameServer::FlushInventory(CPlayer* player)
 #if USE_DB_WORKER
 static_assert(DB_INV_MAX_ROWS >= INVENTORY_ALL_SLOTS, "결과에 실을 가방 줄 수가 가방·착용 칸 수보다 적다");
 
+namespace
+{
+    // 가방의 불러오기 거절 → 지표 라벨. 거절은 가방(LoadSlot)이 정하고 라벨로 옮기는 건 여기 — ToPickupFail 과 같은 꼴
+    InvLoadSkip ToInvLoadSkip(InvLoadResult r)
+    {
+        switch (r)
+        {
+        case InvLoadResult::WRONG_TAB: return InvLoadSkip::WRONG_TAB;
+        case InvLoadResult::BAD_COUNT: return InvLoadSkip::BAD_COUNT;
+        case InvLoadResult::OK:        break;
+        }
+        assert(false && "거절이 아닌 결과를 건너뛴 줄로 세려 했다");
+        return InvLoadSkip::BAD_COUNT;
+    }
+}
+
 void CGameServer::LoadInventoryRows(CPlayer* player, const DBResult& result)
 {
     CGameMonitor::InventoryCounters& counters = _gameMonitor._inventory;
@@ -2110,18 +2126,13 @@ void CGameServer::LoadInventoryRows(CPlayer* player, const DBResult& result)
             skip(InvLoadSkip::UNKNOWN_ITEM, r);
             continue;
         }
-        // 무기 칸(900)이면 FindInvSlot 이 탭을 EQUIP 으로 준다 — 무기 칸에 물약·재료가 든 줄도 여기서 걸린다
-        if (def->tab != tab)
+        // 탭·개수는 가방 규칙이라 가방이 본다 — 여기는 거절을 지표 라벨로 옮겨 세기만
+        const InvLoadResult loaded = player->_inventory.LoadSlot(index, *def, r.count);
+        if (loaded != InvLoadResult::OK)
         {
-            skip(InvLoadSkip::WRONG_TAB, r);
+            skip(ToInvLoadSkip(loaded), r);   // 깎아 넣지 않는다 — 깎으면 사라진 걸 아무도 모른다
             continue;
         }
-        if (r.count <= 0 || r.count > def->maxStack)
-        {
-            skip(InvLoadSkip::BAD_COUNT, r);   // 깎아 넣지 않는다 — 깎으면 사라진 걸 아무도 모른다
-            continue;
-        }
-        player->_inventory.LoadSlot(index, r.itemId, r.count);
         counters._loadedSlots.Inc();
     }
 

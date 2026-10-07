@@ -23,12 +23,20 @@ enum class InvAddResult : uint8_t
     COUNT
 };
 const char* InvAddResultName(InvAddResult r);   // 지표 라벨(tab_full 등)
-//   가방이 정하지 않는 사유는 여기 두지 않는다(10-06) — 불러올 때 건너뛴 줄(InvLoadSkip)·쓰기·장착 거절은 게임 서버가 정하고
-//   계수기만 쓰므로 GameMonitor.h 에 있다. 이 파일은 패킷도 DB 도 모른다([모르는 것] 참조).
+//   가방이 정하지 않는 사유는 여기 두지 않는다(10-06) — 쓰기·장착 거절과 불러오기 지표 라벨(InvLoadSkip)은 게임 서버 몫이라
+//   GameMonitor.h 에 있다. 이 파일은 패킷도 DB 도 모른다([모르는 것] 참조).
+
+// 불러오기 결과 — 「이 칸에 이 아이템이 이만큼 들어가도 되나」는 가방 규칙이라 가방이 정한다. 지표 라벨(InvLoadSkip)로는 게임 서버가 옮긴다.
+enum class InvLoadResult : uint8_t
+{
+    OK,
+    WRONG_TAB,   // 아이템 탭 ≠ 칸 탭 (무기 칸에 물약 등)
+    BAD_COUNT,   // 0 이하이거나 쌓임 한도 초과 — 깎아 넣지 않는다
+};
 
 // 칸 번호 → 탭 + 가방 배열 색인. 구간 밖이면 false. INV_TAB_RANGES 를 돈 다음 착용 구간을 본다(탭마다 if 없음).
 //   ★ 착용 칸(900~)이면 탭을 EQUIP 으로 돌려준다 — "그 칸에 드는 아이템의 탭"이다. 그래서 부르는 두 곳이 안 바뀐다:
-//     불러오기(LoadInventoryRows)의 탭 대조가 "무기 칸에 물약" 을 WRONG_TAB 으로 거르고, 물약 쓰기는 NOT_USABLE 로 떨어진다.
+//     불러오기(LoadSlot)의 탭 대조가 "무기 칸에 물약" 을 WRONG_TAB 으로 거르고, 물약 쓰기는 NOT_USABLE 로 떨어진다.
 //     COUNT 를 돌려주면 불러오기가 무기 칸 줄을 전부 WRONG_TAB 으로 버려 장착이 DB 에서 조용히 안 살아난다.
 //   가방 칸이냐 착용 칸이냐는 색인으로 가른다(IsWornIndex).
 bool FindInvSlot(uint16_t slot, InvTab& outTab, int& outIndex);
@@ -66,8 +74,8 @@ public:
     //   쌓임 한도는 def.maxStack 하나로 본다 — 종류로 가르지 않는다(장비는 한도 1이라 저절로 안 쌓인다).
     InvAddResult TryAdd(const ItemDef& def, int32_t count);
 
-    // 불러올 때 칸을 채운다 — 바뀐 칸 표시를 안 켠다(DB 와 같은 값이다). 4단계에서 쓴다.
-    void LoadSlot(int index, int32_t itemId, int32_t count);
+    // 불러올 때 칸을 채운다 — 탭·개수가 안 맞으면 안 넣고 사유를 돌려준다. 바뀐 칸 표시를 안 켠다(DB 와 같은 값이다).
+    InvLoadResult LoadSlot(int index, const ItemDef& def, int32_t count);
 
     // 한 개 줄인다 — 0 이 되면 칸을 비운다(itemId 0). 쓸 수 있는지는 부르는 쪽이 이미 봤다(빈 칸이면 단언).
     void ConsumeOne(int index);

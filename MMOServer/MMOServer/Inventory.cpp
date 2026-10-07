@@ -18,6 +18,22 @@ namespace
             base += INV_TAB_RANGES[i].slotCount;
         return base;
     }
+
+    // 배열 색인 → 그 칸에 드는 아이템의 탭. 착용 칸은 EQUIP — FindInvSlot 과 같은 약속(헤더 주석)
+    InvTab TabOfIndex(int index)
+    {
+        if (IsWornIndex(index))
+            return InvTab::EQUIP;
+        int end = 0;
+        for (unsigned i = 0; i < TAB_COUNT; ++i)
+        {
+            end += INV_TAB_RANGES[i].slotCount;
+            if (index < end)
+                return static_cast<InvTab>(i);
+        }
+        assert(false && "가방 색인이 칸 수를 넘었다");
+        return InvTab::COUNT;
+    }
 }
 
 const char* InvAddResultName(InvAddResult r)
@@ -175,13 +191,19 @@ int CInventory::FirstEmptyInTab(InvTab tab) const
     return -1;
 }
 
-void CInventory::LoadSlot(int index, int32_t itemId, int32_t count)
+InvLoadResult CInventory::LoadSlot(int index, const ItemDef& def, int32_t count)
 {
     assert(index >= 0 && index < INVENTORY_ALL_SLOTS);
-    _slots[index].itemId = itemId;
+    if (def.tab != TabOfIndex(index))
+        return InvLoadResult::WRONG_TAB;   // 무기 칸에 물약·재료가 든 줄도 여기서 걸린다
+    if (count <= 0 || count > def.maxStack)
+        return InvLoadResult::BAD_COUNT;
+
+    _slots[index].itemId = def.itemId;
     _slots[index].count  = count;
     // 바뀐 칸 표시를 안 켠다 — DB 에서 온 값 그대로라 다시 쓸 일도, 클라에 칸 패킷을 보낼 일도 없다
     //   (입장 때 전체 목록 한 장이 간다).
+    return InvLoadResult::OK;
 }
 
 #endif // USE_INVENTORY
