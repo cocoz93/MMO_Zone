@@ -83,7 +83,7 @@ public:
     void CleanupEmptyChannels(const std::function<void(CZone*)>& onBeforeErase);
 
     // 전체 채널 Tick — 섹터 변경은 존마다 대기열에 쌓인다(CZone::GetSectorChanges)
-    void TickAll(float deltaTime, std::vector<CCharacter*>& outClampedCharacters);
+    void TickAll(float deltaTime, IZoneEvents& events);
 
     const MapConfig& GetConfig() const { return _config; }
 
@@ -132,8 +132,8 @@ public:
     // 존 조회 (zoneId로 직접 접근)
     CZone* GetZone(int32_t zoneId);
 
-    // 전체 존 Tick — 경계 클램핑 수집. 섹터 변경은 존마다 대기열에 쌓인다(CZone::GetSectorChanges)
-    void TickAll(float deltaTime, std::vector<CCharacter*>& outClampedCharacters);
+    // 전체 존 Tick — 섹터 변경은 존마다 대기열에 쌓인다(CZone::GetSectorChanges). 걷기·멈춤 알림은 events 로 건네기만
+    void TickAll(float deltaTime, IZoneEvents& events);
 
     // 현재 맵을 제외한 랜덤 맵 ID 반환 (-1이면 선택 불가)
     int32_t GetRandomMapId(int32_t excludeMapId) const;

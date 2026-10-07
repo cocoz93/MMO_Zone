@@ -74,9 +74,9 @@ void CMonsterManager::Think(const MonsterContext& ctx, CMonster* monster, uint64
         // 걷기 시작(또는 걷는 중에 방향을 틀었다) → MOVE_START 로 새 방향을 알린다.
         //   멈췄다면 MOVE_STOP. 좌표는 이미 서버 것이 권위라 그대로 실린다.
         if (d.moveState == MoveState::MOVING)
-            ctx.events.OnMonsterMoveStart(&_zone, monster);
+            ctx.zoneEvents.OnCharacterMoveStart(&_zone, monster);
         else
-            ctx.events.OnMonsterMoveStop(&_zone, monster);
+            ctx.zoneEvents.OnCharacterMoveStop(&_zone, monster);
     }
 
     // ── 공격 ──

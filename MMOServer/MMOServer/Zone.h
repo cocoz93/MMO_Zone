@@ -30,6 +30,20 @@
 #include "GroundItemManager.h" // 땅 아이템 관리자 — 존이 값으로 든다(USE_DROP 이 꺼져 있으면 빈 헤더)
 
 class CCharacter;
+class CZone;
+
+// 존 안에서 정한 걷기·멈춤을 게임 서버에 알리는 통로 — CGameServer 가 구현한다(존은 게임 서버를 모른다).
+//   존 틱의 벽 멈춤과 몬스터 판단(CMonsterManager)이 같이 쓴다. 패킷으로 걷고 멈추는 플레이어는 안 온다.
+//   부를 때마다 받는다(Tick 인자 · MonsterContext) — 존을 만드는 곳이 MapManager 안뿐이라서(MonsterManager.h 와 같은 까닭).
+class IZoneEvents
+{
+public:
+    virtual ~IZoneEvents() = default;
+
+    // 걷기 시작(또는 걷는 중에 방향을 틀었다) · 멈춤 — 원인(벽·판단)은 싣지 않는다.
+    virtual void OnCharacterMoveStart(CZone* zone, CCharacter* character) = 0;
+    virtual void OnCharacterMoveStop(CZone* zone, CCharacter* character) = 0;
+};
 
 // Tick에서 섹터 변경이 발생한 캐릭터 정보
 struct SectorChangeInfo
@@ -67,8 +81,8 @@ public:
     void LeaveZone(CCharacter* player);
 
     // 프레임 갱신 — MOVING 캐릭터 좌표 갱신, 섹터 변경 감지(섹터 이동 대기열에 넣는다)
-    // outClampedCharacters: 맵 경계 클램핑으로 IDLE 전환된 캐릭터 (MOVE_STOP 브로드캐스트 필요)
-    void Tick(float deltaTime, std::vector<CCharacter*>& outClampedCharacters);
+    //   맵 경계에 막혀 세운 캐릭터는 그 자리에서 events.OnCharacterMoveStop 으로 알린다
+    void Tick(float deltaTime, IZoneEvents& events);
 
     // 존 정보
     int32_t GetZoneId() const { return _zoneId; }

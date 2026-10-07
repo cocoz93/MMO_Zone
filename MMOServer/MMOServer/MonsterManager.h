@@ -4,7 +4,7 @@
 // [책임]
 //  - 몬스터 객체 소유 (unique_ptr 목록) — 존과 같이 태어나고 같이 사라지므로 존이 이 관리자를 값으로 든다
 //  - 깔기(스폰) · 판단(AI 적용) · 부활 자리 옮기기 · 벽 앞 재판단
-//  - 송신·번호 발급은 하지 않는다 — 일이 생기면 IMonsterEvents 로 알리고, 받는 쪽(CGameServer)이 한다
+//  - 송신·번호 발급은 하지 않는다 — 일이 생기면 IMonsterEvents·IZoneEvents(걷기·멈춤)로 알리고, 받는 쪽(CGameServer)이 한다
 //
 // [왜 떼어냈나]
 //  몬스터는 존이 소유하는데 몬스터를 다루는 코드는 게임 서버에 있어, 존을 지우기 전에 게임 서버가
@@ -27,6 +27,7 @@
 #if USE_MONSTER
 
 class CZone;
+class IZoneEvents;         // Zone.h — 참조로만 든다
 class CCharacter;
 class CMonster;            // 전방 선언이면 된다 — unique_ptr 을 지우는 생성자·소멸자 몸체는 .cpp 에 둔다(Zone.h 와 같은 규칙)
 class CGameMonitor;
@@ -49,9 +50,7 @@ public:
     // 등장 — 지금 자리 주변에 CREATE(SPAWN). 처음 깔 때와 부활해 새 자리에 설 때.
     virtual void OnMonsterSpawn(CZone* zone, CMonster* monster) = 0;
 
-    // 걷기 시작(또는 걷는 중에 방향을 틀었다) · 멈춤 — 방향·이동 상태가 바뀐 것만 온다.
-    virtual void OnMonsterMoveStart(CZone* zone, CMonster* monster) = 0;
-    virtual void OnMonsterMoveStop(CZone* zone, CMonster* monster) = 0;
+    // 걷기 시작·멈춤은 여기 없다 — 존 틱의 벽 멈춤과 같은 IZoneEvents 로 알린다(MonsterContext::zoneEvents).
 
     // 사라짐 — 지금 자리 주변에 DELETE. 부활로 다른 자리로 옮기기 직전(시체가 사라진다).
     virtual void OnMonsterVanish(CZone* zone, CMonster* monster) = 0;
@@ -62,6 +61,7 @@ public:
 struct MonsterContext
 {
     IMonsterEvents&          events;
+    IZoneEvents&             zoneEvents;       // 걷기 시작·멈춤 — 방향·이동 상태가 바뀐 것만 보낸다
     CGameMonitor&            monitor;
     const CSpawnRegionTable& spawnRegions;
     int32_t                  monsterPerZone;   // 0 = MONSTERS_PER_ZONE

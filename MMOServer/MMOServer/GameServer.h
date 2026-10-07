@@ -30,6 +30,7 @@
 #include <Protocol/Protocol.h>   // 게임 패킷 정의 — 전에는 IOCPServer.h를 통해 딸려왔다
 #include "BuildConfig.h"   // USE_COMBAT 등 실험·컨텐츠 토글 — 간접 포함에 기대지 않고 직접 읽는다
 #include "MapManager.h"
+#include "Zone.h"          // 존 — 여기서는 그 알림(IZoneEvents)을 구현한다
 #include "Player.h"
 #include "Combat.h"        // 전투 판정 (순수 함수 — 송신·존·섹터를 모른다)
 #include "CombatSystem.h"  // 공격 흐름 — 여기서는 그 알림(ICombatEvents)을 구현한다
@@ -43,22 +44,22 @@
 
 class CSerialBuffer;
 
-// 알림 통로 셋 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속. 토글이 둘이라 머리가 네 갈래다.
+// 알림 통로 넷 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
+//   IZoneEvents       = 존(존 틱·몬스터 관리자)의 걷기·멈춤 알림 둘 — 토글 없이 늘 있다
 //   ICombatEvents     = 공격 흐름(CCombatSystem)의 알림 셋
-//   IMonsterEvents    = 몬스터 관리자(CMonsterManager)의 알림 넷과 번호 부탁 하나
-//   IGroundItemEvents = 땅 아이템 관리자(CGroundItemManager)의 알림 둘과 번호 부탁 하나 —
-//                       USE_DROP 은 가방(→ 전투)과 몬스터가 다 켜져야 켜지므로(BuildConfig.h #error) 첫 머리에만 붙는다
+//   IMonsterEvents    = 몬스터 관리자(CMonsterManager)의 알림 둘과 번호 부탁 하나
+//   IGroundItemEvents = 땅 아이템 관리자(CGroundItemManager)의 알림 둘과 번호 부탁 하나
+//                       (USE_DROP 은 가방(→ 전투)과 몬스터가 다 켜져야 켜진다 — BuildConfig.h #error)
 class CGameServer
-#if USE_COMBAT && USE_MONSTER
-    : private ICombatEvents
+    : private IZoneEvents
+#if USE_COMBAT
+    , private ICombatEvents
+#endif
+#if USE_MONSTER
     , private IMonsterEvents
+#endif
 #if USE_DROP
     , private IGroundItemEvents
-#endif
-#elif USE_COMBAT
-    : private ICombatEvents
-#elif USE_MONSTER
-    : private IMonsterEvents
 #endif
 {
 public:
@@ -279,8 +280,6 @@ private:
     // 몬스터 알림과 번호 부탁 (IMonsterEvents) — 뜻은 MonsterManager.h.
     int32_t AllocActorId() override;                                         // = AllocPlayerId — 번호 공간이 플레이어와 하나
     void OnMonsterSpawn(CZone* zone, CMonster* monster) override;            // 주변에 CREATE(SPAWN) · 동기화 기준점을 지금 자리로
-    void OnMonsterMoveStart(CZone* zone, CMonster* monster) override;        // 주변에 MOVE_START
-    void OnMonsterMoveStop(CZone* zone, CMonster* monster) override;         // 주변에 MOVE_STOP
     void OnMonsterVanish(CZone* zone, CMonster* monster) override;           // 지금 자리 주변에 DELETE
 #endif
 
@@ -426,6 +425,10 @@ private:
     void NotifyMoveStop(CZone* zone, CCharacter* player, bool excludeSelf);
     void NotifyMoveSync(CZone* zone, CCharacter* player);
 
+    // 존 알림 (IZoneEvents) — 뜻은 Zone.h. 존이 정한 걷기·멈춤을 위 헬퍼로 보낸다.
+    void OnCharacterMoveStart(CZone* zone, CCharacter* character) override;  // 주변에 MOVE_START
+    void OnCharacterMoveStop(CZone* zone, CCharacter* character) override;   // 주변에 MOVE_STOP · 플레이어면 저장 대상
+
     // ── 섹터 묶음 경로 (USE_SECTOR_AGGREGATION) ──
     void MarkMoveDirty(CCharacter* player);   // 즉시 브로드캐스트 대신 dirty 등록 (중복 방지)
     void FlushSectorUpdates();             // 틱 끝: dirty를 섹터별로 묶어 주변에 송신
@@ -564,7 +567,6 @@ private:
     std::vector<CPlayer*> _broadcastBuffer;          // BroadcastAroundSector 전용 — 받는 쪽은 플레이어뿐
     std::vector<CPlayer*> _eventAroundBuffer;        // 접속/해제/존이동 전용 — 같음
     std::vector<CCharacter*> _lateMoverBuffer;       // 늦은 이동자 조회(CZone::CollectLateMovers) 전용 — 퇴장·땅 아이템이 채우고 그 자리에서 다 쓴다
-    std::vector<CCharacter*> _tickClampedPlayers;
 #if USE_COMBAT
     // 공격 후보 버퍼는 두지 않는다 — 사거리가 걸치는 섹터의 주민 목록을 참조로 훑어 복사가 없다.
     //   (처음엔 GetAroundPlayers 의 전신이 벡터를 요구해 _attackTargetBuffer 를 뒀었다)

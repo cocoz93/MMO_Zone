@@ -614,7 +614,6 @@ bool CGameServer::Init(ServerMode mode, int port, int maxClients,
 #endif
         _broadcastBuffer.reserve(maxPerChannel);       // 주변 9섹터 단위
         _eventAroundBuffer.reserve(maxPerChannel);     // 주변 9섹터 단위
-        _tickClampedPlayers.reserve(maxPerChannel);    // 전체 서버 TickAll 결과
         _sectorOutbox.dirtyMovers.reserve(maxClients);              // 전체 서버 dirty (이동/sync 묶음 대상)
     }
 
@@ -1094,8 +1093,8 @@ void CGameServer::GameLoopThread()
 #endif
 
         // 2) 게임 로직 갱신 (좌표 이동 + 섹터 변경 감지 + 경계 클램핑) — 섹터 변경은 존마다 대기열에 쌓인다
-        _tickClampedPlayers.clear();
-        _mapManager.TickAll(deltaTime, _tickClampedPlayers);
+        //   경계에 막혀 선 캐릭터는 존이 그 자리에서 알린다(OnCharacterMoveStop)
+        _mapManager.TickAll(deltaTime, *this);
 
         // 3) 섹터 변경 배치 처리 — 존마다 대기열(이동 패킷 + 존 틱, 넣을 때 중복 차단)을 읽어 보내고 비운다.
         //   존마다 따로 도는 까닭: 대기열의 섹터 좌표는 그 존의 격자이고, 보내는 대상도 그 존 사람뿐이다.
@@ -1117,21 +1116,6 @@ void CGameServer::GameLoopThread()
 
         _tickMembershipUs += std::chrono::duration_cast<std::chrono::microseconds>(
             Clock::now() - membT0).count();
-
-        // 3-1) 맵 경계 클램핑으로 정지된 플레이어에게 MOVE_STOP 브로드캐스트
-        for (CCharacter* player : _tickClampedPlayers)
-        {
-#if USE_DB_WORKER
-            if (CPlayer* p = As<CPlayer>(player))
-                p->_dbDirty = true;   // 경계 클램프로 위치 변경 → 저장 대상
-#endif
-            // 벽에 닿은 몬스터의 재판단은 존 틱(2)이 세운 그 자리에서 이미 했다(CMonsterManager::OnBlockedByWall)
-            CZone* zone = _mapManager.GetZone(player->_zoneId);
-            if (zone != nullptr)
-            {
-                NotifyMoveStop(zone, player, false);  // 본인 포함
-            }
-        }
 
 #if USE_COMBAT
         // 3-2) 부활 대기자 훑기 (게임 로직 페이즈에 계상 — 브로드캐스트를 동반한다)
@@ -2444,6 +2428,22 @@ void CGameServer::NotifyMoveSync(CZone* zone, CCharacter* player)
 #endif
 }
 
+// ── 존 알림 (IZoneEvents) ── 존이 정한 걷기·멈춤 — 몬스터 판단(1-1)과 맵 경계에 막힘(2).
+void CGameServer::OnCharacterMoveStart(CZone* zone, CCharacter* character)
+{
+    NotifyMoveStart(zone, character);
+}
+
+void CGameServer::OnCharacterMoveStop(CZone* zone, CCharacter* character)
+{
+#if USE_DB_WORKER
+    // 플레이어가 여기 오는 건 경계에 막혔을 때뿐이다 — 위치가 바뀌었으니 저장 대상
+    if (CPlayer* player = As<CPlayer>(character))
+        player->_dbDirty = true;
+#endif
+    NotifyMoveStop(zone, character, false);   // 본인 포함
+}
+
 void CGameServer::SendZoneInfo(CPlayer* target, CZone* zone)
 {
     SendPacket(target, MakeZoneInfo(zone));
@@ -2674,7 +2674,7 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
     // ── 6) 경험치 — 사람이 몬스터를 잡았을 때만 ──
     //   ★ 막타 한 명에게만 준다. 나눠 주려면 누가 얼마나 때렸는지를 몬스터가 들고 있어야 하고,
     //     그건 퇴장 경로가 훑어야 할 대기열이 하나 더 느는 일이다(Monster.h [대상] 과 같은 이유).
-    //   때린 쪽은 CCharacter* 라 As<CPlayer> 로 확인 후 내려 바꾼다 — _tickClampedPlayers 순회와 같은 꼴.
+    //   때린 쪽은 CCharacter* 라 As<CPlayer> 로 확인 후 내려 바꾼다.
     //   PvP 는 안 준다: 당한 쪽이 몬스터일 때만이다.
     CPlayer* killer = As<CPlayer>(attacker);
     if (killer != nullptr && target->_kind == CharacterKind::MONSTER)
@@ -2887,7 +2887,7 @@ void CGameServer::RemoveFromDeadActors(CCharacter* player)
 
 MonsterContext CGameServer::MakeMonsterContext()
 {
-    return MonsterContext{ *this, _gameMonitor, _gameDataFiles.SpawnRegions(), _monsterPerZone, _snakeSpeed
+    return MonsterContext{ *this, *this, _gameMonitor, _gameDataFiles.SpawnRegions(), _monsterPerZone, _snakeSpeed
 #if USE_COMBAT
                          , _combatSystem
 #endif
@@ -2942,16 +2942,6 @@ void CGameServer::OnMonsterSpawn(CZone* zone, CMonster* monster)
     //   안 맞추면 옛 자리와의 차이로 보정 패킷(MOVE_SYNC)이 한 번 더 나갈 뿐, 위치가 틀리지는 않는다.
     monster->_lastSyncX = monster->_x;
     monster->_lastSyncY = monster->_y;
-}
-
-void CGameServer::OnMonsterMoveStart(CZone* zone, CMonster* monster)
-{
-    NotifyMoveStart(zone, monster);
-}
-
-void CGameServer::OnMonsterMoveStop(CZone* zone, CMonster* monster)
-{
-    NotifyMoveStop(zone, monster, false);   // 본인 포함 — 몬스터는 세션이 없어 어차피 안 간다
 }
 
 void CGameServer::OnMonsterVanish(CZone* zone, CMonster* monster)

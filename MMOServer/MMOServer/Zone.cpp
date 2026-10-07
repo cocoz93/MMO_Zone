@@ -113,7 +113,7 @@ void CZone::LeaveZone(CCharacter* player)
     player->_listIndex = -1;
 }
 
-void CZone::Tick(float deltaTime, std::vector<CCharacter*>& outClampedCharacters)
+void CZone::Tick(float deltaTime, IZoneEvents& events)
 {
     for (CCharacter* player : _characterList)
     {
@@ -138,7 +138,7 @@ void CZone::Tick(float deltaTime, std::vector<CCharacter*>& outClampedCharacters
         if (clamped)
         {
             player->_moveState = MoveState::IDLE;
-            outClampedCharacters.push_back(player);
+            events.OnCharacterMoveStop(this, player);
 #if USE_MONSTER
             // 벽에 막힌 몬스터는 다음 틱에 바로 다시 판단하게 한다 — 까닭은 CMonsterManager::OnBlockedByWall
             if (CMonster* monster = As<CMonster>(player))
