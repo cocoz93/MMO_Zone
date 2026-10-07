@@ -17,18 +17,23 @@
 
 #include <cstdint>
 
+#include "BuildConfig.h"   // USE_COMBAT — 안 읽으면 아래 #if 가 조용히 0 이 된다
 #include "Character.h"
 
 namespace Combat
 {
+    // "앞 한 칸"을 좌표 일치로 잡지 않는 이유 — 서버 좌표가 float이라 정수 칸이 거의 안 맞는다.
+    //   거리와 바라보는 방향으로 대신 잡는다.
+    //   ★ 사거리만 USE_COMBAT 밖에 둔다 — 몬스터 AI 가 "쫓아가서 어디서 멈추나"를 이 값으로 정한다(MonsterAI.cpp InReach).
+    //     전투를 꺼도 몬스터는 쫓아와 곁에 선다(물지만 않는다). 가드 안에 넣으면 멈출 거리를 잃는다.
+    constexpr float ATTACK_RANGE     = 1.5f;                        // 타일
+    constexpr float ATTACK_RANGE_SQ  = ATTACK_RANGE * ATTACK_RANGE;
+
+#if USE_COMBAT
+
     // 틱은 40ms (CGameServer::FRAME_INTERVAL_MS)
     constexpr uint64_t ATTACK_COOLDOWN_FRAMES = 12;   // 12 × 40ms ≈ 480ms — 바람의나라류 체감
     constexpr uint64_t RESPAWN_DELAY_FRAMES   = 75;   // 75 × 40ms = 3초
-
-    // "앞 한 칸"을 좌표 일치로 잡지 않는 이유 — 서버 좌표가 float이라 정수 칸이 거의 안 맞는다.
-    //   거리와 바라보는 방향으로 대신 잡는다.
-    constexpr float ATTACK_RANGE     = 1.5f;                        // 타일
-    constexpr float ATTACK_RANGE_SQ  = ATTACK_RANGE * ATTACK_RANGE;
 
     // 공격이 안 먹힌 사유 — 갈래가 넷이다. 하나로 뭉치면 제일 흔한 하나가 나머지를 삼켜
     //   "헛스윙이 많은 건지 쿨타임에 막힌 건지"를 못 읽는다.
@@ -67,4 +72,6 @@ namespace Combat
 
     // 제자리 만피 부활 — 좌표는 건드리지 않는다. 부활 지점을 옮기려면 호출자가 좌표를 정하고 부른다.
     void Respawn(CCharacter& actor);
+
+#endif // USE_COMBAT
 }

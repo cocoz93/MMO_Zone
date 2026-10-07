@@ -246,6 +246,7 @@ Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame
             break;
         }
 
+#if USE_COMBAT
         // ★ 쿨타임을 여기서 먼저 묻는다.
         //   판단 주기(10틱)가 쿨타임(12틱)보다 짧다고 공격이 안 밀리는 게 아니다 —
         //   그냥 때리면 0틱 성공 → 10틱 거부 → 20틱 성공이라 실효 주기가 20틱(0.8초)이 된다.
@@ -260,6 +261,10 @@ Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame
             // 아직 쿨타임 — 찰 때까지 기다렸다가 다시 본다 (거부당할 시도를 아예 안 한다)
             d.nextThinkFrame = monster._lastAttackFrame + Combat::ATTACK_COOLDOWN_FRAMES;
         }
+#else
+        // 전투를 끄면 물지 않는다 — 곁에 서서 기본 주기로 다시 본다(대상이 걸어 나가면 위 InReach 로 다시 쫓는다)
+        d.nextThinkFrame = frame + THINK_INTERVAL_FRAMES;
+#endif
         break;
     }
     }

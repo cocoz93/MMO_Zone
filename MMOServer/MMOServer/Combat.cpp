@@ -1,5 +1,7 @@
 ﻿#include "Combat.h"
 
+#if USE_COMBAT
+
 namespace Combat
 {
 
@@ -84,3 +86,5 @@ void Respawn(CCharacter& actor)
 }
 
 } // namespace Combat
+
+#endif // USE_COMBAT
