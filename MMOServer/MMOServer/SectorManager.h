@@ -53,7 +53,7 @@ public:
     int32_t CalcSectorX(float worldX) const;
     int32_t CalcSectorY(float worldY) const;
 
-    // 캐릭터 등록/해제 — 종류로 목록을 고른다(AsPlayer). 종류를 묻는 자리는 이 둘뿐이다
+    // 캐릭터 등록/해제 — 종류로 목록을 고른다(As<CPlayer>). 종류를 묻는 자리는 이 둘뿐이다
     void AddCharacter(CCharacter* character, int32_t sectorX, int32_t sectorY);
     void RemoveCharacter(CCharacter* character, int32_t sectorX, int32_t sectorY);
 

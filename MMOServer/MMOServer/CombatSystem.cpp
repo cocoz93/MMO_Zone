@@ -170,7 +170,7 @@ void CCombatSystem::PerformAttack(CZone* zone, CCharacter* player, uint64_t fram
     // ★ 죽음은 "당한 쪽"으로 가른다 — 때린 쪽(byMonster)으로 가르면
     //   플레이어가 뱀을 죽인 것이 "플레이어 죽음"으로 세어진다.
 #if USE_MONSTER
-    if (target->_kind == CharacterKind::MONSTER)
+    if (CMonster* monster = As<CMonster>(target))
     {
         _gameMonitor._monster._deathsTotal.Inc();
 
@@ -178,7 +178,7 @@ void CCombatSystem::PerformAttack(CZone* zone, CCharacter* player, uint64_t fram
         //   게임 서버에 맡기면 몬스터가 죽는 길이 늘 때마다(스킬 등) 거기서 이 분기를 또 적어야 하고, 빠뜨리면 영영 안 살아난다.
         //   플레이어 죽은 목록은 게임 서버 것(OnDeath) — 부활 자리·시간이 아직 임시 사양이라 그쪽에 둔다(10-05 결정).
         assert(target->_zoneId == zone->GetZoneId());   // 사거리 안에서 맞았다 — 같은 존이다
-        zone->GetMonsterManager().QueueRespawn(static_cast<CMonster*>(target));
+        zone->GetMonsterManager().QueueRespawn(monster);
     }
     else
     {

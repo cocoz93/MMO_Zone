@@ -15,11 +15,11 @@
 // [세션] 조종 세션(_sessionId)은 여기 없고 CPlayer 에 있다. 패킷을 받는 쪽은 플레이어뿐이라
 //        보내는 함수(CGameServer::SendPacket 과 SendXxx)는 전부 CPlayer* 만 받는다 — 몬스터에게
 //        보내는 코드는 컴파일이 안 된다. 섹터 목록(CCharacter*)에서 받는 쪽을 고를 때는
-//        AsPlayer(Player.h) 로 확인 후 내려 바꾼다. 코드 전체에서 내려 바꾸는 자리는 그 한 곳뿐이다.
+//        As<CPlayer>(아래 As) 로 확인 후 내려 바꾼다. 코드 전체에서 내려 바꾸는 자리는 그 한 곳뿐이다.
 //
-// [종류] _kind 로 종류를 가른다 — 정원 카운터(_playerCount), AsPlayer, 섹터 목록 고르기(CSectorManager::AddCharacter).
+// [종류] _kind 로 종류를 가른다 — 정원 카운터(_playerCount), As(각 타입의 Matches), 섹터 목록 고르기(CSectorManager::AddCharacter).
 //        파생 생성자가 자기 것을 잡는다 — 여기 기본값은 PLAYER 이고 CMonster 가 MONSTER 로 덮는다.
-//        생성자 뒤에는 안 바뀐다 — AsPlayer 와 섹터 목록 선택(넣을 때·뺄 때 같은 목록)이 이 전제에 기댄다.
+//        생성자 뒤에는 안 바뀐다 — As 와 섹터 목록 선택(넣을 때·뺄 때 같은 목록)이 이 전제에 기댄다.
 //
 // [컨테이너] 존(_characterList)은 vector<CCharacter*> 하나(틱 순회용 — 이동 갱신은 종류가 상관없다).
 //        섹터는 목록 둘 — 플레이어(CPlayer*)와 나머지(CCharacter*), SectorManager.h [목록 둘] 참조.
@@ -67,3 +67,16 @@ public:
     uint64_t _lastAttackFrame = 0;   // 마지막 공격 프레임 (쿨타임 판정 — CGameServer::_frameCount 기준)
     uint64_t _deathFrame = 0;        // 죽은 프레임 (부활 시점 판정 기준)
 };
+
+// 확인 후 내려 바꾸기 — 코드 전체에서 CCharacter* 를 파생 타입(CPlayer·CMonster)으로 내려 바꾸는 자리는 이 함수 안 한 곳뿐이다.
+//   다른 곳에서 static_cast<CPlayer*>·static_cast<CMonster*> 가 보이면 그게 곧 잘못이다. _kind 는 생성자에서만 정해지므로
+//   (Player.cpp · Monster.cpp) 이 판정은 그 뒤로 바뀌지 않는다.
+//   맞는 종류인지는 T::Matches 가 정한다 — 파생 타입마다 하나씩 둔다(LLVM 의 classof 와 같은 꼴).
+//   ★ 종류 값 하나와 같은지를 여기서 바로 비교하지 않는 이유 — 한 단계 더 내려가는 타입(예: 보스가 CMonster 를 상속)이
+//     생기면 CMonster::Matches 만 「종류 범위」로 바꾸면 된다. 이 함수와 호출처는 안 바뀐다.
+//   Matches 가 없는 타입이나 CCharacter 의 자식이 아닌 타입을 넣으면 컴파일이 안 된다.
+template <class T>
+T* As(CCharacter* c)
+{
+    return T::Matches(*c) ? static_cast<T*>(c) : nullptr;
+}

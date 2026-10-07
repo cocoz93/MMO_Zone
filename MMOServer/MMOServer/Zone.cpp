@@ -141,8 +141,8 @@ void CZone::Tick(float deltaTime, std::vector<CCharacter*>& outClampedCharacters
             outClampedCharacters.push_back(player);
 #if USE_MONSTER
             // 벽에 막힌 몬스터는 다음 틱에 바로 다시 판단하게 한다 — 까닭은 CMonsterManager::OnBlockedByWall
-            if (player->_kind == CharacterKind::MONSTER)
-                _monsterManager.OnBlockedByWall(static_cast<CMonster*>(player));
+            if (CMonster* monster = As<CMonster>(player))
+                _monsterManager.OnBlockedByWall(monster);
 #endif
         }
 

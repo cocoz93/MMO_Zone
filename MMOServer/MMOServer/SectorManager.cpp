@@ -1,5 +1,5 @@
 ﻿#include "SectorManager.h"
-#include "Player.h"   // AsPlayer — 종류로 목록을 고르는 자리(AddCharacter·RemoveCharacter)
+#include "Player.h"   // As<CPlayer> — 종류로 목록을 고르는 자리(AddCharacter·RemoveCharacter)
 #include <algorithm>
 #include <cassert>   // 도달불가 불변식 검증 (릴리즈에서는 사라짐)
 
@@ -90,7 +90,7 @@ void CSectorManager::AddCharacter(CCharacter* character, int32_t sectorX, int32_
         return;
 
     // 종류로 목록을 고른다 — 여기와 RemoveCharacter 둘뿐이다. _kind 는 생성자 뒤 안 바뀌므로 둘이 어긋날 길이 없다.
-    if (CPlayer* p = AsPlayer(character))
+    if (CPlayer* p = As<CPlayer>(character))
         PushTo(PlayersAt(sectorY, sectorX), p);
     else
         PushTo(OthersAt(sectorY, sectorX), character);
@@ -101,7 +101,7 @@ void CSectorManager::RemoveCharacter(CCharacter* character, int32_t sectorX, int
     if (!IsValidSector(sectorX, sectorY))
         return;
 
-    if (CPlayer* p = AsPlayer(character))
+    if (CPlayer* p = As<CPlayer>(character))
         PopFrom(PlayersAt(sectorY, sectorX), p);
     else
         PopFrom(OthersAt(sectorY, sectorX), character);

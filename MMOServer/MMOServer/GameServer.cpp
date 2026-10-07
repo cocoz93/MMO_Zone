@@ -1114,7 +1114,7 @@ void CGameServer::GameLoopThread()
         for (CCharacter* player : _tickClampedPlayers)
         {
 #if USE_DB_WORKER
-            if (CPlayer* p = AsPlayer(player))
+            if (CPlayer* p = As<CPlayer>(player))
                 p->_dbDirty = true;   // 경계 클램프로 위치 변경 → 저장 대상
 #endif
             // 벽에 닿은 몬스터의 재판단은 존 틱(2)이 세운 그 자리에서 이미 했다(CMonsterManager::OnBlockedByWall)
@@ -2646,7 +2646,7 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
 {
     // 플레이어 죽은 목록 — 부활 자리·시간이 임시 사양(제자리 3초)이라 아직 게임 서버가 든다(10-05 결정).
     //   몬스터를 여기 넣으면 존이 지워질 때 밖에서 빼 줘야 하는 약속이 다시 생긴다(MonsterManager.h [왜 떼어냈나]).
-    if (AsPlayer(target) != nullptr)
+    if (As<CPlayer>(target) != nullptr)
         _deadActors.push_back(target);
 
     BroadcastAroundSector(zone, attacker, MakeDeath(target->_actorId), false);
@@ -2655,9 +2655,9 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
     // ── 6) 경험치 — 사람이 몬스터를 잡았을 때만 ──
     //   ★ 막타 한 명에게만 준다. 나눠 주려면 누가 얼마나 때렸는지를 몬스터가 들고 있어야 하고,
     //     그건 퇴장 경로가 훑어야 할 대기열이 하나 더 느는 일이다(Monster.h [대상] 과 같은 이유).
-    //   때린 쪽은 CCharacter* 라 AsPlayer 로 확인 후 내려 바꾼다 — _tickClampedPlayers 순회와 같은 꼴.
+    //   때린 쪽은 CCharacter* 라 As<CPlayer> 로 확인 후 내려 바꾼다 — _tickClampedPlayers 순회와 같은 꼴.
     //   PvP 는 안 준다: 당한 쪽이 몬스터일 때만이다.
-    CPlayer* killer = AsPlayer(attacker);
+    CPlayer* killer = As<CPlayer>(attacker);
     if (killer != nullptr && target->_kind == CharacterKind::MONSTER)
     {
         const int32_t reward = SNAKE_EXP_REWARD;   // 종류가 하나뿐 — 늘어나면 종류별 표에서 뽑는다
@@ -2698,8 +2698,10 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
 #if USE_DROP
     // ── 7) 드랍 — 사람이 몬스터를 잡았을 때만(경험치와 같은 조건) ──
     //   막타 한 명이 주인이다(경험치와 같은 이유 — 누가 얼마나 때렸는지 몬스터가 들고 있지 않다).
-    if (CPlayer* looter = AsPlayer(attacker); looter != nullptr && target->_kind == CharacterKind::MONSTER)
-        DropLoot(zone, looter, static_cast<CMonster*>(target));
+    CPlayer*  looter = As<CPlayer>(attacker);
+    CMonster* prey   = As<CMonster>(target);
+    if (looter != nullptr && prey != nullptr)
+        DropLoot(zone, looter, prey);
 #endif
 }
 
@@ -3115,7 +3117,7 @@ void CGameServer::SendGroundItemDeleteToLateMovers(CZone* zone, int32_t sectorX,
     zone->CollectLateMovers(sectorX, sectorY, sectorX, sectorY, nullptr, _lateMoverBuffer);
     for (CCharacter* character : _lateMoverBuffer)
     {
-        CPlayer* mover = AsPlayer(character);   // 대기열은 섞여 있다(몬스터도 섹터를 넘는다) — 받는 쪽만
+        CPlayer* mover = As<CPlayer>(character);   // 대기열은 섞여 있다(몬스터도 섹터를 넘는다) — 받는 쪽만
         if (mover == nullptr)
             continue;
 
@@ -3212,7 +3214,7 @@ void CGameServer::BroadcastLeaveZone(CZone* zone, CCharacter* player)
     zone->CollectLateMovers(leaverOldX, leaverOldY, player->_sectorX, player->_sectorY, player, _lateMoverBuffer);
     for (CCharacter* mover : _lateMoverBuffer)
     {
-        if (CPlayer* m = AsPlayer(mover))
+        if (CPlayer* m = As<CPlayer>(mover))
             SendDeletePlayer(m, player);
         ++_tickPairFixes;
     }
@@ -3237,17 +3239,17 @@ void CGameServer::SendSightPairFixes(const std::vector<CZone::SightPairFix>& fix
         if (fix.visible)
         {
             // 안 보이다가 보임 — 서로 CREATE
-            if (CPlayer* pa = AsPlayer(fix.a))
+            if (CPlayer* pa = As<CPlayer>(fix.a))
                 SendCreateOtherPlayer(pa, fix.b);
-            if (CPlayer* pb = AsPlayer(fix.b))
+            if (CPlayer* pb = As<CPlayer>(fix.b))
                 SendCreateOtherPlayer(pb, fix.a);
         }
         else
         {
             // 보였다가 안 보임 — 서로 DELETE
-            if (CPlayer* pa = AsPlayer(fix.a))
+            if (CPlayer* pa = As<CPlayer>(fix.a))
                 SendDeletePlayer(pa, fix.b);
-            if (CPlayer* pb = AsPlayer(fix.b))
+            if (CPlayer* pb = As<CPlayer>(fix.b))
                 SendDeletePlayer(pb, fix.a);
         }
         ++_tickPairFixes;
@@ -3264,7 +3266,7 @@ void CGameServer::ProcessSectorChange(CZone* zone, const CZone::SightMove& move)
 
     // 인바운드(상대→나)는 내가 플레이어일 때만 있다 — 몬스터·NPC 는 받는 쪽이 못 되므로
     //   수집·직렬화 자체를 건너뛴다. 아웃바운드(나→상대)는 받는 쪽이 남이라 종류와 무관하게 그대로 간다.
-    CPlayer* const me = AsPlayer(player);
+    CPlayer* const me = As<CPlayer>(player);
 
     // 못 보게 된 섹터(removed) · 새로 보게 된 섹터(added) — 존이 정했다(CZone::TakeSightChanges, GetSectorDiff 출력 그대로)
     const CSectorManager::SectorPos* const added = move.added;

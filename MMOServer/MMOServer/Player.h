@@ -13,7 +13,7 @@
 //
 // [세션] _sessionId 는 여기에만 있다 — 패킷을 받는 쪽은 플레이어뿐이라 보내는 함수
 //        (CGameServer::SendPacket 과 SendXxx)가 전부 CPlayer* 만 받는다. 몬스터를 넘기면 컴파일이 안 된다.
-//        섹터 목록(CCharacter*)에서 받는 쪽을 고를 때는 아래 AsPlayer 로 확인 후 내려 바꾼다.
+//        섹터 목록(CCharacter*)에서 받는 쪽을 고를 때는 As<CPlayer>(Character.h) 로 확인 후 내려 바꾼다.
 class CPlayer : public CCharacter
 {
     friend class CGameServer;  // 경계 계층만 _sessionId 접근 허용
@@ -21,6 +21,9 @@ class CPlayer : public CCharacter
 public:
     CPlayer();
     ~CPlayer() override;
+
+    // As<CPlayer> 가 묻는 판정 — Character.h As 참조
+    static bool Matches(const CCharacter& c) { return c._kind == CharacterKind::PLAYER; }
 
     bool _isAdmin;        // 운영자 여부
 
@@ -69,11 +72,3 @@ private:
     //   EnterZone → 세션 부여 순이라 EnterZone 시점엔 잠시 -1 이다. SendPacket 이 이 값을 검사한다.
     int64_t _sessionId = -1;
 };
-
-// 확인 후 내려 바꾸기 — 코드 전체에서 CCharacter* 를 CPlayer* 로 내려 바꾸는 자리는 이 함수 안 한 곳뿐이다.
-//   다른 곳에서 static_cast<CPlayer*> 가 보이면 그게 곧 잘못이다. _kind 는 생성자에서만 정해지므로
-//   (Player.cpp · Monster.cpp) 이 판정은 그 뒤로 바뀌지 않는다.
-inline CPlayer* AsPlayer(CCharacter* c)
-{
-    return (c->_kind == CharacterKind::PLAYER) ? static_cast<CPlayer*>(c) : nullptr;
-}
