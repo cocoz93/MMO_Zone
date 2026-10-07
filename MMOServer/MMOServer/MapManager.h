@@ -20,8 +20,17 @@
 #include <unordered_map>
 #include <vector>
 
-#include "MapConfig.h"   // 맵 설정 데이터 — 설정 읽기(ServerConfig)와 같이 쓴다
 #include "Zone.h"
+
+// 맵 설정 데이터
+struct MapConfig
+{
+    int32_t mapId;
+    int32_t mapWidth;
+    int32_t mapHeight;
+    int32_t sectorSize;
+    int32_t maxPlayersPerChannel;  // 채널당 최대 인원 (소프트 리밋)
+};
 
 // 존 이동 목적지 고르기의 거절 사유 — CMapManager::PickZoneChangeTarget
 //   사유를 정하는 건 채널 정책(여기), 패킷 값(MSG_S2C_ZONE_CHANGE_FAIL::reason)으로 바꾸는 건 게임 서버다.
