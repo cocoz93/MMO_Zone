@@ -113,8 +113,8 @@ public:
 private:
     static constexpr float PICKUP_RANGE = 2.0f;   // 칸 — 공격 사거리(1.5)보다 조금 넉넉하게(서버 좌표는 클라 화면보다 반 왕복 늦다)
 
-    static constexpr uint64_t GROUND_ITEM_LIFE_FRAMES = 60 * 25;   // 60초 — 땅에 남는 시간(플랜 ㉰)
-    static constexpr uint64_t LOOT_LOCK_FRAMES        = 10 * 25;   // 10초 — 막타 친 사람이 먼저 줍는 시간(플랜 ㉯)
+    static constexpr uint64_t GROUND_ITEM_LIFE_FRAMES = 60 * FRAME_PER_SEC;   // 60초 — 땅에 남는 시간(플랜 ㉰)
+    static constexpr uint64_t LOOT_LOCK_FRAMES        = 10 * FRAME_PER_SEC;   // 10초 — 막타 친 사람이 먼저 줍는 시간(플랜 ㉯)
 
     // 한 칸에 넣기 · 한 개 빼기 — 목록을 바꾸는 자리는 이 둘뿐이다(Drop · Remove 가 부른다).
     //   빼기는 자리 바꿔 빼기(swap-and-pop)라 맨 뒤엣것이 index 자리로 온다.

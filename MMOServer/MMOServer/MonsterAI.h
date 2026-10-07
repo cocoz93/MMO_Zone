@@ -30,7 +30,7 @@
 
 namespace MonsterAI
 {
-    // 틱은 40ms (CGameServer::FRAME_INTERVAL_MS)
+    // 틱은 40ms (BuildConfig.h FRAME_INTERVAL_MS)
     constexpr uint64_t THINK_INTERVAL_FRAMES = 10;   // 0.4초마다 판단 — 매 틱 돌면 단일 코어 게임루프가 손해다
     //   0.4초 = 시야(6타일) ÷ 뱀 속도(15타일/초). 배회하는 뱀은 0.4초면 시야 끝에서 끝까지 가므로
     //   이보다 드물게 보면 시야 안의 플레이어를 한 번도 못 보고 지나칠 수 있다.
@@ -48,10 +48,10 @@ namespace MonsterAI
     //   1틱이면 판단 사이 0.6타일이라 0.9~1.5타일에서 선다 — 옆에 붙어 무는 모양이 된다.
     //   비용은 CHASE 인 몬스터에만 붙는다(대부분은 WANDER·IDLE 이라 10틱 그대로다).
     constexpr uint64_t CHASE_THINK_INTERVAL_FRAMES = 1;
-    constexpr uint64_t IDLE_MIN_FRAMES       = 25;   // 1초
-    constexpr uint64_t IDLE_MAX_FRAMES       = 75;   // 3초 — 이 사이에서 랜덤하게 쉬었다 움직인다
-    constexpr uint64_t WANDER_MIN_FRAMES     = 25;   // 한 방향으로 걷는 최소 시간
-    constexpr uint64_t WANDER_MAX_FRAMES     = 75;
+    constexpr uint64_t IDLE_MIN_FRAMES       = 1 * FRAME_PER_SEC;   // 1초
+    constexpr uint64_t IDLE_MAX_FRAMES       = 3 * FRAME_PER_SEC;   // 3초 — 이 사이에서 랜덤하게 쉬었다 움직인다
+    constexpr uint64_t WANDER_MIN_FRAMES     = 1 * FRAME_PER_SEC;   // 한 방향으로 걷는 최소 시간(1초)
+    constexpr uint64_t WANDER_MAX_FRAMES     = 3 * FRAME_PER_SEC;   // 3초
 
     // 시야 6타일 — 화면 안에서 "따라붙는" 것이 보이는 거리.
     // 추적 포기 12타일 — 시야의 2배. 이 밖으로 나가면 대상을 놓고 배회로 돌아간다.

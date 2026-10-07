@@ -198,3 +198,10 @@
 //   표마다 토글이 따로라, "레벨 표는 끄고 아이템 표만 켠" 빌드에서도 담는 자리는 살아 있어야 한다.
 //   레벨 표는 전투 토글을 따른다(위 USE_EXP 주석 ★) · 스폰 구역 표(SpawnRegion.csv)는 몬스터 토글을 따른다 — 뱀이 태어날 자리라 몬스터를 끄면 뜻이 없다.
 #define USE_GAME_DATA_FILES (USE_COMBAT || USE_INVENTORY || USE_MONSTER)
+
+// 틱 주기 — 서버 시간의 단위. 시간을 「틱 수」로 재는 설계(09-23)라 모든 시간 상수의 분모다.
+//   여기 한 곳에만 둔다 — 전투·몬스터 AI·땅 아이템처럼 게임 서버 헤더를 못 보는 층도 이 파일은 가장 먼저 읽는다.
+//   초 단위 상수는 숫자를 베끼지 말고 `초 × FRAME_PER_SEC` 로 유도할 것(25 가 흩어져 있으면 주기를 바꿀 때 한쪽만 바뀐다).
+//   INI 로 빼지 않는다(10-08 결정) — 실행 시 값이 되면 아래 층의 constexpr 이 전부 변수가 되고, 운영 중 바꿀 일이 없다.
+constexpr int FRAME_PER_SEC     = 25;
+constexpr int FRAME_INTERVAL_MS = 1000 / FRAME_PER_SEC;   // 40ms

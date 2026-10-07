@@ -2179,8 +2179,6 @@ UseItemFail CGameServer::CheckUseItem(const CPlayer* player, uint16_t slot, int&
 
 void CGameServer::RecvUseItem(CPlayer* player, CSerialBuffer* pMsg)
 {
-    static_assert(ITEM_USE_COOLDOWN_FRAMES == FRAME_PER_SEC, "물약 대기시간은 1초 — 틱 주기를 바꿨으면 같이 맞출 것");
-
     MSG_C2S_USE_ITEM recvMsg{};
     pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
 
@@ -2273,8 +2271,6 @@ void CGameServer::RecvUnequip(CPlayer* player, CSerialBuffer* pMsg)
 
 void CGameServer::ApplyEquip(CPlayer* player, uint16_t slot, bool unequip)
 {
-    static_assert(EQUIP_COOLDOWN_FRAMES == FRAME_PER_SEC, "장착 대기시간은 1초 — 틱 주기를 바꿨으면 같이 맞출 것");
-
     int from = -1, to = -1;
     const EquipFail fail = CheckEquip(player, slot, unequip, from, to);
     if (fail != EquipFail::COUNT)

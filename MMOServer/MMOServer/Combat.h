@@ -31,9 +31,9 @@ namespace Combat
 
 #if USE_COMBAT
 
-    // 틱은 40ms (CGameServer::FRAME_INTERVAL_MS)
-    constexpr uint64_t ATTACK_COOLDOWN_FRAMES = 12;   // 12 × 40ms ≈ 480ms — 바람의나라류 체감
-    constexpr uint64_t RESPAWN_DELAY_FRAMES   = 75;   // 75 × 40ms = 3초
+    // 틱은 40ms (BuildConfig.h FRAME_INTERVAL_MS)
+    constexpr uint64_t ATTACK_COOLDOWN_FRAMES = 12;   // 12 × 40ms ≈ 480ms — 바람의나라류 체감(틱 수로 정한 값이라 유도하지 않는다)
+    constexpr uint64_t RESPAWN_DELAY_FRAMES   = 3 * FRAME_PER_SEC;   // 3초
 
     // 공격이 안 먹힌 사유 — 갈래가 넷이다. 하나로 뭉치면 제일 흔한 하나가 나머지를 삼켜
     //   "헛스윙이 많은 건지 쿨타임에 막힌 건지"를 못 읽는다.

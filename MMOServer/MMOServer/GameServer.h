@@ -234,7 +234,7 @@ private:
 #endif
 
     // 물약 대기시간 1초 — 서버 틱 수로 잰다(사용자 결정 09-23). 틱 주기가 바뀌어도 1초가 되게 FRAME_PER_SEC 로 쓴다.
-    static constexpr uint64_t ITEM_USE_COOLDOWN_FRAMES = 25;   // = FRAME_PER_SEC (아래 선언보다 앞이라 숫자로 — 단언이 맞춘다)
+    static constexpr uint64_t ITEM_USE_COOLDOWN_FRAMES = FRAME_PER_SEC;
 
 #if USE_EQUIP
     // ── 장착 (USE_EQUIP) ──
@@ -254,7 +254,7 @@ private:
     void ApplyEquip(CPlayer* player, uint16_t slot, bool unequip);
 
     // 끼우기·빼기 대기시간 1초 — 물약과 따로 센다(플랜 ㉰).
-    static constexpr uint64_t EQUIP_COOLDOWN_FRAMES = 25;   // = FRAME_PER_SEC (단언이 맞춘다)
+    static constexpr uint64_t EQUIP_COOLDOWN_FRAMES = FRAME_PER_SEC;
 #endif
 #endif
 
@@ -324,7 +324,7 @@ private:
     //   가방 넣기(TryAdd)가 먼저, 땅에서 빼기가 나중 — 반대면 가득 찬 가방에서 아이템이 사라진다.
     void RecvPickup(CPlayer* player, CSerialBuffer* pMsg);
 
-    static constexpr int GROUND_ITEM_SCAN_FRAMES = 25;   // 1초에 한 번 훑는다 — 사라지는 때가 1초 늦을 수 있다
+    static constexpr int GROUND_ITEM_SCAN_FRAMES = FRAME_PER_SEC;   // 1초에 한 번 훑는다 — 사라지는 때가 1초 늦을 수 있다
 #endif
 
 #if USE_DB_WORKER
@@ -497,11 +497,8 @@ private:
 
     std::thread _gameThread;
     std::atomic<bool> _running;
-    // 프레임 설정
-    static constexpr int FRAME_PER_SEC = 25;
-    static constexpr int FRAME_INTERVAL_MS = 1000 / FRAME_PER_SEC;  // 40ms
-
-    static constexpr int CLEANUP_INTERVAL_FRAMES = 25 * 30;  // 30초마다 빈 채널 정리
+    // 틱 주기(FRAME_PER_SEC · FRAME_INTERVAL_MS)는 BuildConfig.h — 아래 층 헤더도 같이 쓰는 단위라 여기 두지 않는다.
+    static constexpr int CLEANUP_INTERVAL_FRAMES = 30 * FRAME_PER_SEC;  // 30초마다 빈 채널 정리
     static constexpr int SYNC_INTERVAL_FRAMES = 13;          // 13 × 40ms ≈ 500ms 주기적 위치 동기화
     static constexpr float SYNC_DISTANCE_THRESHOLD_SQ = 4.0f; // 델타 동기화 임계값 제곱 (2타일)
     static constexpr float MOVE_START_ACCEPT_DIST_SQ = 64.0f; // C2S_MOVE_START 좌표 수용 임계값 제곱 (8타일)
