@@ -714,6 +714,14 @@ void CGameServer::Stop()
 
 bool CGameServer::InitDB(const DBConfig& dbConfig, int savePeriodSec, int workerCount, int queueMax)
 {
+    // 세 값은 INI 필수(코드에 기본값 없음) — 빠지면 조용히 다른 값으로 도는 대신 서버를 안 띄운다
+    if (savePeriodSec <= 0 || workerCount <= 0 || queueMax <= 0)
+    {
+        SLOG_ERROR("[DB] INI [DB] SavePeriodSec·Workers·QueueMax 는 1 이상이어야 합니다 (save={}, workers={}, qmax={})",
+                   savePeriodSec, workerCount, queueMax);
+        return false;
+    }
+
     _dbWorker = std::make_unique<CDBWorker>(_gameMonitor._db);   // 저장 파이프라인 지표는 게임 그릇(10-06 코어에서 옮김)
 #if USE_INVENTORY
     _dbWorker->SetItemSaveCounters(&_gameMonitor._dbItem);   // Start 전에 — 워커 스레드가 뜨기 전에 자리를 알려 둔다
@@ -724,7 +732,7 @@ bool CGameServer::InitDB(const DBConfig& dbConfig, int savePeriodSec, int worker
         _dbWorker.reset();
         return false;
     }
-    _dbSavePeriodFrames = (savePeriodSec > 0 ? savePeriodSec : 10) * FRAME_PER_SEC;
+    _dbSavePeriodFrames = savePeriodSec * FRAME_PER_SEC;
     _dbSaveFrameCounter = 0;
     return true;
 }

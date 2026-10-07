@@ -8,6 +8,7 @@
 #include <mysql.h>
 #include <errmsg.h>     // CR_SERVER_GONE_ERROR / CR_SERVER_LOST (커넥션 유실 감지)
 #include <mysqld_error.h>   // ER_NO_SUCH_TABLE — 가방 테이블이 없을 때 안내를 정확히 걸려고
+#include <cassert>
 #include <cstdio>
 #include <cstring>      // strlen (JobKindDesc.sql 길이) · memcpy (열 표로 결과 복사)
 #include <cstddef>      // offsetof (열 표 — 구조체 안의 멤버 자리)
@@ -32,11 +33,12 @@ CDBWorker::~CDBWorker()
 
 bool CDBWorker::Start(const DBConfig& config, int workerCount, int queueMax)
 {
+    assert(workerCount > 0 && queueMax > 0);   // 1 이상인지는 CGameServer::InitDB 가 봤다 — 여기에 기본값을 두지 않는다
     _config      = config;
-    _workerCount = (workerCount > 0) ? workerCount : 1;
+    _workerCount = workerCount;
     if (_workerCount > DBSaveCounters::MAX_WORKERS)
         _workerCount = DBSaveCounters::MAX_WORKERS;   // 큐 깊이 게이지 배열 상한에 맞춤
-    _queueMax    = (queueMax > 0) ? queueMax : 20000;
+    _queueMax    = queueMax;
 
     // 멀티스레드 안전 초기화 — 워커 스레드 생성 "전"에 메인에서 1회
     if (mysql_library_init(0, nullptr, nullptr) != 0)

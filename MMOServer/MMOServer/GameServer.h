@@ -635,7 +635,7 @@ private:
 #if USE_DB_WORKER
     // DB 저장 파이프라인 (dirty flag 기반 비동기 위치 저장)
     std::unique_ptr<CDBWorker> _dbWorker;
-    int _dbSavePeriodFrames = 250;   // SavePeriodSec × 25fps (InitDB에서 설정)
+    int _dbSavePeriodFrames = 0;     // SavePeriodSec × FRAME_PER_SEC (InitDB에서 설정)
     int _dbSaveFrameCounter  = 0;
 
     // 회신 큐에서 통째로 꺼내 받는 로컬 버퍼 (멤버 재사용 — 워커 쪽 벡터와 맞바꾸므로 양쪽 용량이 보존된다.

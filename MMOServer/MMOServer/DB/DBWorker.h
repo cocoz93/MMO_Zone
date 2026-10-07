@@ -283,8 +283,8 @@ private:
 
     DBSaveCounters&  _counters;   // 저장 성공·실패·드롭·큐 깊이·워커 수 — 게임 그릇(GameMonitor.h DBSaveCounters)
     DBConfig         _config;
-    int              _workerCount = 1;
-    int              _queueMax    = 20000;
+    int              _workerCount = 0;   // Start 가 넣는다
+    int              _queueMax    = 0;
 
     std::vector<std::unique_ptr<DBWorkerSlot>> _workers;
     std::atomic<bool> _stop{ false };

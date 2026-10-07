@@ -74,16 +74,17 @@ struct ServerConfig
     unsigned long long ioCoreMask   = 0;   // ServerCores에서 게임코어를 뺀 나머지(=I/O 스레드용)
 
     // [DB] 저장 파이프라인 설정 (값은 USE_DB_WORKER 토글과 무관하게 항상 로드)
+    //   Workers·SavePeriodSec·QueueMax 는 INI 필수 — 코드에 기본값이 없다. 없거나 0 이하면 InitDB 가 서버를 안 띄운다(10-07)
     std::string dbHost              = "127.0.0.1";
     int         dbPort              = 3306;
     std::string dbUser              = "root";
     std::string dbPassword;
     std::string dbDatabase          = "gamedb";
-    int         dbWorkers           = 1;    // 1단계는 단일 워커
-    int         dbSavePeriodSec     = 10;   // dirty 저장 주기(초)
+    int         dbWorkers           = 0;
+    int         dbSavePeriodSec     = 0;    // dirty 저장 주기(초)
     int         dbConnectTimeoutSec = 3;
     int         dbRwTimeoutSec      = 5;    // 읽기/쓰기 소켓 타임아웃(초) — DB 무응답 시 재연결 판단
-    int         dbQueueMax          = 20000; // 백프레셔: 워커당 큐 상한(초과분 드롭)
+    int         dbQueueMax          = 0;    // 백프레셔: 워커당 큐 상한(초과분 드롭)
 
     std::vector<MapConfig> maps;
 
@@ -169,11 +170,11 @@ struct ServerConfig
         dbUser              = ini.GetString("DB", "User", "root");
         dbPassword          = ini.GetString("DB", "Password", "");
         dbDatabase          = ini.GetString("DB", "Database", "gamedb");
-        dbWorkers           = ini.GetInt("DB", "Workers", 1);
-        dbSavePeriodSec     = ini.GetInt("DB", "SavePeriodSec", 10);
+        dbWorkers           = ini.GetInt("DB", "Workers", 0);
+        dbSavePeriodSec     = ini.GetInt("DB", "SavePeriodSec", 0);
         dbConnectTimeoutSec = ini.GetInt("DB", "ConnectTimeoutSec", 3);
         dbRwTimeoutSec      = ini.GetInt("DB", "RwTimeoutSec", 5);
-        dbQueueMax          = ini.GetInt("DB", "QueueMax", 20000);
+        dbQueueMax          = ini.GetInt("DB", "QueueMax", 0);
 
         int mapCount = ini.GetInt("Server", "MapCount", 3);
 
