@@ -64,7 +64,7 @@ public:
     CMonster();
     ~CMonster() override;
 
-    // As<CMonster> 가 묻는 판정 — Character.h As 참조. 몬스터를 상속하는 타입(보스 등)이 생기면 여기를 종류 범위로 바꾼다
+    // As<CMonster> 판정 — Character.h As
     static bool Matches(const CCharacter& c) { return c._kind == CharacterKind::MONSTER; }
 
     MonsterKind _kindId = MonsterKind::SNAKE;   // 무슨 몬스터냐 (CCharacter::_kind 는 "몬스터냐"다)

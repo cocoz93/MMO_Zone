@@ -68,13 +68,8 @@ public:
     uint64_t _deathFrame = 0;        // 죽은 프레임 (부활 시점 판정 기준)
 };
 
-// 확인 후 내려 바꾸기 — 코드 전체에서 CCharacter* 를 파생 타입(CPlayer·CMonster)으로 내려 바꾸는 자리는 이 함수 안 한 곳뿐이다.
-//   다른 곳에서 static_cast<CPlayer*>·static_cast<CMonster*> 가 보이면 그게 곧 잘못이다. _kind 는 생성자에서만 정해지므로
-//   (Player.cpp · Monster.cpp) 이 판정은 그 뒤로 바뀌지 않는다.
-//   맞는 종류인지는 T::Matches 가 정한다 — 파생 타입마다 하나씩 둔다(LLVM 의 classof 와 같은 꼴).
-//   ★ 종류 값 하나와 같은지를 여기서 바로 비교하지 않는 이유 — 한 단계 더 내려가는 타입(예: 보스가 CMonster 를 상속)이
-//     생기면 CMonster::Matches 만 「종류 범위」로 바꾸면 된다. 이 함수와 호출처는 안 바뀐다.
-//   Matches 가 없는 타입이나 CCharacter 의 자식이 아닌 타입을 넣으면 컴파일이 안 된다.
+// 내려 바꾸는 자리는 코드 전체에서 이 함수 하나뿐이다 — 다른 곳의 static_cast<CPlayer*>·<CMonster*> 는 잘못이다.
+//   종류 판정은 각 타입의 Matches 가 한다. 상속이 한 단계 늘면(보스 : CMonster) 그 Matches 만 범위로 바꾼다.
 template <class T>
 T* As(CCharacter* c)
 {
