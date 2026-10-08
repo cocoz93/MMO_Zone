@@ -20,10 +20,12 @@
 #include "MonitorManager.h"   // Counter — 원자 카운터 타입만 빌려 쓴다 (코어 지표는 참조하지 않음)
 #include "Inventory.h"        // USE_INVENTORY — 넣기 결과 사유(InvAddResult) 수만큼 칸을 잡는다
 #include "GroundItem.h"       // USE_DROP — 땅에서 빠진 까닭(GroundItemRemoval, 땅 아이템 관리자의 어휘) 수만큼 칸을 잡는다
+#include "ItemSystem.h"       // USE_INVENTORY — 쓰기·장착 거절 사유(UseItemReject·EquipReject) 수만큼 칸을 잡는다
 
 // [사유 enum 의 집 — 규칙 하나] 사유는 그것을 정하는 층의 헤더에 산다(10-06, 아키텍처 전수검사 7번).
 //   존·엔티티 층이 정하는 것: GroundItemRemoval·PickupReject(GroundItem.h) · ZoneChangeReject(MapManager.h) · InvAddResult(Inventory.h)
-//   게임 서버가 정하는 것: UseItemFail·EquipFail·PickupFail(와이어 enum 그대로 — 정하는 쪽이 패킷을 아는 층이라 변환이 없다) ·
+//   규칙 클래스가 정하는 것: UseItemReject·EquipReject(ItemSystem.h — 10-08 판정이 게임 서버에서 CItemSystem 으로 옮겨 감)
+//   게임 서버가 정하는 것: PickupFail(와이어 enum 그대로 — 정하는 쪽이 패킷을 아는 층이라 변환이 없다) ·
 //                        InvLoadSkip·ChatCommandReject(계수기만 쓰는 사유라 여기)
 //   여기(계수기)는 COUNT 로 칸을 잡고 이름표를 두는 자리일 뿐, 사유를 정하지 않는다.
 
@@ -97,35 +99,35 @@ inline const char* InvLoadSkipName(InvLoadSkip r)
     return "?";
 }
 
-// 쓰기·장착 거절의 지표 라벨 — 사유 enum 은 게임 서버가 정하고 와이어에 실려 Protocol.h 에 있다(CheckUseItem·CheckEquip).
-inline const char* UseItemFailName(UseItemFail r)
+// 쓰기·장착 거절의 지표 라벨 — 사유 enum 은 CItemSystem 이 정한다(ItemSystem.h). 와이어 값으로는 게임 서버가 바꾼다.
+inline const char* UseItemRejectName(UseItemReject r)
 {
-    static_assert(static_cast<int>(UseItemFail::COUNT) == 6, "UseItemFail 을 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(UseItemReject::COUNT) == 6, "UseItemReject 를 늘렸으면 이름도 붙일 것");
     switch (r)
     {
-    case UseItemFail::BAD_SLOT:   return "bad_slot";
-    case UseItemFail::EMPTY:      return "empty";
-    case UseItemFail::NOT_USABLE: return "not_usable";
-    case UseItemFail::DEAD:       return "dead";
-    case UseItemFail::COOLDOWN:   return "cooldown";
-    case UseItemFail::FULL_HP:    return "full_hp";
-    case UseItemFail::COUNT:      break;
+    case UseItemReject::BAD_SLOT:   return "bad_slot";
+    case UseItemReject::EMPTY:      return "empty";
+    case UseItemReject::NOT_USABLE: return "not_usable";
+    case UseItemReject::DEAD:       return "dead";
+    case UseItemReject::COOLDOWN:   return "cooldown";
+    case UseItemReject::FULL_HP:    return "full_hp";
+    case UseItemReject::COUNT:      break;
     }
     return "?";
 }
 
-inline const char* EquipFailName(EquipFail r)
+inline const char* EquipRejectName(EquipReject r)
 {
-    static_assert(static_cast<int>(EquipFail::COUNT) == 6, "EquipFail 을 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(EquipReject::COUNT) == 6, "EquipReject 를 늘렸으면 이름도 붙일 것");
     switch (r)
     {
-    case EquipFail::BAD_SLOT:       return "bad_slot";
-    case EquipFail::EMPTY:          return "empty";
-    case EquipFail::NOT_EQUIPPABLE: return "not_equippable";
-    case EquipFail::DEAD:           return "dead";
-    case EquipFail::COOLDOWN:       return "cooldown";
-    case EquipFail::TAB_FULL:       return "tab_full";
-    case EquipFail::COUNT:          break;
+    case EquipReject::BAD_SLOT:       return "bad_slot";
+    case EquipReject::EMPTY:          return "empty";
+    case EquipReject::NOT_EQUIPPABLE: return "not_equippable";
+    case EquipReject::DEAD:           return "dead";
+    case EquipReject::COOLDOWN:       return "cooldown";
+    case EquipReject::TAB_FULL:       return "tab_full";
+    case EquipReject::COUNT:          break;
     }
     return "?";
 }
@@ -250,7 +252,7 @@ public:
         Counter _slotUpdatesSent;                                             // 칸 패킷(S2C_INVENTORY_SLOT) 보낸 수
         Counter _snapshotsSent;                                               // 전체 목록(S2C_INVENTORY) 보낸 수 — 입장마다 1
         Counter _itemsUsed;                                                   // 쓴 아이템 개수(성공)
-        Counter _useRejected[static_cast<int>(UseItemFail::COUNT)];           // 쓰기 거절, 사유별
+        Counter _useRejected[static_cast<int>(UseItemReject::COUNT)];         // 쓰기 거절, 사유별
 
         // ── 4단계: DB (USE_DB_WORKER) — 게임 스레드가 센다. 워커 쪽은 아래 _dbItem ──
         //   등식(조용해진 뒤): _itemSavesQueued = _dbItem._saved + _dbItem._failed
@@ -265,13 +267,13 @@ public:
 #if USE_EQUIP
     // ══════════════════════════════════════════════════════════════
     // 장착 (USE_EQUIP) — 성공은 방향마다 한 칸, 거절은 사유마다 한 칸(배열).
-    //   세는 곳은 CGameServer::ApplyEquip 한 곳이다(끼우기·빼기가 같은 길을 탄다).
+    //   세는 곳은 CItemSystem::Equip 한 곳이다(끼우기·빼기가 같은 길을 탄다).
     // ══════════════════════════════════════════════════════════════
     struct alignas(64) EquipCounters
     {
         Counter _equipped;                                          // 끼우기 성공
         Counter _unequipped;                                        // 빼기 성공
-        Counter _rejected[static_cast<int>(EquipFail::COUNT)];      // 거절, 사유별
+        Counter _rejected[static_cast<int>(EquipReject::COUNT)];    // 거절, 사유별
     } _equip;
 #endif
 #endif

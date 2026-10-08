@@ -322,6 +322,44 @@ namespace
     }
 #endif
 
+#if USE_INVENTORY
+    // 쓰기·장착 거절 사유 → 와이어 값. 사유를 정하는 건 CItemSystem(ItemSystem.h), 패킷 값으로 바꾸는 건 여기 —
+    //   위 ToPickupFail 과 같은 꼴(10-08, 아키텍처 2차 검사 2번). 통과(COUNT)는 실패 패킷이 아니다.
+    UseItemFail ToUseItemFail(UseItemReject reject)
+    {
+        switch (reject)
+        {
+        case UseItemReject::BAD_SLOT:   return UseItemFail::BAD_SLOT;
+        case UseItemReject::EMPTY:      return UseItemFail::EMPTY;
+        case UseItemReject::NOT_USABLE: return UseItemFail::NOT_USABLE;
+        case UseItemReject::DEAD:       return UseItemFail::DEAD;
+        case UseItemReject::COOLDOWN:   return UseItemFail::COOLDOWN;
+        case UseItemReject::FULL_HP:    return UseItemFail::FULL_HP;
+        case UseItemReject::COUNT:      break;
+        }
+        assert(false && "거절이 아닌 결과를 실패 패킷으로 바꾸려 했다");
+        return UseItemFail::BAD_SLOT;
+    }
+
+#if USE_EQUIP
+    EquipFail ToEquipFail(EquipReject reject)
+    {
+        switch (reject)
+        {
+        case EquipReject::BAD_SLOT:       return EquipFail::BAD_SLOT;
+        case EquipReject::EMPTY:          return EquipFail::EMPTY;
+        case EquipReject::NOT_EQUIPPABLE: return EquipFail::NOT_EQUIPPABLE;
+        case EquipReject::DEAD:           return EquipFail::DEAD;
+        case EquipReject::COOLDOWN:       return EquipFail::COOLDOWN;
+        case EquipReject::TAB_FULL:       return EquipFail::TAB_FULL;
+        case EquipReject::COUNT:          break;
+        }
+        assert(false && "거절이 아닌 결과를 실패 패킷으로 바꾸려 했다");
+        return EquipFail::BAD_SLOT;
+    }
+#endif
+#endif
+
     CSerialBuffer* MakeAdminLoginOk()
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
@@ -2147,56 +2185,18 @@ void CGameServer::SendSystemMessage(CPlayer* player, const std::string& utf8)
     SendPacket(player, MakeError(utf8));
 }
 
-UseItemFail CGameServer::CheckUseItem(const CPlayer* player, uint16_t slot, int& outIndex, const ItemDef*& outDef) const
-{
-    // UseItemFail 의 순서 그대로 본다 — 여럿이 겹치면 먼저 걸린 하나로 답한다(열거 순서가 곧 확인 순서).
-    InvTab tab;
-    if (!FindInvSlot(slot, tab, outIndex))
-        return UseItemFail::BAD_SLOT;
-
-    const Item& s = player->_inventory.At(outIndex);
-    if (s.itemId == 0)
-        return UseItemFail::EMPTY;
-
-    // 표에서 사라진 번호(패치로 지운 아이템)도 여기서 "못 쓴다"로 떨어진다
-    outDef = _gameDataFiles.Item().Find(s.itemId);
-    if (outDef == nullptr || outDef->tab != InvTab::USE || outDef->healHp <= 0)
-        return UseItemFail::NOT_USABLE;
-
-    if (player->_isDead)
-        return UseItemFail::DEAD;
-
-    if (_frameCount < player->_itemUseReadyFrame)
-        return UseItemFail::COOLDOWN;
-
-    // 체력이 가득이면 안 줄인다 — 물약만 날리게 두지 않는다
-    if (player->_hp >= player->_maxHp)
-        return UseItemFail::FULL_HP;
-
-    return UseItemFail::COUNT;   // 통과
-}
-
 void CGameServer::RecvUseItem(CPlayer* player, CSerialBuffer* pMsg)
 {
     MSG_C2S_USE_ITEM recvMsg{};
     pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
 
-    int index = -1;
-    const ItemDef* def = nullptr;
-    const UseItemFail fail = CheckUseItem(player, recvMsg.slot, index, def);
-    if (fail != UseItemFail::COUNT)
+    // 판정·적용(체력·개수·대기시간)·세기는 CItemSystem — 여기는 결과를 패킷으로 바꿔 내보내기만 한다
+    const UseItemReject reject = _itemSystem.UseItem(player, recvMsg.slot, _frameCount);
+    if (reject != UseItemReject::COUNT)
     {
-        _gameMonitor._inventory._useRejected[static_cast<int>(fail)].Inc();
-        SendPacket(player, MakeUseItemFail(recvMsg.slot, fail));
+        SendPacket(player, MakeUseItemFail(recvMsg.slot, ToUseItemFail(reject)));
         return;
     }
-
-    // ── 성공 — 체력을 채우고(최대치에서 멈춘다) 한 개 줄이고 대기시간을 건다 ──
-    const int32_t healed = player->_hp + def->healHp;   // std::min 은 윈도 헤더의 min 매크로에 먹힌다
-    player->_hp = (healed < player->_maxHp) ? healed : player->_maxHp;
-    player->_inventory.ConsumeOne(index);
-    player->_itemUseReadyFrame = _frameCount + ITEM_USE_COOLDOWN_FRAMES;   // 성공했을 때만 — 거절은 대기시간을 안 건다
-    _gameMonitor._inventory._itemsUsed.Inc();
 
     // 칸 갱신(본인) → 체력 통보(본인 + 주변 — 남의 머리 위 막대도 차야 한다). 레벨업 때 체력 방송과 같은 꼴.
     //   ★ 순서가 곧 와이어 순서다 — 칸 패킷이 체력 패킷보다 앞선다(시험이 이 순서로 "이 체력이 물약 몫"을 가린다).
@@ -2208,52 +2208,8 @@ void CGameServer::RecvUseItem(CPlayer* player, CSerialBuffer* pMsg)
 
 #if USE_EQUIP
 // ==========================================================================
-// 장착 — 끼우기·빼기는 "칸 둘 맞바꾸기" 하나다(CInventory::SwapSlots).
-//   저장은 지금 가방 길 그대로(FlushInventory — 칸마다 DB 한 줄). ★ 두 줄은 따로 쓴다 — 두 문장 사이에
-//   서버가 죽으면 무기 하나를 잃거나 복제될 수 있다(여러 칸 넣기와 같은 틈, 플랜 ㉯ — 거래 때 트랜잭션 레인으로).
+// 장착 — 판정·맞바꾸기·대기시간·스탯은 CItemSystem::Equip(ItemSystem.cpp), 여기는 받기와 내보내기만
 // ==========================================================================
-EquipFail CGameServer::CheckEquip(const CPlayer* player, uint16_t slot, bool unequip, int& outFrom, int& outTo) const
-{
-    // EquipFail 의 순서 그대로 본다 — 여럿이 겹치면 먼저 걸린 하나로 답한다(열거 순서가 곧 확인 순서).
-    const CInventory& inv = player->_inventory;
-
-    // BAD_SLOT — 끼우기는 "가방 칸", 빼기는 "착용 칸" 이어야 한다
-    InvTab tab;
-    if (!FindInvSlot(slot, tab, outFrom) || IsWornIndex(outFrom) != unequip)
-        return EquipFail::BAD_SLOT;
-
-    // EMPTY
-    const Item& s = inv.At(outFrom);
-    if (s.itemId == 0)
-        return EquipFail::EMPTY;
-
-    // NOT_EQUIPPABLE — 끼우기만. 물약 칸을 보내도 여기서 걸린다(가방 칸이면 탭을 안 가린다 — 선언 주석)
-    //   표에서 사라진 번호도 여기로 떨어진다. 무기 칸의 것은 불러오기가 이미 장비만 들였다.
-    if (!unequip)
-    {
-        const ItemDef* def = _gameDataFiles.Item().Find(s.itemId);
-        if (def == nullptr || def->tab != InvTab::EQUIP)
-            return EquipFail::NOT_EQUIPPABLE;
-    }
-
-    if (player->_isDead)
-        return EquipFail::DEAD;
-
-    if (_frameCount < player->_equipReadyFrame)
-        return EquipFail::COOLDOWN;
-
-    // 맞바꿀 상대 — 끼우기는 무기 칸(비었든 찼든), 빼기는 장비 탭의 첫 빈 칸
-    if (!unequip)
-    {
-        outTo = WornIndexOf(EquipSlot::WEAPON);   // 부위가 무기 하나뿐 — 둘째 부위가 생기면 아이템 표의 부위 칸으로 고른다
-        return EquipFail::COUNT;
-    }
-    outTo = inv.FirstEmptyInTab(InvTab::EQUIP);
-    if (outTo < 0)
-        return EquipFail::TAB_FULL;   // 아무것도 안 바꾼다 — 무기는 그대로 끼워져 있다
-    return EquipFail::COUNT;
-}
-
 void CGameServer::RecvEquip(CPlayer* player, CSerialBuffer* pMsg)
 {
     MSG_C2S_EQUIP recvMsg{};
@@ -2270,26 +2226,16 @@ void CGameServer::RecvUnequip(CPlayer* player, CSerialBuffer* pMsg)
 
 void CGameServer::ApplyEquip(CPlayer* player, uint16_t slot, bool unequip)
 {
-    int from = -1, to = -1;
-    const EquipFail fail = CheckEquip(player, slot, unequip, from, to);
-    if (fail != EquipFail::COUNT)
+    const EquipReject reject = _itemSystem.Equip(player, slot, unequip, _frameCount);
+    if (reject != EquipReject::COUNT)
     {
-        _gameMonitor._equip._rejected[static_cast<int>(fail)].Inc();
-        SendPacket(player, MakeEquipFail(slot, fail));
+        SendPacket(player, MakeEquipFail(slot, ToEquipFail(reject)));
         return;
     }
 
-    // ── 성공 — 칸 둘을 맞바꾸고 대기시간을 건다(성공했을 때만 — 거절은 안 건다) ──
-    player->_inventory.SwapSlots(from, to);
-    player->_equipReadyFrame = _frameCount + EQUIP_COOLDOWN_FRAMES;
-    if (unequip) _gameMonitor._equip._unequipped.Inc();
-    else         _gameMonitor._equip._equipped.Inc();
-
-    // 칸 패킷 둘 + DB 두 줄 → 공격력 다시 세우기 → 본인에게 새 공격력.
+    // 칸 패킷 둘 + DB 두 줄 → 본인에게 새 공격력(공격력은 CItemSystem::Equip 이 이미 다시 세웠다).
     //   ★ 순서가 곧 와이어 순서다 — 칸 패킷이 MY_STATS 보다 앞선다(클라가 무기 칸을 먼저 알고 숫자를 채운다).
-    //   체력은 그대로다(refillHp=false) — 무기는 공격력만 바꾼다.
     FlushInventory(player);
-    _statSystem.RecalcStats(player, false);
     SendMyStats(player);
 }
 #endif // USE_EQUIP

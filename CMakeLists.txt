@@ -152,6 +152,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/Combat.cpp
     ${SRV_DIR}/CombatSystem.cpp
     ${SRV_DIR}/StatSystem.cpp
+    ${SRV_DIR}/ItemSystem.cpp
     ${SRV_DIR}/LevelTable.cpp
     ${SRV_DIR}/GameDataFiles.cpp
     ${SRV_DIR}/GameDataCsv.cpp

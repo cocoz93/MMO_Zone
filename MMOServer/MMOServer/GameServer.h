@@ -35,6 +35,7 @@
 #include "Combat.h"        // 전투 판정 (순수 함수 — 송신·존·섹터를 모른다)
 #include "CombatSystem.h"  // 공격 흐름 — 여기서는 그 알림(ICombatEvents)을 구현한다
 #include "StatSystem.h"    // 스탯·레벨 규칙 — 멤버로 들고 부른다
+#include "ItemSystem.h"    // 아이템 쓰기·장착 규칙 — 멤버로 들고 부른다
 #include "MonsterManager.h" // 몬스터 — 여기서는 그 알림(IMonsterEvents)을 구현한다
 #include "GroundItemManager.h" // 땅 아이템 — 여기서는 그 알림(IGroundItemEvents)을 구현한다
 #include "MonitorManager.h"
@@ -205,12 +206,9 @@ private:
     // 본인에게 알림 한 줄 — 기존 S2C_ERROR 를 쓴다(콘솔은 이미 UTF-8 로 풀어 보여 준다).
     void SendSystemMessage(CPlayer* player, const std::string& utf8);
 
-    // 아이템 쓰기(지금은 물약만) — 거절이면 사유를 본인에게, 성공이면 칸 갱신 + 체력 통보(주변 포함).
+    // 아이템 쓰기(지금은 물약만) — CItemSystem::UseItem 을 불러, 거절이면 사유를 본인에게(와이어 값으로 바꿔),
+    //   성공이면 칸 갱신 + 체력 통보(주변 포함). 판정·적용·세기는 CItemSystem 이다.
     void RecvUseItem(CPlayer* player, CSerialBuffer* pMsg);
-
-    // 쓸 수 있나 — 사유를 UseItemFail 순서대로 보고 먼저 걸린 하나를 돌려준다. 통과면 COUNT.
-    //   판정을 값을 돌려주는 함수로 뺀 이유 — 사유가 여섯이라 호출부에서 if 사슬로 쓰면 하나를 빠뜨려도 안 보인다.
-    UseItemFail CheckUseItem(const CPlayer* player, uint16_t slot, int& outIndex, const ItemDef*& outDef) const;
 
 #if USE_DB_WORKER
     // 불러온 가방 줄을 검사해 넣는다 — 칸 범위·아이템 표·탭·쌓임 한도. 안 맞는 줄은 세고 건너뛴다(깎아 넣지 않는다).
@@ -218,28 +216,16 @@ private:
     void LoadInventoryRows(CPlayer* player, const DBResult& result);
 #endif
 
-    // 물약 대기시간 1초 — 서버 틱 수로 잰다(사용자 결정 09-23). 틱 주기가 바뀌어도 1초가 되게 FRAME_PER_SEC 로 쓴다.
-    static constexpr uint64_t ITEM_USE_COOLDOWN_FRAMES = FRAME_PER_SEC;
-
 #if USE_EQUIP
     // ── 장착 (USE_EQUIP) ──
     // 끼우기(가방 칸 → 무기 칸, 차 있으면 맞바꿈) · 빼기(무기 칸 → 장비 탭 첫 빈 칸).
-    //   성공 = 칸 둘 맞바꾸기 → FlushInventory(칸 패킷 둘 + DB 두 줄) → RecalcStats → S2C_MY_STATS. 성공 알림은 따로 없다.
-    //   거절 = S2C_EQUIP_FAIL(요청 칸 번호, 사유) — 아무것도 안 바뀐다.
+    //   성공 = (CItemSystem: 칸 둘 맞바꾸기 → 대기시간 → RecalcStats) → FlushInventory(칸 패킷 둘 + DB 두 줄) → S2C_MY_STATS.
+    //   성공 알림은 따로 없다. 거절 = S2C_EQUIP_FAIL(요청 칸 번호, 사유) — 아무것도 안 바뀐다.
     void RecvEquip(CPlayer* player, CSerialBuffer* pMsg);
     void RecvUnequip(CPlayer* player, CSerialBuffer* pMsg);
 
-    // 되나 — EquipFail 순서대로 보고 먼저 걸린 하나를 돌려준다. 통과면 COUNT 이고 outFrom·outTo 에 맞바꿀 두 색인.
-    //   unequip = false 면 끼우기(slot = 가방 칸), true 면 빼기(slot = 착용 칸). 물약 CheckUseItem 과 같은 꼴 —
-    //   ★ 끼우기는 가방 칸이면 탭을 안 가린다: 물약 칸을 보내면 BAD_SLOT 이 아니라 NOT_EQUIPPABLE 이다(쓰기가 NOT_USABLE 인 것과 같다).
-    //     BAD_SLOT 은 "그런 가방 칸이 없다"(없는 번호 · 착용 칸 번호)뿐이다.
-    EquipFail CheckEquip(const CPlayer* player, uint16_t slot, bool unequip, int& outFrom, int& outTo) const;
-
-    // 받기 둘의 몸 — 판정 → 거절 답 또는 맞바꾸기·내보내기·스탯. 끼우기·빼기가 같은 길을 탄다(세는 곳도 여기).
+    // 받기 둘의 몸 — CItemSystem::Equip → 거절 답 또는 내보내기. 끼우기·빼기가 같은 길을 탄다.
     void ApplyEquip(CPlayer* player, uint16_t slot, bool unequip);
-
-    // 끼우기·빼기 대기시간 1초 — 물약과 따로 센다(플랜 ㉰).
-    static constexpr uint64_t EQUIP_COOLDOWN_FRAMES = FRAME_PER_SEC;
 #endif
 #endif
 
@@ -519,6 +505,11 @@ private:
     // 스탯·레벨 규칙 — 표(_gameDataFiles)를 참조한다.
     //   ★ _gameDataFiles·_gameMonitor 보다 뒤에 선언해야 한다(멤버는 선언 순서로 세워진다 — _combatSystem 주석과 같은 까닭).
     CStatSystem _statSystem{ _gameDataFiles, _gameMonitor };
+#endif
+
+#if USE_INVENTORY
+    // 아이템 쓰기·장착 규칙 — 장착 뒤 공격력은 _statSystem 으로 세운다(그래서 그 뒤에 선언).
+    CItemSystem _itemSystem{ _gameDataFiles, _gameMonitor, _statSystem };
 #endif
 
     // 네트워크 경계: sessionId → CPlayer* (수신 시 플레이어 조회)

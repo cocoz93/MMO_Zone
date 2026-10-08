@@ -81,7 +81,7 @@ public:
     void ConsumeOne(int index);
 
     // 두 칸의 내용을 맞바꾼다 — 끼우기(가방 칸 ↔ 무기 칸)·빼기(무기 칸 ↔ 장비 탭의 빈 칸)가 이것 하나다.
-    //   한쪽이 비었으면 "옮기기"가 된다. 되는지(장비인가·죽었나·빈 칸이 있나)는 부르는 쪽이 이미 봤다(CGameServer::CheckEquip).
+    //   한쪽이 비었으면 "옮기기"가 된다. 되는지(장비인가·죽었나·빈 칸이 있나)는 부르는 쪽이 이미 봤다(CItemSystem::CheckEquip).
     //   두 칸 다 바뀐 칸으로 적는다 — 내보내기(FlushInventory)가 칸 패킷 둘 + DB 두 줄로 나간다.
     void SwapSlots(int a, int b);
 

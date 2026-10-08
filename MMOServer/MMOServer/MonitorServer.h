@@ -542,9 +542,9 @@ private:
 
         ss << "# HELP mmo_inv_use_rejected_total Item uses refused, split by reason (nothing was consumed)\n";
         ss << "# TYPE mmo_inv_use_rejected_total counter\n";
-        for (int i = 0; i < static_cast<int>(UseItemFail::COUNT); ++i)
+        for (int i = 0; i < static_cast<int>(UseItemReject::COUNT); ++i)
         {
-            ss << "mmo_inv_use_rejected_total{reason=\"" << UseItemFailName(static_cast<UseItemFail>(i))
+            ss << "mmo_inv_use_rejected_total{reason=\"" << UseItemRejectName(static_cast<UseItemReject>(i))
                << "\"} " << inv._useRejected[i] << "\n";
         }
         ss << "\n";
@@ -591,9 +591,9 @@ private:
         ss << "mmo_equip_total{op=\"unequip\"} " << eq._unequipped << "\n\n";
         ss << "# HELP mmo_equip_rejected_total Equip / unequip requests refused, split by reason\n";
         ss << "# TYPE mmo_equip_rejected_total counter\n";
-        for (int i = 0; i < static_cast<int>(EquipFail::COUNT); ++i)
+        for (int i = 0; i < static_cast<int>(EquipReject::COUNT); ++i)
         {
-            ss << "mmo_equip_rejected_total{reason=\"" << EquipFailName(static_cast<EquipFail>(i))
+            ss << "mmo_equip_rejected_total{reason=\"" << EquipRejectName(static_cast<EquipReject>(i))
                << "\"} " << eq._rejected[i] << "\n";
         }
         ss << "\n";
