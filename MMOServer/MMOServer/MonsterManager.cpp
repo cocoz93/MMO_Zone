@@ -6,10 +6,9 @@
 #include "MonsterTable.h"    // MonsterDef — 깔 때 몬스터 표의 행을 넘긴다
 #include "MonsterAI.h"       // 판단 (Combat 과 같은 자리의 순수 판정 모듈)
 #include "Player.h"          // GetSectorPlayers 가 CPlayer* 를 돌려준다 — 후보의 생사·좌표를 읽는다
-#include "GameMonitor.h"     // 판단·전이·다시 뽑기·부활 계수기
+#include "GameMonitor.h"     // 판단·전이·다시 뽑기 계수기
 #include "GameDataFiles.h"   // 쥔 기획 데이터에서 스폰 구역 표를 꺼낸다
 #if USE_COMBAT
-#include "Combat.h"          // IsRespawnDue · Respawn — 플레이어 부활과 같은 판정을 쓴다
 #include "CombatSystem.h"    // 공격 흐름 — 몬스터가 물 때 플레이어와 같은 것을 부른다
 #endif
 #include <Common/ErrorLog.h> // 스폰 로그 한 줄
@@ -24,7 +23,7 @@ CMonsterManager::CMonsterManager(CZone& zone, const CGameDataFiles& gameData)
 }
 
 // 몬스터는 목록이 멤버 소멸 때 해제한다 — 존이 지워질 때(빈 채널 정리·서버 종료) 같이.
-//   밖에서 빼 줄 대기열이 없다: 몬스터를 틱 너머로 포인터로 드는 것(부활 대기열)이 이 객체 안에 있다.
+//   밖에서 빼 줄 대기열이 없다: 몬스터를 틱 너머로 포인터로 드는 것은 이 목록과 존(캐릭터 목록·섹터)뿐이다.
 CMonsterManager::~CMonsterManager() = default;
 
 // 게임 루프 1-1) — 아직 몬스터를 안 깐 존이면 깔고, 몬스터마다 판단한다.
@@ -158,7 +157,6 @@ void CMonsterManager::Spawn(const MonsterContext& ctx, uint64_t frame)
                 continue;   // 입장 실패 — owned 가 여기서 해제한다(섹터·목록 어디에도 안 들어갔다)
             _monsters.push_back(std::move(owned));
 
-            monster->_spawnRegion = static_cast<int32_t>(region);   // 부활할 때 같은 구역 안으로 간다
             monster->_spawnX = monster->_x;   // 귀환을 넣을 때 쓴다
             monster->_spawnY = monster->_y;
 
@@ -252,72 +250,5 @@ void CMonsterManager::OnBlockedByWall(CMonster* monster)
 {
     monster->_nextThinkFrame = 0;
 }
-
-#if USE_COMBAT
-void CMonsterManager::QueueRespawn(CMonster* monster)
-{
-    _respawnQueue.push_back(monster);
-}
-
-// 부활 대기자 훑기 — 틱마다 1회. 죽은 것만 따로 들고 있어 몬스터 전체를 돌지 않는다.
-void CMonsterManager::TickRespawn(const MonsterContext& ctx, uint64_t frame)
-{
-    // 틱 3-2 — 섹터 변경 대기열을 처리하고 비운 뒤다(게임 루프 3). 까닭은 헤더 주석. 누가 이 호출을 앞으로 옮기면 여기서 걸린다.
-    assert(_zone.GetSectorChanges().empty());
-
-    if (_respawnQueue.empty())
-        return;
-
-    for (size_t i = 0; i < _respawnQueue.size(); )
-    {
-        CMonster* dead = _respawnQueue[i];
-        assert(dead->_zoneId == _zone.GetZoneId());   // 넣는 쪽(CCombatSystem::PerformAttack)이 맞은 자리의 존 관리자에 넣었다
-
-        if (!Combat::IsRespawnDue(*dead, frame))
-        {
-            ++i;
-            continue;
-        }
-
-        Combat::Respawn(*dead);
-
-        // 부활도 "되살아난 쪽"으로 가른다 (죽음과 같은 기준 — GameMonitor.h 참조)
-        ctx.monitor._monster._respawnsTotal.Inc();
-
-        // 몬스터는 같은 구역 안 다른 자리로 옮겨 되살아난다 — 제자리 부활이면 잡은 자리에 3초마다 다시 선다.
-        RespawnElsewhere(ctx, dead);
-
-        // 순서가 뜻을 갖지 않는 대기열이라 뒤엣것과 바꿔치기로 O(1) 제거.
-        //   i를 올리지 않는다 — 방금 당겨온 것을 아직 안 봤다.
-        _respawnQueue[i] = _respawnQueue.back();
-        _respawnQueue.pop_back();
-    }
-}
-
-// 몬스터 부활 — 같은 구역 안 다른 자리로 옮긴다. 불리는 자리·금지 사항은 헤더 주석.
-void CMonsterManager::RespawnElsewhere(const MonsterContext& ctx, CMonster* monster)
-{
-    // ⑴ 옛 자리 — 시체가 사라진다. 그 자리를 보던 플레이어에게만 간다
-    ctx.events.OnMonsterVanish(&_zone, monster);
-
-    // ⑵ 새 자리 — 같은 구역 안. 섹터 옮기기는 존이 한다(UpdateSector).
-    //   섹터 이동 대기열에는 안 넣는다 — 화면은 ⑴·⑶ 이 그 자리에서 고치므로, 넣으면 다음 틱에 한 번 더 나간다
-    //   델타 동기화 기준점(_lastSyncX/Y)은 여기서 안 건드린다 — 「클라가 이 자리를 받았다」는 송신 쪽 사실이라
-    //   CREATE 를 실제로 보내는 게임 서버(OnMonsterSpawn)가 맞춘다(10-06, 아키텍처 전수검사 3번)
-    float x = 0.0f;
-    float y = 0.0f;
-    PickSpawnPos(ctx, monster->_spawnRegion, x, y);
-    monster->_x = x;
-    monster->_y = y;
-    monster->_spawnX = x;
-    monster->_spawnY = y;
-
-    _zone.UpdateSector(monster);
-
-    // ⑶ 새 자리 주변에 등장 — CREATE(SPAWN) 가 가득 찬 체력을 싣는다(ActorSnapshot).
-    //   옛·새 자리를 둘 다 보는 사람은 ⑴ 의 DELETE 다음 이 CREATE 를 받는다 — 둘 다 곧바로 보내는 경로라 순서가 안 뒤집힌다.
-    ctx.events.OnMonsterSpawn(&_zone, monster);
-}
-#endif // USE_COMBAT
 
 #endif // USE_MONSTER

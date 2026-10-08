@@ -1,6 +1,5 @@
 # Monster spawn regions - design data, read once at startup (CSpawnRegionTable).
 #   One row = "in this rectangle of this map, this monster, this many".
-#   A monster is born in one region and respawns at a random spot inside the SAME region.
 #   Spawn point = uniform random float in [x0, x1) x [y0, y1) (tiles).
 #   monsterId : MonsterTable.csv. count : how many live in this region (1 or more). Monsters per zone = sum of count (90 below).
 #               Density guide: 30 on an 80x80 map was six or seven on one screen - scale the counts with the map area.

@@ -106,7 +106,7 @@ Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame
     // ★ 죽어 있으면 아무것도 안 한다.
     //   공격 본체가 죽는 순간 IDLE 로 세워 두는데(시체가 걷지 않게), 여기서 이 검사를 빼면
     //   0.4초 뒤 다음 판단이 다시 MOVING 으로 돌려 시체가 걸어간다.
-    //   되살아났을 때 죽기 전 대상을 물고 시작하지 않도록 대상도 비운다.
+    //   대상도 비운다 — 시체가 누군가를 쫓는 중으로 남지 않게.
     if (monster._isDead)
     {
         d.nextState     = AIState::IDLE;
@@ -126,9 +126,8 @@ Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame
             d.direction     = FaceTo(monster, *target);
 
             // ★ 이미 사거리 안이면 걷지 않는다 — 돌아서서 바로 문다.
-            //   걸으면 한 틱(0.6타일)을 가서 대상 위에 올라탄다. 되살아난 직후가 대표적이다
-            //   (물던 자리에서 죽고 제자리에서 되살아나므로 이미 사거리 안이다).
-            //   실측: 고치기 전 되살아난 뱀 12/12 가 0.6타일을 걸어와 물었다.
+            //   걸으면 한 틱(0.6타일)을 가서 대상 위에 올라탄다. 쉬던 뱀 바로 앞까지 사람이 걸어온 경우다.
+            //   실측: 고치기 전(몬스터가 제자리에서 되살아나던 때) 되살아난 뱀 12/12 가 0.6타일을 걸어와 물었다.
             if (InReach(monster, *target))
             {
                 d.nextState      = AIState::ATTACK;

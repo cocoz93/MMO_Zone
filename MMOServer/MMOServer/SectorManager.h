@@ -92,7 +92,7 @@ public:
     }
 
     // 주변 9섹터(본인 섹터 포함) 플레이어 수집 — 브로드캐스트 대상. exclude 가 지정되면 제외한다.
-    //   exclude 가 CCharacter* 인 이유 — 본인이 뱀일 수 있다(뱀의 공격·부활 방송). 그때는 플레이어 목록에서 뺄 것이 없어 그냥 전부 모인다.
+    //   exclude 가 CCharacter* 인 이유 — 본인이 뱀일 수 있다(뱀의 공격 방송). 그때는 플레이어 목록에서 뺄 것이 없어 그냥 전부 모인다.
     void GetAroundPlayers(int32_t sectorX, int32_t sectorY,
                           std::vector<CPlayer*>& outPlayers,
                           const CCharacter* exclude = nullptr) const;

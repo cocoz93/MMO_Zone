@@ -13,9 +13,7 @@ class CMonsterTable;
 // ==========================================================================
 // CSpawnRegionTable — 몬스터가 태어나는 구역 (Run/bin/SpawnRegion.csv)
 //
-// [무엇] 한 줄 = 「이 맵의 이 사각형 구역에 · 이 몬스터를 · 몇 마리」. 몬스터는 처음 깔릴 때 구역 하나를
-//        배정받아 들고(CMonster::_spawnRegion), 죽었다 되살아날 때도 그 구역 안의 무작위 자리로 간다.
-//        그래서 구역별 마릿수가 객체 수로 지켜진다.
+// [무엇] 한 줄 = 「이 맵의 이 사각형 구역에 · 이 몬스터를 · 몇 마리」. 깔 때 줄마다 그 구역 안의 무작위 자리에 count 마리.
 //
 // [마릿수도 여기] 존당 마릿수는 이 맵 줄들의 count 합이다. 예전엔 총수를 INI 에 두고 표는 비율만 주었는데,
 //        "이 구역에 몇 마리"를 보려면 두 파일을 같이 봐야 했다(10-08 표 한 곳으로). 두 곳에 두지 않는다는 것은 같다.
@@ -54,7 +52,7 @@ public:
     //     그 밖에 태어나면 첫 걸음에 클램프로 멈춘다.
     bool CheckMaps(const std::vector<MapSize>& maps) const;
 
-    // 이 맵의 구역들 (없으면 빈 목록). 색인이 곧 CMonster::_spawnRegion 이다.
+    // 이 맵의 구역들 (없으면 빈 목록).
     const std::vector<SpawnRegion>& RegionsOf(int32_t mapId) const
     {
         if (mapId < 0 || mapId >= static_cast<int32_t>(_byMap.size()))

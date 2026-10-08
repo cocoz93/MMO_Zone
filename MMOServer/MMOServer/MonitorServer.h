@@ -470,9 +470,6 @@ private:
         WriteCounter(ss, "mmo_monster_deaths_total",
                      "Monsters whose HP dropped to zero",
                      _gameMonitor._monster._deathsTotal);
-        WriteCounter(ss, "mmo_monster_respawns_total",
-                     "Monster respawns after death",
-                     _gameMonitor._monster._respawnsTotal);
         WriteCounter(ss, "mmo_monster_think_total",
                      "Monster AI decisions actually run (zero means AI is not ticking)",
                      _gameMonitor._monster._thinkCalls);
@@ -480,7 +477,7 @@ private:
                      "Monster AI state changes (one state swallowing others shows up as a stall here)",
                      _gameMonitor._monster._stateTransitions);
         WriteCounter(ss, "mmo_monster_spawn_rerolls_total",
-                     "Spawn spots re-drawn because a live player stood within sight (initial spawn and respawn)",
+                     "Spawn spots re-drawn because a live player stood within sight",
                      _gameMonitor._monster._spawnRerolls);
         WriteCounter(ss, "mmo_monster_spawn_reroll_exhausted_total",
                      "Spawns that used up all re-draws and kept the last spot (crowded area)",

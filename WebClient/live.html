@@ -234,7 +234,7 @@ function onPacket(p){
       //   존을 넘을 때도 이 패킷이 다시 오지만 한 접속에 한 번만 보낸다(운영자 표시는 서버 플레이어에 남는다).
       if(ADMIN_KEY && !adminSent && ws && ws.readyState===1){ ws.send(P.enc.adminLogin(ADMIN_KEY)); adminSent=true; }
       break;
-    // spawnReason 3(SPAWN) = 월드에 새로 생김 — 뱀이 깔리거나 다른 자리에서 되살아날 때. 부활 섬광을 같이 그린다
+    // spawnReason 3(SPAWN) = 월드에 새로 생김 — 뱀이 깔릴 때. 부활 섬광을 같이 그린다
     case P.MSG.S2C_CREATE_OTHER_PLAYER: bump('ENTER');
       others.set(p.playerId,{x:p.x,y:p.y,dir:p.direction,moveState:p.moveState,speed:p.speed||30,disp:p.displayChar,color:p.colorIndex,rx:p.x,ry:p.y,chat:null,chatT:0,...COMBAT_INIT(),hp:p.hp,maxHp:p.maxHp,spawnT:p.spawnReason===3?SPAWN_LIFE:0}); break;
     case P.MSG.S2C_CREATE_PLAYER_BATCH: bump('ENTER', p.count);

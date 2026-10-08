@@ -49,7 +49,7 @@ class CSerialBuffer;
 // 알림 통로 넷 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
 //   IZoneEvents       = 존(존 틱·몬스터 관리자)의 걷기·멈춤 알림 둘 — 토글 없이 늘 있다
 //   ICombatEvents     = 공격 흐름(CCombatSystem)의 알림 셋
-//   IMonsterEvents    = 몬스터 관리자(CMonsterManager)의 알림 둘과 번호 부탁 하나
+//   IMonsterEvents    = 몬스터 관리자(CMonsterManager)의 알림 하나와 번호 부탁 하나
 //   IGroundItemEvents = 땅 아이템 관리자(CGroundItemManager)의 알림 둘과 번호 부탁 하나
 //                       (USE_DROP 은 가방(→ 전투)과 몬스터가 다 켜져야 켜진다 — BuildConfig.h #error)
 class CGameServer
@@ -180,7 +180,7 @@ private:
     void RecvAttack(CPlayer* player, CSerialBuffer* pMsg);
 
     // 부활 대기자 훑기 — 틱마다 1회. 존 전체를 돌지 않으려고 죽은 것만 따로 들고 있는다.
-    //   플레이어만 — 몬스터는 자기 존의 관리자가 따로 든다(TickMonsterRespawn).
+    //   플레이어만 — 몬스터는 되살리지 않는다(죽으면 시체로 남는다).
     void TickRespawn();
 
     // 부활 대기열에서 빼기 — 퇴장 경로가 반드시 부른다. 안 부르면 다음 틱이 해제된 포인터를 밟는다.
@@ -233,8 +233,8 @@ private:
 
 #if USE_MONSTER
     // ── 몬스터 (USE_MONSTER) ──
-    // 몬스터 코드(깔기·판단·부활 자리 옮기기·벽 앞 재판단)는 존마다 든 CMonsterManager 에 있다.
-    //   여기는 틱의 두 시점에 그걸 부르고, 알림을 받아 송신·번호 발급만 한다.
+    // 몬스터 코드(깔기·판단·벽 앞 재판단)는 존마다 든 CMonsterManager 에 있다.
+    //   여기는 틱마다 그걸 부르고, 알림을 받아 송신·번호 발급만 한다.
 
     // 게임 루프 1-1) — 좌표 갱신(2) 바로 앞. 존마다 관리자 Tick(처음이면 깔고, 몬스터마다 판단).
     //   순서가 뒤면 AI 가 정한 방향이 한 틱씩 밀린다.
@@ -244,16 +244,9 @@ private:
     //   (예전엔 설정값 둘 — 존당 마릿수·뱀 속도 — 이 Start() 전에 바뀌어 틱마다 만들었다. 둘 다 몬스터 표·스폰 표로 갔다)
     MonsterContext MakeMonsterContext();
 
-#if USE_COMBAT
-    // 게임 루프 3-2) — 플레이어 부활(TickRespawn) 뒤, 존마다 관리자의 몬스터 부활.
-    //   ★ 섹터 변경 대기열이 빈 자리에서만 부른다(함수 머리 단언) — 까닭은 CMonsterManager::TickRespawn.
-    void TickMonsterRespawn();
-#endif
-
     // 몬스터 알림과 번호 부탁 (IMonsterEvents) — 뜻은 MonsterManager.h.
     int32_t AllocActorId() override;                                         // = AllocPlayerId — 번호 공간이 플레이어와 하나
     void OnMonsterSpawn(CZone* zone, CMonster* monster) override;            // 주변에 CREATE(SPAWN) · 동기화 기준점을 지금 자리로
-    void OnMonsterVanish(CZone* zone, CMonster* monster) override;           // 지금 자리 주변에 DELETE
 #endif
 
 #if USE_DROP

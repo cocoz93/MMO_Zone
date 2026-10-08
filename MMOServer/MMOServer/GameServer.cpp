@@ -1162,11 +1162,8 @@ void CGameServer::GameLoopThread()
 
 #if USE_COMBAT
         // 3-2) 부활 대기자 훑기 (게임 로직 페이즈에 계상 — 브로드캐스트를 동반한다)
-        //   플레이어(게임 서버 대기열) → 몬스터(존마다 관리자 대기열). 둘 다 섹터 변경 대기열을 비운 뒤다.
+        //   플레이어만 — 몬스터는 되살리지 않는다(죽으면 시체로 남는다).
         TickRespawn();
-#if USE_MONSTER
-        TickMonsterRespawn();
-#endif
 #endif
 
 #if USE_DROP
@@ -1251,7 +1248,7 @@ void CGameServer::GameLoopThread()
             _cleanupFrameCount = 0;
 
             // 정리는 틱 끝(5)이라 몬스터를 가리키는 게임 서버 대기열이 없다 — 존을 그대로 지워도 된다.
-            //   이동 묶음은 틱 끝 송신이 비웠다. 섹터 이동 대기열과 몬스터 부활 대기열은 존 안이라
+            //   이동 묶음은 틱 끝 송신이 비웠다. 섹터 이동 대기열은 존 안이라
             //   존과 같이 사라진다. 누가 정리를 틱 앞쪽으로 옮기면 여기서 걸린다.
             assert(_sectorOutbox.dirtyMovers.empty());
 #if USE_DROP
@@ -2618,8 +2615,8 @@ void CGameServer::OnHit(CZone* zone, CCharacter* attacker, CCharacter* target, i
 
 // 죽었다 — 플레이어 죽은 목록 → 죽음 방송 → 경험치 → 드랍, 이 순서다.
 //   ★ 순서를 바꾸면 레벨업 체력(ACTOR_STATS)이 죽음(DEATH)보다 먼저 가 화면이 뒤집힌다.
-//   죽음 필드(_isDead·_deathFrame·_moveState)와 죽음 계수는 CCombatSystem 이 이미 적었고,
-//   죽은 몬스터는 CCombatSystem 이 자기 존의 부활 대기열에 이미 넣었다(존 안의 일) — 여기는 플레이어 것만 든다.
+//   죽음 필드(_isDead·_deathFrame·_moveState)와 죽음 계수는 CCombatSystem 이 이미 적었다.
+//   죽은 몬스터는 시체로 남는다(되살리지 않는다) — 죽은 목록은 플레이어 것만 든다.
 void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
 {
     // 플레이어 죽은 목록 — 부활 자리·시간이 임시 사양(제자리 3초)이라 아직 게임 서버가 든다(10-05 결정).
@@ -2716,7 +2713,7 @@ void CGameServer::TickRespawn()
     for (size_t i = 0; i < _deadActors.size(); )
     {
         CCharacter* dead = _deadActors[i];
-        assert(dead->_kind == CharacterKind::PLAYER);   // 몬스터는 OnDeath 가 존의 관리자 대기열로 보낸다
+        assert(dead->_kind == CharacterKind::PLAYER);   // 몬스터는 OnDeath 가 안 넣는다 — 되살리지 않는다
 
         if (!Combat::IsRespawnDue(*dead, _frameCount))
         {
@@ -2727,7 +2724,7 @@ void CGameServer::TickRespawn()
         Combat::Respawn(*dead);
 
         // 부활도 "되살아난 쪽"으로 가른다 (죽음과 같은 기준 — GameMonitor.h 참조).
-        //   이 대기열엔 플레이어만 있다 — 몬스터 부활은 존의 관리자가 세고 옮긴다(CMonsterManager::TickRespawn).
+        //   이 대기열엔 플레이어만 있다 — 몬스터는 되살리지 않는다.
         _gameMonitor._combat._respawnsTotal.Inc();
 
         CZone* zone = _mapManager.GetZone(dead->_zoneId);
@@ -2763,8 +2760,8 @@ void CGameServer::RemoveFromDeadActors(CCharacter* player)
 #if USE_MONSTER
 // ==========================================================================
 // 몬스터 (USE_MONSTER)
-//   몬스터 코드(깔기·판단·부활 자리 옮기기·벽 앞 재판단)는 존마다 든 CMonsterManager 에 있다(MonsterManager.h).
-//   여기는 틱의 두 시점에 그걸 부르고, 알림을 받아 송신·번호 발급만 한다.
+//   몬스터 코드(깔기·판단·벽 앞 재판단)는 존마다 든 CMonsterManager 에 있다(MonsterManager.h).
+//   여기는 틱마다 그걸 부르고, 알림을 받아 송신·번호 발급만 한다.
 // ==========================================================================
 
 MonsterContext CGameServer::MakeMonsterContext()
@@ -2787,19 +2784,6 @@ void CGameServer::TickMonsters()
     });
 }
 
-#if USE_COMBAT
-// 게임 루프 3-2) — 플레이어 부활(TickRespawn) 뒤, 존마다 관리자의 몬스터 부활.
-void CGameServer::TickMonsterRespawn()
-{
-    // 틱 3-2 — 섹터 변경 대기열을 처리하고 비운 뒤다(GameLoopThread). 단언은 관리자 안(CMonsterManager::TickRespawn)에 있다.
-    const MonsterContext ctx = MakeMonsterContext();
-    _mapManager.ForEachZone([&](CZone* zone)
-    {
-        zone->GetMonsterManager().TickRespawn(ctx, _frameCount);
-    });
-}
-#endif // USE_COMBAT
-
 // ── 몬스터 알림과 번호 부탁 (IMonsterEvents) ── 패킷 조립·송신은 이 파일 것을 그대로 쓴다.
 
 int32_t CGameServer::AllocActorId()
@@ -2811,7 +2795,7 @@ void CGameServer::OnMonsterSpawn(CZone* zone, CMonster* monster)
 {
     // 표시 문자 — 클라가 사람 대신 몬스터 스프라이트를 고르는 패킷 값(Protocol.h DISPLAY_MONSTER_BASE).
     //   플레이어의 CalcDisplayChar 처럼 게임 서버가 넣는다 — 존 층(몬스터 생성자)은 이 값을 모른다(10-06).
-    //   첫 스폰·부활 둘 다 존 입장 직후 이 콜백을 곧바로 부르므로, 아래 CREATE 보다 늦는 일이 없다.
+    //   깔 때 존 입장 직후 이 콜백을 곧바로 부르므로, 아래 CREATE 보다 늦는 일이 없다.
     //   값은 몬스터 표(_def.display)에 있다 — 표가 읽을 때 몬스터 구간(DISPLAY_MONSTER_BASE~)인지 봤다.
     monster->_displayChar = monster->_def.display;
 
@@ -2824,15 +2808,6 @@ void CGameServer::OnMonsterSpawn(CZone* zone, CMonster* monster)
     //   안 맞추면 옛 자리와의 차이로 보정 패킷(MOVE_SYNC)이 한 번 더 나갈 뿐, 위치가 틀리지는 않는다.
     monster->_lastSyncX = monster->_x;
     monster->_lastSyncY = monster->_y;
-}
-
-void CGameServer::OnMonsterVanish(CZone* zone, CMonster* monster)
-{
-    // 시체가 사라진다 — 지금 자리를 보던 플레이어에게만 간다(부활로 다른 자리로 옮기기 직전)
-    _eventAroundBuffer.clear();
-    zone->GetSectorManager().GetAroundPlayers(monster->_sectorX, monster->_sectorY, _eventAroundBuffer, monster);
-    for (CPlayer* other : _eventAroundBuffer)
-        SendDeletePlayer(other, monster);
 }
 #endif // USE_MONSTER
 

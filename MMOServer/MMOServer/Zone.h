@@ -3,7 +3,7 @@
 //
 // [책임]
 //  - 맵 크기, CSectorManager, 캐릭터 목록 소유 (vector<CCharacter*> — 플레이어·몬스터 공통)
-//  - 몬스터 관리자 소유 (_monsterManager, 값) — 몬스터 객체·깔기·판단·부활은 그쪽(MonsterManager.h).
+//  - 몬스터 관리자 소유 (_monsterManager, 값) — 몬스터 객체·깔기·판단은 그쪽(MonsterManager.h).
 //    존과 같이 태어나고 같이 사라지므로. 플레이어 객체는 접속 수명이라 CGameServer 가 소유한다
 //  - 캐릭터 입장/퇴장, 섹터 등록/해제 등 데이터 관리
 //  - 맵 경계 규칙(맵 안 검사·클램프·벽 판정) — 맵 크기를 든 곳이 여기라서
@@ -105,7 +105,7 @@ public:
 
     // ── 섹터 이동 ── 좌표를 바꾼 쪽이 부른다. 좌표가 가리키는 섹터로 등록을 옮긴다.
     //   화면(CREATE/DELETE)을 언제 고치느냐로 둘:
-    bool UpdateSector(CCharacter* character);           // 옮기기만. 옮겼으면 true — 화면은 부른 쪽이 바로 고친다(몬스터 부활)
+    bool UpdateSector(CCharacter* character);           // 옮기기만. 옮겼으면 true — 화면은 부른 쪽이 바로 고친다
     void UpdateSectorAndQueue(CCharacter* character);   // 옮기고 섹터 이동 대기열에 — 화면은 틱 끝(게임 루프 3)에 CGameServer 가 고친다
 
     // 섹터 이동 대기열 — 이번 틱에 섹터를 넘은 캐릭터와 첫 출발 섹터. 게임 루프 3)에 TakeSightChanges 가 읽고 비운다.
@@ -166,7 +166,7 @@ public:
 
 #if USE_MONSTER
     // ── 몬스터 ── 이 존의 몬스터를 소유하고 깔고 판단하는 관리자(MonsterManager.h).
-    //   게임 루프가 틱의 두 시점(1-1 판단 · 3-2 부활)에 이걸 꺼내 부른다(GetSectorManager 와 같은 꼴).
+    //   게임 루프가 틱마다(1-1 판단) 이걸 꺼내 부른다(GetSectorManager 와 같은 꼴).
     //   몬스터는 _characterList·섹터에도 들어간다(거기 있어야 움직이고 보인다) — 둘 다 빌린 포인터만 든다.
     CMonsterManager& GetMonsterManager() { return _monsterManager; }
 #endif
@@ -211,7 +211,7 @@ private:
     SightChanges _sightChanges;
 
 #if USE_MONSTER
-    // 몬스터 관리자 — 몬스터 소유·깔았나 표시·부활 대기열. *this 를 들므로 존은 복사하지 않는다(위 삭제 두 줄).
+    // 몬스터 관리자 — 몬스터 소유·깔았나 표시. *this 를 들므로 존은 복사하지 않는다(위 삭제 두 줄).
     //   해제는 존 소멸(빈 채널 정리·서버 종료) 때 멤버 소멸로 — 밖에서 먼저 불러 줄 것이 없다.
     //   기획 데이터를 받으므로 생성자 초기화 목록에서 세운다(Zone.cpp).
     CMonsterManager _monsterManager;

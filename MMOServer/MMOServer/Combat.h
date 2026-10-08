@@ -63,8 +63,7 @@ namespace Combat
     int32_t CalcDamage(int32_t attack, int32_t defense, bool& outFloored);
 
     // 피해 적용 — 남은 HP를 outRemainHp에 담고, 이 타격으로 죽었으면 true.
-    //   _isDead·_deathFrame 기록과 몬스터의 부활 대기열 등록(자기 존의 몬스터 관리자)은 호출자(CCombatSystem) 몫,
-    //   플레이어의 죽은 목록은 CGameServer(OnDeath) 몫이다.
+    //   _isDead·_deathFrame 기록은 호출자(CCombatSystem) 몫, 플레이어의 죽은 목록은 CGameServer(OnDeath) 몫이다.
     bool ApplyDamage(CCharacter& target, int32_t damage, int32_t& outRemainHp);
 
     // 부활할 때가 됐나 (살아 있으면 항상 false)
