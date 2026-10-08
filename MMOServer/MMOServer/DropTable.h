@@ -11,9 +11,8 @@
 
 #include "Item.h"
 
-enum class MonsterKind : uint8_t;   // Monster.h — 이 헤더는 종류 번호만 쓴다(몬스터 헤더를 끌어오지 않는다)
-                                    //   .cpp 는 파일의 이름을 번호로 바꾸느라 Monster.h 를 본다 — 임시(DropTable.cpp 머리)
 class CItemTable;
+class CMonsterTable;
 
 // ==========================================================================
 // CDropTable — 몬스터가 무엇을 몇 % 로 떨어뜨리나 (Run/bin/DropTable.csv)
@@ -25,7 +24,7 @@ class CItemTable;
 //        굴림은 정수 난수 [0, 10000) 가 그보다 작은가 한 번 — 부동소수 비교를 안 한다.
 //
 // [표끼리 대조] 아이템 번호는 아이템 표에 있어야 하고, 개수는 그 아이템의 쌓임 한도 안이어야 한다.
-//        그래서 아이템 표를 먼저 읽고 그 결과를 받는다(CGameDataFiles::LoadAll 순서).
+//        몬스터 번호는 몬스터 표에 있어야 한다. 그래서 두 표를 먼저 읽고 그 결과를 받는다(CGameDataFiles::LoadAll 순서).
 // ==========================================================================
 struct DropRow
 {
@@ -58,17 +57,18 @@ class CDropTable
 {
 public:
     // 파일을 읽어 표를 세운다. 실패하면 false 이고 까닭을 로그로 남긴다 — main 이 서버를 안 띄운다.
-    bool Load(const std::string& path, const CItemTable& items);
+    bool Load(const std::string& path, const CItemTable& items, const CMonsterTable& monsters);
 
     // 이 몬스터의 줄들 (없으면 빈 목록 — 아무것도 안 떨어뜨리는 몬스터도 된다)
-    const std::vector<DropRow>& RowsOf(MonsterKind kind) const
+    const std::vector<DropRow>& RowsOf(int32_t monsterId) const
     {
-        const size_t k = static_cast<size_t>(kind);
-        return k < _byKind.size() ? _byKind[k] : EMPTY;
+        if (monsterId < 0 || monsterId >= static_cast<int32_t>(_byMonster.size()))
+            return EMPTY;
+        return _byMonster[static_cast<size_t>(monsterId)];
     }
 
 private:
-    std::vector<std::vector<DropRow>> _byKind;   // 색인 = MonsterKind
+    std::vector<std::vector<DropRow>> _byMonster;   // 색인 = 몬스터 번호 (몬스터 표)
     int32_t _count = 0;
 
     static const std::vector<DropRow> EMPTY;

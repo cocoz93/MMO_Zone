@@ -5,6 +5,7 @@
 #include "BuildConfig.h"
 #include "LevelTable.h"
 #include "ItemTable.h"
+#include "MonsterTable.h"
 #include "SpawnRegionTable.h"
 #include "DropTable.h"
 
@@ -22,8 +23,8 @@
 //        파일인 이유는 밸런스 값이 코드와 같은 커밋에 들어가 같이 롤백되고 diff 로 보이기 때문.
 //        DB 가 나은 조건 둘(서버를 안 내리고 바꾸기 · 여러 대에 배포 누락 방지)은 아직 우리가 아니다.
 //
-// [늘어날 것] 레벨 표 다음으로 아이템 표가 붙었다(인벤토리). 예고된 것이 하나 더 —
-//        몬스터 스탯 표(둘째 종류가 생기는 날).
+// [늘어날 것] 레벨 표 다음으로 아이템 표가 붙었다(인벤토리). 몬스터 표는 "둘째 종류가 생기는 날"로 미뤄 두었다가
+//        10-08 앞당겼다 — 몬스터 사양이 코드 상수·INI 에 흩어져, 존이 생길 때 스스로 깔 재료를 존 쪽이 못 쥐었다.
 //        표가 하나일 때 줄어드는 코드는 서너 줄뿐이었고, 값어치는 거기가 아니라
 //        "기획 데이터는 여기"가 코드에 이름으로 존재하는 것이다.
 //
@@ -49,6 +50,8 @@ public:
     const CItemTable& Item() const { return _item; }
 #endif
 #if USE_MONSTER
+    // 속도 상한 대조(CheckSpeed)는 여기서 안 한다 — 상한은 AI 사정이라 CGameServer::LoadGameDataFiles 가 대조한다.
+    const CMonsterTable& Monsters() const { return _monster; }
     // 맵 크기와의 대조(CheckMaps)는 여기서 안 한다 — 맵 설정(INI)은 CGameServer::LoadGameDataFiles 가 받아 대조한다.
     const CSpawnRegionTable& SpawnRegions() const { return _spawnRegion; }
 #endif
@@ -64,10 +67,11 @@ private:
     CItemTable _item;
 #endif
 #if USE_MONSTER
-    CSpawnRegionTable _spawnRegion;
+    CMonsterTable _monster;
+    CSpawnRegionTable _spawnRegion;   // 몬스터 표를 먼저 읽고 그 결과로 대조한다(LoadAll 순서)
 #endif
 #if USE_DROP
-    CDropTable _drop;   // 아이템 표를 먼저 읽고 그 결과로 대조한다(LoadAll 순서)
+    CDropTable _drop;   // 아이템 표·몬스터 표를 먼저 읽고 그 결과로 대조한다(LoadAll 순서)
 #endif
 };
 

@@ -3,6 +3,7 @@
 #include "Zone.h"            // 나를 든 존 — 입장·섹터·맵 번호
 #include "SectorManager.h"   // 시야·반경이 걸치는 섹터 훑기
 #include "Monster.h"         // unique_ptr<CMonster> 를 지우려면 완전한 타입이 필요하다
+#include "MonsterTable.h"    // MonsterDef — 깔 때 몬스터 표의 행을 넘긴다
 #include "MonsterAI.h"       // 판단 (Combat 과 같은 자리의 순수 판정 모듈)
 #include "Player.h"          // GetSectorPlayers 가 CPlayer* 를 돌려준다 — 후보의 생사·좌표를 읽는다
 #include "GameMonitor.h"     // 판단·전이·다시 뽑기·부활 계수기
@@ -131,23 +132,22 @@ void CMonsterManager::Spawn(const MonsterContext& ctx, uint64_t frame)
 {
     _spawned = true;   // 실패하더라도 매 틱 재시도하지 않게 먼저 세운다
 
-    const int32_t spawnCount = (ctx.monsterPerZone > 0) ? ctx.monsterPerZone : MONSTERS_PER_ZONE;
-
-    // 구역마다 몇 마리 — 총수(INI)를 스폰 구역 표의 비율대로 정수로 딱 나눈다.
+    // 구역마다 표에 적힌 몬스터를 적힌 마릿수만큼 — 스폰 구역 표 한 줄이 「이 구역에 이 몬스터 몇 마리」다.
     //   이 맵에 구역이 없는 일은 없다 — 기동 때 CheckMaps 가 설정된 맵마다 구역 ≥ 1 을 보고, 아니면 서버를 안 띄웠다.
-    std::vector<int32_t> perRegion;
-    _gameData.SpawnRegions().SplitCount(_zone.GetMapId(), spawnCount, perRegion);
+    const std::vector<SpawnRegion>& regions = _gameData.SpawnRegions().RegionsOf(_zone.GetMapId());
 
     int32_t i = 0;   // 존 안 순번 — 첫 판단 시점을 흩는 데 쓴다
-    for (size_t region = 0; region < perRegion.size(); ++region)
+    for (size_t region = 0; region < regions.size(); ++region)
     {
-        for (int32_t k = 0; k < perRegion[region]; ++k, ++i)
+        // [불변식] 몬스터 번호는 기동 때 몬스터 표와 대조했다(CSpawnRegionTable::Load)
+        const MonsterDef* def = _gameData.Monsters().Find(regions[region].monsterId);
+        assert(def != nullptr);
+
+        for (int32_t k = 0; k < regions[region].count; ++k, ++i)
         {
-            auto owned = std::make_unique<CMonster>();
+            auto owned = std::make_unique<CMonster>(*def);  // 능력치는 생성자가 표의 행에서 복사한다
             CMonster* monster = owned.get();               // 빌려 쓰는 포인터 — 소유는 아래에서 목록으로 넘어간다
             monster->_actorId = ctx.events.AllocActorId(); // 단일 증가 카운터라 플레이어와 충돌하지 않는다
-            if (ctx.snakeSpeed > 0)
-                monster->_speed = ctx.snakeSpeed;          // 게임용 속도 — 0 이면 SNAKE_SPEED(15) 그대로
 
             // 자리는 배정받은 구역 안 무작위(사람 근처면 다시 뽑음). 방향·정지 상태·섹터 등록·주민 목록 추가는
             //   EnterZoneAt 이 전부 한다.
@@ -172,13 +172,13 @@ void CMonsterManager::Spawn(const MonsterContext& ctx, uint64_t frame)
         }
     }
 
-    // 구역별 마릿수 — 표를 바꾼 뒤 비율이 뜻대로 나뉘었는지 로그 한 줄로 본다(시험도 이 줄을 읽는다)
+    // 구역별 마릿수 — 표를 바꾼 뒤 뜻대로 깔렸는지 로그 한 줄로 본다(시험도 이 줄을 읽는다)
     std::string split;
-    for (size_t region = 0; region < perRegion.size(); ++region)
+    for (size_t region = 0; region < regions.size(); ++region)
     {
         if (region > 0)
             split += " / ";
-        split += std::to_string(perRegion[region]);
+        split += std::to_string(regions[region].count);
     }
     SLOG_INFO("[Monster] zone {} spawned {} (regions {})", _zone.GetZoneId(), i, split);
 }

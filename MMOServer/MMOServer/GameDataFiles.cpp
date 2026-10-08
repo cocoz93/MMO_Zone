@@ -17,12 +17,15 @@ bool CGameDataFiles::LoadAll(const std::string& dir)
         return false;
 #endif
 #if USE_MONSTER
-    if (!_spawnRegion.Load(dir + "SpawnRegion.csv"))
+    if (!_monster.Load(dir + "MonsterTable.csv"))
+        return false;
+    // ★ 몬스터 표 "뒤" — 스폰 구역의 몬스터 번호를 몬스터 표와 대조한다
+    if (!_spawnRegion.Load(dir + "SpawnRegion.csv", _monster))
         return false;
 #endif
 #if USE_DROP
-    // ★ 아이템 표 "뒤" — 드랍 표의 아이템 번호·개수를 아이템 표와 대조한다
-    if (!_drop.Load(dir + "DropTable.csv", _item))
+    // ★ 아이템 표·몬스터 표 "뒤" — 드랍 표의 아이템 번호·개수와 몬스터 번호를 두 표와 대조한다
+    if (!_drop.Load(dir + "DropTable.csv", _item, _monster))
         return false;
 #endif
 

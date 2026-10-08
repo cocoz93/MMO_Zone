@@ -13,8 +13,8 @@
 //
 // [계층 경계]
 //  CZone·CSectorManager·CMonster·MonsterAI 를 안다. 세션·패킷(CSerialBuffer)·CGameServer 는 모른다.
-//  기획 데이터(스폰 구역 표)는 존이 생길 때 받아 쥔다 — 기동 때 읽고 안 바뀌는 읽기 전용이라 언제든 꺼내 본다
-//  (맵 관리자는 건네기만 하고 안 읽는다). 게임 서버 것(알림 통로·계수기·설정값·공격 흐름)은 부를 때마다
+//  기획 데이터(몬스터 표·스폰 구역 표)는 존이 생길 때 받아 쥔다 — 기동 때 읽고 안 바뀌는 읽기 전용이라 언제든 꺼내 본다
+//  (맵 관리자는 건네기만 하고 안 읽는다). 게임 서버 것(알림 통로·계수기·공격 흐름)은 부를 때마다
 //  MonsterContext 로 받는다 — 존을 만드는 곳이 MapManager 안뿐이라, 만들 때 꽂으면 MapManager 가 그것들을 다 알아야 한다.
 // ==========================================================================
 #pragma once
@@ -58,14 +58,12 @@ public:
 };
 
 // 부를 때마다 넘기는 묶음 — 게임 서버가 틱마다 만든다(존을 만들 때 꽂지 않는다).
-//   설정값 둘은 Start() 전에 바뀌는 값이라 틱마다 만들면 낡을 일이 없다.
+//   몬스터 사양(능력치·마릿수)은 여기 없다 — 표에 있고, 관리자가 쥔 기획 데이터에서 읽는다([계층 경계]).
 struct MonsterContext
 {
     IMonsterEvents&          events;
     IZoneEvents&             zoneEvents;       // 걷기 시작·멈춤 — 방향·이동 상태가 바뀐 것만 보낸다
     CGameMonitor&            monitor;
-    int32_t                  monsterPerZone;   // 0 = MONSTERS_PER_ZONE
-    int32_t                  snakeSpeed;       // 0 = SNAKE_SPEED(Monster.h) 그대로
 #if USE_COMBAT
     CCombatSystem&           combat;           // 공격 흐름 — 플레이어와 같은 것을 쓴다
 #endif
@@ -102,7 +100,6 @@ public:
     // 목록을 밖에 내주는 함수는 두지 않는다 — 몬스터를 도는 자리(판단·정리)가 전부 이 클래스 안이다.
 
 private:
-    static constexpr int32_t MONSTERS_PER_ZONE = 30;   // 섹터 36 개에 마리당 1 개꼴
     static constexpr float   SPAWN_CLEAR_RANGE = 6.0f; // = MonsterAI::SIGHT_RANGE — 태어나자마자 누군가를 알아채지 않게(단언이 맞춘다)
     static constexpr int32_t SPAWN_MAX_TRIES   = 5;
 

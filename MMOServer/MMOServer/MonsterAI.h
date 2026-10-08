@@ -32,15 +32,17 @@ namespace MonsterAI
 {
     // 틱은 40ms (BuildConfig.h FRAME_INTERVAL_MS)
     constexpr uint64_t THINK_INTERVAL_FRAMES = 10;   // 0.4초마다 판단 — 매 틱 돌면 단일 코어 게임루프가 손해다
-    //   0.4초 = 시야(6타일) ÷ 뱀 속도(15타일/초). 배회하는 뱀은 0.4초면 시야 끝에서 끝까지 가므로
+    //   0.4초 = 시야(6타일) ÷ 최고 속도(아래 MAX_SPEED, 15타일/초). 그 속도로 배회하는 뱀은 0.4초면 시야 끝에서 끝까지 가므로
     //   이보다 드물게 보면 시야 안의 플레이어를 한 번도 못 보고 지나칠 수 있다.
-    //   ※ 아래 판단 주기들은 모두 "뱀 속도 15"를 전제로 계산했다. 속도는 INI([Game] SnakeSpeed)로 바뀐다 —
-    //     느리게 하면(게임용 5) 판단 사이 이동이 줄어 더 안전하고, 15 보다 빠르게 하면 다시 따져야 한다.
+    //   ※ 아래 판단 주기들은 모두 "몬스터 속도 15 이하"(MAX_SPEED)를 전제로 계산했다. 속도는 몬스터 표
+    //     (MonsterTable.csv)에 있고, 이 상한을 넘는 줄이 있으면 서버를 안 띄운다(CGameServer::LoadGameDataFiles).
+    //     더 빠른 몬스터를 넣으려면 판단 주기부터 다시 따진다. 느린 쪽(게임용 5)은 판단 사이 이동이 줄어 더 안전하다.
     //   ★ 가만히(IDLE) 있는 뱀은 예외로 쉬는 시간(1~3초) 끝에만 본다 — 움직이지 않으니 누구 위로
     //     걸어갈 일이 없고, 늦게 알아채는 것은 "졸던 뱀"으로 보일 뿐이다(사용자 결정 2026-09-19).
+    constexpr int32_t MAX_SPEED = 15;   // 칸/초 — 위 판단 주기의 전제(아래 시야 정의 뒤 단언이 숫자로 묶는다)
 
     // ★ 쫓는 동안은 매 틱 본다.
-    //   뱀 속도가 15타일/초라 0.4초에 6타일을 간다. 사거리는 1.5타일뿐이라
+    //   뱀 속도가 15타일/초(MAX_SPEED)면 0.4초에 6타일을 간다. 사거리는 1.5타일뿐이라
     //   10틱 주기로는 "사거리 안"인 순간을 통째로 건너뛴다 — 실제로 1.3타일까지 다가오고도
     //   20초 동안 한 번도 못 물었다.
     //   2틱으로 줄였더니 이번엔 판단 사이에 1.2타일을 가서, 사거리에 든 것을 알아챌 때는
@@ -60,6 +62,11 @@ namespace MonsterAI
     constexpr float SIGHT_RANGE_SQ  = SIGHT_RANGE * SIGHT_RANGE;
     constexpr float LEASH_RANGE     = 12.0f;
     constexpr float LEASH_RANGE_SQ  = LEASH_RANGE * LEASH_RANGE;
+
+    // 판단 주기의 전제를 숫자로 — 한 주기 동안 최고 속도로 가는 거리가 시야를 넘지 않는다(0.4초 × 15 = 6).
+    //   정수끼리 곱해 견준다(10 × 15 ≤ 6 × 25) — 실수 나눗셈의 반올림이 판정을 흔들지 않게.
+    static_assert(static_cast<float>(THINK_INTERVAL_FRAMES * MAX_SPEED) <= SIGHT_RANGE * FRAME_PER_SEC,
+                  "판단 주기 × 최고 속도가 시야를 넘으면 배회하는 몬스터가 시야 안의 플레이어를 못 보고 지나친다");
 
     // 판단 결과 — CMonsterManager 가 이걸 받아 상태를 적용하고, 바뀐 것만 알린다(송신은 CGameServer).
     struct Decision

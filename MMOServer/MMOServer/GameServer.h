@@ -41,7 +41,7 @@
 #include "MonitorManager.h"
 #include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
 #include "Common.h"
-#include "GameDataFiles.h"  // 기획 데이터 파일(레벨 표·아이템 표) — 표가 하나도 안 켜졌으면 빈 헤더
+#include "GameDataFiles.h"  // 기획 데이터 파일(레벨·아이템·몬스터·스폰 구역·드랍 표) — 표가 하나도 안 켜졌으면 빈 헤더
 #include "DB/DBWorker.h"
 
 class CSerialBuffer;
@@ -86,24 +86,17 @@ public:
             _network->SetEventQueueAcceptLimit(limit);
     }
 
-    // 이동 속도(칸/초) — 0 이면 지금까지의 동작(사람 25~50 무작위·뱀 15). ServerConfig [Game] 참조.
-    //   Start() 전에 호출. 새로 만드는 캐릭터부터 적용된다.
-    void SetMoveSpeeds(int playerSpeed, int snakeSpeed)
+    // 플레이어 이동 속도(칸/초) — 0 이면 지금까지의 동작(25~50 무작위). ServerConfig [Game] 참조.
+    //   Start() 전에 호출. 새로 만드는 캐릭터부터 적용된다. 몬스터 속도는 몬스터 표(MonsterTable.csv)에 있다.
+    void SetPlayerSpeed(int playerSpeed)
     {
         _playerSpeed = playerSpeed;
-        _snakeSpeed  = snakeSpeed;
-    }
-
-    // 존당 몬스터 수 — 0 이면 CMonsterManager::MONSTERS_PER_ZONE(30). ServerConfig [Game] MonsterPerZone 참조.
-    //   Start() 전에 호출. 맵을 넓히면 같은 마리 수로는 화면이 비므로 넓이에 맞춰 같이 올린다.
-    void SetMonsterPerZone(int count)
-    {
-        _monsterPerZone = count;
     }
 
 #if USE_GAME_DATA_FILES
-    // 기획 데이터 파일(레벨 표·아이템 표·스폰 구역 표·드랍 표)을 읽는다 — 기동 때 한 번, 세계(맵·존)를 만드는 Init "앞"에서 부른다.
+    // 기획 데이터 파일(레벨 표·아이템 표·몬스터 표·스폰 구역 표·드랍 표)을 읽는다 — 기동 때 한 번, 세계(맵·존)를 만드는 Init "앞"에서 부른다.
     //   실패하면 false 이고 main 이 서버를 안 띄운다. dir 은 끝에 경로 구분자가 붙은 디렉토리.
+    //   표 밖 사실과의 대조도 여기서 — 몬스터 속도는 AI 판단 주기의 상한(MonsterAI::MAX_SPEED)과 견준다.
     //   maps = INI 의 맵 설정(ServerConfig::maps) — 스폰 구역을 이 크기와 대조한다. 등록된 맵이 아니라 설정을 받는 이유 둘:
     //     ⑴ 표는 존이 생기기 전에 서 있어야 한다(Init 의 맵 등록이 기본 채널을 만든다 — 10-08)
     //     ⑵ 에코 시험 모드는 맵을 등록하지 않는다 — 등록된 맵으로 대조하면 빈 목록이라 기동이 실패했다(10-08 이전)
@@ -247,8 +240,8 @@ private:
     //   순서가 뒤면 AI 가 정한 방향이 한 틱씩 밀린다.
     void TickMonsters();
 
-    // 관리자에 넘길 묶음 — 부를 때마다 만든다. 멤버로 들지 않는 이유는 설정값(존당 마릿수·뱀 속도)이
-    //   Start() 전에 바뀌기 때문이다(SetMonsterPerZone·SetMoveSpeeds).
+    // 관리자에 넘길 묶음 — 부를 때마다 만든다. 담긴 것이 전부 이 객체가 든 것의 참조라 만드는 값이 싸다.
+    //   (예전엔 설정값 둘 — 존당 마릿수·뱀 속도 — 이 Start() 전에 바뀌어 틱마다 만들었다. 둘 다 몬스터 표·스폰 표로 갔다)
     MonsterContext MakeMonsterContext();
 
 #if USE_COMBAT
@@ -551,10 +544,8 @@ private:
     int _syncFrameCount = 0;
     uint64_t _frameCount = 0;   // 단조 증가 프레임 번호 (이동 예산의 경과 시간 산출용)
 
-    // 이동 속도 덮어쓰기(칸/초) — 0 이면 각 생성자의 기본값을 그대로 쓴다(SetMoveSpeeds)
+    // 플레이어 이동 속도 덮어쓰기(칸/초) — 0 이면 생성자의 기본값을 그대로 쓴다(SetPlayerSpeed)
     int _playerSpeed = 0;
-    int _snakeSpeed  = 0;
-    int _monsterPerZone = 0;   // 존당 몬스터 수 — 0 이면 CMonsterManager::MONSTERS_PER_ZONE(SetMonsterPerZone)
 
     // 프레임 재사용 버퍼 (힙 할당 방지 — clear()로 capacity 유지)
     std::vector<CPlayer*> _broadcastBuffer;          // BroadcastAroundSector 전용 — 받는 쪽은 플레이어뿐

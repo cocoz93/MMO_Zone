@@ -1,13 +1,14 @@
 # Monster spawn regions - design data, read once at startup (CSpawnRegionTable).
+#   One row = "in this rectangle of this map, this monster, this many".
 #   A monster is born in one region and respawns at a random spot inside the SAME region.
 #   Spawn point = uniform random float in [x0, x1) x [y0, y1) (tiles).
-#   weight : share among the regions of the same map. The TOTAL count stays in MMOServerConfig.ini [Game] MonsterPerZone.
-#            90 snakes over four weight-1 regions -> 23 / 23 / 22 / 22.
+#   monsterId : MonsterTable.csv. count : how many live in this region (1 or more). Monsters per zone = sum of count (90 below).
+#               Density guide: 30 on an 80x80 map was six or seven on one screen - scale the counts with the map area.
 #   Checked at startup against the map config: every map needs >= 1 region, and x1 <= width-1, y1 <= height-1.
 #   Wandering is not bound to the region - regions only decide where monsters are born.
 #   Default layout (map 120x120): four corner blocks, the 10-tile cross in the middle is left empty (NOT a safe zone).
-mapId,x0,y0,x1,y1,weight
-0,5,5,55,55,1
-0,65,5,115,55,1
-0,5,65,55,115,1
-0,65,65,115,115,1
+mapId,x0,y0,x1,y1,monsterId,count
+0,5,5,55,55,1,23
+0,65,5,115,55,1,23
+0,5,65,55,115,1,22
+0,65,65,115,115,1,22

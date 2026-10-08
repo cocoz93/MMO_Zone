@@ -8,6 +8,8 @@
 
 #include "Character.h"
 
+struct MonsterDef;   // MonsterTable.h — 종류별 사양(몬스터 표의 한 행)
+
 // ==========================================================================
 // CMonster — 사람이 조종하지 않는 적
 //
@@ -26,14 +28,6 @@
 //        못 찾으면 대상을 잃은 것이고 배회로 돌아간다.
 // ==========================================================================
 
-// 몬스터 종류 — 지금은 뱀 하나. 늘어나면 스탯표를 따로 뺀다.
-//   그때 이 enum 은 표 번호(아이템의 itemId 꼴)로 바뀐다 — 서버는 번호로 판단하고, 와이어엔 게임 서버가
-//   겉모습 값(displayChar)으로 바꿔 싣는다. 드랍 표가 이 헤더를 보는 것도 그때 사라진다(DropTable.cpp 머리).
-enum class MonsterKind : uint8_t
-{
-    SNAKE = 0,
-};
-
 // AI 상태 — 갈래가 넷이라 if/else 가 아니라 switch 로 다룬다(하나가 나머지를 삼키지 않게).
 //   3단계에서 쓴다. 2단계는 스폰까지라 전부 IDLE 로 서 있다.
 enum class AIState : uint8_t
@@ -44,30 +38,22 @@ enum class AIState : uint8_t
     ATTACK,     // 공격   — 사거리 밖이면 CHASE
 };
 
-// 뱀 기본값 — 근거는 플랜(monster-snake.md 결정 9). 부하 실측 뒤 조정한다.
-constexpr int32_t SNAKE_MAX_HP        = 30;   // 플레이어 3 대(10×3)
-constexpr int32_t SNAKE_ATTACK_POWER  = 5;    // 플레이어를 20 대에 눕힌다
-constexpr int32_t SNAKE_SPEED         = 15;   // 플레이어 최저(25)보다 느리다 — 도망칠 수 있어야 한다
-constexpr int32_t SNAKE_DEFENSE       = 0;    // 맞을 때 빼는 값 — 0 이라 플레이어가 뱀을 잡는 대수는 방어력이 생기기 전과 같다
-
-#if USE_EXP
-// 잡으면 주는 경험치. 레벨 표(LevelTable.csv)는 2레벨을 100 으로 두므로 뱀 열 마리다.
-//   ★ 이 값만 파일로 빼지 않는 이유 — 같은 몬스터의 값이 두 곳(코드·파일)으로 갈린다.
-//     위 :29 주석이 예고한 대로 "둘째 종류가 생기는 날" 몬스터 스탯을 통째로 파일로 옮긴다.
-//     그때 이 값도 같이 간다.
-constexpr int32_t SNAKE_EXP_REWARD    = 10;
-#endif
+// 능력치(체력·공격·방어·속도)·경험치·겉모습은 몬스터 표에 있다(Run/bin/MonsterTable.csv · MonsterTable.h).
 
 class CMonster : public CCharacter
 {
 public:
-    CMonster();
+    // 내 종류의 사양(몬스터 표의 한 행)으로 만든다 — 능력치를 CCharacter 칸에 복사하고 그 행을 가리킨다.
+    explicit CMonster(const MonsterDef& def);
     ~CMonster() override;
 
     // As<CMonster> 판정 — Character.h As
     static bool Matches(const CCharacter& c) { return c._kind == CharacterKind::MONSTER; }
 
-    MonsterKind _kindId = MonsterKind::SNAKE;   // 무슨 몬스터냐 (CCharacter::_kind 는 "몬스터냐"다)
+    // 무슨 몬스터냐 — 몬스터 표의 한 행 (CCharacter::_kind 는 "몬스터냐"다).
+    //   번호(드랍 표 찾기)·경험치(잡은 사람)·겉모습(와이어)은 여기서 읽는다. 표는 기동 뒤 안 바뀌어 가리킨 행이 안 흔들린다.
+    //   체력·공격·방어·속도는 생성자가 CCharacter 칸으로 복사한다 — 전투·이동이 플레이어와 같은 칸을 읽는다.
+    const MonsterDef& _def;
 
     AIState  _aiState        = AIState::IDLE;
     uint64_t _nextThinkFrame = 0;   // 다음 판단 프레임 (CGameServer::_frameCount 기준)

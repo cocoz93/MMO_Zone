@@ -7,6 +7,7 @@
 #include <Common/ErrorLog.h>
 
 #include "GameDataCsv.h"
+#include "MonsterTable.h"   // 몬스터 번호 대조
 
 using GameDataCsv::DataLine;
 using GameDataCsv::ReadDataLines;
@@ -15,7 +16,7 @@ using GameDataCsv::ParseInt;
 
 const std::vector<SpawnRegion> CSpawnRegionTable::EMPTY;
 
-bool CSpawnRegionTable::Load(const std::string& path)
+bool CSpawnRegionTable::Load(const std::string& path, const CMonsterTable& monsters)
 {
     _byMap.clear();
     _count = 0;
@@ -36,15 +37,15 @@ bool CSpawnRegionTable::Load(const std::string& path)
     for (const DataLine& dl : lines)
     {
         SplitCsv(dl.text, cell);
-        if (cell.size() < 6)
+        if (cell.size() < 7)
         {
-            SLOG_ERROR("[SpawnRegion] {}줄: 칸이 {}개입니다 — mapId,x0,y0,x1,y1,weight 여섯이 필요합니다",
+            SLOG_ERROR("[SpawnRegion] {}줄: 칸이 {}개입니다 — mapId,x0,y0,x1,y1,monsterId,count 일곱이 필요합니다",
                        dl.fileLine, cell.size());
             return false;
         }
 
-        int64_t v[6] = {};
-        for (int i = 0; i < 6; ++i)
+        int64_t v[7] = {};
+        for (int i = 0; i < 7; ++i)
         {
             if (!ParseInt(cell[static_cast<size_t>(i)], v[i]))
             {
@@ -52,7 +53,7 @@ bool CSpawnRegionTable::Load(const std::string& path)
                 return false;
             }
         }
-        const int64_t mapId = v[0], x0 = v[1], y0 = v[2], x1 = v[3], y1 = v[4], weight = v[5];
+        const int64_t mapId = v[0], x0 = v[1], y0 = v[2], x1 = v[3], y1 = v[4], monsterId = v[5], count = v[6];
 
         // ⑴ 맵 번호 — 번호가 곧 색인이다
         if (mapId < 0 || mapId > MAX_MAP_ID)
@@ -69,10 +70,17 @@ bool CSpawnRegionTable::Load(const std::string& path)
             return false;
         }
 
-        // ⑶ 비율 — 0 이면 그 구역엔 한 마리도 안 간다(표에 둘 이유가 없다)
-        if (weight < 1 || weight > MAX_WEIGHT)
+        // ⑶ 몬스터 — 몬스터 표에 있어야 한다(표끼리 대조)
+        if (monsterId < 1 || monsterId > CMonsterTable::MAX_MONSTER_ID || monsters.Find(static_cast<int32_t>(monsterId)) == nullptr)
         {
-            SLOG_ERROR("[SpawnRegion] {}줄: weight {} 는 1~{} 여야 합니다", dl.fileLine, weight, MAX_WEIGHT);
+            SLOG_ERROR("[SpawnRegion] {}줄: 몬스터 {} 는 몬스터 표(MonsterTable.csv)에 없습니다", dl.fileLine, monsterId);
+            return false;
+        }
+
+        // ⑷ 마릿수 — 0 이면 그 구역엔 한 마리도 안 간다(표에 둘 이유가 없다)
+        if (count < 1 || count > MAX_COUNT)
+        {
+            SLOG_ERROR("[SpawnRegion] {}줄: count {} 는 1~{} 여야 합니다", dl.fileLine, count, MAX_COUNT);
             return false;
         }
 
@@ -84,9 +92,10 @@ bool CSpawnRegionTable::Load(const std::string& path)
         r.x0       = static_cast<int32_t>(x0);
         r.y0       = static_cast<int32_t>(y0);
         r.x1       = static_cast<int32_t>(x1);
-        r.y1       = static_cast<int32_t>(y1);
-        r.weight   = static_cast<int32_t>(weight);
-        r.fileLine = dl.fileLine;
+        r.y1        = static_cast<int32_t>(y1);
+        r.monsterId = static_cast<int32_t>(monsterId);
+        r.count     = static_cast<int32_t>(count);
+        r.fileLine  = dl.fileLine;
         _byMap[static_cast<size_t>(mapId)].push_back(r);
         ++_count;
     }
@@ -136,41 +145,6 @@ bool CSpawnRegionTable::CheckMaps(const std::vector<MapSize>& maps) const
     }
 
     return ok;
-}
-
-void CSpawnRegionTable::SplitCount(int32_t mapId, int32_t total, std::vector<int32_t>& outCounts) const
-{
-    const std::vector<SpawnRegion>& regions = RegionsOf(mapId);
-    outCounts.assign(regions.size(), 0);
-    if (regions.empty() || total <= 0)
-        return;
-
-    int64_t weightSum = 0;
-    for (const SpawnRegion& r : regions)
-        weightSum += r.weight;
-
-    // 몫을 먼저 주고, 나머지(몫에서 버려진 부분)가 큰 구역부터 하나씩 더 준다
-    std::vector<int64_t> remainder(regions.size(), 0);
-    int32_t given = 0;
-    for (size_t i = 0; i < regions.size(); ++i)
-    {
-        const int64_t share = static_cast<int64_t>(total) * regions[i].weight;
-        outCounts[i] = static_cast<int32_t>(share / weightSum);
-        remainder[i] = share % weightSum;
-        given += outCounts[i];
-    }
-
-    std::vector<size_t> order(regions.size());
-    for (size_t i = 0; i < order.size(); ++i)
-        order[i] = i;
-    std::stable_sort(order.begin(), order.end(),
-        [&remainder](size_t a, size_t b) { return remainder[a] > remainder[b]; });   // 같으면 앞 구역이 먼저
-
-    for (size_t k = 0; given < total; ++k)
-    {
-        ++outCounts[order[k % order.size()]];
-        ++given;
-    }
 }
 
 #endif // USE_MONSTER

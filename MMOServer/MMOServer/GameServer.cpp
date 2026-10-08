@@ -1,6 +1,7 @@
 ﻿#include "GameServer.h"
 #include "Player.h"
 #include "Monster.h"     // USE_MONSTER — 헤더 안에서 스스로 토글을 본다
+#include "MonsterAI.h"   // USE_MONSTER — 몬스터 표 속도 대조의 상한(MAX_SPEED)
 #include "GameDataCsv.h" // USE_INVENTORY — 채팅 명령 인자를 숫자로 읽는다(표 파서와 같은 규칙)
 #include <Protocol/Protocol.h>
 #include "SerialBuffer.h"
@@ -671,6 +672,10 @@ bool CGameServer::LoadGameDataFiles(const std::string& dir, const MapConfig* map
     for (int32_t i = 0; i < mapCount; ++i)
         sizes.push_back({ maps[i].mapId, maps[i].mapWidth, maps[i].mapHeight });
     if (!_gameDataFiles.SpawnRegions().CheckMaps(sizes))
+        return false;
+
+    // 몬스터 속도는 AI 판단 주기가 전제하는 상한 안이어야 한다 — 상한은 AI 사정이라 표만으로는 못 본다(MonsterAI.h MAX_SPEED).
+    if (!_gameDataFiles.Monsters().CheckSpeed(MonsterAI::MAX_SPEED))
         return false;
 #else
     (void)maps;
@@ -2633,7 +2638,7 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
     CPlayer* killer = As<CPlayer>(attacker);
     if (killer != nullptr && target->_kind == CharacterKind::MONSTER)
     {
-        const int32_t reward = SNAKE_EXP_REWARD;   // 종류가 하나뿐 — 늘어나면 종류별 표에서 뽑는다
+        const int32_t reward = As<CMonster>(target)->_def.exp;   // 잡힌 몬스터 종류의 경험치(몬스터 표)
 
         // ★ 준 뒤에 센다 — GainExp 는 만렙이면 한 톨도 안 쌓는다.
         //   먼저 세면 만렙 이후 잡은 수만큼 "줬다"가 늘어, 계수기가 실제와 갈린다.
@@ -2764,7 +2769,7 @@ void CGameServer::RemoveFromDeadActors(CCharacter* player)
 
 MonsterContext CGameServer::MakeMonsterContext()
 {
-    return MonsterContext{ *this, *this, _gameMonitor, _monsterPerZone, _snakeSpeed
+    return MonsterContext{ *this, *this, _gameMonitor
 #if USE_COMBAT
                          , _combatSystem
 #endif
@@ -2807,8 +2812,8 @@ void CGameServer::OnMonsterSpawn(CZone* zone, CMonster* monster)
     // 표시 문자 — 클라가 사람 대신 몬스터 스프라이트를 고르는 패킷 값(Protocol.h DISPLAY_MONSTER_BASE).
     //   플레이어의 CalcDisplayChar 처럼 게임 서버가 넣는다 — 존 층(몬스터 생성자)은 이 값을 모른다(10-06).
     //   첫 스폰·부활 둘 다 존 입장 직후 이 콜백을 곧바로 부르므로, 아래 CREATE 보다 늦는 일이 없다.
-    //   몬스터 종류가 늘면 여기서 _kindId → DISPLAY_* 로 가른다.
-    monster->_displayChar = DISPLAY_SNAKE;
+    //   값은 몬스터 표(_def.display)에 있다 — 표가 읽을 때 몬스터 구간(DISPLAY_MONSTER_BASE~)인지 봤다.
+    monster->_displayChar = monster->_def.display;
 
     // 이미 그 자리를 보고 있던 플레이어에게 CREATE(SPAWN) 가 간다 — 가득 찬 체력을 싣는다(ActorSnapshot).
     //   보는 사람이 없으면 아무에게도 안 가고, 나중에 걸어온 사람은 섹터 진입 때 받는다.
@@ -2850,7 +2855,7 @@ void CGameServer::DropLoot(CZone* zone, CPlayer* killer, CMonster* monster)
 
     // 게임 스레드 전용 — 서버의 다른 난수 자리와 같은 꼴. 굴림 자체는 순수 함수(DropTable.h RollDrops)
     thread_local std::mt19937 rng{ std::random_device{}() };
-    RollDrops(_gameDataFiles.Drop().RowsOf(monster->_kindId), rng, _lootBuffer);
+    RollDrops(_gameDataFiles.Drop().RowsOf(monster->_def.monsterId), rng, _lootBuffer);
     if (_lootBuffer.empty())
         return;
 

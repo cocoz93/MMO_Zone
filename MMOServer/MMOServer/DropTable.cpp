@@ -6,10 +6,7 @@
 
 #include "GameDataCsv.h"
 #include "ItemTable.h"
-#include "Monster.h"   // MonsterKind — 파일의 몬스터 이름을 종류 번호로
-                       //   ★ 임시 — 기획 데이터 표 중 몬스터 클래스 헤더를 보는 건 여기뿐이다(다른 표는 BuildConfig·CSV 도우미만).
-                       //     몬스터 표가 생기면 몬스터 칸도 아이템 칸(items.Find)처럼 표 대조로 바뀌고, 이 include 와 MonsterKind 는 사라진다.
-                       //     enum 만 작은 헤더로 떼지 않은 까닭 — 사라질 enum 을 여러 표가 기대는 공용 타입으로 굳히게 된다.
+#include "MonsterTable.h"   // 몬스터 칸 대조 — 아이템 칸(items.Find)과 같은 꼴
 
 using GameDataCsv::DataLine;
 using GameDataCsv::ReadDataLines;
@@ -20,27 +17,6 @@ const std::vector<DropRow> CDropTable::EMPTY;
 
 namespace
 {
-    struct KindName { const char* file; MonsterKind kind; };
-
-    // 파일 속 몬스터 이름 → 종류. 종류가 늘면 여기 한 줄(Monster.h MonsterKind 와 나란히 볼 것).
-    //   글자 → enum 은 이 표를 돈다(종류마다 if 를 쓰지 않는다).
-    constexpr KindName KIND_NAMES[] = {
-        { "snake", MonsterKind::SNAKE },
-    };
-
-    bool ParseKind(const std::string& s, MonsterKind& out)
-    {
-        for (const KindName& k : KIND_NAMES)
-        {
-            if (s == k.file)
-            {
-                out = k.kind;
-                return true;
-            }
-        }
-        return false;
-    }
-
     // "60" · "0.5" · "2.25" → 만분율(6000 · 50 · 225). 소수 셋째 자리 이상 · 음수 · 숫자 아님이면 false.
     //   0 과 100 초과는 여기서 막지 않는다 — 부르는 쪽이 까닭을 따로 말한다.
     bool ParseChanceBp(const std::string& s, int64_t& out)
@@ -72,18 +48,10 @@ namespace
     }
 }
 
-bool CDropTable::Load(const std::string& path, const CItemTable& items)
+bool CDropTable::Load(const std::string& path, const CItemTable& items, const CMonsterTable& monsters)
 {
-    _byKind.clear();
+    _byMonster.clear();
     _count = 0;
-
-    size_t kinds = 0;
-    for (const KindName& k : KIND_NAMES)
-    {
-        if (static_cast<size_t>(k.kind) + 1 > kinds)
-            kinds = static_cast<size_t>(k.kind) + 1;
-    }
-    _byKind.resize(kinds);
 
     std::vector<DataLine> lines;
     if (!ReadDataLines(path, lines))
@@ -103,23 +71,22 @@ bool CDropTable::Load(const std::string& path, const CItemTable& items)
         SplitCsv(dl.text, cell);
         if (cell.size() < 5)
         {
-            SLOG_ERROR("[DropTable] {}줄: 칸이 {}개입니다 — itemId,monster,chance,min,max 다섯이 필요합니다",
+            SLOG_ERROR("[DropTable] {}줄: 칸이 {}개입니다 — itemId,monsterId,chance,min,max 다섯이 필요합니다",
                        dl.fileLine, cell.size());
             return false;
         }
 
-        int64_t itemId = 0, minCount = 0, maxCount = 0, chanceBp = 0;
-        if (!ParseInt(cell[0], itemId) || !ParseInt(cell[3], minCount) || !ParseInt(cell[4], maxCount))
+        int64_t itemId = 0, monsterId = 0, minCount = 0, maxCount = 0, chanceBp = 0;
+        if (!ParseInt(cell[0], itemId) || !ParseInt(cell[1], monsterId) || !ParseInt(cell[3], minCount) || !ParseInt(cell[4], maxCount))
         {
             SLOG_ERROR("[DropTable] {}줄: 숫자여야 하는 칸이 숫자가 아닙니다 — \"{}\"", dl.fileLine, dl.text);
             return false;
         }
 
-        // ⑴ 몬스터 — 모르는 이름이면 어느 몬스터의 줄인지 모른다
-        MonsterKind kind{};
-        if (!ParseKind(cell[1], kind))
+        // ⑴ 몬스터 — 몬스터 표에 있어야 한다(표끼리 대조). 없으면 어느 몬스터의 줄인지 모른다
+        if (monsterId < 1 || monsterId > CMonsterTable::MAX_MONSTER_ID || monsters.Find(static_cast<int32_t>(monsterId)) == nullptr)
         {
-            SLOG_ERROR("[DropTable] {}줄: 모르는 몬스터 \"{}\" — snake 여야 합니다", dl.fileLine, cell[1]);
+            SLOG_ERROR("[DropTable] {}줄: 몬스터 {} 는 몬스터 표(MonsterTable.csv)에 없습니다", dl.fileLine, monsterId);
             return false;
         }
 
@@ -152,12 +119,14 @@ bool CDropTable::Load(const std::string& path, const CItemTable& items)
         }
 
         // ⑸ 겹침 — 같은 몬스터·같은 아이템 줄이 둘이면 따로 굴려져 확률이 뜻과 달라진다
-        std::vector<DropRow>& rows = _byKind[static_cast<size_t>(kind)];
+        if (static_cast<int64_t>(_byMonster.size()) <= monsterId)
+            _byMonster.resize(static_cast<size_t>(monsterId) + 1);
+        std::vector<DropRow>& rows = _byMonster[static_cast<size_t>(monsterId)];
         for (const DropRow& r : rows)
         {
             if (r.itemId == itemId)
             {
-                SLOG_ERROR("[DropTable] {}줄: {} · 아이템 {} 줄이 겹칩니다", dl.fileLine, cell[1], itemId);
+                SLOG_ERROR("[DropTable] {}줄: 몬스터 {} · 아이템 {} 줄이 겹칩니다", dl.fileLine, monsterId, itemId);
                 return false;
             }
         }

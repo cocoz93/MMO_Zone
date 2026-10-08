@@ -63,17 +63,13 @@ struct ServerConfig
     //   ※ 기준 3,000은 추정 — 정상 큐 길이 미측정. mmo_event_queue_size 관측 후 재설정할 것.
     int         eventQueueAcceptLimit = 60000;
 
-    // [Game] 이동 속도(칸/초) — 0 이면 지금까지의 동작 그대로다(부하 시험 기준).
+    // [Game] 플레이어 이동 속도(칸/초) — 0 이면 지금까지의 동작 그대로다(부하 시험 기준).
     //   부하 시험은 섹터를 자주 넘나들어야 시야 갱신 부하가 생기므로 사람을 25~50 무작위로 빠르게 둔다.
     //   그 속도는 캐릭터 키(약 2.4칸)의 10~20배/초라 게임으로 플레이하면 너무 빠르다.
-    //   게임으로 플레이할 때만 INI 에 [Game] 을 넣는다 — 권장 사람 7(키의 3배/초)·뱀 5(사람의 70%, 도망칠 수 있게).
+    //   게임으로 플레이할 때만 INI 에 [Game] 을 넣는다 — 권장 사람 7(키의 3배/초).
     //   ★ 기본값을 0 으로 두는 이유: INI 에 [Game] 이 없으면 부하 시험의 속도 분포가 한 바이트도 안 바뀐다.
+    //   몬스터 속도·존당 마릿수는 여기 없다 — 몬스터 표(MonsterTable.csv)·스폰 표(SpawnRegion.csv)에 있다(10-08).
     int         playerSpeed = 0;   // 0 = 25~50 무작위(CPlayer 생성자) · N>0 = 모든 플레이어 N
-    int         snakeSpeed  = 0;   // 0 = SNAKE_SPEED(15, Monster.h) · N>0 = 뱀 N
-
-    // [Game] 존당 몬스터 수 — 맵 넓이에 맞춰 밀도를 유지하는 값이다.
-    //   맵 80×80 에 30 마리가 「한 화면에 예닐곱」 정도였으므로, 맵을 넓히면 넓이 비율만큼 올린다.
-    int         monsterPerZone = 0;  // 0 = MONSTERS_PER_ZONE(30, MonsterManager.h) · N>0 = 존당 N 마리
 
     // 게임스레드 코어 격리 (실험용) — GameCore INI에서 도출. 빈값/부적합이면 gameCore=-1, 마스크 0(=off).
     int                gameCore     = -1;  // 게임루프 전용 물리코어 (-1=격리 off). ServerCores 안의 코어여야 함.
@@ -163,14 +159,9 @@ struct ServerConfig
         if (eventQueueAcceptLimit < 0)
             eventQueueAcceptLimit = 0;
 
-        // [Game] 이동 속도 — 없으면 0(지금까지의 동작). 음수는 0 으로 본다.
+        // [Game] 플레이어 이동 속도 — 없으면 0(지금까지의 동작). 음수는 0 으로 본다.
         playerSpeed = ini.GetInt("Game", "PlayerSpeed", playerSpeed);
-        snakeSpeed  = ini.GetInt("Game", "SnakeSpeed", snakeSpeed);
         if (playerSpeed < 0) playerSpeed = 0;
-        if (snakeSpeed  < 0) snakeSpeed  = 0;
-
-        monsterPerZone = ini.GetInt("Game", "MonsterPerZone", monsterPerZone);
-        if (monsterPerZone < 0) monsterPerZone = 0;
 
         // [DB] 섹션 — DB 저장 파이프라인 (값은 파서가 narrow std::string으로 반환)
         dbHost              = ini.GetString("DB", "Host", dbHost);
@@ -323,7 +314,6 @@ private:
         SLOG_INFO("  DB          : {}:{} db={} user={} workers={} save={}s qmax={}",
                   dbHost, dbPort, dbDatabase, dbUser, dbWorkers, dbSavePeriodSec, dbQueueMax);
         SLOG_INFO("  Maps        : {}", maps.size());
-        SLOG_INFO("  Speed       : player {} · snake {} (칸/초, 0=기본 — 사람 25~50 무작위·뱀 15)", playerSpeed, snakeSpeed);
-        SLOG_INFO("  Monster     : {} 마리/존 (0=기본 30)", monsterPerZone);
+        SLOG_INFO("  Speed       : player {} (칸/초, 0=기본 — 25~50 무작위)", playerSpeed);
     }
 };
