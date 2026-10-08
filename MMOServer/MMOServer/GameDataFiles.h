@@ -49,7 +49,7 @@ public:
     const CItemTable& Item() const { return _item; }
 #endif
 #if USE_MONSTER
-    // 맵 크기와의 대조(CheckMaps)는 여기서 안 한다 — 맵 설정은 CGameServer 가 들고 있다.
+    // 맵 크기와의 대조(CheckMaps)는 여기서 안 한다 — 맵 설정(INI)은 CGameServer::LoadGameDataFiles 가 받아 대조한다.
     const CSpawnRegionTable& SpawnRegions() const { return _spawnRegion; }
 #endif
 #if USE_DROP

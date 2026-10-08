@@ -660,20 +660,21 @@ bool CGameServer::Init(ServerMode mode, int port, int maxClients,
 }
 
 #if USE_GAME_DATA_FILES
-bool CGameServer::LoadGameDataFiles(const std::string& dir)
+bool CGameServer::LoadGameDataFiles(const std::string& dir, const MapConfig* maps, int32_t mapCount)
 {
     if (!_gameDataFiles.LoadAll(dir))
         return false;
 
 #if USE_MONSTER
-    // 스폰 구역은 맵 크기와 대조해야 해서 표만으로는 못 본다 — 맵은 Init 이 먼저 받았다(main.cpp).
-    std::vector<CSpawnRegionTable::MapSize> maps;
-    _mapManager.ForEachMapConfig([&maps](const MapConfig& mc)
-    {
-        maps.push_back({ mc.mapId, mc.mapWidth, mc.mapHeight });
-    });
-    if (!_gameDataFiles.SpawnRegions().CheckMaps(maps))
+    // 스폰 구역은 맵 크기와 대조해야 해서 표만으로는 못 본다 — 크기는 INI 의 맵 설정에서(선언 주석 ⑴⑵).
+    std::vector<CSpawnRegionTable::MapSize> sizes;
+    for (int32_t i = 0; i < mapCount; ++i)
+        sizes.push_back({ maps[i].mapId, maps[i].mapWidth, maps[i].mapHeight });
+    if (!_gameDataFiles.SpawnRegions().CheckMaps(sizes))
         return false;
+#else
+    (void)maps;
+    (void)mapCount;
 #endif
     return true;
 }

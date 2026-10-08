@@ -82,6 +82,19 @@ int main()
 
     CGameServer server(monitor, gameMonitor);
 
+#if USE_GAME_DATA_FILES
+    // 기획 데이터 파일 (레벨·아이템·스폰 구역·드랍 표) — 세계(맵·존)를 만드는 Init "앞"에, 한 번에 전부 읽는다.
+    //   Init 의 맵 등록이 기본 채널(존)을 바로 만드므로, 존이 생기는 순간 표가 서 있어야 한다(10-08).
+    //   DB 접속보다도 앞이라 커넥션을 열기 전에 파일 문제로 끝낼 수 있다.
+    //   밸런스 값 없이 도는 서버는 조용히 틀린 게임이 되므로 기본값으로 때우지 않는다.
+    if (!server.LoadGameDataFiles(Platform::GetExecutableDir(),
+                                  config.maps.data(), static_cast<int32_t>(config.maps.size())))
+    {
+        SLOG_ERROR("[Error] 기획 데이터 파일을 못 읽었습니다 - 위 [LevelTable]·[ItemTable]·[SpawnRegion]·[DropTable] 줄을 보세요");
+        return 1;
+    }
+#endif
+
     if (!server.Init(config.mode, config.port, config.maxClients,
                      config.maps.data(), static_cast<int32_t>(config.maps.size()),
                      config.workerThreads, config.sendWorkers, config.rioWorkers,
@@ -95,17 +108,6 @@ int main()
     server.SetEventQueueAcceptLimit(config.eventQueueAcceptLimit);
     server.SetMoveSpeeds(config.playerSpeed, config.snakeSpeed);   // 0 = 기본(부하 시험 기준) — ServerConfig [Game]
     server.SetMonsterPerZone(config.monsterPerZone);               // 0 = 기본 30 마리/존 — ServerConfig [Game]
-
-#if USE_GAME_DATA_FILES
-    // 기획 데이터 파일 (레벨 표·아이템 표) — DB 접속보다 "앞"에 둔다.
-    //   값이 없으면 어차피 못 도는데, 먼저 보면 커넥션을 열기도 전에 파일 문제로 끝낼 수 있다.
-    //   밸런스 값 없이 도는 서버는 조용히 틀린 게임이 되므로 기본값으로 때우지 않는다.
-    if (!server.LoadGameDataFiles(Platform::GetExecutableDir()))
-    {
-        SLOG_ERROR("[Error] 기획 데이터 파일을 못 읽었습니다 - 위 [LevelTable]·[ItemTable]·[SpawnRegion]·[DropTable] 줄을 보세요");
-        return 1;
-    }
-#endif
 
     // DB 저장 파이프라인 초기화 (USE_DB_WORKER=0이면 no-op)
     {

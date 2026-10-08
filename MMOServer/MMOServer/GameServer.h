@@ -102,10 +102,12 @@ public:
     }
 
 #if USE_GAME_DATA_FILES
-    // 기획 데이터 파일(레벨 표·아이템 표·스폰 구역 표)을 읽는다 — 기동 때 한 번, DB 접속보다 "앞"에서 부른다.
+    // 기획 데이터 파일(레벨 표·아이템 표·스폰 구역 표·드랍 표)을 읽는다 — 기동 때 한 번, 세계(맵·존)를 만드는 Init "앞"에서 부른다.
     //   실패하면 false 이고 main 이 서버를 안 띄운다. dir 은 끝에 경로 구분자가 붙은 디렉토리.
-    //   ★ Init(맵 등록) 뒤에 불러야 한다 — 스폰 구역을 맵 크기와 대조한다(main.cpp 순서가 그렇다).
-    bool LoadGameDataFiles(const std::string& dir);
+    //   maps = INI 의 맵 설정(ServerConfig::maps) — 스폰 구역을 이 크기와 대조한다. 등록된 맵이 아니라 설정을 받는 이유 둘:
+    //     ⑴ 표는 존이 생기기 전에 서 있어야 한다(Init 의 맵 등록이 기본 채널을 만든다 — 10-08)
+    //     ⑵ 에코 시험 모드는 맵을 등록하지 않는다 — 등록된 맵으로 대조하면 빈 목록이라 기동이 실패했다(10-08 이전)
+    bool LoadGameDataFiles(const std::string& dir, const MapConfig* maps, int32_t mapCount);
 #endif
 
 #if USE_EXP
