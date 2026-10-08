@@ -636,7 +636,11 @@ bool CGameServer::Init(ServerMode mode, int port, int maxClients,
             // 섹터 묶음이 좌표를 눈금(uint16)으로 실어 나른다 — 맵이 상한(POS_QUANT_MAX_MAP_SIZE)을 넘으면 좌표가
             //   조용히 깨지므로 등록 전에 막는다. 와이어 사정이라 패킷을 모르는 맵 관리자가 아니라 여기서 본다(10-06).
             if (maps[i].mapWidth > POS_QUANT_MAX_MAP_SIZE || maps[i].mapHeight > POS_QUANT_MAX_MAP_SIZE)
+            {
+                SLOG_ERROR("[GameServer] 맵 {} 크기 {}×{} — 와이어 좌표 눈금이 실을 수 있는 {} 이하여야 합니다 (MapTable.csv)",
+                           maps[i].mapId, maps[i].mapWidth, maps[i].mapHeight, POS_QUANT_MAX_MAP_SIZE);
                 return false;
+            }
             if (!_mapManager.RegisterMap(maps[i]))
                 return false;
         }
@@ -660,30 +664,18 @@ bool CGameServer::Init(ServerMode mode, int port, int maxClients,
     return true;
 }
 
-#if USE_GAME_DATA_FILES
-bool CGameServer::LoadGameDataFiles(const std::string& dir, const MapConfig* maps, int32_t mapCount)
+bool CGameServer::LoadGameDataFiles(const std::string& dir)
 {
     if (!_gameDataFiles.LoadAll(dir))
         return false;
 
 #if USE_MONSTER
-    // 스폰 구역은 맵 크기와 대조해야 해서 표만으로는 못 본다 — 크기는 INI 의 맵 설정에서(선언 주석 ⑴⑵).
-    std::vector<CSpawnRegionTable::MapSize> sizes;
-    for (int32_t i = 0; i < mapCount; ++i)
-        sizes.push_back({ maps[i].mapId, maps[i].mapWidth, maps[i].mapHeight });
-    if (!_gameDataFiles.SpawnRegions().CheckMaps(sizes))
-        return false;
-
     // 몬스터 속도는 AI 판단 주기가 전제하는 상한 안이어야 한다 — 상한은 AI 사정이라 표만으로는 못 본다(MonsterAI.h MAX_SPEED).
     if (!_gameDataFiles.Monsters().CheckSpeed(MonsterAI::MAX_SPEED))
         return false;
-#else
-    (void)maps;
-    (void)mapCount;
 #endif
     return true;
 }
-#endif
 
 bool CGameServer::Start()
 {

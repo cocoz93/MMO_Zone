@@ -57,10 +57,8 @@ struct SectorChangeInfo
 class CZone
 {
 public:
-    // gameData — 기획 데이터. 몬스터 관리자가 몬스터·스폰 표를 쥐게 건넨다(USE_MONSTER).
-    //   몬스터를 켠 빌드엔 늘 있다(USE_MONSTER 면 기획 데이터도 켜진다 — BuildConfig.h USE_GAME_DATA_FILES).
-    //   기획 데이터가 없는 빌드면 nullptr 이고 받는 쪽도 없다.
-    explicit CZone(const CGameDataFiles* gameData);
+    // gameData — 기획 데이터. 몬스터 관리자가 몬스터·스폰 표를 쥐게 건넨다(USE_MONSTER — 끈 빌드엔 받는 쪽이 없다).
+    explicit CZone(const CGameDataFiles& gameData);
     ~CZone();
 
     // 복사 금지 — 몬스터 관리자가 *this 를 든다. 복사하면 새 존의 관리자가 옛 존을 가리킨다.

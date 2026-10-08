@@ -1,7 +1,5 @@
 ﻿#include "GameDataCsv.h"
 
-#if USE_GAME_DATA_FILES
-
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
@@ -64,5 +62,3 @@ namespace GameDataCsv
         return true;
     }
 }
-
-#endif // USE_GAME_DATA_FILES

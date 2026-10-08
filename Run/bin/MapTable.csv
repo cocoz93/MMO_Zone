@@ -1,0 +1,10 @@
+# Maps - design data, read once at startup (CMapTable). Every build reads it (no toggle) - the map is the world itself.
+#   One row = one map. The first row is the default map players enter.
+#   mapId  : 0..1000, no duplicates. SpawnRegion.csv points at a map by mapId; every map here needs >= 1 spawn region.
+#   width / height : tiles. The wire carries coordinates on a grid of at most 128 (Protocol.h POS_QUANT_MAX_MAP_SIZE) -
+#                    a bigger map is refused at startup.
+#   Sector size and channel capacity are server operation values - MMOServerConfig.ini [MapDefault] / [MapN].
+#   (until 10-09 the map count and size were MMOServerConfig.ini MapCount / Width / Height)
+#   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
+mapId,width,height
+0,120,120

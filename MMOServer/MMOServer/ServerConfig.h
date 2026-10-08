@@ -13,37 +13,39 @@
 //  Port=6000
 //  MaxClients=1000
 //  MonitorPort=9090
-//  MapCount=1
 //
-//  [MapDefault]
-//  Width=120
-//  Height=120
+//  [MapDefault]        ← 맵의 운영 값 — 맵 목록·크기는 기획 데이터라 MapTable.csv (10-09)
 //  SectorSize=20
 //  MaxPlayersPerChannel=100
 //
-//  [Map1]              ← 개별 오버라이드 (없으면 MapDefault 적용)
-//  Width=600
+//  [Map1]              ← 개별 오버라이드 (없으면 MapDefault 적용, N = 맵 번호)
+//  SectorSize=10
 // ==========================================================================
 
 #include <string>
-#include <vector>
 #include <iostream>
 #include <cstdlib>      // strtol (ServerCores 범위 파싱)
 
 #include "IniFile.h"              // 플랫폼 독립 INI 리더 (GetPrivateProfile* 대체)
 #include "Platform/Platform.h"    // Platform::GetExecutableDir
 #include "Common.h"
-#include "MapManager.h"
 #include <Common/ErrorLog.h>
+
+// 맵 하나의 운영 값 — 섹터 크기는 시야·송신량, 채널 정원은 부하를 조절한다.
+//   맵 크기는 세계의 모양이라 기획 데이터(맵 표 MapTable.csv)다. 둘을 엮어 MapConfig 를 만드는 곳은 main.
+struct MapOps
+{
+    int32_t sectorSize;
+    int32_t maxPlayersPerChannel;   // 채널당 최대 인원 (소프트 리밋)
+};
 
 struct ServerConfig
 {
     // ── 기본값은 여기 한 벌 (10-08 아키텍처 2차 검사 5번) ──
     //   INI 파일이 없을 때(Load 가 일찍 돌아감)도, 파일은 있는데 키가 없을 때(GetInt 의 세 번째 인자)도
     //   아래 멤버 초기값과 이 상수들을 쓴다. Load 안에 숫자를 다시 적지 말 것 — 한쪽만 고쳐지면 두 경우가 갈린다.
-    static constexpr int       MAX_CLIENTS_DEFAULT = 1000;                       // 범위 밖 값을 되돌릴 때도 이 값
-    static constexpr int       DEFAULT_MAP_COUNT   = 1;
-    static constexpr MapConfig DEFAULT_MAP         = { 0, 120, 120, 20, 100 };   // mapId · 폭 · 높이 · 섹터 크기 · 채널 정원
+    static constexpr int    MAX_CLIENTS_DEFAULT = 1000;          // 범위 밖 값을 되돌릴 때도 이 값
+    static constexpr MapOps DEFAULT_MAP_OPS     = { 20, 100 };   // 섹터 크기 · 채널 정원
 
     ServerMode  mode         = ServerMode::GameServer;
     int         port         = 6000;
@@ -89,7 +91,7 @@ struct ServerConfig
     int         dbRwTimeoutSec      = 5;    // 읽기/쓰기 소켓 타임아웃(초) — DB 무응답 시 재연결 판단
     int         dbQueueMax          = 0;    // 백프레셔: 워커당 큐 상한(초과분 드롭)
 
-    std::vector<MapConfig> maps;
+    MapOps      mapDefault = DEFAULT_MAP_OPS;   // [MapDefault] — [MapN] 이 없는 맵의 운영 값
 
     // 실행 파일 경로 기준으로 MMOServerConfig.ini 로드
     bool Load()
@@ -97,11 +99,10 @@ struct ServerConfig
         // 실행 파일 디렉토리 기준 INI 경로 (플랫폼 독립)
         std::string iniPath = Platform::GetExecutableDir() + "MMOServerConfig.ini";
 
-        CIniFile ini;
+        CIniFile& ini = _ini;   // 맵별 운영 값([MapN])은 맵 표를 읽은 뒤 MapOpsOf 가 꺼내므로 들고 있는다
         if (!ini.Load(iniPath))
         {
             SLOG_INFO("[ServerConfig] MMOServerConfig.ini not found. Using defaults.");
-            SetDefaultMaps();
             return false;
         }
 
@@ -175,36 +176,38 @@ struct ServerConfig
         dbRwTimeoutSec      = ini.GetInt("DB", "RwTimeoutSec", dbRwTimeoutSec);
         dbQueueMax          = ini.GetInt("DB", "QueueMax", dbQueueMax);
 
-        // ★ 10-08 전에는 키가 없으면 3 이었다(파일이 없으면 1) — 두 경우가 갈려 있던 것을 DEFAULT_MAP_COUNT 하나로
-        int mapCount = ini.GetInt("Server", "MapCount", DEFAULT_MAP_COUNT);
+        // [MapDefault] 섹션 로드 — 맵 목록·크기는 맵 표(MapTable.csv)라 여기 없다
+        mapDefault.sectorSize           = ini.GetInt("MapDefault", "SectorSize", mapDefault.sectorSize);
+        mapDefault.maxPlayersPerChannel = ini.GetInt("MapDefault", "MaxPlayersPerChannel", mapDefault.maxPlayersPerChannel);
 
-        // [MapDefault] 섹션 로드
-        MapConfig defaultMap = DEFAULT_MAP;
-        defaultMap.mapWidth             = ini.GetInt("MapDefault", "Width", DEFAULT_MAP.mapWidth);
-        defaultMap.mapHeight            = ini.GetInt("MapDefault", "Height", DEFAULT_MAP.mapHeight);
-        defaultMap.sectorSize           = ini.GetInt("MapDefault", "SectorSize", DEFAULT_MAP.sectorSize);
-        defaultMap.maxPlayersPerChannel = ini.GetInt("MapDefault", "MaxPlayersPerChannel", DEFAULT_MAP.maxPlayersPerChannel);
-
-        // [Map0] ~ [MapN-1] 섹션 순회 (없으면 디폴트 적용)
-        maps.clear();
-        for (int i = 0; i < mapCount; ++i)
-        {
-            std::string section = "Map" + std::to_string(i);
-
-            MapConfig mc;
-            mc.mapId                = i;
-            mc.mapWidth             = ini.GetInt(section, "Width", defaultMap.mapWidth);
-            mc.mapHeight            = ini.GetInt(section, "Height", defaultMap.mapHeight);
-            mc.sectorSize           = ini.GetInt(section, "SectorSize", defaultMap.sectorSize);
-            mc.maxPlayersPerChannel = ini.GetInt(section, "MaxPlayersPerChannel", defaultMap.maxPlayersPerChannel);
-            maps.push_back(mc);
-        }
+        // 맵 표로 옮겨 간 옛 키 — 남아 있어도 해는 없지만(표가 이긴다) INI 를 고친 사람이 "왜 안 바뀌지"가 되지 않게 알린다.
+        //   [MapN] 의 Width·Height 는 맵 번호를 알아야 찾으므로 MapOpsOf 가 본다.
+        if (ini.HasKey("Server", "MapCount"))
+            SLOG_WARN("[ServerConfig] [Server] MapCount 는 더 이상 안 읽습니다 — 맵 목록은 MapTable.csv 의 줄입니다");
+        if (ini.HasKey("MapDefault", "Width") || ini.HasKey("MapDefault", "Height"))
+            SLOG_WARN("[ServerConfig] [MapDefault] Width·Height 는 더 이상 안 읽습니다 — 맵 크기는 MapTable.csv 에 있습니다");
 
         PrintConfig();
         return true;
     }
 
+    // 이 맵의 운영 값 — [MapN](N = 맵 번호)이 있으면 그 값, 없으면 [MapDefault]. INI 가 없으면 기본값.
+    //   맵 번호는 맵 표에서 오므로 main 이 표를 읽은 뒤 맵마다 부른다.
+    MapOps MapOpsOf(int32_t mapId) const
+    {
+        const std::string section = "Map" + std::to_string(mapId);
+        if (_ini.HasKey(section, "Width") || _ini.HasKey(section, "Height"))
+            SLOG_WARN("[ServerConfig] [{}] Width·Height 는 더 이상 안 읽습니다 — 맵 크기는 MapTable.csv 에 있습니다", section);
+
+        MapOps ops;
+        ops.sectorSize           = _ini.GetInt(section, "SectorSize", mapDefault.sectorSize);
+        ops.maxPlayersPerChannel = _ini.GetInt(section, "MaxPlayersPerChannel", mapDefault.maxPlayersPerChannel);
+        return ops;
+    }
+
 private:
+    CIniFile _ini;   // Load 가 채운다 — 파일이 없으면 빈 채로 남아 GetInt 가 기본값을 준다
+
     // "0-5" 또는 "3" 형태의 물리코어 범위 → 논리코어 비트마스크.
     // 가정: 물리코어 k = 논리코어 2k, 2k+1 (Intel HT 표준 매핑).
     // 빈 문자열·숫자 아님 → 0(미적용).
@@ -262,18 +265,6 @@ private:
         ioCoreMask   = io;
     }
 
-    // INI 파일이 없을 때 — 키가 없을 때와 같은 기본값(DEFAULT_MAP_COUNT 개의 DEFAULT_MAP)
-    void SetDefaultMaps()
-    {
-        maps.clear();
-        for (int i = 0; i < DEFAULT_MAP_COUNT; ++i)
-        {
-            MapConfig mc = DEFAULT_MAP;
-            mc.mapId = i;
-            maps.push_back(mc);
-        }
-    }
-
     static ServerMode ParseServerMode(const std::string& s)
     {
         if (s == "GameCodiEchoTest")    return ServerMode::GameCodiEchoTest;
@@ -313,7 +304,8 @@ private:
             SLOG_INFO("  CoreIso     : off (GameCore 미설정)");
         SLOG_INFO("  DB          : {}:{} db={} user={} workers={} save={}s qmax={}",
                   dbHost, dbPort, dbDatabase, dbUser, dbWorkers, dbSavePeriodSec, dbQueueMax);
-        SLOG_INFO("  Maps        : {}", maps.size());
+        SLOG_INFO("  MapDefault  : sector {} · channel cap {} (맵 목록·크기는 MapTable.csv)",
+                  mapDefault.sectorSize, mapDefault.maxPlayersPerChannel);
         SLOG_INFO("  Speed       : player {} (칸/초, 0=기본 — 25~50 무작위)", playerSpeed);
     }
 };

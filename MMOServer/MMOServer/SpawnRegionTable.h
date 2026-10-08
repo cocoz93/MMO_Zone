@@ -8,6 +8,7 @@
 
 #if USE_MONSTER
 
+class CMapTable;
 class CMonsterTable;
 
 // ==========================================================================
@@ -20,8 +21,11 @@ class CMonsterTable;
 //
 // [몬스터 번호 대조] 몬스터 번호는 몬스터 표에 있어야 한다 — 몬스터 표를 먼저 읽고 그 결과를 받는다(LoadAll 순서).
 //
-// [맵 크기 대조는 따로] 표만 읽어서는 맵 크기를 모른다. CGameServer 가 표를 읽은 직후 맵 설정과 대조한다
-//        (CheckMaps) — 설정된 맵마다 구역이 하나 이상이어야 하고, 구역은 맵 안이어야 한다.
+// [맵 대조] 맵 번호는 맵 표에 있어야 하고, 구역은 그 맵 안이어야 한다(0 ≤ x0 < x1 ≤ 폭 - 1).
+//        맵 표의 맵마다 구역이 하나 이상이어야 한다 — 뱀을 깔 자리가 없는 맵을 만들지 않게.
+//        맵 표도 먼저 읽고 그 결과를 받는다. 10-09 전에는 맵 크기가 INI 에 있어 게임 서버가 표를 읽은 뒤 따로 대조했다(CheckMaps).
+//        ★ 오른쪽 끝을 "폭 - 1" 로 묶는 이유 — 이동 쪽 클램프(CZone::Tick)가 좌표를 폭 - 1 까지만 둔다.
+//          그 밖에 태어나면 첫 걸음에 클램프로 멈춘다.
 // ==========================================================================
 struct SpawnRegion
 {
@@ -32,25 +36,18 @@ struct SpawnRegion
     int32_t y1        = 0;
     int32_t monsterId = 0;   // 몬스터 표 번호 (CMonsterTable::Find)
     int32_t count     = 0;   // 이 구역에 깔 마릿수
-    int32_t fileLine  = 0;   // 맵 대조에서 틀렸을 때 가리킬 줄
+    int32_t fileLine  = 0;   // 틀렸을 때 가리킬 줄
 };
 
 class CSpawnRegionTable
 {
 public:
-    static constexpr int32_t MAX_MAP_ID = 1000;     // 맵 번호가 곧 색인이다 — 오타 하나가 배열을 키우지 않게
     static constexpr int32_t MAX_COUNT  = 10000;    // 한 구역 마릿수 상한 — 오타 하나(90 → 900000)가 존을 통째로 메우지 않게
 
     // 파일을 읽어 표를 세운다. 실패하면 false 이고 까닭을 로그로 남긴다 — main 이 서버를 안 띄운다.
+    //   maps     — 맵 번호·크기를 대조할 표(먼저 읽은 것)
     //   monsters — 몬스터 번호를 대조할 표(먼저 읽은 것)
-    bool Load(const std::string& path, const CMonsterTable& monsters);
-
-    struct MapSize { int32_t mapId; int32_t width; int32_t height; };
-
-    // 맵 설정과 대조 — 설정된 맵마다 구역 ≥ 1 · 구역이 맵 안(0 ≤ x0 < x1 ≤ 폭 - 1) · 표에만 있는 맵 없음.
-    //   ★ 오른쪽 끝을 "폭 - 1" 로 묶는 이유 — 이동 쪽 클램프(CZone::Tick)가 좌표를 폭 - 1 까지만 둔다.
-    //     그 밖에 태어나면 첫 걸음에 클램프로 멈춘다.
-    bool CheckMaps(const std::vector<MapSize>& maps) const;
+    bool Load(const std::string& path, const CMapTable& maps, const CMonsterTable& monsters);
 
     // 이 맵의 구역들 (없으면 빈 목록).
     const std::vector<SpawnRegion>& RegionsOf(int32_t mapId) const
@@ -61,7 +58,7 @@ public:
     }
 
 private:
-    std::vector<std::vector<SpawnRegion>> _byMap;   // 색인 = 맵 번호
+    std::vector<std::vector<SpawnRegion>> _byMap;   // 색인 = 맵 번호 (맵 표가 번호 상한을 본다 — CMapTable::MAX_MAP_ID)
     int32_t _count = 0;
 
     static const std::vector<SpawnRegion> EMPTY;

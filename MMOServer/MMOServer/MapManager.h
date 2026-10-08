@@ -60,11 +60,11 @@ struct ZoneChangeTarget
 class CMapInstance
 {
 public:
-    CMapInstance() = default;
+    // gameData 는 이 맵의 존마다 건넨다 — 뜻은 CMapManager 생성자 주석.
+    explicit CMapInstance(const CGameDataFiles& gameData) : _gameData(gameData) {}
 
     // 맵 설정으로 초기화 + 기본 채널(channelIndex=0) 생성
-    //   gameData 는 이 맵의 존마다 건넨다 — 뜻은 CMapManager 생성자 주석.
-    bool Init(const MapConfig& config, const CGameDataFiles* gameData);
+    bool Init(const MapConfig& config);
 
     // 여유 있는 채널 반환, 없으면 동적 생성
     CZone* FindOrCreateChannel(bool isAdmin = false);
@@ -103,7 +103,7 @@ private:
     CZone* CreateChannel(int32_t channelIndex);
 
     MapConfig _config{};
-    const CGameDataFiles* _gameData = nullptr;  // 존을 만들 때 건넨다 (CMapManager 가 Init 으로 준다)
+    const CGameDataFiles& _gameData;  // 존을 만들 때 건넨다 (CMapManager 가 만들 때 준다)
     std::unordered_map<int32_t, std::unique_ptr<CZone>> _channels;  // channelIndex → CZone
     int32_t _nextChannelIndex = 1;  // 단조 증가 — 충돌 원천 차단 (채널 0은 Init에서 별도 생성)
 };
@@ -112,9 +112,9 @@ class CMapManager
 {
 public:
     // gameData — 기획 데이터(기동 때 읽고 안 바뀐다). 존을 만들 때마다 건네, 존 쪽(몬스터 관리자)이 몬스터·스폰 표를
-    //   쥐고 언제든 꺼내 보게 한다. 여기서는 읽지 않고 건네기만 한다 — 그래서 빌드 토글을 모르고(CMapInstance::CleanupEmptyChannels 의 ★ 과 같은 규칙),
-    //   기획 데이터가 없는 빌드(전투·몬스터 다 끔)의 nullptr 도 그대로 넘긴다. 그 빌드엔 받는 쪽(몬스터 관리자)도 없다.
-    explicit CMapManager(const CGameDataFiles* gameData) : _gameData(gameData) {}
+    //   쥐고 언제든 꺼내 보게 한다. 여기서는 읽지 않고 건네기만 한다 — 그래서 빌드 토글을 모른다(CMapInstance::CleanupEmptyChannels 의 ★ 과 같은 규칙).
+    //   모든 빌드에 있다 — 맵 표는 토글이 없다(MapTable.h). 10-09 전에는 전투·몬스터를 다 끈 빌드에서 nullptr 이었다.
+    explicit CMapManager(const CGameDataFiles& gameData) : _gameData(gameData) {}
     ~CMapManager() = default;
 
     // 맵 등록 (서버 시작 시) — 기본 채널(channelIndex=0) 자동 생성
@@ -159,7 +159,7 @@ public:
     static int32_t GetChannelIndexFromZoneId(int32_t zoneId);
 
 private:
-    const CGameDataFiles* _gameData;   // 생성자 주석 — 맵마다 Init 으로 건넨다
+    const CGameDataFiles& _gameData;   // 생성자 주석 — 맵마다 만들 때 건넨다
 
     // mapId → CMapInstance
     std::unordered_map<int32_t, CMapInstance> _maps;

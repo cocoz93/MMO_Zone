@@ -5,10 +5,9 @@
 // CMapInstance
 // ==========================================================================
 
-bool CMapInstance::Init(const MapConfig& config, const CGameDataFiles* gameData)
+bool CMapInstance::Init(const MapConfig& config)
 {
     _config = config;
-    _gameData = gameData;
 
     // 기본 채널(channelIndex=0) 자동 생성
     if (CreateChannel(0) == nullptr)
@@ -120,8 +119,8 @@ bool CMapManager::RegisterMap(const MapConfig& config)
     if (_maps.find(config.mapId) != _maps.end())
         return false;
 
-    CMapInstance& mapInstance = _maps[config.mapId];
-    if (!mapInstance.Init(config, _gameData))
+    CMapInstance& mapInstance = _maps.try_emplace(config.mapId, _gameData).first->second;
+    if (!mapInstance.Init(config))
     {
         _maps.erase(config.mapId);
         return false;

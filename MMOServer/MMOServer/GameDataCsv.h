@@ -4,10 +4,6 @@
 #include <string>
 #include <vector>
 
-#include "BuildConfig.h"
-
-#if USE_GAME_DATA_FILES
-
 // ==========================================================================
 // GameDataCsv — 기획 데이터 CSV 를 줄과 칸으로 쪼개는 도우미
 //
@@ -31,5 +27,3 @@ namespace GameDataCsv
     // 문자열이 통째로 정수인가 (뒤에 쓰레기가 붙은 "12abc" 를 12 로 받지 않게)
     bool ParseInt(const std::string& s, int64_t& out);
 }
-
-#endif // USE_GAME_DATA_FILES

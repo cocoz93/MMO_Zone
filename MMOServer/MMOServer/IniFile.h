@@ -72,6 +72,13 @@ public:
         return (k == s->second.end()) ? defVal : k->second;
     }
 
+    // 키가 있는가 (값이 비어 있어도 있다) — 옮겨 간 옛 키가 남아 있는지 알릴 때
+    bool HasKey(const std::string& section, const std::string& key) const
+    {
+        auto s = _data.find(ToLower(section));
+        return s != _data.end() && s->second.find(ToLower(key)) != s->second.end();
+    }
+
     int GetInt(const std::string& section, const std::string& key, int defVal) const
     {
         auto s = _data.find(ToLower(section));

@@ -41,7 +41,7 @@
 #include "MonitorManager.h"
 #include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
 #include "Common.h"
-#include "GameDataFiles.h"  // 기획 데이터 파일(레벨·아이템·몬스터·스폰 구역·드랍 표) — 표가 하나도 안 켜졌으면 빈 헤더
+#include "GameDataFiles.h"  // 기획 데이터 파일(맵·레벨·아이템·몬스터·스폰 구역·드랍 표)
 #include "DB/DBWorker.h"
 
 class CSerialBuffer;
@@ -93,15 +93,15 @@ public:
         _playerSpeed = playerSpeed;
     }
 
-#if USE_GAME_DATA_FILES
-    // 기획 데이터 파일(레벨 표·아이템 표·몬스터 표·스폰 구역 표·드랍 표)을 읽는다 — 기동 때 한 번, 세계(맵·존)를 만드는 Init "앞"에서 부른다.
+    // 기획 데이터 파일(맵 표·레벨 표·아이템 표·몬스터 표·스폰 구역 표·드랍 표)을 읽는다 — 기동 때 한 번, 세계(맵·존)를 만드는 Init "앞"에서 부른다.
+    //   표는 존이 생기기 전에 서 있어야 한다(Init 의 맵 등록이 기본 채널을 만든다 — 10-08).
     //   실패하면 false 이고 main 이 서버를 안 띄운다. dir 은 끝에 경로 구분자가 붙은 디렉토리.
     //   표 밖 사실과의 대조도 여기서 — 몬스터 속도는 AI 판단 주기의 상한(MonsterAI::MAX_SPEED)과 견준다.
-    //   maps = INI 의 맵 설정(ServerConfig::maps) — 스폰 구역을 이 크기와 대조한다. 등록된 맵이 아니라 설정을 받는 이유 둘:
-    //     ⑴ 표는 존이 생기기 전에 서 있어야 한다(Init 의 맵 등록이 기본 채널을 만든다 — 10-08)
-    //     ⑵ 에코 시험 모드는 맵을 등록하지 않는다 — 등록된 맵으로 대조하면 빈 목록이라 기동이 실패했다(10-08 이전)
-    bool LoadGameDataFiles(const std::string& dir, const MapConfig* maps, int32_t mapCount);
-#endif
+    //   스폰 구역과 맵 크기의 대조는 표끼리라 읽을 때 끝난다(CSpawnRegionTable::Load). 10-09 전에는 맵 크기가 INI 에 있어 여기서 INI 맵 설정을 받아 대조했다.
+    bool LoadGameDataFiles(const std::string& dir);
+
+    // 읽은 기획 데이터 — main 이 맵 표의 줄과 INI 운영 값을 엮어 맵 설정(MapConfig)을 만들 때 읽는다.
+    const CGameDataFiles& GameData() const { return _gameDataFiles; }
 
 #if USE_EXP
     // ── 경험치·레벨 ──
@@ -460,14 +460,10 @@ private:
     CGameMonitor&    _gameMonitor;   // 게임 컨텐츠 지표 (전투)
     std::unique_ptr<NetIoModel> _network;
 
-#if USE_GAME_DATA_FILES
     // 기획 데이터 — 기동 때 한 번 읽고 그 뒤로는 읽기만 한다(게임 스레드가 매 전투·명령에서 본다).
-    //   ★ _mapManager 보다 앞에 선언 — 맵 관리자가 이 주소를 받아 존에 건넨다(멤버는 선언 순서로 세워진다).
+    //   ★ _mapManager 보다 앞에 선언 — 맵 관리자가 이것을 받아 존에 건넨다(멤버는 선언 순서로 세워진다).
     CGameDataFiles _gameDataFiles;
-    CMapManager _mapManager{ &_gameDataFiles };
-#else
-    CMapManager _mapManager{ nullptr };   // 기획 데이터가 없는 빌드(전투·몬스터 다 끔) — 존이 쥘 표가 없다
-#endif
+    CMapManager _mapManager{ _gameDataFiles };
 
     std::thread _gameThread;
     std::atomic<bool> _running;

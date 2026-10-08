@@ -7,6 +7,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <vector>
 
 #include "GameServer.h"
 #include "NetIoModel.h"   // kNetIoModelName — 활성 네트워크 I/O 모델 이름(부팅 로그용)
@@ -82,21 +83,29 @@ int main()
 
     CGameServer server(monitor, gameMonitor);
 
-#if USE_GAME_DATA_FILES
-    // 기획 데이터 파일 (레벨·아이템·몬스터·스폰 구역·드랍 표) — 세계(맵·존)를 만드는 Init "앞"에, 한 번에 전부 읽는다.
+    // 기획 데이터 파일 (맵·레벨·아이템·몬스터·스폰 구역·드랍 표) — 세계(맵·존)를 만드는 Init "앞"에, 한 번에 전부 읽는다.
     //   Init 의 맵 등록이 기본 채널(존)을 바로 만드므로, 존이 생기는 순간 표가 서 있어야 한다(10-08).
     //   DB 접속보다도 앞이라 커넥션을 열기 전에 파일 문제로 끝낼 수 있다.
     //   밸런스 값 없이 도는 서버는 조용히 틀린 게임이 되므로 기본값으로 때우지 않는다.
-    if (!server.LoadGameDataFiles(Platform::GetExecutableDir(),
-                                  config.maps.data(), static_cast<int32_t>(config.maps.size())))
+    //   맵 표는 모든 빌드가 읽는다(MapTable.h) — 에코 시험 모드도 같다.
+    if (!server.LoadGameDataFiles(Platform::GetExecutableDir()))
     {
-        SLOG_ERROR("[Error] 기획 데이터 파일을 못 읽었습니다 - 위 [LevelTable]·[ItemTable]·[MonsterTable]·[SpawnRegion]·[DropTable] 줄을 보세요");
+        SLOG_ERROR("[Error] 기획 데이터 파일을 못 읽었습니다 - 위 [MapTable]·[LevelTable]·[ItemTable]·[MonsterTable]·[SpawnRegion]·[DropTable] 줄을 보세요");
         return 1;
     }
-#endif
+
+    // 맵 설정 = 맵 표의 줄(번호·크기 — 기획 데이터) + INI 의 운영 값(섹터 크기·채널 정원). 둘을 엮는 곳은 여기 한 곳이다.
+    //   순서는 맵 표 그대로 — 첫 줄이 기본 접속 맵이다(CGameServer::Init).
+    std::vector<MapConfig> maps;
+    for (const MapDef& def : server.GameData().Maps().All())
+    {
+        const MapOps ops = config.MapOpsOf(def.mapId);
+        maps.push_back({ def.mapId, def.width, def.height, ops.sectorSize, ops.maxPlayersPerChannel });
+        SLOG_INFO("[Map] {} — {}×{} · sector {} · channel cap {}", def.mapId, def.width, def.height, ops.sectorSize, ops.maxPlayersPerChannel);
+    }
 
     if (!server.Init(config.mode, config.port, config.maxClients,
-                     config.maps.data(), static_cast<int32_t>(config.maps.size()),
+                     maps.data(), static_cast<int32_t>(maps.size()),
                      config.workerThreads, config.sendWorkers, config.rioWorkers,
                      config.completionBatch, config.sendDepth))
     {

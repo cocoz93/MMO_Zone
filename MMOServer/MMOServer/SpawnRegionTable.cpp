@@ -2,11 +2,10 @@
 
 #if USE_MONSTER
 
-#include <algorithm>
-
 #include <Common/ErrorLog.h>
 
 #include "GameDataCsv.h"
+#include "MapTable.h"       // 맵 번호·크기 대조
 #include "MonsterTable.h"   // 몬스터 번호 대조
 
 using GameDataCsv::DataLine;
@@ -16,7 +15,7 @@ using GameDataCsv::ParseInt;
 
 const std::vector<SpawnRegion> CSpawnRegionTable::EMPTY;
 
-bool CSpawnRegionTable::Load(const std::string& path, const CMonsterTable& monsters)
+bool CSpawnRegionTable::Load(const std::string& path, const CMapTable& maps, const CMonsterTable& monsters)
 {
     _byMap.clear();
     _count = 0;
@@ -55,18 +54,25 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMonsterTable& monst
         }
         const int64_t mapId = v[0], x0 = v[1], y0 = v[2], x1 = v[3], y1 = v[4], monsterId = v[5], count = v[6];
 
-        // ⑴ 맵 번호 — 번호가 곧 색인이다
-        if (mapId < 0 || mapId > MAX_MAP_ID)
+        // ⑴ 맵 — 맵 표에 있어야 한다(표끼리 대조). 번호가 곧 색인이라 상한은 맵 표가 본다
+        const MapDef* map = (mapId < 0 || mapId > CMapTable::MAX_MAP_ID) ? nullptr : maps.Find(static_cast<int32_t>(mapId));
+        if (map == nullptr)
         {
-            SLOG_ERROR("[SpawnRegion] {}줄: 맵 번호 {} 는 0~{} 여야 합니다", dl.fileLine, mapId, MAX_MAP_ID);
+            SLOG_ERROR("[SpawnRegion] {}줄: 맵 {} 은 맵 표(MapTable.csv)에 없습니다", dl.fileLine, mapId);
             return false;
         }
 
-        // ⑵ 좌표 — 음수 금지 · 넓이가 있어야 한다. 맵 안인지는 맵 크기를 알아야 해서 CheckMaps 가 본다
+        // ⑵ 좌표 — 음수 금지 · 넓이가 있어야 한다 · 맵 안(오른쪽 끝은 폭 - 1 — 헤더 [맵 대조] ★)
         if (x0 < 0 || y0 < 0 || x0 >= x1 || y0 >= y1)
         {
             SLOG_ERROR("[SpawnRegion] {}줄: 구역 ({},{})-({},{}) — 0 ≤ x0 < x1, 0 ≤ y0 < y1 이어야 합니다",
                        dl.fileLine, x0, y0, x1, y1);
+            return false;
+        }
+        if (x1 > map->width - 1 || y1 > map->height - 1)
+        {
+            SLOG_ERROR("[SpawnRegion] {}줄: 구역 ({},{})-({},{}) 이 맵 {} ({}×{}) 밖입니다 — x1 ≤ {}, y1 ≤ {} 여야 합니다",
+                       dl.fileLine, x0, y0, x1, y1, mapId, map->width, map->height, map->width - 1, map->height - 1);
             return false;
         }
 
@@ -100,51 +106,21 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMonsterTable& monst
         ++_count;
     }
 
+    // ⑸ 맵 표의 맵마다 구역이 하나 이상 — 뱀을 깔 자리가 없는 맵을 만들지 않는다. 빠진 맵을 다 적고 끝낸다
+    bool ok = true;
+    for (const MapDef& m : maps.All())
+    {
+        if (RegionsOf(m.mapId).empty())
+        {
+            SLOG_ERROR("[SpawnRegion] 맵 {} (MapTable.csv {}줄) 에 구역이 없습니다 — 뱀을 깔 자리가 없습니다", m.mapId, m.fileLine);
+            ok = false;
+        }
+    }
+    if (!ok)
+        return false;
+
     SLOG_INFO("[SpawnRegion] {} — 구역 {}개", path, _count);
     return true;
-}
-
-bool CSpawnRegionTable::CheckMaps(const std::vector<MapSize>& maps) const
-{
-    bool ok = true;
-
-    // ⑴ 설정된 맵마다 — 구역이 하나 이상 · 전부 맵 안
-    for (const MapSize& m : maps)
-    {
-        const std::vector<SpawnRegion>& regions = RegionsOf(m.mapId);
-        if (regions.empty())
-        {
-            SLOG_ERROR("[SpawnRegion] 맵 {} 에 구역이 없습니다 — 뱀을 깔 자리가 없습니다", m.mapId);
-            ok = false;
-            continue;
-        }
-        for (const SpawnRegion& r : regions)
-        {
-            if (r.x1 > m.width - 1 || r.y1 > m.height - 1)
-            {
-                SLOG_ERROR("[SpawnRegion] {}줄: 구역 ({},{})-({},{}) 이 맵 {} ({}×{}) 밖입니다 — x1 ≤ {}, y1 ≤ {} 여야 합니다",
-                           r.fileLine, r.x0, r.y0, r.x1, r.y1, m.mapId, m.width, m.height, m.width - 1, m.height - 1);
-                ok = false;
-            }
-        }
-    }
-
-    // ⑵ 표에만 있는 맵 — 맵 번호 오타일 수 있다. 조용히 무시하면 그 구역이 영영 안 쓰인다
-    for (size_t mapId = 0; mapId < _byMap.size(); ++mapId)
-    {
-        if (_byMap[mapId].empty())
-            continue;
-        const bool configured = std::any_of(maps.begin(), maps.end(),
-            [mapId](const MapSize& m) { return m.mapId == static_cast<int32_t>(mapId); });
-        if (!configured)
-        {
-            SLOG_ERROR("[SpawnRegion] {}줄: 맵 {} 은 맵 설정(MapCount)에 없습니다",
-                       _byMap[mapId].front().fileLine, mapId);
-            ok = false;
-        }
-    }
-
-    return ok;
 }
 
 #endif // USE_MONSTER

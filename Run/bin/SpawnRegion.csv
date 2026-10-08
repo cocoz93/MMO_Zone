@@ -3,7 +3,7 @@
 #   Spawn point = uniform random float in [x0, x1) x [y0, y1) (tiles).
 #   monsterId : MonsterTable.csv. count : how many live in this region (1 or more). Monsters per zone = sum of count (90 below).
 #               Density guide: 30 on an 80x80 map was six or seven on one screen - scale the counts with the map area.
-#   Checked at startup against the map config: every map needs >= 1 region, and x1 <= width-1, y1 <= height-1.
+#   Checked at startup against MapTable.csv: mapId must be there, every map there needs >= 1 region, and x1 <= width-1, y1 <= height-1.
 #   Wandering is not bound to the region - regions only decide where monsters are born.
 #   Default layout (map 120x120): four corner blocks, the 10-tile cross in the middle is left empty (NOT a safe zone).
 mapId,x0,y0,x1,y1,monsterId,count

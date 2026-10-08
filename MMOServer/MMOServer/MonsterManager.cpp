@@ -132,7 +132,7 @@ void CMonsterManager::Spawn(const MonsterContext& ctx, uint64_t frame)
     _spawned = true;   // 실패하더라도 매 틱 재시도하지 않게 먼저 세운다
 
     // 구역마다 표에 적힌 몬스터를 적힌 마릿수만큼 — 스폰 구역 표 한 줄이 「이 구역에 이 몬스터 몇 마리」다.
-    //   이 맵에 구역이 없는 일은 없다 — 기동 때 CheckMaps 가 설정된 맵마다 구역 ≥ 1 을 보고, 아니면 서버를 안 띄웠다.
+    //   이 맵에 구역이 없는 일은 없다 — 기동 때 스폰 표를 읽으며(CSpawnRegionTable::Load) 맵 표의 맵마다 구역 ≥ 1 을 보고, 아니면 서버를 안 띄웠다.
     const std::vector<SpawnRegion>& regions = _gameData.SpawnRegions().RegionsOf(_zone.GetMapId());
 
     int32_t i = 0;   // 존 안 순번 — 첫 판단 시점을 흩는 데 쓴다
@@ -188,7 +188,7 @@ void CMonsterManager::PickSpawnPos(const MonsterContext& ctx, int32_t regionInde
                   "태어나자마자 누군가를 알아채지 않게 — 비우는 반경은 뱀 시야와 같아야 한다");
 
     const std::vector<SpawnRegion>& regions = _gameData.SpawnRegions().RegionsOf(_zone.GetMapId());
-    // [불변식] 색인은 Spawn 이 같은 목록에서 준 것이고, 목록은 기동 때 CheckMaps 가 비어 있지 않음을 봤다
+    // [불변식] 색인은 Spawn 이 같은 목록에서 준 것이고, 목록은 기동 때 스폰 표 읽기(CSpawnRegionTable::Load)가 비어 있지 않음을 봤다
     assert(regionIndex >= 0 && regionIndex < static_cast<int32_t>(regions.size()));
     const SpawnRegion& r = regions[static_cast<size_t>(regionIndex)];
 
