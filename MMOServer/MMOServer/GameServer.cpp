@@ -1343,12 +1343,11 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
     //   갈래 둘 — ⑴ 레벨이 표 밖(표를 줄인 패치) ⑵ 경험치가 이미 다음 레벨 몫을 넘음
     //     (표의 필요치를 낮춘 패치, 또는 만렙 상한에 걸려 안 오른 채 저장된 행).
     //     둘 다 "행은 멀쩡한데 표가 바뀐" 경우라 평소엔 한 번도 안 도는 갈래다.
-    const bool clamped = ClampLevelToTable(player);
-    if (clamped)
-        _gameMonitor._exp._levelClamped.Inc();
+    //   규칙과 보정·레벨업 지표는 CStatSystem — 여기는 결과로 저장 표시만 켠다.
+    const bool clamped = _statSystem.ClampLevelToTable(player);
 
     // 0 을 줘서 레벨만 정산한다 — 경험치는 한 톨도 안 늘고, 올릴 수 있으면 올린다.
-    const bool settled = GainExp(player, 0);
+    const bool settled = _statSystem.GainExp(player, 0);
 
 #if USE_DB_WORKER
     // 바로잡은 값은 DB 와 다르다 — 안 켜면 다음 주기 저장이 건너뛰어 영영 틀린 채로 남는다.
@@ -1362,8 +1361,8 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
     //   GainExp 는 레벨이 올랐을 때만 스탯을 세운다. 안 올랐으면 생성자 기본값 그대로라 여기서 세운다.
     //   지금은 스폰이 늘 만피라 refillHp=true — 죽은 채로 들어오는 경로가 생기면 그때 가른다.
     //   ★ SendZoneInfo 보다 앞이다(위 레벨 정산 주석과 같은 이유 — CREATE 가 최대 체력을 싣는다).
-    //   USE_EXP 밖인 이유는 RecalcStats 선언 주석(GameServer.h).
-    RecalcStats(player, true);
+    //   USE_EXP 밖인 이유는 RecalcStats 선언 주석(StatSystem.h).
+    _statSystem.RecalcStats(player, true);
 #endif
 
     // 1) 존 메타 정보 전송
@@ -2290,7 +2289,7 @@ void CGameServer::ApplyEquip(CPlayer* player, uint16_t slot, bool unequip)
     //   ★ 순서가 곧 와이어 순서다 — 칸 패킷이 MY_STATS 보다 앞선다(클라가 무기 칸을 먼저 알고 숫자를 채운다).
     //   체력은 그대로다(refillHp=false) — 무기는 공격력만 바꾼다.
     FlushInventory(player);
-    RecalcStats(player, false);
+    _statSystem.RecalcStats(player, false);
     SendMyStats(player);
 }
 #endif // USE_EQUIP
@@ -2680,7 +2679,7 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
         // ★ 준 뒤에 센다 — GainExp 는 만렙이면 한 톨도 안 쌓는다.
         //   먼저 세면 만렙 이후 잡은 수만큼 "줬다"가 늘어, 계수기가 실제와 갈린다.
         const int64_t beforeExp = killer->_exp;
-        const bool leveled = GainExp(killer, reward);
+        const bool leveled = _statSystem.GainExp(killer, reward);
         const bool gained  = (killer->_exp != beforeExp);
 
         if (gained)
@@ -2721,39 +2720,8 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
 }
 
 // ==========================================================================
-// 스탯 — 최대 체력·공격력·방어력을 세우는 한 곳
-//   공격력·방어력은 최종값을 필드에 둔다(Character.h [전투 스탯]). 때리는 경로는 필드만 읽는다.
-//   바탕은 레벨 표 하나다 — 표는 전투(USE_COMBAT)가 켜지면 늘 읽는다(경험치를 꺼도 1레벨 줄은 바탕 스탯이라 필요).
-//   코드 상수(CHARACTER_DEFAULT_*)는 10-06 에 없앴다 — 표와 두 벌이었고, 전투를 끈 빌드는 스탯을 안 보낸다(WriteSnapshot 0).
+// 스탯·경험치 보내기 — 세우는 규칙은 CStatSystem(StatSystem.cpp), 여기는 결과를 패킷으로만
 // ==========================================================================
-void CGameServer::RecalcStats(CPlayer* player, bool refillHp)
-{
-    const CLevelTable& table = _gameDataFiles.Level();
-    player->_maxHp       = table.MaxHp(player->_level);
-    player->_attackPower = table.AttackPower(player->_level);
-    player->_defense     = table.Defense(player->_level);
-
-#if USE_EQUIP
-    // 착용 칸의 몫 — 칸마다 아이템 표의 attack 을 더한다(지금은 무기 칸 하나).
-    //   표에서 사라진 번호(패치로 지운 아이템)는 더하지 않는다 — 불러오기가 이미 건너뛰므로 평소엔 안 닿는다.
-    for (int w = 0; w < INVENTORY_WORN_SLOTS; ++w)
-    {
-        const Item& worn = player->_inventory.At(WornIndexOf(static_cast<EquipSlot>(w)));
-        if (worn.itemId == 0)
-            continue;
-        if (const ItemDef* def = _gameDataFiles.Item().Find(worn.itemId))
-            player->_attackPower += def->attack;
-    }
-#endif
-
-    // 레벨이 올랐을 때만 채운다. 입장 때는 DB 가 들고 있던 체력이 아직 없으므로(스탯만 맞춘다)
-    //   호출부가 정한다 — 지금은 스폰도 만피라 둘 다 true 로 들어온다.
-    if (refillHp)
-        player->_hp = player->_maxHp;
-    else if (player->_hp > player->_maxHp)
-        player->_hp = player->_maxHp;   // 표를 낮춘 패치 뒤엔 들고 있던 체력이 최대를 넘을 수 있다
-}
-
 void CGameServer::SendMyStats(CPlayer* player)
 {
     SendPacket(player, MakeMyStats(player->_attackPower, player->_defense));
@@ -2761,53 +2729,7 @@ void CGameServer::SendMyStats(CPlayer* player)
 }
 
 #if USE_EXP
-// ==========================================================================
-// 경험치·레벨
-//   표(CLevelTable)는 기획 데이터라 파일에서 왔고, 여기서는 읽기만 한다.
-//   ★ 누적 기준 — _exp 는 "지금까지 얻은 총합"이고 표의 필요치도 같은 기준이다.
-//     레벨 안에서 다시 0부터 세지 않아서 레벨업이 한 줄이고 넘친 경험치가 안 사라진다.
-// ==========================================================================
-
-bool CGameServer::ClampLevelToTable(CPlayer* player)
-{
-    const CLevelTable& table = _gameDataFiles.Level();
-    const int32_t maxLevel = table.MaxLevel();
-
-    if (player->_level >= 1 && player->_level <= maxLevel)
-        return false;
-
-    SLOG_WARN("[EXP] level out of table -> clamp (account={}, level={}, table max={})",
-              player->_accountId, player->_level, maxLevel);
-    player->_level = (player->_level < 1) ? 1 : maxLevel;
-    return true;
-}
-
-bool CGameServer::GainExp(CPlayer* player, int64_t amount)
-{
-    const CLevelTable& table = _gameDataFiles.Level();
-    const int32_t maxLevel = table.MaxLevel();
-
-    // 만렙이면 더 안 쌓는다 — 쌓아 봐야 쓸 데가 없고, 숫자만 끝없이 커진다.
-    if (player->_level >= maxLevel)
-        return false;
-
-    if (amount > 0)
-        player->_exp += amount;
-
-    // ★ 앞의 level < maxLevel 이 없으면 만렙에서 table[maxLevel + 1] 을 읽어 배열 밖이다.
-    //   한 번에 여러 레벨이 오를 수 있으므로 if 가 아니라 while 이다.
-    const int32_t before = player->_level;
-    while (player->_level < maxLevel && player->_exp >= table.RequiredExp(player->_level + 1))
-        ++player->_level;
-
-    if (player->_level == before)
-        return false;
-
-    RecalcStats(player, true);   // 오르면 체력을 가득 채운다
-    _gameMonitor._exp._levelUps.Inc();
-    return true;
-}
-
+// 레벨·경험치 — 표(CLevelTable)의 누적 필요치를 그대로 싣는다(누적 기준은 StatSystem.cpp 경험치 머리 주석).
 void CGameServer::SendExp(CPlayer* player)
 {
     const CLevelTable& table = _gameDataFiles.Level();

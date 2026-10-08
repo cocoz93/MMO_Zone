@@ -34,6 +34,7 @@
 #include "Player.h"
 #include "Combat.h"        // 전투 판정 (순수 함수 — 송신·존·섹터를 모른다)
 #include "CombatSystem.h"  // 공격 흐름 — 여기서는 그 알림(ICombatEvents)을 구현한다
+#include "StatSystem.h"    // 스탯·레벨 규칙 — 멤버로 들고 부른다
 #include "MonsterManager.h" // 몬스터 — 여기서는 그 알림(IMonsterEvents)을 구현한다
 #include "GroundItemManager.h" // 땅 아이템 — 여기서는 그 알림(IGroundItemEvents)을 구현한다
 #include "MonitorManager.h"
@@ -108,29 +109,13 @@ public:
 
 #if USE_EXP
     // ── 경험치·레벨 ──
-    // 경험치를 더하고, 올라갈 만큼 올린다. 레벨이 올랐으면 true.
-    //   ★ 부르는 자리가 둘이다 — 몬스터를 잡았을 때, 그리고 불러왔을 때.
-    //     틱마다 레벨을 보는 자리가 없어서, 불러올 때 안 부르면 표를 낮춘 패치 뒤에 들어온 사람이
-    //     "몬스터를 하나 잡기 전까지" 옛 레벨로 서 있게 된다.
-    bool GainExp(CPlayer* player, int64_t amount);
-
-    // 레벨을 표 안으로 내린다 (행이 표 밖 레벨을 들고 있을 때). 내렸으면 true.
-    //   ★ 접근자가 조용히 clamp 하지 않는 이유가 이것 — 여기서 한 번 내리고 세야
-    //     "표 밖 레벨이 몇 건이었나"가 계수기에 남는다.
-    bool ClampLevelToTable(CPlayer* player);
-
+    //   규칙(경험치 더하기·레벨 올리기·표 밖 보정)은 CStatSystem(_statSystem) — 여기는 결과를 보내기만 한다.
     // 본인에게 레벨·경험치를 알린다. 만렙이면 nextLevelExp 를 0 으로 보낸다.
     void SendExp(CPlayer* player);
 #endif
 
 #if USE_COMBAT
-    // 스탯 함수 — 최대 체력·공격력·방어력을 이 한 곳에서 세운다(입장·레벨업·끼우기·빼기 공통).
-    //   바탕 = 레벨 표(전투가 켜지면 늘 읽는다 — 코드 상수 없음, 10-06).
-    //   ★ USE_EXP 밖에 두는 이유 — 장착(USE_EQUIP)은 경험치를 꺼도 돌고, 그때도 공격력은 여기서 세워야 한다.
-    //     USE_COMBAT 안인 이유 — 스탯을 읽는 곳이 전투뿐이고, 경험치·가방·장착이 전부 USE_COMBAT 을 요구한다.
-    //   refillHp = 체력을 가득 채우나(레벨업·스폰). false 면 최대치를 넘은 몫만 깎는다.
-    void RecalcStats(CPlayer* player, bool refillHp);
-
+    // 스탯 세우기는 CStatSystem::RecalcStats(_statSystem) — 여기는 결과를 보내기만 한다.
     // 본인에게 최종 공격력·방어력(S2C_MY_STATS) — 입장·레벨업·끼우기·빼기. 세는 곳도 여기 한 곳.
     //   존 이동 때는 안 보낸다 — 값이 안 바뀌고, 웹은 판을 안 비우며, 콘솔은 이 값을 안 그린다.
     void SendMyStats(CPlayer* player);
@@ -528,6 +513,12 @@ private:
 #if USE_GAME_DATA_FILES
     // 기획 데이터 — 기동 때 한 번 읽고 그 뒤로는 읽기만 한다(게임 스레드가 매 전투·명령에서 본다).
     CGameDataFiles _gameDataFiles;
+#endif
+
+#if USE_COMBAT
+    // 스탯·레벨 규칙 — 표(_gameDataFiles)를 참조한다.
+    //   ★ _gameDataFiles·_gameMonitor 보다 뒤에 선언해야 한다(멤버는 선언 순서로 세워진다 — _combatSystem 주석과 같은 까닭).
+    CStatSystem _statSystem{ _gameDataFiles, _gameMonitor };
 #endif
 
     // 네트워크 경계: sessionId → CPlayer* (수신 시 플레이어 조회)
