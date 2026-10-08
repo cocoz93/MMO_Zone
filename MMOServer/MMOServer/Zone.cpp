@@ -6,13 +6,19 @@
 #include <cmath>       // std::isfinite — IsInsideMap
 #include <random>
 
-CZone::CZone()
+CZone::CZone(const CGameDataFiles* gameData)
     : _zoneId(-1)
     , _mapId(-1)
     , _mapWidth(0)
     , _mapHeight(0)
     , _playerCount(0)
+#if USE_MONSTER
+    , _monsterManager(*this, *gameData)   // 몬스터를 켠 빌드엔 늘 있다(헤더 주석)
+#endif
 {
+#if !USE_MONSTER
+    (void)gameData;
+#endif
 }
 
 CZone::~CZone()

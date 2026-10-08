@@ -5,9 +5,10 @@
 // CMapInstance
 // ==========================================================================
 
-bool CMapInstance::Init(const MapConfig& config)
+bool CMapInstance::Init(const MapConfig& config, const CGameDataFiles* gameData)
 {
     _config = config;
+    _gameData = gameData;
 
     // 기본 채널(channelIndex=0) 자동 생성
     if (CreateChannel(0) == nullptr)
@@ -92,7 +93,7 @@ CZone* CMapInstance::CreateChannel(int32_t channelIndex)
 
     int32_t zoneId = CMapManager::MakeZoneId(_config.mapId, channelIndex);
 
-    auto zone = std::make_unique<CZone>();
+    auto zone = std::make_unique<CZone>(_gameData);
     if (!zone->Init(zoneId, _config.mapId, _config.mapWidth, _config.mapHeight, _config.sectorSize))
         return nullptr;
 
@@ -120,7 +121,7 @@ bool CMapManager::RegisterMap(const MapConfig& config)
         return false;
 
     CMapInstance& mapInstance = _maps[config.mapId];
-    if (!mapInstance.Init(config))
+    if (!mapInstance.Init(config, _gameData))
     {
         _maps.erase(config.mapId);
         return false;

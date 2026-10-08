@@ -6,7 +6,7 @@
 #include "MonsterAI.h"       // 판단 (Combat 과 같은 자리의 순수 판정 모듈)
 #include "Player.h"          // GetSectorPlayers 가 CPlayer* 를 돌려준다 — 후보의 생사·좌표를 읽는다
 #include "GameMonitor.h"     // 판단·전이·다시 뽑기·부활 계수기
-#include "SpawnRegionTable.h"
+#include "GameDataFiles.h"   // 쥔 기획 데이터에서 스폰 구역 표를 꺼낸다
 #if USE_COMBAT
 #include "Combat.h"          // IsRespawnDue · Respawn — 플레이어 부활과 같은 판정을 쓴다
 #include "CombatSystem.h"    // 공격 흐름 — 몬스터가 물 때 플레이어와 같은 것을 부른다
@@ -16,8 +16,9 @@
 #include <random>            // 스폰 구역 안 자리 뽑기
 #include <string>
 
-CMonsterManager::CMonsterManager(CZone& zone)
+CMonsterManager::CMonsterManager(CZone& zone, const CGameDataFiles& gameData)
     : _zone(zone)
+    , _gameData(gameData)
 {
 }
 
@@ -135,7 +136,7 @@ void CMonsterManager::Spawn(const MonsterContext& ctx, uint64_t frame)
     // 구역마다 몇 마리 — 총수(INI)를 스폰 구역 표의 비율대로 정수로 딱 나눈다.
     //   이 맵에 구역이 없는 일은 없다 — 기동 때 CheckMaps 가 설정된 맵마다 구역 ≥ 1 을 보고, 아니면 서버를 안 띄웠다.
     std::vector<int32_t> perRegion;
-    ctx.spawnRegions.SplitCount(_zone.GetMapId(), spawnCount, perRegion);
+    _gameData.SpawnRegions().SplitCount(_zone.GetMapId(), spawnCount, perRegion);
 
     int32_t i = 0;   // 존 안 순번 — 첫 판단 시점을 흩는 데 쓴다
     for (size_t region = 0; region < perRegion.size(); ++region)
@@ -188,7 +189,7 @@ void CMonsterManager::PickSpawnPos(const MonsterContext& ctx, int32_t regionInde
     static_assert(SPAWN_CLEAR_RANGE == MonsterAI::SIGHT_RANGE,
                   "태어나자마자 누군가를 알아채지 않게 — 비우는 반경은 뱀 시야와 같아야 한다");
 
-    const std::vector<SpawnRegion>& regions = ctx.spawnRegions.RegionsOf(_zone.GetMapId());
+    const std::vector<SpawnRegion>& regions = _gameData.SpawnRegions().RegionsOf(_zone.GetMapId());
     // [불변식] 색인은 Spawn 이 같은 목록에서 준 것이고, 목록은 기동 때 CheckMaps 가 비어 있지 않음을 봤다
     assert(regionIndex >= 0 && regionIndex < static_cast<int32_t>(regions.size()));
     const SpawnRegion& r = regions[static_cast<size_t>(regionIndex)];

@@ -13,8 +13,9 @@
 //
 // [계층 경계]
 //  CZone·CSectorManager·CMonster·MonsterAI 를 안다. 세션·패킷(CSerialBuffer)·CGameServer 는 모른다.
-//  게임 서버 것(알림 통로·계수기·스폰 구역 표·설정값·공격 흐름)은 부를 때마다 MonsterContext 로 받는다 —
-//  존을 만드는 곳이 MapManager 안뿐이라, 만들 때 꽂으면 MapManager 가 그것들을 다 알아야 한다.
+//  기획 데이터(스폰 구역 표)는 존이 생길 때 받아 쥔다 — 기동 때 읽고 안 바뀌는 읽기 전용이라 언제든 꺼내 본다
+//  (맵 관리자는 건네기만 하고 안 읽는다). 게임 서버 것(알림 통로·계수기·설정값·공격 흐름)은 부를 때마다
+//  MonsterContext 로 받는다 — 존을 만드는 곳이 MapManager 안뿐이라, 만들 때 꽂으면 MapManager 가 그것들을 다 알아야 한다.
 // ==========================================================================
 #pragma once
 
@@ -31,7 +32,7 @@ class IZoneEvents;         // Zone.h — 참조로만 든다
 class CCharacter;
 class CMonster;            // 전방 선언이면 된다 — unique_ptr 을 지우는 생성자·소멸자 몸체는 .cpp 에 둔다(Zone.h 와 같은 규칙)
 class CGameMonitor;
-class CSpawnRegionTable;
+class CGameDataFiles;      // 기획 데이터 — 참조로 쥔다(표를 읽는 .cpp 만 GameDataFiles.h 를 넣는다)
 #if USE_COMBAT
 class CCombatSystem;
 #endif
@@ -63,7 +64,6 @@ struct MonsterContext
     IMonsterEvents&          events;
     IZoneEvents&             zoneEvents;       // 걷기 시작·멈춤 — 방향·이동 상태가 바뀐 것만 보낸다
     CGameMonitor&            monitor;
-    const CSpawnRegionTable& spawnRegions;
     int32_t                  monsterPerZone;   // 0 = MONSTERS_PER_ZONE
     int32_t                  snakeSpeed;       // 0 = SNAKE_SPEED(Monster.h) 그대로
 #if USE_COMBAT
@@ -74,7 +74,8 @@ struct MonsterContext
 class CMonsterManager
 {
 public:
-    explicit CMonsterManager(CZone& zone);
+    // gameData — 기획 데이터. 존이 생길 때 받아 끝까지 쥔다([계층 경계]).
+    CMonsterManager(CZone& zone, const CGameDataFiles& gameData);
     ~CMonsterManager();
 
     CMonsterManager(const CMonsterManager&) = delete;
@@ -130,6 +131,7 @@ private:
 #endif
 
     CZone& _zone;   // 나를 든 존 — 존이 나보다 오래 산다(멤버)
+    const CGameDataFiles& _gameData;   // 기획 데이터 — 게임 서버가 들고 기동 뒤 안 바뀐다. 존보다 오래 산다
 
     // AI 를 돌릴 대상만 모은 것. 존의 _characterList 와 별개로 둔다.
     //   _characterList 를 안 가르는 이유는 틱의 이동 갱신이 종류를 안 가려서이고,

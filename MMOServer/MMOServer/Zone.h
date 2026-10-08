@@ -31,6 +31,7 @@
 
 class CCharacter;
 class CZone;
+class CGameDataFiles;   // GameDataFiles.h — 몬스터 관리자에 건넨다(존은 안 읽는다)
 
 // 존 안에서 정한 걷기·멈춤을 게임 서버에 알리는 통로 — CGameServer 가 구현한다(존은 게임 서버를 모른다).
 //   존 틱의 벽 멈춤과 몬스터 판단(CMonsterManager)이 같이 쓴다. 패킷으로 걷고 멈추는 플레이어는 안 온다.
@@ -56,7 +57,10 @@ struct SectorChangeInfo
 class CZone
 {
 public:
-    CZone();
+    // gameData — 기획 데이터. 몬스터 관리자가 몬스터·스폰 표를 쥐게 건넨다(USE_MONSTER).
+    //   몬스터를 켠 빌드엔 늘 있다(USE_MONSTER 면 기획 데이터도 켜진다 — BuildConfig.h USE_GAME_DATA_FILES).
+    //   기획 데이터가 없는 빌드면 nullptr 이고 받는 쪽도 없다.
+    explicit CZone(const CGameDataFiles* gameData);
     ~CZone();
 
     // 복사 금지 — 몬스터 관리자가 *this 를 든다. 복사하면 새 존의 관리자가 옛 존을 가리킨다.
@@ -209,7 +213,8 @@ private:
 #if USE_MONSTER
     // 몬스터 관리자 — 몬스터 소유·깔았나 표시·부활 대기열. *this 를 들므로 존은 복사하지 않는다(위 삭제 두 줄).
     //   해제는 존 소멸(빈 채널 정리·서버 종료) 때 멤버 소멸로 — 밖에서 먼저 불러 줄 것이 없다.
-    CMonsterManager _monsterManager{ *this };
+    //   기획 데이터를 받으므로 생성자 초기화 목록에서 세운다(Zone.cpp).
+    CMonsterManager _monsterManager;
 #endif
 
 #if USE_DROP

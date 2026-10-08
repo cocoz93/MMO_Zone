@@ -473,7 +473,15 @@ private:
     CMonitorManager& _monitor;       // 코어 지표 — 배치 송신 경로에서 코어 대신 세는 자리가 있어 게임도 참조한다
     CGameMonitor&    _gameMonitor;   // 게임 컨텐츠 지표 (전투)
     std::unique_ptr<NetIoModel> _network;
-    CMapManager _mapManager;
+
+#if USE_GAME_DATA_FILES
+    // 기획 데이터 — 기동 때 한 번 읽고 그 뒤로는 읽기만 한다(게임 스레드가 매 전투·명령에서 본다).
+    //   ★ _mapManager 보다 앞에 선언 — 맵 관리자가 이 주소를 받아 존에 건넨다(멤버는 선언 순서로 세워진다).
+    CGameDataFiles _gameDataFiles;
+    CMapManager _mapManager{ &_gameDataFiles };
+#else
+    CMapManager _mapManager{ nullptr };   // 기획 데이터가 없는 빌드(전투·몬스터 다 끔) — 존이 쥘 표가 없다
+#endif
 
     std::thread _gameThread;
     std::atomic<bool> _running;
@@ -503,11 +511,6 @@ private:
     int32_t _nextGroundId = 1;       // 땅의 아이템 번호 — 캐릭터 번호와 따로 센다(1초에 하나씩 떨어져도 68년)
     std::vector<Item> _lootBuffer;   // 한 마리분 굴림 결과 (멤버 재사용 — 죽을 때마다 할당하지 않게)
     int     _groundItemScanCounter = 0;   // TickGroundItems 의 25틱 세기
-#endif
-
-#if USE_GAME_DATA_FILES
-    // 기획 데이터 — 기동 때 한 번 읽고 그 뒤로는 읽기만 한다(게임 스레드가 매 전투·명령에서 본다).
-    CGameDataFiles _gameDataFiles;
 #endif
 
 #if USE_COMBAT

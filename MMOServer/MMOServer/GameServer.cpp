@@ -2764,7 +2764,7 @@ void CGameServer::RemoveFromDeadActors(CCharacter* player)
 
 MonsterContext CGameServer::MakeMonsterContext()
 {
-    return MonsterContext{ *this, *this, _gameMonitor, _gameDataFiles.SpawnRegions(), _monsterPerZone, _snakeSpeed
+    return MonsterContext{ *this, *this, _gameMonitor, _monsterPerZone, _snakeSpeed
 #if USE_COMBAT
                          , _combatSystem
 #endif
