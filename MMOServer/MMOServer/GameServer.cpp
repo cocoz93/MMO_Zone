@@ -646,7 +646,8 @@ bool CGameServer::Init(ServerMode mode, int port, int maxClients,
         // 프레임 재사용 컨테이너 reserve (워밍업 realloc 방지)
         // 전체 서버 범위 버퍼도 maxPerChannel 기준 — 초과 시 자연 증가 후 capacity 유지
         int32_t maxPerChannel = maps[0].maxPlayersPerChannel;
-        _sessionSlots.assign(maxClients, nullptr);   // 인덱스 직접 접근용 슬롯 (sessionId 인덱스로 접근)
+        _sessionSlots.clear();                       // 인덱스 직접 접근용 슬롯 (sessionId 인덱스로 접근)
+        _sessionSlots.resize(maxClients);            //   unique_ptr 라 assign(n, nullptr) 대신 — 전부 빈 칸으로
 #if USE_DB_WORKER
         _pendingEnter.assign(maxClients, PendingEnter{});   // 대기표 — 위 슬롯과 같은 크기·같은 색인 (불변식 공유)
 #endif
@@ -733,11 +734,7 @@ void CGameServer::Stop()
         }
     }
 
-    // 잔여 플레이어 정리 (CGameServer가 생명주기 소유)
-    for (CPlayer* player : _sessionSlots)   // nullptr는 delete 무해
-    {
-        delete player;
-    }
+    // 잔여 플레이어 정리 — 슬롯(unique_ptr)이 주인이라 비우면 해제된다(DB 를 켠 빌드면 최종 저장은 위 SaveAllPlayers 가 이미 했다)
     _sessionSlots.clear();
 
     // 몬스터는 여기서 안 치운다 — 소유가 존이라 _mapManager 가 소멸할 때 존과 같이 해제된다.
@@ -814,8 +811,9 @@ void CGameServer::TickPeriodicSave()
     thread_local std::vector<size_t>    dropped;
     batch.clear();
     owners.clear();
-    for (CPlayer* player : _sessionSlots)
+    for (const auto& slot : _sessionSlots)
     {
+        CPlayer* player = slot.get();
         if (player == nullptr)
             continue;
         if (ShouldSave(player))
@@ -840,8 +838,9 @@ void CGameServer::SaveAllPlayers()
     // 주기 저장(ShouldSave 필터)과 목적이 다름: 여기선 dirty 추적을 신뢰하지 않고 무조건 다 씀.
     std::vector<DBSaveJob> batch;
     batch.reserve(_sessionSlots.size());
-    for (CPlayer* player : _sessionSlots)
+    for (const auto& slot : _sessionSlots)
     {
+        CPlayer* player = slot.get();
         if (player == nullptr)
             continue;
         batch.push_back(MakeSaveJob(player));
@@ -1324,9 +1323,10 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
     if (zone == nullptr)
         return nullptr;
 
-    // 플레이어 생성 + ID/표시 속성 부여 (CGameServer가 생명주기 소유)
-    //   번호는 호출부가 준다 — 접속 때 이미 뽑았다(조회 열쇠로 먼저 필요했다).
-    CPlayer* player = new CPlayer();
+    // 플레이어 생성 + ID/표시 속성 부여 — 슬롯에 넣기 전까지는 이 지역 unique_ptr 가 주인이다
+    //   (입장에 실패하면 return 만으로 해제된다). 번호는 호출부가 준다 — 접속 때 이미 뽑았다(조회 열쇠로 먼저 필요했다).
+    auto owned = std::make_unique<CPlayer>();
+    CPlayer* player = owned.get();
     player->_actorId = actorId;
     player->_displayChar = CalcDisplayChar(player->_actorId);
     player->_colorIndex = CalcColorIndex(player->_actorId);
@@ -1337,14 +1337,22 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
     const bool entered = place.hasPos ? zone->EnterZoneAt(player, place.x, place.y)
                                       : zone->EnterZone(player);
     if (!entered)
-    {
-        delete player;
-        return nullptr;
-    }
+        return nullptr;   // owned 가 해제한다
 
-    // 경계 매핑 등록
+    // 경계 매핑 등록 — 이제 슬롯이 주인이다
     player->_sessionId = sessionId;
-    _sessionSlots[CSession::ExtractIndex(sessionId)] = player;
+    std::unique_ptr<CPlayer>& slot = _sessionSlots[CSession::ExtractIndex(sessionId)];
+    if (slot)
+    {
+        // 있을 수 없다 — 같은 자리의 끊김 이벤트는 다음 접속보다 먼저 온다(SetPendingEnter 와 같은 불변식).
+        //   그래도 그렇게 되면 옛 플레이어는 해제하지 않고 놓아 버린다(release) — 아직 존 목록이 그 주소를
+        //   들고 있을 수 있어 여기서 해제하면 다음 틱이 해제된 메모리를 밟는다. 새는 쪽이 덜 위험하다(전에도 새었다).
+        SLOG_ERROR("[ENTER] session slot still occupied (slot={}, old session={}, new session={})",
+                   CSession::ExtractIndex(sessionId), slot->_sessionId, sessionId);
+        assert(false && "슬롯에 살아 있는 플레이어가 있다");
+        (void)slot.release();
+    }
+    slot = std::move(owned);
 
     // 델타 동기화 기준 좌표 초기화 (스폰 직후 불필요한 동기화 방지)
     player->_lastSyncX = player->_x;
@@ -1498,8 +1506,9 @@ void CGameServer::KickDuplicateAccount(int64_t accountId, int64_t exceptSessionI
     //    제거). 이 함수는 네트워크 이벤트 구간 한가운데서 플레이어를 지우는데, 같은 틱에
     //    그 플레이어가 MOVE_STOP 으로 그 대기열에 들어가 있을 수 있다 — 새로 짰으면 빠뜨렸을 자리다.
     //    뒤늦게 오는 진짜 끊김 이벤트는 플레이어가 이미 없어 FindPlayer 가 nullptr 이라 무해하다.
-    for (CPlayer* other : _sessionSlots)
+    for (const auto& slot : _sessionSlots)
     {
+        CPlayer* other = slot.get();   // OnDisconnected 가 이 칸을 비우면(해제) other 는 못 쓴다 — 아래는 그 뒤 바로 break
         if (other == nullptr || other->_accountId != accountId || other->_sessionId == exceptSessionId)
             continue;
 
@@ -1621,24 +1630,29 @@ void CGameServer::OnDisconnected(int64_t sessionId)
         BroadcastLeaveZone(zone, player);
     }
 
-    // 경계 매핑 해제 (zone 유무와 무관하게 반드시 수행)
-    _sessionSlots[CSession::ExtractIndex(sessionId)] = nullptr;
+    // 대기열 회수 → 로그아웃 최종 저장 → 슬롯 비우기(해제) — 놓는 길은 하나다
+    ReleasePlayer(player);
+}
 
+void CGameServer::ReleasePlayer(CPlayer* player)
+{
 #if USE_COMBAT
-    // 부활 대기열 회수 — 위 BroadcastLeaveZone이 이미 하지만, zone == nullptr 분기는 그걸 건너뛴다.
-    //   그 상태로 죽어 있을 수는 없어도, 아래 delete 뒤에 대기열이 그 주소를 들고 있으면
-    //   다음 틱이 해제된 메모리를 밟는다. 두 번 불러도 무해하므로 zone 유무와 무관하게 여기서도 뺀다.
+    // 부활 대기열 회수 — 끊김 길에서는 BroadcastLeaveZone 이 이미 하지만, 존을 못 찾은 갈래는 그걸 건너뛴다.
+    //   그 상태로 죽어 있을 수는 없어도, 아래 해제 뒤에 대기열이 그 주소를 들고 있으면
+    //   다음 틱이 해제된 메모리를 밟는다. 두 번 불러도 무해하므로 여기서도 뺀다.
     RemoveFromDeadActors(player);
 #endif
 
 #if USE_DB_WORKER
-    // 로그아웃 최종 저장 (스냅샷은 값 복사라 직후 delete 안전)
+    // 최종 저장 (스냅샷은 값 복사라 직후 해제 안전)
     if (_dbWorker)
         EnqueuePlayerSave(player);
 #endif
 
-    // 플레이어 삭제 (CGameServer가 생명주기 소유)
-    delete player;
+    // 슬롯 비우기 — 주인이 슬롯이라 여기서 해제된다(맨 끝이어야 한다)
+    std::unique_ptr<CPlayer>& slot = _sessionSlots[CSession::ExtractIndex(player->_sessionId)];
+    assert(slot.get() == player);
+    slot.reset();
 }
 
 void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
@@ -2493,9 +2507,9 @@ void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
             return;
         }
 
-        // 복귀도 실패 → 좀비 방지를 위해 연결 해제
-        _sessionSlots[CSession::ExtractIndex(sessionId)] = nullptr;
-        delete player;
+        // 복귀도 실패 → 좀비 방지를 위해 연결 해제. 존은 위에서 이미 나갔으니 놓기만 한다(끊김 길과 같은 저장 포함).
+        //   뒤늦게 오는 끊김 이벤트는 슬롯이 비어 FindPlayer 가 nullptr 이라 무해하다.
+        ReleasePlayer(player);
         _network->RequestDisconnectSession(sessionId);
         return;
     }

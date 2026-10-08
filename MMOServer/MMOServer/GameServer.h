@@ -164,6 +164,13 @@ private:
     CPlayer* SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t accountId,
                          CZone* zone, const EnterPlacement& place);
 
+    // 게임 중인 플레이어를 놓는 한 곳 — 존에서 나간 "뒤"에 부른다(끊김·존 이동 복귀 실패가 같이 쓴다).
+    //   틱 너머로 이 플레이어를 드는 목록에서 빼기 → 최종 저장 → 슬롯 비우기(여기서 해제), 이 순서.
+    //   ★ 존 퇴장(BroadcastLeaveZone)을 안에 안 넣는 이유 — CZone::LeaveZone 은 _zoneId 를 안 지운다. 이미 존을 나간
+    //     길(존 이동 복귀 실패)에서 _zoneId 로 다시 나가면 같은 존을 두 번 나간다(이웃에게 DELETE 두 번).
+    //   ★ 부른 뒤에는 player 를 쓰지 말 것 — 이미 해제됐다.
+    void ReleasePlayer(CPlayer* player);
+
     // 패킷 핸들러
     void RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg);
     void RecvMoveStop(CPlayer* player, CSerialBuffer* pMsg);
@@ -515,19 +522,21 @@ private:
     // 네트워크 경계: sessionId → CPlayer* (수신 시 플레이어 조회)
     //   sessionId 상위 16비트 = 세션 슬롯 인덱스 → 해시맵 대신 인덱스 배열 직접 접근 (캐시미스 제거).
     //   슬롯 재사용(ABA)은 FindPlayer의 _sessionId 일치 검사로 방어. 접근은 게임 스레드 단독.
-    std::vector<CPlayer*> _sessionSlots;
+    //   ★ 플레이어의 주인이 이 슬롯이다(unique_ptr) — 손으로 delete 하지 않는다. 게임 중인 플레이어를 놓는 길은
+    //     ReleasePlayer 하나, 입장 실패는 SpawnPlayer 의 지역 unique_ptr 가, 종료는 clear() 가 해제한다.
+    std::vector<std::unique_ptr<CPlayer>> _sessionSlots;
 
     // 슬롯 조회 + 재사용 가드 — 등록된 세션이 아니면 nullptr
     CPlayer* FindPlayer(int64_t sessionId) const
     {
         uint16_t idx = CSession::ExtractIndex(sessionId);
-        // [불변식] idx < _sessionSlots.size() — 슬롯 배열은 Init에서 maxClients로 assign되고,
+        // [불변식] idx < _sessionSlots.size() — 슬롯 배열은 Init에서 maxClients 칸으로 잡히고,
         //   세션 인덱스는 같은 maxClients로 잡힌 CIOCPServer 세션 배열의 인덱스라 항상 그 미만이다.
         //   ※ 바로 아래가 배열 인덱싱이다. 이 불변식이 깨지면 릴리즈에서는 곧장 범위 밖 접근이 된다
         //     (다른 불변식 assert들과 달리 실패 대가가 메모리 손상). 슬롯 크기 산정이나 maxClients
         //     전달 경로를 손보면 반드시 디버그 빌드로 여기를 통과시킬 것.
         assert(idx < _sessionSlots.size());
-        CPlayer* p = _sessionSlots[idx];
+        CPlayer* p = _sessionSlots[idx].get();
         return (p != nullptr && p->_sessionId == sessionId) ? p : nullptr;
     }
 
@@ -551,7 +560,7 @@ private:
     //   (처음엔 GetAroundPlayers 의 전신이 벡터를 요구해 _attackTargetBuffer 를 뒀었다)
 
     // 죽어서 부활을 기다리는 플레이어. 여기만 틱 너머로 포인터를 든다 —
-    //   퇴장 경로(BroadcastLeaveZone·OnDisconnected)가 반드시 회수해야 한다.
+    //   퇴장 경로(BroadcastLeaveZone·ReleasePlayer)가 반드시 회수해야 한다.
     //   몬스터는 여기 안 들어온다 — 자기 존의 관리자 대기열로 간다(OnDeath 가 가른다).
     //   같은 규율이 이미 dirtyMovers 와 존의 섹터 이동 대기열(CZone::LeaveZone 이 뺀다)에 있다.
     std::vector<CCharacter*> _deadActors;
