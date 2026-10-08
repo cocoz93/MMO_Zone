@@ -29,20 +29,11 @@ bool IsInAttackRange(const CCharacter& attacker, const CCharacter& target, float
     if (distSq > ATTACK_RANGE_SQ)
         return false;
 
-    // 바라보는 쪽 단위벡터. 부호는 Zone.cpp 의 이동 적용부와 같아야 한다 — UP 이 -y 다.
-    float fx = 0.0f;
-    float fy = 0.0f;
-    switch (attacker._direction)
-    {
-    case Direction::UP:    fy = -1.0f; break;
-    case Direction::DOWN:  fy =  1.0f; break;
-    case Direction::LEFT:  fx = -1.0f; break;
-    case Direction::RIGHT: fx =  1.0f; break;
-    default:               return false;   // NONE — 바라보는 쪽이 없으면 아무도 못 때린다
-    }
+    // 바라보는 쪽 단위벡터 — 부호는 DirectionStep(Actor.h) 한 곳. NONE 은 (0, 0) 이라 아래 내적이 0 → 아무도 못 때린다.
+    const DirectionVec f = DirectionStep(attacker._direction);
 
     // 내적이 양수여야 정면이다. 뒤통수(<0)도, 정확히 옆(==0)도, 겹쳐 선 경우(distSq==0 → 내적 0)도 안 맞는다.
-    if (dx * fx + dy * fy <= 0.0f)
+    if (dx * f.x + dy * f.y <= 0.0f)
         return false;
 
     outDistSq = distSq;

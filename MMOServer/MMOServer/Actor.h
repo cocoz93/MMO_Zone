@@ -12,6 +12,54 @@ enum class Direction : uint8_t
     RIGHT        // →
 };
 
+// ── 방향의 규칙은 여기 한 곳 — 좌표계(UP 이 -y)·유효 값·개수 (10-08 아키텍처 2차 검사 4번) ──
+//   쓰는 쪽(이동·벽 판정·공격 정면·몬스터가 바라볼 쪽·패킷 범위 검사·무작위 방향)은 숫자·부호를 다시 적지 않는다.
+//   방향을 늘리면(대각선 등) 서버 안의 위 쓰임새는 enum · DIRECTION_COUNT · DirectionStep 의 줄만 고치면 따라온다
+//   (클라의 방향 해석·벽에서 미끄러질지·몬스터가 대각선을 쓸지는 따로 정한다).
+constexpr int DIRECTION_COUNT = 4;   // NONE 을 뺀 이동 방향 수 — 값은 1..DIRECTION_COUNT 로 붙어 있다
+static_assert(static_cast<int>(Direction::RIGHT) == DIRECTION_COUNT, "방향을 늘렸으면 DIRECTION_COUNT·DirectionStep 도 고칠 것");
+
+struct DirectionVec { float x; float y; };
+
+// 방향 → 길이 1 의 단위 벡터. NONE 은 (0, 0). 대각선을 넣으면 0.7071 꼴 — 이동 거리·내적이 그대로 맞는다.
+constexpr DirectionVec DirectionStep(Direction d)
+{
+    switch (d)
+    {
+    case Direction::UP:    return {  0.0f, -1.0f };
+    case Direction::DOWN:  return {  0.0f,  1.0f };
+    case Direction::LEFT:  return { -1.0f,  0.0f };
+    case Direction::RIGHT: return {  1.0f,  0.0f };
+    default:               return {  0.0f,  0.0f };
+    }
+}
+
+// 와이어로 온 값이 이동 방향인가 (NONE·범위 밖이면 false)
+constexpr bool IsMoveDirection(uint8_t v)
+{
+    return v >= 1 && v <= DIRECTION_COUNT;
+}
+
+// 벡터 → 방향 — 그 벡터와 내적이 가장 큰 방향(4방향이면 더 많이 벌어진 축). 부호는 DirectionStep 이 정한다.
+//   동점이면 뒤 값이 이긴다(>=) — 「|dx| == |dy| 면 가로, 둘 다 0 이면 오른쪽」이 이 순서에서 나온다.
+inline Direction DirectionFromDelta(float dx, float dy)
+{
+    Direction best    = Direction::NONE;
+    float     bestDot = 0.0f;
+    for (int i = 1; i <= DIRECTION_COUNT; ++i)
+    {
+        const Direction    d   = static_cast<Direction>(i);
+        const DirectionVec s   = DirectionStep(d);
+        const float        dot = dx * s.x + dy * s.y;
+        if (best == Direction::NONE || dot >= bestDot)
+        {
+            best    = d;
+            bestDot = dot;
+        }
+    }
+    return best;
+}
+
 // 이동 상태
 enum class MoveState : uint8_t
 {

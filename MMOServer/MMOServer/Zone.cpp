@@ -120,16 +120,11 @@ void CZone::Tick(float deltaTime, IZoneEvents& events)
         if (player->_moveState != MoveState::MOVING)
             continue;
 
-        // 방향에 따라 좌표 갱신 (플레이어별 속도)
+        // 방향에 따라 좌표 갱신 (플레이어별 속도) — 부호는 DirectionStep(Actor.h) 한 곳
         float dist = player->_speed * deltaTime;
-        switch (player->_direction)
-        {
-        case Direction::UP:    player->_y -= dist; break;
-        case Direction::DOWN:  player->_y += dist; break;
-        case Direction::LEFT:  player->_x -= dist; break;
-        case Direction::RIGHT: player->_x += dist; break;
-        default: break;
-        }
+        const DirectionVec step = DirectionStep(player->_direction);
+        player->_x += step.x * dist;
+        player->_y += step.y * dist;
 
         // 맵 경계 클램핑
         bool clamped = ClampToMap(player->_x, player->_y);
@@ -409,14 +404,11 @@ bool CZone::IsBlockedByWall(float x, float y, Direction dir) const
     bool atTop    = (y <= 0.0f);
     bool atBottom = (y >= maxY);
 
-    switch (dir)
-    {
-    case Direction::LEFT:  return atLeft;
-    case Direction::RIGHT: return atRight;
-    case Direction::UP:    return atTop;
-    case Direction::DOWN:  return atBottom;
-    default: return false;
-    }
+    // 가는 쪽 성분의 부호로 어느 벽인가를 고른다(부호는 DirectionStep 한 곳). NONE 은 (0, 0) 이라 false.
+    //   대각선이면 한 축이라도 벽에 닿으면 막힘(멈춤) — 벽을 따라 미끄러지게 하려면 여기서 가른다.
+    const DirectionVec s = DirectionStep(dir);
+    return (s.x < 0.0f && atLeft) || (s.x > 0.0f && atRight)
+        || (s.y < 0.0f && atTop)  || (s.y > 0.0f && atBottom);
 }
 
 void CZone::CalcSpawnPos(float& outX, float& outY) const

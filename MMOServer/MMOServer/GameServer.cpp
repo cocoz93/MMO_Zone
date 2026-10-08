@@ -1812,9 +1812,8 @@ void CGameServer::RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg)
     MSG_C2S_MOVE_START recvMsg{};
     pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
 
-    // Direction 범위 검증 (4방향)
-    if (recvMsg.direction < static_cast<uint8_t>(Direction::UP) ||
-        recvMsg.direction > static_cast<uint8_t>(Direction::RIGHT))
+    // Direction 범위 검증 — 유효 값은 Actor.h 한 곳(IsMoveDirection)
+    if (!IsMoveDirection(recvMsg.direction))
         return;
 
     Direction dir = static_cast<Direction>(recvMsg.direction);
@@ -1911,9 +1910,8 @@ void CGameServer::RecvMoveStop(CPlayer* player, CSerialBuffer* pMsg)
     if (player->_moveState != MoveState::MOVING)
         return;
 
-    // Direction 범위 검증 (4방향)
-    if (recvMsg.direction < static_cast<uint8_t>(Direction::UP) ||
-        recvMsg.direction > static_cast<uint8_t>(Direction::RIGHT))
+    // Direction 범위 검증 — 유효 값은 Actor.h 한 곳(IsMoveDirection)
+    if (!IsMoveDirection(recvMsg.direction))
         return;
 
     // 서버 권위 모델: 서버 좌표 유지, 상태만 변경

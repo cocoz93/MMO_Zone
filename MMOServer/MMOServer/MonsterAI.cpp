@@ -26,16 +26,16 @@ namespace
 
     Direction RandDirection()
     {
-        std::uniform_int_distribution<int> d(1, 4);   // Direction::UP(1) ~ RIGHT(4)
+        std::uniform_int_distribution<int> d(1, DIRECTION_COUNT);   // 이동 방향 전부 (Actor.h — 값이 1 부터 붙어 있다)
         return static_cast<Direction>(d(Rng()));
     }
 
     // 지금 방향을 뺀 나머지 셋 중 하나 — 벽에 막혀 멈춘 뱀이 같은 벽으로 다시 걷지 않게
     Direction RandDirectionExcept(Direction except)
     {
-        std::uniform_int_distribution<int> d(1, 3);
-        int v = d(Rng());                                   // 1~3
-        if (v >= static_cast<int>(except)) ++v;             // except 를 건너뛰어 1~4 중 셋
+        std::uniform_int_distribution<int> d(1, DIRECTION_COUNT - 1);
+        int v = d(Rng());                                   // 1 ~ 개수-1
+        if (v >= static_cast<int>(except)) ++v;             // except 를 건너뛰어 나머지 중 하나
         return static_cast<Direction>(v);
     }
 
@@ -87,11 +87,8 @@ Direction FaceTo(const CActor& from, const CActor& to)
     const float dx = to._x - from._x;
     const float dy = to._y - from._y;
 
-    // 더 많이 벌어진 축을 고른다. 부호는 Zone.cpp 의 이동 적용부와 같다 — UP 이 -y 다.
-    if (dx * dx >= dy * dy)
-        return (dx >= 0.0f) ? Direction::RIGHT : Direction::LEFT;
-
-    return (dy >= 0.0f) ? Direction::DOWN : Direction::UP;
+    // 더 많이 벌어진 축을 고른다 — 부호·동점 규칙은 DirectionFromDelta(Actor.h) 한 곳
+    return DirectionFromDelta(dx, dy);
 }
 
 Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame)
