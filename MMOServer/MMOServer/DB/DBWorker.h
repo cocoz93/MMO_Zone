@@ -24,15 +24,17 @@
 
 // DB 접속 설정 — ServerConfig가 INI [DB] 섹션에서 채워 넘긴다.
 // (USE_DB_WORKER 토글과 무관하게 정의 — GameServer::InitDB가 값으로 참조)
+//   ★ 기본값을 여기 두지 않는다 — 정본은 ServerConfig 의 db* 멤버이고 main 이 일곱 칸을 전부 채운다(10-08 2차 검사 5번).
+//     여기 숫자를 두면 아무도 안 읽는 셋째 벌이 된다. 0·빈 문자열 = 아직 안 채워짐.
 struct DBConfig
 {
-    std::string host              = "127.0.0.1";
-    int         port              = 3306;
-    std::string user              = "root";
+    std::string host;
+    int         port              = 0;
+    std::string user;
     std::string password;
-    std::string database          = "gamedb";
-    int         connectTimeoutSec = 3;
-    int         rwTimeoutSec       = 5;   // 읽기/쓰기 소켓 타임아웃(초) — DB 무응답 시 쿼리 무한대기 방지
+    std::string database;
+    int         connectTimeoutSec = 0;
+    int         rwTimeoutSec      = 0;   // 읽기/쓰기 소켓 타임아웃(초) — DB 무응답 시 쿼리 무한대기 방지
 };
 
 #if USE_DB_WORKER

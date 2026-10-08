@@ -38,9 +38,16 @@
 
 struct ServerConfig
 {
+    // ── 기본값은 여기 한 벌 (10-08 아키텍처 2차 검사 5번) ──
+    //   INI 파일이 없을 때(Load 가 일찍 돌아감)도, 파일은 있는데 키가 없을 때(GetInt 의 세 번째 인자)도
+    //   아래 멤버 초기값과 이 상수들을 쓴다. Load 안에 숫자를 다시 적지 말 것 — 한쪽만 고쳐지면 두 경우가 갈린다.
+    static constexpr int       MAX_CLIENTS_DEFAULT = 1000;                       // 범위 밖 값을 되돌릴 때도 이 값
+    static constexpr int       DEFAULT_MAP_COUNT   = 1;
+    static constexpr MapConfig DEFAULT_MAP         = { 0, 120, 120, 20, 100 };   // mapId · 폭 · 높이 · 섹터 크기 · 채널 정원
+
     ServerMode  mode         = ServerMode::GameServer;
     int         port         = 6000;
-    int         maxClients   = 1000;
+    int         maxClients   = MAX_CLIENTS_DEFAULT;
     int         monitorPort  = 9090;
     bool        monitorEnabled = false;
     unsigned long long affinityMask = 0;   // 프로세스를 묶을 CPU 코어 마스크 (0=미적용)
@@ -102,26 +109,27 @@ struct ServerConfig
             return false;
         }
 
-        // [Server] 섹션
-        mode        = ParseServerMode(ini.GetString("Server", "Mode", "GameServer"));
-        port        = ini.GetInt("Server", "Port", 6000);
+        // [Server] 섹션 — 키가 없으면 멤버 초기값(맨 위 한 벌)이 그대로 남는다
+        const std::string modeStr = ini.GetString("Server", "Mode", "");
+        if (!modeStr.empty())
+            mode = ParseServerMode(modeStr);
+        port        = ini.GetInt("Server", "Port", port);
 
         // INI에 음수를 적으면 파서(strtol)가 그대로 음수로 넘긴다.
         //   이 값이 GameServer::Init의 vector::assign에 들어가면 size_t로 확대되어 length_error를
         //   던지고, catch가 없어 "Init failed" 로그 대신 크래시 덤프를 남기며 죽는다.
         //   Start()의 범위 검사는 Init보다 뒤라 여기서 막지 않으면 도달하지 못한다.
         constexpr int MAX_CLIENTS_LIMIT   = 65535;  // 세션 인덱스가 SessionID 상위 16bit
-        constexpr int MAX_CLIENTS_DEFAULT = 1000;
 
-        maxClients  = ini.GetInt("Server", "MaxClients", MAX_CLIENTS_DEFAULT);
+        maxClients  = ini.GetInt("Server", "MaxClients", maxClients);
         if (maxClients <= 0 || maxClients > MAX_CLIENTS_LIMIT)
         {
             SLOG_ERROR("[ServerConfig] MaxClients({}) out of range (1~{}). Using default {}.",
                        maxClients, MAX_CLIENTS_LIMIT, MAX_CLIENTS_DEFAULT);
             maxClients = MAX_CLIENTS_DEFAULT;
         }
-        monitorPort = ini.GetInt("Server", "MonitorPort", 9090);
-        monitorEnabled = (ini.GetInt("Server", "MonitorEnabled", 0) != 0);
+        monitorPort = ini.GetInt("Server", "MonitorPort", monitorPort);
+        monitorEnabled = (ini.GetInt("Server", "MonitorEnabled", monitorEnabled ? 1 : 0) != 0);
 
         // ServerCores: 물리코어 범위("0-5")를 받아 논리코어 비트마스크로 변환
         // (HT 형제 자동 포함 — 한 물리코어를 서버/클라가 쪼개 쓰는 격리 깨짐을 방지)
@@ -132,58 +140,59 @@ struct ServerConfig
         DeriveGameCoreIsolation(ini.GetString("Server", "GameCore", ""));
 
         // WorkerThreads: IOCP 워커 스레드 수 (0=서버 affinity 코어 수로 자동)
-        workerThreads = ini.GetInt("Server", "WorkerThreads", 0);
+        workerThreads = ini.GetInt("Server", "WorkerThreads", workerThreads);
 
         // SendWorkers: 전용 송신 워커 수 (0/1=단일 스레드, 2+=uniqueId%K 워커 풀)
         //   분배 키가 sessionId 였을 때는 인덱스 비트가 쏠려 워커 한쪽만 일했다 — uniqueId 로 고쳤다.
-        sendWorkers = ini.GetInt("Server", "SendWorkers", 0);
+        sendWorkers = ini.GetInt("Server", "SendWorkers", sendWorkers);
 
         // RioWorkers: RIO 전송 워커 수 (USE_RIO_TRANSPORT=1 빌드에서만 사용, 0=자동 2)
-        rioWorkers = ini.GetInt("Server", "RioWorkers", 0);
+        rioWorkers = ini.GetInt("Server", "RioWorkers", rioWorkers);
 
         // CompletionBatch: 완료 수거 방식 A/B (IOCP 빌드 전용, 재빌드 없이 팔 전환)
         //   0 = GetQueuedCompletionStatus — 완료 1건마다 syscall 1회 (기존 동작, 기본값)
         //   N>0 = GetQueuedCompletionStatusEx — 한 번에 최대 N건 수거 (상한은 IOCPServer::Start에서 clamp)
-        completionBatch = ini.GetInt("Server", "CompletionBatch", 0);
+        completionBatch = ini.GetInt("Server", "CompletionBatch", completionBatch);
 
         // SendDepth: 세션당 동시 송신 제출 상한 A/B (양팔 공통, 재빌드 없이 깊이 전환)
         //   1=기존 1-pending. 2의 거듭제곱만 유효하고(1/2/4/8) 그 외 값은 서버가 아래쪽으로 내린다.
-        sendDepth = ini.GetInt("Server", "SendDepth", 1);
+        sendDepth = ini.GetInt("Server", "SendDepth", sendDepth);
 
         // EventQueueAcceptLimit: 게임 이벤트 큐 과부하 시 신규 accept 차단 임계 (0=끄기)
-        eventQueueAcceptLimit = ini.GetInt("Server", "EventQueueAcceptLimit", 60000);
+        eventQueueAcceptLimit = ini.GetInt("Server", "EventQueueAcceptLimit", eventQueueAcceptLimit);
         if (eventQueueAcceptLimit < 0)
             eventQueueAcceptLimit = 0;
 
         // [Game] 이동 속도 — 없으면 0(지금까지의 동작). 음수는 0 으로 본다.
-        playerSpeed = ini.GetInt("Game", "PlayerSpeed", 0);
-        snakeSpeed  = ini.GetInt("Game", "SnakeSpeed", 0);
+        playerSpeed = ini.GetInt("Game", "PlayerSpeed", playerSpeed);
+        snakeSpeed  = ini.GetInt("Game", "SnakeSpeed", snakeSpeed);
         if (playerSpeed < 0) playerSpeed = 0;
         if (snakeSpeed  < 0) snakeSpeed  = 0;
 
-        monsterPerZone = ini.GetInt("Game", "MonsterPerZone", 0);
+        monsterPerZone = ini.GetInt("Game", "MonsterPerZone", monsterPerZone);
         if (monsterPerZone < 0) monsterPerZone = 0;
 
         // [DB] 섹션 — DB 저장 파이프라인 (값은 파서가 narrow std::string으로 반환)
-        dbHost              = ini.GetString("DB", "Host", "127.0.0.1");
-        dbPort              = ini.GetInt("DB", "Port", 3306);
-        dbUser              = ini.GetString("DB", "User", "root");
-        dbPassword          = ini.GetString("DB", "Password", "");
-        dbDatabase          = ini.GetString("DB", "Database", "gamedb");
-        dbWorkers           = ini.GetInt("DB", "Workers", 0);
-        dbSavePeriodSec     = ini.GetInt("DB", "SavePeriodSec", 0);
-        dbConnectTimeoutSec = ini.GetInt("DB", "ConnectTimeoutSec", 3);
-        dbRwTimeoutSec      = ini.GetInt("DB", "RwTimeoutSec", 5);
-        dbQueueMax          = ini.GetInt("DB", "QueueMax", 0);
+        dbHost              = ini.GetString("DB", "Host", dbHost);
+        dbPort              = ini.GetInt("DB", "Port", dbPort);
+        dbUser              = ini.GetString("DB", "User", dbUser);
+        dbPassword          = ini.GetString("DB", "Password", dbPassword);
+        dbDatabase          = ini.GetString("DB", "Database", dbDatabase);
+        dbWorkers           = ini.GetInt("DB", "Workers", dbWorkers);
+        dbSavePeriodSec     = ini.GetInt("DB", "SavePeriodSec", dbSavePeriodSec);
+        dbConnectTimeoutSec = ini.GetInt("DB", "ConnectTimeoutSec", dbConnectTimeoutSec);
+        dbRwTimeoutSec      = ini.GetInt("DB", "RwTimeoutSec", dbRwTimeoutSec);
+        dbQueueMax          = ini.GetInt("DB", "QueueMax", dbQueueMax);
 
-        int mapCount = ini.GetInt("Server", "MapCount", 3);
+        // ★ 10-08 전에는 키가 없으면 3 이었다(파일이 없으면 1) — 두 경우가 갈려 있던 것을 DEFAULT_MAP_COUNT 하나로
+        int mapCount = ini.GetInt("Server", "MapCount", DEFAULT_MAP_COUNT);
 
         // [MapDefault] 섹션 로드
-        MapConfig defaultMap = {};
-        defaultMap.mapWidth             = ini.GetInt("MapDefault", "Width", 120);
-        defaultMap.mapHeight            = ini.GetInt("MapDefault", "Height", 120);
-        defaultMap.sectorSize           = ini.GetInt("MapDefault", "SectorSize", 20);
-        defaultMap.maxPlayersPerChannel = ini.GetInt("MapDefault", "MaxPlayersPerChannel", 100);
+        MapConfig defaultMap = DEFAULT_MAP;
+        defaultMap.mapWidth             = ini.GetInt("MapDefault", "Width", DEFAULT_MAP.mapWidth);
+        defaultMap.mapHeight            = ini.GetInt("MapDefault", "Height", DEFAULT_MAP.mapHeight);
+        defaultMap.sectorSize           = ini.GetInt("MapDefault", "SectorSize", DEFAULT_MAP.sectorSize);
+        defaultMap.maxPlayersPerChannel = ini.GetInt("MapDefault", "MaxPlayersPerChannel", DEFAULT_MAP.maxPlayersPerChannel);
 
         // [Map0] ~ [MapN-1] 섹션 순회 (없으면 디폴트 적용)
         maps.clear();
@@ -262,12 +271,16 @@ private:
         ioCoreMask   = io;
     }
 
+    // INI 파일이 없을 때 — 키가 없을 때와 같은 기본값(DEFAULT_MAP_COUNT 개의 DEFAULT_MAP)
     void SetDefaultMaps()
     {
-        maps = 
+        maps.clear();
+        for (int i = 0; i < DEFAULT_MAP_COUNT; ++i)
         {
-            { 0, 120, 120, 20, 100 },
-        };
+            MapConfig mc = DEFAULT_MAP;
+            mc.mapId = i;
+            maps.push_back(mc);
+        }
     }
 
     static ServerMode ParseServerMode(const std::string& s)
