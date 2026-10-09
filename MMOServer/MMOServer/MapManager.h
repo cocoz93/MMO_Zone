@@ -10,7 +10,7 @@
 // [설계]
 //  - 싱글스레드 전제 (게임 루프 스레드에서만 호출)
 //  - GameServer가 소유, Zone은 MapManager가 소유
-//  - zoneId 인코딩: mapId * 1000 + channelIndex
+//  - zoneId 인코딩: mapId * CHANNELS_PER_MAP(1000) + channelIndex — 기수는 CMapManager::CHANNELS_PER_MAP 하나
 // ==========================================================================
 #pragma once
 
@@ -153,7 +153,10 @@ public:
             mapInstance.ForEachZone(std::forward<Fn>(fn));
     }
 
-    // zoneId 인코딩/디코딩 헬퍼
+    // zoneId 인코딩/디코딩 헬퍼 — zoneId = mapId × CHANNELS_PER_MAP + channelIndex
+    //   기수는 이 상수 하나다(10-08 2차 검사 9번). 채널 상한 검사(CMapInstance::CreateChannel)도 같은 값을 본다 —
+    //   상한만 따로 올리면 맵 1 채널 1000 이 맵 2 채널 0 과 같은 번호가 되어 조회표(_zoneCache)에서 서로 덮어쓴다.
+    static constexpr int32_t CHANNELS_PER_MAP = 1000;
     static int32_t MakeZoneId(int32_t mapId, int32_t channelIndex);
     static int32_t GetMapIdFromZoneId(int32_t zoneId);
     static int32_t GetChannelIndexFromZoneId(int32_t zoneId);

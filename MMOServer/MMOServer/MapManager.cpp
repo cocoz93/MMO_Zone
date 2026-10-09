@@ -82,8 +82,8 @@ void CMapInstance::TickAll(float deltaTime, IZoneEvents& events)
 
 CZone* CMapInstance::CreateChannel(int32_t channelIndex)
 {
-    // channelIndex 상한 검증 (zoneId = mapId * 1000 + channelIndex)
-    if (channelIndex >= 1000)
+    // channelIndex 상한 검증 — 존 번호 기수와 같은 값(CMapManager::CHANNELS_PER_MAP)
+    if (channelIndex >= CMapManager::CHANNELS_PER_MAP)
         return nullptr;
 
     // 중복 방지
@@ -264,15 +264,15 @@ int32_t CMapManager::GetRandomMapId(int32_t excludeMapId) const
 
 int32_t CMapManager::MakeZoneId(int32_t mapId, int32_t channelIndex)
 {
-    return mapId * 1000 + channelIndex;
+    return mapId * CHANNELS_PER_MAP + channelIndex;
 }
 
 int32_t CMapManager::GetMapIdFromZoneId(int32_t zoneId)
 {
-    return zoneId / 1000;
+    return zoneId / CHANNELS_PER_MAP;
 }
 
 int32_t CMapManager::GetChannelIndexFromZoneId(int32_t zoneId)
 {
-    return zoneId % 1000;
+    return zoneId % CHANNELS_PER_MAP;
 }
