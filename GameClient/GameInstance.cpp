@@ -583,17 +583,22 @@ void CGameInstance::OnCreateMyPlayer(const MSG_S2C_CREATE_MY_PLAYER* msg)
 
 void CGameInstance::OnCreateOtherPlayer(const MSG_S2C_CREATE_OTHER_PLAYER* msg)
 {
+    PushCreateOther(msg->entry);
+}
+
+void CGameInstance::PushCreateOther(const CreatePlayerEntry& e)
+{
     ClientNetworkEvent event{};
     event.type = ClientNetworkEvent::Type::CREATE_OTHER_PLAYER;
-    event.playerId = msg->playerId;
-    event.displayChar = msg->displayChar;
-    event.colorIndex = msg->colorIndex;
-    event.x = msg->x;
-    event.y = msg->y;
-    event.direction = msg->direction;
-    event.moveState = msg->moveState;
-    event.spawnReason = msg->spawnReason;
-    event.speed = msg->speed;
+    event.playerId = e.playerId;
+    event.displayChar = e.displayChar;
+    event.colorIndex = e.colorIndex;
+    event.x = e.x;
+    event.y = e.y;
+    event.direction = e.direction;
+    event.moveState = e.moveState;
+    event.spawnReason = e.spawnReason;
+    event.speed = e.speed;
     _eventQueue.Push(std::move(event));
 }
 
@@ -688,33 +693,18 @@ void CGameInstance::OnSectorUpdates(const MSG_S2C_SECTOR_UPDATES* msg)
 }
 
 // 멤버십 인바운드 묶음(USE_MEMBERSHIP_INBOUND_BUNDLE): 시야 진입 상대 N명이 배치 1패킷으로 온다.
-// 엔트리마다 기존 CREATE_OTHER_PLAYER 이벤트로 분해해 큐에 넣는다(소비측·이벤트타입 재사용 — OnCreateOtherPlayer와 동일 필드).
+// 엔트리마다 기존 CREATE_OTHER_PLAYER 이벤트로 분해해 큐에 넣는다(소비측·이벤트타입 재사용 — OnCreateOtherPlayer와 같은 PushCreateOther).
 // 가변 길이라 header.size로 실제 엔트리 수를 역산해 상한 방어(OnSectorUpdates와 동일).
 void CGameInstance::OnCreatePlayerBatch(const MSG_S2C_CREATE_PLAYER_BATCH* msg)
 {
     uint16_t count = msg->count;
     uint16_t avail = static_cast<uint16_t>(
-        (msg->header.size - offsetof(MSG_S2C_CREATE_PLAYER_BATCH, entries)) / sizeof(CreatePlayerBatchEntry));
+        (msg->header.size - offsetof(MSG_S2C_CREATE_PLAYER_BATCH, entries)) / sizeof(CreatePlayerEntry));
     if (count > avail)
         count = avail;
 
     for (uint16_t i = 0; i < count; ++i)
-    {
-        const CreatePlayerBatchEntry& e = msg->entries[i];
-
-        ClientNetworkEvent event{};
-        event.type = ClientNetworkEvent::Type::CREATE_OTHER_PLAYER;
-        event.playerId = e.playerId;
-        event.displayChar = e.displayChar;
-        event.colorIndex = e.colorIndex;
-        event.x = e.x;
-        event.y = e.y;
-        event.direction = e.direction;
-        event.moveState = e.moveState;
-        event.spawnReason = e.spawnReason;
-        event.speed = e.speed;
-        _eventQueue.Push(std::move(event));
-    }
+        PushCreateOther(msg->entries[i]);
 }
 
 // 멤버십 인바운드 묶음: 시야 이탈 상대 N명 — 엔트리별 기존 DELETE_PLAYER 이벤트로 분해.

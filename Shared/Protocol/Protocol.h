@@ -238,23 +238,32 @@ enum class SpawnReason : uint8_t
     SPAWN = 3           // 월드에 새로 생김
 };
 
+// 다른 캐릭터 한 명분 (29B, pack(1)) — CREATE_OTHER 의 몸통이자 묶음(S2C_CREATE_PLAYER_BATCH)의 엔트리.
+//   두 패킷이 이 구조체 하나를 같이 쓴다 — 칸을 늘리면 여기 한 곳 · 서버 WriteCreateEntry · 콘솔 클라 PushCreateOther ·
+//   proto.js readCreateEntry. 예전엔 CREATE_OTHER 와 묶음 엔트리가 같은 칸을 따로 적고 「바디와 동일」 주석으로 맞췄다.
+struct CreatePlayerEntry
+{
+    int32_t playerId;
+    uint8_t direction;    // Direction enum
+    uint8_t moveState;    // MoveState enum (진입 시 이동 중일 수 있음)
+    uint8_t displayChar;  // 서버 권위 표시 문자 (ASCII: A-Z, a-z, 0-9)
+    uint8_t colorIndex;   // 서버 권위 색상 인덱스 (0-6)
+    uint8_t spawnReason;  // SpawnReason enum (등장 사유)
+    float   x;
+    float   y;
+    int32_t speed;
+    ActorSnapshot snap;   // 등장 상태(체력) — 맨 끝
+};
+static_assert(sizeof(CreatePlayerEntry) == 29, "한 명분은 29B (proto.js 의 CREATE_ENTRY_BYTES 와 맞출 것)");
+
 // S2C: 다른 캐릭터 생성 (시야 진입)
 struct MSG_S2C_CREATE_OTHER_PLAYER
 {
     static constexpr MsgType TYPE = MsgType::S2C_CREATE_OTHER_PLAYER;
     MsgHeader header;
-    int32_t playerId;
-    uint8_t direction;
-    uint8_t moveState;    // MoveState enum (진입 시 이동 중일 수 있음)
-    uint8_t displayChar;  // 서버 권위 표시 문자 (ASCII: A-Z, a-z, 0-9)
-    uint8_t colorIndex;   // 서버 권위 색상 인덱스 (0-6)
-    uint8_t spawnReason;  // SpawnReason enum (등장 사유)
-    float x;
-    float y;
-    int32_t speed;
-    ActorSnapshot snap;   // 등장 상태(체력) — 맨 끝
+    CreatePlayerEntry entry;   // 한 명분 — 묶음 엔트리와 같은 구조체
 
-    MSG_S2C_CREATE_OTHER_PLAYER() : header{ sizeof(*this), TYPE }, playerId(0), direction(0), moveState(0), displayChar('A'), colorIndex(0), spawnReason(0), x(0), y(0), speed(0), snap{} {}
+    MSG_S2C_CREATE_OTHER_PLAYER() : header{ sizeof(*this), TYPE }, entry{} {}
 };
 static_assert(sizeof(MSG_S2C_CREATE_MY_PLAYER)    == 31, "CREATE_MY 는 31B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_S2C_CREATE_OTHER_PLAYER) == 33, "CREATE_OTHER 는 33B (proto.js 와 맞출 것)");
@@ -388,22 +397,8 @@ struct MSG_S2C_SECTOR_UPDATES
 // 멤버십 인바운드 묶음 (USE_MEMBERSHIP_INBOUND_BUNDLE)
 //==================================================
 
-// 묶음 1엔트리 — 시야에 들어온 상대 1명의 생성 정보 (29B, pack(1))
-// 필드 구성은 MSG_S2C_CREATE_OTHER_PLAYER 바디와 동일 — 클라가 엔트리를 기존 CREATE 이벤트로 분해한다.
-struct CreatePlayerBatchEntry
-{
-    int32_t playerId;
-    uint8_t direction;    // Direction enum
-    uint8_t moveState;    // MoveState enum (진입 시 이동 중일 수 있음)
-    uint8_t displayChar;  // 서버 권위 표시 문자 (ASCII: A-Z, a-z, 0-9)
-    uint8_t colorIndex;   // 서버 권위 색상 인덱스 (0-6)
-    uint8_t spawnReason;  // SpawnReason enum (등장 사유)
-    float   x;
-    float   y;
-    int32_t speed;
-    ActorSnapshot snap;   // 등장 상태(체력) — 맨 끝
-};
-static_assert(sizeof(CreatePlayerBatchEntry) == 29, "묶음 엔트리는 29B (proto.js 의 묶음 보폭과 맞출 것)");
+// 묶음 1엔트리 — 시야에 들어온 상대 1명의 생성 정보는 CreatePlayerEntry(위 CREATE_OTHER 의 몸통과 같은 구조체).
+//   클라가 엔트리를 기존 CREATE 이벤트로 분해한다.
 
 // 묶음 1엔트리 — 시야에서 나간 상대 1명 (4B, MSG_S2C_DELETE_PLAYER 바디와 동일)
 struct DeletePlayerBatchEntry
@@ -420,14 +415,14 @@ constexpr int CREATE_PLAYER_BATCH_MAX_ENTRIES = 48;
 constexpr int DELETE_PLAYER_BATCH_MAX_ENTRIES = 350;
 
 // S2C: 시야 진입 상대 묶음 — 인바운드(상대→나) CREATE N개를 mover 1명에게 1패킷으로.
-// 가변 길이 — 와이어에는 header + count + CreatePlayerBatchEntry × count 만 실린다.
+// 가변 길이 — 와이어에는 header + count + CreatePlayerEntry × count 만 실린다.
 // entries는 최대치 배열로 선언하되 빌더가 count개만 직렬화하고 header.size를 백패치한다.
 struct MSG_S2C_CREATE_PLAYER_BATCH
 {
     static constexpr MsgType TYPE = MsgType::S2C_CREATE_PLAYER_BATCH;
     MsgHeader header;
     uint16_t  count;
-    CreatePlayerBatchEntry entries[CREATE_PLAYER_BATCH_MAX_ENTRIES];
+    CreatePlayerEntry entries[CREATE_PLAYER_BATCH_MAX_ENTRIES];
 
     MSG_S2C_CREATE_PLAYER_BATCH() : header{ sizeof(*this), TYPE }, count(0), entries{} {}
 };

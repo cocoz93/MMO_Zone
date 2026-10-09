@@ -52,7 +52,14 @@
 
   // 등장 상태 조각 — Protocol.h ActorSnapshot(CREATE 셋의 맨 끝). 필드를 늘리면 여기와 아래 묶음 보폭을 같이 고칠 것
   function readSnap(dv, o) { return { hp:dv.getInt32(o,true), maxHp:dv.getInt32(o+4,true) }; }
-  const CREATE_ENTRY_BYTES = 29;   // Protocol.h CreatePlayerBatchEntry = 몸통 21 + ActorSnapshot 8
+  const CREATE_ENTRY_BYTES = 29;   // Protocol.h CreatePlayerEntry = 몸통 21 + ActorSnapshot 8
+  // 남의 캐릭터 한 명분 — Protocol.h CreatePlayerEntry. CREATE_OTHER 의 몸통이자 묶음 엔트리라 둘이 이것 하나를 부른다
+  function readCreateEntry(dv, o) {
+    return { playerId:dv.getInt32(o,true), direction:dv.getUint8(o+4), moveState:dv.getUint8(o+5),
+      displayChar:dv.getUint8(o+6), colorIndex:dv.getUint8(o+7), spawnReason:dv.getUint8(o+8),
+      x:dv.getFloat32(o+9,true), y:dv.getFloat32(o+13,true), speed:dv.getInt32(o+17,true),
+      ...readSnap(dv, o+21) };
+  }
 
   // ---- decode one packet body (dv positioned at packet start, total = header.size) ----
   function decodePacket(dv, base, size) {
@@ -71,10 +78,7 @@
         Object.assign(p, readSnap(dv, o+19));
         break;
       case MSG.S2C_CREATE_OTHER_PLAYER:
-        p.playerId=dv.getInt32(o,true); p.direction=dv.getUint8(o+4); p.moveState=dv.getUint8(o+5);
-        p.displayChar=dv.getUint8(o+6); p.colorIndex=dv.getUint8(o+7); p.spawnReason=dv.getUint8(o+8);
-        p.x=dv.getFloat32(o+9,true); p.y=dv.getFloat32(o+13,true); p.speed=dv.getInt32(o+17,true);
-        Object.assign(p, readSnap(dv, o+21));
+        Object.assign(p, readCreateEntry(dv, o));
         break;
       case MSG.S2C_DELETE_PLAYER:
         p.playerId=dv.getInt32(o,true); break;
@@ -111,10 +115,7 @@
         const count = dv.getUint16(o, true); p.count = count; p.entries = [];
         let e = o + 2;
         for (let i=0;i<count;i++){
-          p.entries.push({ playerId:dv.getInt32(e,true), direction:dv.getUint8(e+4), moveState:dv.getUint8(e+5),
-            displayChar:dv.getUint8(e+6), colorIndex:dv.getUint8(e+7), spawnReason:dv.getUint8(e+8),
-            x:dv.getFloat32(e+9,true), y:dv.getFloat32(e+13,true), speed:dv.getInt32(e+17,true),
-            ...readSnap(dv, e+21) }); e += CREATE_ENTRY_BYTES;
+          p.entries.push(readCreateEntry(dv, e)); e += CREATE_ENTRY_BYTES;
         }
         break;
       }

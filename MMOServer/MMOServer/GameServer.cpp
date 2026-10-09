@@ -578,7 +578,7 @@ namespace
         }
         FinalizePacket(buf);
         assert(buf->GetDataSize() ==
-            static_cast<int>(offsetof(MSG_S2C_CREATE_PLAYER_BATCH, entries) + count * sizeof(CreatePlayerBatchEntry)));
+            static_cast<int>(offsetof(MSG_S2C_CREATE_PLAYER_BATCH, entries) + count * sizeof(CreatePlayerEntry)));
         return buf;
     }
 

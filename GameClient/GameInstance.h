@@ -42,6 +42,10 @@ public:
     void OnExp(const MSG_S2C_EXP* msg);   // 서버 USE_EXP: 내 레벨·경험치 (본인에게만 온다)
 
 private:
+    // 남의 캐릭터 한 명분 → CREATE_OTHER_PLAYER 이벤트 (수신 스레드). OnCreateOtherPlayer 와 묶음의 엔트리마다 부른다 —
+    //   둘이 같은 구조체(Protocol.h CreatePlayerEntry)라 이벤트로 옮겨 담는 칸도 여기 한 곳
+    void PushCreateOther(const CreatePlayerEntry& e);
+
     // 게임 루프 (25fps)
     void GameLoop();
 
