@@ -98,6 +98,7 @@ const BUBBLE_LIFE = 7;                       // 말풍선 표시 시간(초) —
 const HIT_LIFE = 0.5;                        // 피격 점멸 + 데미지 숫자
 const SWING_LIFE = 0.18;                     // 휘두르는 호
 const SPAWN_LIFE = 0.6;                      // 부활 섬광
+const FADE_LIFE = 0.5;                       // 죽은 채로 지워진 상대가 흐려지며 사라지는 시간(초)
 const LEVELUP_LIFE = 1.6;                    // 레벨업 문구 표시 시간(초)
 // 경험치·레벨 (USE_EXP) — 본인 것만 서버가 보낸다. self 에 안 넣는 이유는 self 가
 //   존을 넘을 때 통째로 새로 만들어져서 레벨이 같이 날아가기 때문이다(서버가 다시 보내 주긴 한다).
@@ -160,6 +161,17 @@ const PICKUP_FAIL_TEXT = {
 };
 // 전투 필드 기본값 — CREATE 와 부활 양쪽에서 같은 모양으로 만들려고 한 곳에 둔다
 const COMBAT_INIT = () => ({ hp:null, maxHp:null, hitT:0, hitDmg:0, swingT:0, spawnT:0, dead:false });
+// 죽은 채로 지워진 상대 — 그리기만 한다. id -> others 에 있던 그 객체 + fadeT.
+//   서버는 몬스터가 죽는 순간 지우고 DEATH 바로 뒤에 DELETE 를 보낸다(10-09) — 시체는 이 연출뿐이다.
+//   DELETE 에 사유 칸이 없어 「죽어 있었나(dead)」로 가른다. 살아 있던 상대(시야 밖으로 나감·퇴장)는 바로 지운다.
+//   쓰러진 채 시야 밖으로 나가거나 접속을 끊은 사람도 흐려지는데 해가 없다.
+//   others 와 따로 두는 이유 — 서버가 이미 지운 번호라 다른 패킷이 가리킬 일이 없고, others 를 도는 자리(레이더 등)에 섞이지 않게.
+const fading = new Map();
+function removeOther(id){
+  const o=others.get(id); if(!o) return;     // 모르는 번호의 DELETE 는 버린다
+  others.delete(id);
+  if(o.dead){ o.fadeT=FADE_LIFE; fading.set(id,o); }
+}
 const stat = { count:{}, rate:{}, bytes:0, kbps:0, connected:false };
 function bump(name,n){ stat.count[name]=(stat.count[name]||0)+(n===undefined?1:n); }
 setInterval(()=>{ stat.rate=stat.count; stat.count={}; stat.kbps=stat.bytes/1024; stat.bytes=0; }, 1000);
@@ -235,12 +247,13 @@ function onPacket(p){
       if(ADMIN_KEY && !adminSent && ws && ws.readyState===1){ ws.send(P.enc.adminLogin(ADMIN_KEY)); adminSent=true; }
       break;
     // spawnReason 3(SPAWN) = 월드에 새로 생김 — 뱀이 깔릴 때. 부활 섬광을 같이 그린다
-    case P.MSG.S2C_CREATE_OTHER_PLAYER: bump('ENTER');
+    case P.MSG.S2C_CREATE_OTHER_PLAYER: bump('ENTER'); fading.delete(p.playerId);   // 흐려지던 같은 번호가 다시 보이면 흐림을 버린다
       others.set(p.playerId,{x:p.x,y:p.y,dir:p.direction,moveState:p.moveState,speed:p.speed||30,disp:p.displayChar,color:p.colorIndex,rx:p.x,ry:p.y,chat:null,chatT:0,...COMBAT_INIT(),hp:p.hp,maxHp:p.maxHp,spawnT:p.spawnReason===3?SPAWN_LIFE:0}); break;
     case P.MSG.S2C_CREATE_PLAYER_BATCH: bump('ENTER', p.count);
+      p.entries.forEach(e=>fading.delete(e.playerId));
       p.entries.forEach(e=>others.set(e.playerId,{x:e.x,y:e.y,dir:e.direction,moveState:e.moveState,speed:e.speed||30,disp:e.displayChar,color:e.colorIndex,rx:e.x,ry:e.y,chat:null,chatT:0,...COMBAT_INIT(),hp:e.hp,maxHp:e.maxHp,spawnT:e.spawnReason===3?SPAWN_LIFE:0})); break;
-    case P.MSG.S2C_DELETE_PLAYER: bump('LEAVE'); others.delete(p.playerId); break;
-    case P.MSG.S2C_DELETE_PLAYER_BATCH: bump('LEAVE', p.count); p.entries.forEach(e=>others.delete(e.playerId)); break;
+    case P.MSG.S2C_DELETE_PLAYER: bump('LEAVE'); removeOther(p.playerId); break;
+    case P.MSG.S2C_DELETE_PLAYER_BATCH: bump('LEAVE', p.count); p.entries.forEach(e=>removeOther(e.playerId)); break;
     case P.MSG.S2C_SECTOR_UPDATES:
       p.entries.forEach(e=>{
         if(self && e.playerId===self.id){ self.x=e.x; self.y=e.y; self.dir=e.direction; self.moveState=e.moveState; }
@@ -418,7 +431,7 @@ const sy = wy => (wy-cam.y)*ZOOM + VY + VH/2;
 const hash=(i,j)=>{let h=(i*73856093)^(j*19349663);h=(h^(h>>13))*1274126177;return((h^(h>>16))>>>0);};
 
 function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
-function shadow(x,y,r){ ctx.save(); ctx.globalAlpha=.26; ctx.fillStyle='#000'; ctx.beginPath(); ctx.ellipse(x,y,r,r*.4,0,0,7); ctx.fill(); ctx.restore(); }
+function shadow(x,y,r,fade=1){ ctx.save(); ctx.globalAlpha=.26*fade; ctx.fillStyle='#000'; ctx.beginPath(); ctx.ellipse(x,y,r,r*.4,0,0,7); ctx.fill(); ctx.restore(); }
 
 function drawGround(){
   ctx.imageSmoothingEnabled=false;
@@ -450,7 +463,9 @@ function drawProp(pr){
   else ctx.drawImage(IMG.rock, pr.v?32:0,0,32,32, X-0.9*ZOOM, Y-1.0*ZOOM, 1.8*ZOOM, 1.4*ZOOM);
 }
 
-function drawChar(o,isMe,t){
+// fade = 흐려지며 사라지는 중인 상대의 남은 비율(1 → 0, fading 참조). 그림자·몸·이름표·막대가 같이 흐려진다.
+//   알파를 곱하지 않고 자리마다 값으로 넣는 이유 — 앞에서 그린 것이 알파를 1 로 안 돌려놓았어도 영향받지 않게.
+function drawChar(o,isMe,t,fade=1){
   const row=rowOf(o.dir);
   const sheet=sheetFor(o, row); if(!sheet) return;
   const px=sx(o.rx), py=sy(o.ry);
@@ -460,7 +475,7 @@ function drawChar(o,isMe,t){
   const frame = mon
     ? (o.moveState===1 ? mon.walk[Math.floor(t*8+(o.id||0))%mon.walk.length] : mon.walk[0])
     : ((o.moveState===1)?(1+Math.floor(t*8+(o.id||0))%8):0);
-  shadow(px,py,0.75*ZOOM);
+  shadow(px,py,0.75*ZOOM,fade);
   ctx.imageSmoothingEnabled=false;
 
   if(o.swingT>0) drawSwing(o,px,py);      // 휘두른 호는 캐릭터 뒤에 (앞에 두면 몸을 가린다)
@@ -469,7 +484,7 @@ function drawChar(o,isMe,t){
   //   점멸(알파)만으로는 정지 화면에서 맞은 티가 거의 안 났다 — 실제로 캡처해 보고 알았다.
   const hit=o.hitT>0;
   ctx.save();
-  if(o.dead) ctx.globalAlpha=0.32;
+  ctx.globalAlpha=(o.dead ? 0.32 : 1)*fade;
   const shake = hit ? Math.sin(o.hitT*55)*2.5 : 0;
   // 발 위치: 사람은 칸 바닥(y=62)에 발이 닿아 0.92, 뱀은 발 끝이 y=47 이라 그대로 두면 15px 뜬다 → 메타의 footAdj(0.69)
   const dx=px-dw/2+shake, dy=py-dh*(mon ? mon.footAdj : 0.92);
@@ -484,6 +499,7 @@ function drawChar(o,isMe,t){
   //   그만큼 내린다(뱀은 옆을 볼 때 머리가 6px 낮다).
   const ny = mon ? dy + dh*(mon.top[row]-12)/64 - 4 : py-dh*0.92-4;
   const tag = mon ? mon.label : String.fromCharCode(o.disp||63);
+  ctx.save(); ctx.globalAlpha=fade;       // 이름표·막대도 몸과 같이 흐려진다
   ctx.font='600 12px '+MONO; ctx.textAlign='center';
   const nw=ctx.measureText(tag).width+12;
   ctx.fillStyle = o.dead ? 'rgba(80,24,24,.85)' : (isMe?'rgba(40,90,60,.92)':'rgba(18,26,18,.72)');
@@ -491,6 +507,7 @@ function drawChar(o,isMe,t){
   ctx.fillStyle = o.dead ? '#f0b8b8' : (isMe?'#bff0c9':'#eaf3e0'); ctx.fillText(tag,px,ny-2.5);
 
   drawHpBar(o,px,ny-22);                  // 이름표 위
+  ctx.restore();
 
   // 내 캐릭터 화살표 — HP 막대와 겹치지 않게 그 위로
   if(isMe){ const ay=ny-36+Math.sin(t*3)*3; ctx.fillStyle='#ffd84d'; ctx.strokeStyle='rgba(90,70,0,.5)'; ctx.lineWidth=1;
@@ -932,6 +949,8 @@ function step(dt,t){
   }
   if(self){ decayCombat(self,dt); if(self.chat){ self.chatT-=dt; if(self.chatT<=0)self.chat=null; } }
   others.forEach(o=>{ advance(o,dt,Math.min(1,dt*9)); decayCombat(o,dt); if(o.chat){o.chatT-=dt; if(o.chatT<=0)o.chat=null;} });
+  // 흐려지는 상대 — 다 흐려지면 뺀다. 그리던 자리로 마저 미끄러지고 막타 숫자도 마저 떠오른다
+  fading.forEach((o,id)=>{ advance(o,dt,Math.min(1,dt*9)); decayCombat(o,dt); o.fadeT-=dt; if(o.fadeT<=0) fading.delete(id); });
   if(me.levelUpT>0) me.levelUpT=Math.max(0,me.levelUpT-dt);   // 레벨업 문구는 나 하나뿐이라 decayCombat 밖이다
   ground.forEach(g=>{ if(g.dropT>0) g.dropT=Math.max(0,g.dropT-dt); });   // 떨어지는 그림
 }
@@ -975,10 +994,11 @@ function render(t){
   const near=o=>Math.abs(o.rx-cam.x)<=hw && Math.abs(o.ry-cam.y)<=hh;
   const view=[];
   propsInView().forEach(pr=>view.push({y:pr.y,kind:'prop',pr}));
-  others.forEach((o,id)=>{ if(near(o)) view.push({y:o.ry,kind:'char',o:Object.assign(o,{id}),isMe:false}); });
-  if(self) view.push({y:self.ry,kind:'char',o:self,isMe:true});
+  others.forEach((o,id)=>{ if(near(o)) view.push({y:o.ry,kind:'char',o:Object.assign(o,{id}),isMe:false,fade:1}); });
+  fading.forEach((o,id)=>{ if(near(o)) view.push({y:o.ry,kind:'char',o:Object.assign(o,{id}),isMe:false,fade:o.fadeT/FADE_LIFE}); });
+  if(self) view.push({y:self.ry,kind:'char',o:self,isMe:true,fade:1});
   view.sort((a,b)=>a.y-b.y);
-  for(const it of view){ if(it.kind==='prop') drawProp(it.pr); else drawChar(it.o,it.isMe,t); }
+  for(const it of view){ if(it.kind==='prop') drawProp(it.pr); else drawChar(it.o,it.isMe,t,it.fade); }
   others.forEach(o=>{ if(o.chat && near(o)) drawBubble(o); });
   if(self && self.chat) drawBubble(self);
   // AOI vignette
@@ -995,7 +1015,7 @@ function render(t){
 let ws=null;
 function setConn(ok,txt){ stat.connected=ok; connEl.textContent=txt; connEl.className='conn '+(ok?'ok':'bad'); }
 function connect(){
-  others.clear(); self=null;   // 재접속 시 유령 엔티티 제거
+  others.clear(); fading.clear(); self=null;   // 재접속 시 유령 엔티티 제거
   ground.clear(); groundChanged();   // 땅의 아이템도 — 입장 때 주변 것이 CREATE(SEEN) 으로 다시 온다(웹은 존 이동 수단이 없어 여기서만 비운다)
   bag.slots.clear(); adminSent=false; bagChanged();   // 가방은 입장 때 전체 목록이 다시 온다 · 운영자 로그인도 새 접속마다
   const re=new P.Reassembler(onPacket);
