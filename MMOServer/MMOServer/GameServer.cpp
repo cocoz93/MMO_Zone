@@ -46,10 +46,19 @@ namespace
         buf->Seal();
     }
 
-    // 등장 상태 조각(Protocol.h ActorSnapshot) — CREATE 빌더 셋이 맨 끝에 부른다.
+    // 강제 인라인 — 아래 CREATE 조각 쓰기 둘에만 쓴다. 소스는 한 벌, 기계어는 부르는 자리마다 펼친다.
+    //   그냥 inline 은 권고라 Release(MSVC)가 따로 떨어진 함수로 남겨, 묶음 루프가 엔트리마다 호출했다
+    //   (10-09 기계어 관측 — 한 명분을 합치기 전엔 묶음 장마다 1번. WriteCreateEntry 만 강제하면 이번엔 WriteSnapshot 이 남았다).
+#if defined(_MSC_VER)
+    #define CREATE_FORCEINLINE __forceinline
+#else
+    #define CREATE_FORCEINLINE inline __attribute__((always_inline))
+#endif
+
+    // 등장 상태 조각(Protocol.h ActorSnapshot) — MakeCreateMyPlayer 와 WriteCreateEntry(CREATE_OTHER·묶음) 둘이 맨 끝에 부른다.
     //   조각에 필드를 늘리면 여기 한 줄 · proto.js readSnap 한 줄(Protocol.h 의 크기 단언이 알려 준다).
     //   전투가 꺼진 빌드는 0 을 싣는다 — _hp 는 꺼져도 있지만(CCharacter) 쓰는 곳이 없어 의미가 없다.
-    inline void WriteSnapshot(CSerialBuffer* buf, const CCharacter* ch)
+    CREATE_FORCEINLINE void WriteSnapshot(CSerialBuffer* buf, const CCharacter* ch)
     {
 #if USE_COMBAT
         *buf << static_cast<int>(ch->_hp);
@@ -59,6 +68,23 @@ namespace
         *buf << static_cast<int>(0);
         *buf << static_cast<int>(0);
 #endif
+    }
+
+    // 남의 캐릭터 한 명분(Protocol.h CreatePlayerEntry) — CREATE_OTHER 의 몸통이자 묶음 엔트리 한 칸.
+    //   MakeCreateOtherPlayer 와 MakeCreatePlayerBatch 가 둘 다 이것을 부른다 — 칸을 늘리면 여기 한 줄.
+    //   강제 인라인 — 위 CREATE_FORCEINLINE 주석.
+    CREATE_FORCEINLINE void WriteCreateEntry(CSerialBuffer* buf, const CCharacter* ch, SpawnReason reason)
+    {
+        *buf << static_cast<int>(ch->_actorId);
+        *buf << static_cast<uint8_t>(ch->_direction);
+        *buf << static_cast<uint8_t>(ch->_moveState);
+        *buf << static_cast<uint8_t>(ch->_displayChar);
+        *buf << static_cast<uint8_t>(ch->_colorIndex);
+        *buf << static_cast<uint8_t>(reason);
+        *buf << ch->_x;
+        *buf << ch->_y;
+        *buf << static_cast<int>(ch->_speed);
+        WriteSnapshot(buf, ch);
     }
 
     // MOVE_START / MOVE_STOP은 레이아웃 동일 — 3곳/2곳에서 재사용되므로 빌더로 DRY 처리
@@ -135,16 +161,7 @@ namespace
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_CREATE_OTHER_PLAYER::TYPE);
-        *buf << static_cast<int>(player->_actorId);
-        *buf << static_cast<uint8_t>(player->_direction);
-        *buf << static_cast<uint8_t>(player->_moveState);
-        *buf << static_cast<uint8_t>(player->_displayChar);
-        *buf << static_cast<uint8_t>(player->_colorIndex);
-        *buf << static_cast<uint8_t>(reason);
-        *buf << player->_x;
-        *buf << player->_y;
-        *buf << static_cast<int>(player->_speed);
-        WriteSnapshot(buf, player);
+        WriteCreateEntry(buf, player, reason);
         FinalizePacket(buf);
         assert(buf->GetDataSize() == sizeof(MSG_S2C_CREATE_OTHER_PLAYER));
         return buf;
@@ -556,26 +573,14 @@ namespace
                   "가득 찬 CREATE 묶음이 한 패킷(MAX_PACKET_SIZE)에 안 들어간다 — CREATE_PLAYER_BATCH_MAX_ENTRIES 를 줄일 것");
 
     // [Phase 2] 인바운드 멤버십 묶음 — 상대 [0,count)의 생성 정보를 배치 1패킷으로 직렬화.
-    // 필드 순서는 MakeCreateOtherPlayer 바디와 동일 (클라가 엔트리를 기존 CREATE 이벤트로 분해).
+    // 한 명분은 WriteCreateEntry — CREATE_OTHER 와 같은 함수다 (클라가 엔트리를 기존 CREATE 이벤트로 분해).
     CSerialBuffer* MakeCreatePlayerBatch(CCharacter* const* players, int count)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_CREATE_PLAYER_BATCH::TYPE);
         *buf << static_cast<uint16_t>(count);
         for (int i = 0; i < count; ++i)
-        {
-            CCharacter* p = players[i];
-            *buf << static_cast<int>(p->_actorId);
-            *buf << static_cast<uint8_t>(p->_direction);
-            *buf << static_cast<uint8_t>(p->_moveState);
-            *buf << static_cast<uint8_t>(p->_displayChar);
-            *buf << static_cast<uint8_t>(p->_colorIndex);
-            *buf << static_cast<uint8_t>(SpawnReason::NORMAL);   // 인바운드(걸어서 시야 진입) 경로 고정 — OFF의 기본 인자와 동일
-            *buf << p->_x;
-            *buf << p->_y;
-            *buf << static_cast<int>(p->_speed);
-            WriteSnapshot(buf, p);
-        }
+            WriteCreateEntry(buf, players[i], SpawnReason::NORMAL);   // 인바운드(걸어서 시야 진입) 경로 고정 — OFF의 기본 인자와 동일
         FinalizePacket(buf);
         assert(buf->GetDataSize() ==
             static_cast<int>(offsetof(MSG_S2C_CREATE_PLAYER_BATCH, entries) + count * sizeof(CreatePlayerEntry)));
