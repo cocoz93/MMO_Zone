@@ -28,9 +28,10 @@ UseItemReject CItemSystem::CheckUseItem(const CPlayer* player, uint16_t slot, ui
     if (s.itemId == 0)
         return UseItemReject::EMPTY;
 
-    // 표에서 사라진 번호(패치로 지운 아이템)도 여기서 "못 쓴다"로 떨어진다
+    // 표에서 사라진 번호(패치로 지운 아이템)도 여기서 "못 쓴다"로 떨어진다.
+    //   「쓸 수 있나」는 표 쪽 한 곳(ItemDef::IsUsable)에 묻는다 — 표 읽기가 거부하는 기준과 같은 답이다.
     outDef = _tables.Item().Find(s.itemId);
-    if (outDef == nullptr || outDef->tab != InvTab::USE || outDef->healHp <= 0)
+    if (outDef == nullptr || !outDef->IsUsable())
         return UseItemReject::NOT_USABLE;
 
     if (player->_isDead)

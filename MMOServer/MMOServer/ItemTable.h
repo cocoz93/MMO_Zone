@@ -30,6 +30,12 @@ struct ItemDef
     int32_t     maxStack = 0;              // 한 칸에 몇 개까지
     int32_t     healHp   = 0;              // 소비 아이템을 쓰면 채우는 체력 (그 밖은 0)
     int32_t     attack   = 0;              // 착용하면 더하는 공격력 — 장비만 (그 밖은 0, 로드가 막는다)
+
+    // 쓸 수 있는 아이템인가 — 이 물음의 답은 여기 하나다(10-08 2차 검사 8번).
+    //   지금은 「소비 탭이고 회복량이 있다」. 회복 말고 다른 효과(마나·버프)가 생기면 여기만 넓힌다 —
+    //   표 읽기의 거부(소비 아이템인데 못 쓰면 거부)와 사용 판정(CItemSystem::CheckUseItem)이 둘 다 이 답을 묻는다.
+    //   예전엔 두 곳이 같은 조건을 따로 적어, 한쪽만 풀면 「표는 받아 주는데 못 쓰는 아이템」이 생길 수 있었다.
+    bool IsUsable() const { return tab == InvTab::USE && healHp > 0; }
 };
 
 class CItemTable

@@ -2,6 +2,8 @@
 
 #if USE_INVENTORY
 
+#include <utility>   // move — 다 본 행을 표에 넣을 때
+
 #include <Common/ErrorLog.h>
 
 #include "GameDataCsv.h"
@@ -127,11 +129,10 @@ bool CItemTable::Load(const std::string& path)
             return false;
         }
 
-        // ⑸ 회복량 — 음수 금지. 소비 아이템은 써서 무슨 일이 일어나야 한다
-        if (healHp < 0 || (tab == InvTab::USE && healHp <= 0))
+        // ⑸ 회복량 — 음수 금지. 「소비 아이템은 써서 무슨 일이 일어나야 한다」는 아래 ⑻ 이 ItemDef::IsUsable 로 본다
+        if (healHp < 0)
         {
-            SLOG_ERROR("[ItemTable] {}줄: healHp {} — 소비 아이템은 1 이상, 그 밖은 0 이상이어야 합니다 (아이템 {})",
-                       dl.fileLine, healHp, itemId);
+            SLOG_ERROR("[ItemTable] {}줄: healHp {} 는 0 이상이어야 합니다 (아이템 {})", dl.fileLine, healHp, itemId);
             return false;
         }
 
@@ -150,16 +151,25 @@ bool CItemTable::Load(const std::string& path)
             return false;
         }
 
-        if (static_cast<int64_t>(_rows.size()) <= itemId)
-            _rows.resize(static_cast<size_t>(itemId) + 1);
-
-        ItemDef& d = _rows[static_cast<size_t>(itemId)];
+        ItemDef d;
         d.itemId   = static_cast<int32_t>(itemId);
         d.name     = cell[1];
         d.tab      = tab;
         d.maxStack = static_cast<int32_t>(maxStack);
         d.healHp   = static_cast<int32_t>(healHp);
         d.attack   = static_cast<int32_t>(attack);
+
+        // ⑻ 소비 아이템은 써서 무슨 일이 일어나야 한다 — 「쓸 수 있나」는 ItemDef::IsUsable 하나만 답한다(사용 판정과 같은 물음)
+        if (d.tab == InvTab::USE && !d.IsUsable())
+        {
+            SLOG_ERROR("[ItemTable] {}줄: 소비 아이템인데 쓸 효과가 없습니다 — healHp 가 1 이상이어야 합니다 (아이템 {})",
+                       dl.fileLine, itemId);
+            return false;
+        }
+
+        if (static_cast<int64_t>(_rows.size()) <= itemId)
+            _rows.resize(static_cast<size_t>(itemId) + 1);
+        _rows[static_cast<size_t>(itemId)] = std::move(d);
         ++_count;
         ++perTab[static_cast<int>(tab)];
     }
