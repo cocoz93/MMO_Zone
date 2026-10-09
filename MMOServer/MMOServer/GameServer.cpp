@@ -1323,8 +1323,8 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
     if (zone == nullptr)
         return nullptr;
 
-    // 플레이어 생성 + ID/표시 속성 부여 — 슬롯에 넣기 전까지는 이 지역 unique_ptr 가 주인이다
-    //   (입장에 실패하면 return 만으로 해제된다). 번호는 호출부가 준다 — 접속 때 이미 뽑았다(조회 열쇠로 먼저 필요했다).
+    // 플레이어 생성 + ID/표시 속성 부여 — 슬롯에 넣기 전까지는 이 지역 unique_ptr 가 주인이다.
+    //   번호는 호출부가 준다 — 접속 때 이미 뽑았다(조회 열쇠로 먼저 필요했다).
     auto owned = std::make_unique<CPlayer>();
     CPlayer* player = owned.get();
     player->_actorId = actorId;
@@ -1333,11 +1333,11 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
     if (_playerSpeed > 0)
         player->_speed = _playerSpeed;   // 게임용 속도 — 0 이면 생성자의 25~50 무작위(부하 시험 기준) 그대로
 
-    // 저장된 자리가 있으면 그 자리에, 없으면 무작위 자리에
-    const bool entered = place.hasPos ? zone->EnterZoneAt(player, place.x, place.y)
-                                      : zone->EnterZone(player);
-    if (!entered)
-        return nullptr;   // owned 가 해제한다
+    // 저장된 자리가 있으면 그 자리에, 없으면 무작위 자리에 (입장은 실패가 없다 — CZone::EnterZone 주석)
+    if (place.hasPos)
+        zone->EnterZoneAt(player, place.x, place.y);
+    else
+        zone->EnterZone(player);
 
     // 경계 매핑 등록 — 이제 슬롯이 주인이다
     player->_sessionId = sessionId;
@@ -2481,36 +2481,9 @@ void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
     BroadcastLeaveZone(oldZone, player);
 
     // ── 새 존에 입장 (player 객체 재활용, playerId 유지) ──
-
-    if (!newZone->EnterZone(player))
-    {
-        // 입장 실패 시 원래 맵의 여유 채널로 복귀 시도
-        CZone* fallback = _mapManager.FindOrCreateChannel(CMapManager::GetMapIdFromZoneId(oldZone->GetZoneId()));
-        if (fallback != nullptr && fallback->EnterZone(player))
-        {
-            SendZoneChangeFail(player, 1);
-
-            // 델타 동기화 기준 좌표 초기화
-            player->_lastSyncX = player->_x;
-            player->_lastSyncY = player->_y;
-
-            // 복귀한 존에서 본인 + 주변 상호 통보
-            SendZoneInfo(player, fallback);
-            SendCreateMyPlayer(player);
-#if USE_EXP
-            SendExp(player);   // 아래 성공 경로와 같은 이유 — 클라가 존을 넘을 때 판을 비운다
-#endif
-            BroadcastEnterZone(fallback, player, SpawnReason::ZONE_TRANSFER);
-
-            return;
-        }
-
-        // 복귀도 실패 → 좀비 방지를 위해 연결 해제. 존은 위에서 이미 나갔으니 놓기만 한다(끊김 길과 같은 저장 포함).
-        //   뒤늦게 오는 끊김 이벤트는 슬롯이 비어 FindPlayer 가 nullptr 이라 무해하다.
-        ReleasePlayer(player);
-        _network->RequestDisconnectSession(sessionId);
-        return;
-    }
+    //   들어갈 수 있는지는 위 PickZoneChangeTarget 이 나가기 "전에" 다 봤다 — 입장은 실패가 없다(CZone::EnterZone 주석).
+    //   그래서 나간 뒤 들어가다 실패해 원래 맵으로 되돌리는 길이 없다(10-09 에 없앰 — 한 번도 안 도는 길이었다).
+    newZone->EnterZone(player);
 
     _gameMonitor._sector._zoneChangeCount.Inc();
 

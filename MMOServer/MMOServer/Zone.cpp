@@ -47,22 +47,19 @@ bool CZone::Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHei
     return true;
 }
 
-bool CZone::EnterZone(CCharacter* player)
+void CZone::EnterZone(CCharacter* player)
 {
-    if (player == nullptr)
-        return false;
-
     // 무작위 스폰 좌표를 뽑아 넘긴다 — 입장 절차 자체는 EnterZoneAt 하나뿐이다.
     float x = 0.0f;
     float y = 0.0f;
     CalcSpawnPos(x, y);
-    return EnterZoneAt(player, x, y);
+    EnterZoneAt(player, x, y);
 }
 
-bool CZone::EnterZoneAt(CCharacter* player, float x, float y)
+void CZone::EnterZoneAt(CCharacter* player, float x, float y)
 {
-    if (player == nullptr)
-        return false;
+    // 빈 포인터는 부르는 쪽 잘못이다 — 셋 다(접속·존 이동·몬스터 스폰) 방금 만들었거나 들고 있는 객체를 넘긴다
+    assert(player != nullptr);
 
     // 존 설정 (playerId 는 부르는 쪽이 부여 완료 상태. 표시 속성은 게임 서버가 넣는다 — 플레이어는 입장 전,
     //   몬스터는 입장 직후 스폰 콜백(OnMonsterSpawn)에서. 존은 표시 속성을 안 본다)
@@ -86,8 +83,6 @@ bool CZone::EnterZoneAt(CCharacter* player, float x, float y)
     // 정원 카운터는 목록에 실제로 넣은 이 자리에서만 올린다 (Zone.h _playerCount)
     if (player->_kind == CharacterKind::PLAYER)
         ++_playerCount;
-
-    return true;
 }
 
 void CZone::LeaveZone(CCharacter* player)

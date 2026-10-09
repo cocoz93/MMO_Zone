@@ -155,14 +155,15 @@ private:
 
     // 플레이어를 만들어 존에 넣고 본인·주변에 알린다 (OnConnected 의 몸이 옮겨 온 것).
     //   존은 호출부가 구해서 준다 — 좌표 검사에 그 존의 크기가 필요해서 판정하는 쪽이 이미 들고 있다.
-    //   반환 nullptr = 입장 실패(zone 이 nullptr 이거나 존 입장 실패) → 호출부가 세션을 끊는다.
+    //   반환 nullptr = zone 이 nullptr(채널을 못 만듦) → 호출부가 세션을 끊는다. 존 입장 자체는 실패가 없다(CZone::EnterZone).
     CPlayer* SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t accountId,
                          CZone* zone, const EnterPlacement& place);
 
-    // 게임 중인 플레이어를 놓는 한 곳 — 존에서 나간 "뒤"에 부른다(끊김·존 이동 복귀 실패가 같이 쓴다).
+    // 게임 중인 플레이어를 놓는 한 곳 — 존에서 나간 "뒤"에 부른다(지금은 끊김 한 곳. 존 이동 복귀 실패 길은 10-09 에 없앴다 —
+    //   존 이동은 확인을 다 끝내고 옮겨서 들어가다 실패하지 않는다, CZone::EnterZone 주석).
     //   틱 너머로 이 플레이어를 드는 목록에서 빼기 → 최종 저장 → 슬롯 비우기(여기서 해제), 이 순서.
-    //   ★ 존 퇴장(BroadcastLeaveZone)을 안에 안 넣는 이유 — CZone::LeaveZone 은 _zoneId 를 안 지운다. 이미 존을 나간
-    //     길(존 이동 복귀 실패)에서 _zoneId 로 다시 나가면 같은 존을 두 번 나간다(이웃에게 DELETE 두 번).
+    //   ★ 존 퇴장(BroadcastLeaveZone)은 부르는 쪽 몫 — 존을 못 찾은 끊김(OnDisconnected 의 zone == nullptr)은 퇴장 없이 놓기만 한다.
+    //     CZone::LeaveZone 은 _zoneId 를 안 지우므로, 이미 존을 나간 길이 다시 생겨 이 안에서 _zoneId 로 나가면 같은 존을 두 번 나간다.
     //   ★ 부른 뒤에는 player 를 쓰지 말 것 — 이미 해제됐다.
     void ReleasePlayer(CPlayer* player);
 
@@ -511,7 +512,7 @@ private:
     //   sessionId 상위 16비트 = 세션 슬롯 인덱스 → 해시맵 대신 인덱스 배열 직접 접근 (캐시미스 제거).
     //   슬롯 재사용(ABA)은 FindPlayer의 _sessionId 일치 검사로 방어. 접근은 게임 스레드 단독.
     //   ★ 플레이어의 주인이 이 슬롯이다(unique_ptr) — 손으로 delete 하지 않는다. 게임 중인 플레이어를 놓는 길은
-    //     ReleasePlayer 하나, 입장 실패는 SpawnPlayer 의 지역 unique_ptr 가, 종료는 clear() 가 해제한다.
+    //     ReleasePlayer 하나, 종료는 clear() 가 해제한다. 입장 중 슬롯에 넣기 전까지는 SpawnPlayer 의 지역 unique_ptr 가 든다.
     std::vector<std::unique_ptr<CPlayer>> _sessionSlots;
 
     // 슬롯 조회 + 재사용 가드 — 등록된 세션이 아니면 nullptr

@@ -110,8 +110,8 @@ private:
     // 리젠 주기가 된 구역마다 빈 점에 하나씩 깐다. 존을 통째로 채운 때(처음 깔기)만 로그 한 줄을 남긴다.
     void RegenDue(const MonsterContext& ctx, uint64_t frame);
 
-    // 그 구역의 그 점에 몬스터 하나를 깐다 — 위치·방향·섹터 등록은 CZone::EnterZoneAt 이 전부 해 준다. 존에 못 넣으면 false.
-    bool Spawn(const MonsterContext& ctx, int32_t regionIndex, int32_t point, uint64_t frame);
+    // 그 구역의 그 점에 몬스터 하나를 깐다 — 위치·방향·섹터 등록은 CZone::EnterZoneAt 이 전부 해 준다(실패가 없다).
+    void Spawn(const MonsterContext& ctx, int32_t regionIndex, int32_t point, uint64_t frame);
 
     // 몬스터 하나의 판단 — 대상 찾기·상태 적용·알림은 여기가, "무엇을 할까"는 MonsterAI 가.
     void Think(const MonsterContext& ctx, CMonster* monster, uint64_t frame);

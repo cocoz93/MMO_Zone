@@ -186,11 +186,13 @@ void CMonsterManager::RegenDue(const MonsterContext& ctx, uint64_t frame)
         st.nextRegenFrame = frame + static_cast<uint64_t>(regions[region].regenFrames);
 
         // 빈 점마다 하나씩 — 주기 사이에 여럿 죽었으면 여럿이 이 틱에 함께 돌아온다.
-        //   존에 못 넣으면(EnterZoneAt 실패) 그 점은 빈 채로 남아 다음 주기에 다시 잡힌다.
         for (int32_t p = 0; p < regions[region].count; ++p)
         {
-            if (st.taken[static_cast<size_t>(p)] == 0 && Spawn(ctx, static_cast<int32_t>(region), p, frame))
+            if (st.taken[static_cast<size_t>(p)] == 0)
+            {
+                Spawn(ctx, static_cast<int32_t>(region), p, frame);
                 ++spawned;
+            }
         }
     }
 
@@ -209,7 +211,7 @@ void CMonsterManager::RegenDue(const MonsterContext& ctx, uint64_t frame)
     }
 }
 
-bool CMonsterManager::Spawn(const MonsterContext& ctx, int32_t regionIndex, int32_t point, uint64_t frame)
+void CMonsterManager::Spawn(const MonsterContext& ctx, int32_t regionIndex, int32_t point, uint64_t frame)
 {
     const std::vector<SpawnRegion>& regions = _gameData.SpawnRegions().RegionsOf(_zone.GetMapId());
     // [불변식] 색인은 RegenDue 가 Init 과 같은 목록에서 넘긴 것이다
@@ -229,8 +231,7 @@ bool CMonsterManager::Spawn(const MonsterContext& ctx, int32_t regionIndex, int3
     float x = 0.0f;
     float y = 0.0f;
     PickSpawnPos(regionIndex, point, x, y);
-    if (!_zone.EnterZoneAt(monster, x, y))
-        return false;   // 입장 실패 — owned 가 여기서 해제한다(섹터·목록 어디에도 안 들어갔다)
+    _zone.EnterZoneAt(monster, x, y);   // 실패가 없다 — CZone::EnterZone 주석
     _monsters.push_back(std::move(owned));
     _regions[static_cast<size_t>(regionIndex)].taken[static_cast<size_t>(point)] = 1;
 
@@ -246,7 +247,6 @@ bool CMonsterManager::Spawn(const MonsterContext& ctx, int32_t regionIndex, int3
     // 주변에 알린다 — 이미 그 자리를 보고 있던 플레이어에게 CREATE(SPAWN) 가 간다.
     //   보는 사람이 없으면 아무에게도 안 가고, 나중에 걸어온 사람은 섹터 진입 때 받는다.
     ctx.events.OnMonsterSpawn(&_zone, monster);
-    return true;
 }
 
 // 태어날 자리 — 그 점의 범위 안 균등 무작위. 범위는 스폰 표가 읽을 때 계산해 뒀다(헤더 주석).
