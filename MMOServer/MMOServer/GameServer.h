@@ -360,6 +360,18 @@ private:
     //   존마다 부른다 — 섹터 이동 대기열이 존 것이고, 다른 존끼리는 서로 안 보인다.
     void SendSightPairFixes(const std::vector<CZone::SightPairFix>& fixes);
 
+    // 존에 들어간 뒤 알리는 길 — 어떻게 왔나가 셋을 가른다: 내 캐릭터를 알리는 패킷 · 가방·스탯까지 보내나 · 등장 사유.
+    //   되돌리기 길은 없다 — 존 이동은 확인을 다 끝낸 뒤 옮기므로 들어가다 실패하지 않는다(CZone::EnterZone 주석).
+    enum class ArrivalKind : uint8_t
+    {
+        CONNECT,       // 처음 접속 — CREATE_MY · 가방 · 공격력/방어력까지, 사유 CONNECT
+        ZONE_CHANGE,   // 존 이동 — ZONE_CHANGE_OK 가 내 캐릭터를 알림, 사유 ZONE_TRANSFER
+        COUNT
+    };
+    // 순서 = 존 정보 → 내 캐릭터 → 레벨·경험치 → (접속만) 가방 전체 → 공격력·방어력 → 주변과 서로 생성(BroadcastEnterZone).
+    //   ★ 이 순서가 곧 와이어 순서다 — 클라가 존·나를 알고 나서 숫자와 남을 채운다. 본인 전용 패킷이 늘면 여기 한 곳에.
+    void NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind kind);
+
     // 존 입장/퇴장 브로드캐스트
     //   BroadcastEnterZone — 플레이어 입장: 양방향(주변 → 나를 생성, 나 → 주변을 생성)
     //   BroadcastSpawn     — 세션 없는 것(몬스터)의 등장: 주변에 알리기만. 받는 쪽이 없으니 인바운드가 없다

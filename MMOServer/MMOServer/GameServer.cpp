@@ -1384,7 +1384,7 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
 
 #if USE_EXP
     // ── 레벨 정산 — 스탯을 표에서 다시 세우고, 불러온 값이 표와 어긋나면 바로잡는다 ──
-    //   ★ SendZoneInfo 보다 앞이다. SendCreateMyPlayer 가 곧바로 최대 체력을 실어 보내므로
+    //   ★ NotifyArrival 보다 앞이다. 그 안의 SendCreateMyPlayer 가 곧바로 최대 체력을 실어 보내므로
     //     여기서 안 세우면 첫 화면의 막대가 생성자 기본값(100)으로 나간다.
     //   갈래 둘 — ⑴ 레벨이 표 밖(표를 줄인 패치) ⑵ 경험치가 이미 다음 레벨 몫을 넘음
     //     (표의 필요치를 낮춘 패치, 또는 만렙 상한에 걸려 안 오른 채 저장된 행).
@@ -1406,39 +1406,14 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
     // ── 스탯 세우기 — 레벨 정산 뒤 ──
     //   GainExp 는 레벨이 올랐을 때만 스탯을 세운다. 안 올랐으면 생성자 기본값 그대로라 여기서 세운다.
     //   지금은 스폰이 늘 만피라 refillHp=true — 죽은 채로 들어오는 경로가 생기면 그때 가른다.
-    //   ★ SendZoneInfo 보다 앞이다(위 레벨 정산 주석과 같은 이유 — CREATE 가 최대 체력을 싣는다).
+    //   ★ NotifyArrival 보다 앞이다(위 레벨 정산 주석과 같은 이유 — CREATE 가 최대 체력을 싣는다).
     //   USE_EXP 밖인 이유는 RecalcStats 선언 주석(StatSystem.h).
     _statSystem.RecalcStats(player, true);
 #endif
 
-    // 1) 존 메타 정보 전송
-    SendZoneInfo(player, zone);
-
-    // 2) 본인에게 내 캐릭터 생성
-    SendCreateMyPlayer(player);
-
-#if USE_EXP
-    // 3) 본인에게 레벨·경험치 — CREATE 뒤에 보낸다(클라가 내 액터를 알고 나서 숫자를 채우게)
-    SendExp(player);
-#endif
-
-#if USE_INVENTORY
-    // 3-0) 불러온 가방은 위에서 이미 채웠다(스탯 세우기 앞 — 무기 몫 때문). 여기서는 보내기만 한다.
-    // 3-1) 본인에게 가방 전체 — 빈 가방이어도 한 장. 존 이동 때는 안 보낸다(가방이 안 바뀐다).
-    //   ★ 부하 더미가 이 패킷을 받는 유일한 길이 여기다(더미는 아이템을 안 받는다). 그래서 더미 시험과
-    //     "등록을 빼면 떨어지나" 돌연변이가 이 한 장에 매달려 있다 — "비었으면 안 보내자"로 바꾸면 둘 다
-    //     조용히 아무것도 안 보게 된다.
-    SendInventory(player);
-#endif
-
-#if USE_COMBAT
-    // 3-2) 본인에게 최종 공격력·방어력 — 가방 전체 뒤(클라가 무기 칸을 알고 나서 숫자를 채우게).
-    //   ★ 부하 더미도 이 한 장을 반드시 받는다 — 가방 전체와 같은 함정(등록을 빼면 전원 떨어진다).
-    SendMyStats(player);
-#endif
-
-    // 4) 주변 상호 CREATE 브로드캐스트
-    BroadcastEnterZone(zone, player, SpawnReason::CONNECT);
+    // 본인에게 존·내 캐릭터·숫자·가방·스탯 → 주변과 서로 생성 (순서와 「접속만 보내는 것」은 NotifyArrival 한 곳)
+    //   불러온 가방은 위에서 이미 채웠다(스탯 세우기 앞 — 무기 몫 때문). 여기서는 보내기만 한다.
+    NotifyArrival(player, zone, ArrivalKind::CONNECT);
 
     return player;
 }
@@ -2495,21 +2470,8 @@ void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
     player->_lastSyncX = player->_x;
     player->_lastSyncY = player->_y;
 
-    // 존 메타 정보 + 존 이동 성공 통보
-    SendZoneInfo(player, newZone);
-    int32_t channelIndex = CMapManager::GetChannelIndexFromZoneId(newZone->GetZoneId());
-    SendZoneChangeOk(player, newZone->GetMapId(), channelIndex);
-
-#if USE_EXP
-    // ★ 레벨·경험치를 다시 보낸다 — 이 경로는 SendCreateMyPlayer 를 안 거친다.
-    //   콘솔 클라는 존을 넘을 때 내 정보를 통째로 비우고 다시 세운다(speed 만 따로 옮겨 담는다,
-    //   GameInstance.cpp 의 ZONE_CHANGE_OK). 안 보내면 거기서 화면이 1 레벨로 돌아가고
-    //   다음 경험치가 들어올 때까지 그대로다. 웹 클라는 안 비우므로 이 장이 덧쓰기가 될 뿐 무해하다.
-    SendExp(player);
-#endif
-
-    // 주변 상호 CREATE 브로드캐스트
-    BroadcastEnterZone(newZone, player, SpawnReason::ZONE_TRANSFER);
+    // 존 정보 + 존 이동 성공 통보 + 숫자 → 주변과 서로 생성 (NotifyArrival 한 곳)
+    NotifyArrival(player, newZone, ArrivalKind::ZONE_CHANGE);
 }
 
 // ── 운영자 인증 ──
@@ -2978,6 +2940,59 @@ void CGameServer::SendGroundItemDeleteToLateMovers(CZone* zone, int32_t sectorX,
 // ==========================================================================
 // 존 입장/퇴장 브로드캐스트
 // ==========================================================================
+
+void CGameServer::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind kind)
+{
+    // 길마다 다른 셋 — 내 캐릭터를 CREATE_MY 로 알리나(아니면 ZONE_CHANGE_OK) · 가방·스탯까지 보내나 · 등장 사유.
+    //   ArrivalKind 마다 한 줄. 줄 수가 길 수와 다르면 컴파일이 막는다(switch 는 이 빌드들에서 빠진 갈래를 경고하지 않는다).
+    struct ArrivalRule { bool createMy; bool firstEntry; SpawnReason reason; };
+    static constexpr ArrivalRule ARRIVAL_RULES[] = {
+        { true,  true,  SpawnReason::CONNECT },        // CONNECT
+        { false, false, SpawnReason::ZONE_TRANSFER },  // ZONE_CHANGE — 내 캐릭터는 ZONE_CHANGE_OK 가 알린다
+    };
+    static_assert(sizeof(ARRIVAL_RULES) / sizeof(ARRIVAL_RULES[0]) == static_cast<size_t>(ArrivalKind::COUNT),
+                  "ARRIVAL_RULES 는 ArrivalKind 마다 한 줄이어야 한다");
+    assert(static_cast<size_t>(kind) < static_cast<size_t>(ArrivalKind::COUNT));
+    const ArrivalRule& rule = ARRIVAL_RULES[static_cast<size_t>(kind)];
+
+    // 1) 존 메타 정보
+    SendZoneInfo(player, zone);
+
+    // 2) 내 캐릭터 — 접속은 CREATE_MY, 존 이동은 성공 통보(ZONE_CHANGE_OK)가 내 자리를 싣는다
+    if (rule.createMy)
+        SendCreateMyPlayer(player);
+    else
+        SendZoneChangeOk(player, zone->GetMapId(), CMapManager::GetChannelIndexFromZoneId(zone->GetZoneId()));
+
+#if USE_EXP
+    // 3) 레벨·경험치 — 내 캐릭터 뒤에 보낸다(클라가 내 액터를 알고 나서 숫자를 채우게).
+    //   ★ 존 이동도 다시 보낸다 — 그 길은 SendCreateMyPlayer 를 안 거친다.
+    //   콘솔 클라는 존을 넘을 때 내 정보를 통째로 비우고 다시 세운다(speed 만 따로 옮겨 담는다,
+    //   GameInstance.cpp 의 ZONE_CHANGE_OK). 안 보내면 거기서 화면이 1 레벨로 돌아가고
+    //   다음 경험치가 들어올 때까지 그대로다. 웹 클라는 안 비우므로 이 장이 덧쓰기가 될 뿐 무해하다.
+    SendExp(player);
+#endif
+
+    if (rule.firstEntry)
+    {
+#if USE_INVENTORY
+        // 3-1) 가방 전체 — 빈 가방이어도 한 장. 존 이동 때는 안 보낸다(가방이 안 바뀐다).
+        //   ★ 부하 더미가 이 패킷을 받는 유일한 길이 여기다(더미는 아이템을 안 받는다). 그래서 더미 시험과
+        //     "등록을 빼면 떨어지나" 돌연변이가 이 한 장에 매달려 있다 — "비었으면 안 보내자"로 바꾸면 둘 다
+        //     조용히 아무것도 안 보게 된다.
+        SendInventory(player);
+#endif
+
+#if USE_COMBAT
+        // 3-2) 최종 공격력·방어력 — 가방 전체 뒤(클라가 무기 칸을 알고 나서 숫자를 채우게).
+        //   ★ 부하 더미도 이 한 장을 반드시 받는다 — 가방 전체와 같은 함정(등록을 빼면 전원 떨어진다).
+        SendMyStats(player);
+#endif
+    }
+
+    // 4) 주변 상호 CREATE — 본인 몫을 다 보낸 뒤
+    BroadcastEnterZone(zone, player, rule.reason);
+}
 
 void CGameServer::BroadcastEnterZone(CZone* zone, CPlayer* player, SpawnReason reason)
 {
