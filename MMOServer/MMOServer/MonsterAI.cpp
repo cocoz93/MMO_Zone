@@ -104,8 +104,9 @@ Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame
     d.stateEndFrame  = monster._stateEndFrame;
 
     // ★ 죽어 있으면 아무것도 안 한다.
-    //   공격 본체가 죽는 순간 IDLE 로 세워 두는데(시체가 걷지 않게), 여기서 이 검사를 빼면
-    //   0.4초 뒤 다음 판단이 다시 MOVING 으로 돌려 시체가 걸어간다.
+    //   10-09 부터 죽은 몬스터는 죽는 순간 지워져(CGameServer::OnDeath 끝) 여기까지 오지 않는다 — 지우는 길이
+    //   바뀌어 시체가 하나라도 남는 날 걸어 다니지 않게 남겨 둔다. 예전엔 시체가 남아 이 검사가 실제로 일했다
+    //   (공격 본체가 죽는 순간 IDLE 로 세워도, 이 검사가 없으면 0.4초 뒤 판단이 다시 MOVING 으로 돌렸다).
     //   대상도 비운다 — 시체가 누군가를 쫓는 중으로 남지 않게.
     if (monster._isDead)
     {

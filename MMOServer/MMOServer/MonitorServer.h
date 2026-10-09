@@ -476,12 +476,9 @@ private:
         WriteCounter(ss, "mmo_monster_state_transitions_total",
                      "Monster AI state changes (one state swallowing others shows up as a stall here)",
                      _gameMonitor._monster._stateTransitions);
-        WriteCounter(ss, "mmo_monster_spawn_rerolls_total",
-                     "Spawn spots re-drawn because a live player stood within sight",
-                     _gameMonitor._monster._spawnRerolls);
-        WriteCounter(ss, "mmo_monster_spawn_reroll_exhausted_total",
-                     "Spawns that used up all re-draws and kept the last spot (crowded area)",
-                     _gameMonitor._monster._spawnRerollExhausted);
+        WriteCounter(ss, "mmo_monster_spawned_total",
+                     "Monsters spawned (first fill and refills; spawned - deaths = alive, except monsters freed with a cleaned-up channel)",
+                     _gameMonitor._monster._spawnedTotal);
 #endif
 
 #if USE_EXP

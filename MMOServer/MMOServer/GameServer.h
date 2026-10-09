@@ -180,7 +180,7 @@ private:
     void RecvAttack(CPlayer* player, CSerialBuffer* pMsg);
 
     // 부활 대기자 훑기 — 틱마다 1회. 존 전체를 돌지 않으려고 죽은 것만 따로 들고 있는다.
-    //   플레이어만 — 몬스터는 되살리지 않는다(죽으면 시체로 남는다).
+    //   플레이어만 — 몬스터는 되살리지 않는다(죽는 순간 지우고, 스폰이 새로 채운다).
     void TickRespawn();
 
     // 부활 대기열에서 빼기 — 퇴장 경로가 반드시 부른다. 안 부르면 다음 틱이 해제된 포인터를 밟는다.
@@ -189,7 +189,7 @@ private:
     // 공격 알림 셋 (ICombatEvents) — 뜻과 순서는 CombatSystem.h. 셋 다 공격자 주변 9섹터에 방송한다.
     void OnSwing(CZone* zone, CCharacter* attacker) override;
     void OnHit(CZone* zone, CCharacter* attacker, CCharacter* target, int32_t damage, int32_t remainHp) override;
-    void OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target) override;   // 죽은 목록 → DEATH → 경험치 → 드랍
+    void OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target) override;   // 죽은 목록 → DEATH → 경험치 → 드랍 → 몬스터면 지움
 #endif
 
 #if USE_INVENTORY
@@ -362,7 +362,8 @@ private:
     // 존 입장/퇴장 브로드캐스트
     //   BroadcastEnterZone — 플레이어 입장: 양방향(주변 → 나를 생성, 나 → 주변을 생성)
     //   BroadcastSpawn     — 세션 없는 것(몬스터)의 등장: 주변에 알리기만. 받는 쪽이 없으니 인바운드가 없다
-    //   BroadcastLeaveZone — 퇴장: 주변에 나를 삭제 (지금 부르는 쪽은 플레이어뿐 — 몬스터는 존과 함께 사라져 회수 경로가 없다)
+    //   BroadcastLeaveZone — 퇴장: 주변에 나를 삭제하고 대기열에서 뺀 뒤 존에서 뺀다. 종류를 안 가린다 —
+    //                        플레이어 퇴장·존 이동과 죽은 몬스터(OnDeath 끝)가 같이 쓴다
     void BroadcastEnterZone(CZone* zone, CPlayer* player, SpawnReason reason);
     void BroadcastSpawn(CZone* zone, CCharacter* who, SpawnReason reason);
     void BroadcastLeaveZone(CZone* zone, CCharacter* player);
@@ -546,7 +547,7 @@ private:
 
     // 죽어서 부활을 기다리는 플레이어. 여기만 틱 너머로 포인터를 든다 —
     //   퇴장 경로(BroadcastLeaveZone·ReleasePlayer)가 반드시 회수해야 한다.
-    //   몬스터는 여기 안 들어온다 — 자기 존의 관리자 대기열로 간다(OnDeath 가 가른다).
+    //   몬스터는 여기 안 들어온다 — 죽는 순간 지운다(OnDeath 끝 → 존의 몬스터 관리자 Despawn).
     //   같은 규율이 이미 dirtyMovers 와 존의 섹터 이동 대기열(CZone::LeaveZone 이 뺀다)에 있다.
     std::vector<CCharacter*> _deadActors;
 

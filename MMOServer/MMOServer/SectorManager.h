@@ -27,7 +27,7 @@
 //  CellIndex/CellPos/Count  → 섹터 좌표 ↔ 칸 번호 · 칸 수 (평탄화 규칙 — 식은 여기뿐)
 //  AddCharacter/Remove      → 섹터에 캐릭터 등록/해제 (종류로 목록을 고른다)
 //  GetSectorPlayers/Others  → 한 섹터의 목록 둘 · ForEachInSector → 둘을 차례로
-//  ForEachSectorInRange()   → 반경이 걸치는 섹터만 돌기 (공격 사거리·몬스터 시야·스폰 빈자리·줍기 — 어느 섹터를 도나는 여기뿐)
+//  ForEachSectorInRange()   → 반경이 걸치는 섹터만 돌기 (공격 사거리·몬스터 시야·줍기 — 어느 섹터를 도나는 여기뿐)
 //  GetAroundPlayers()       → 주변 9섹터 플레이어 수집 (브로드캐스트 대상)
 //  GetSectorDiff()          → 섹터 변경 시 시야 진입/이탈 섹터 계산 (CREATE/DELETE용)
 //  IsAdjacent()             → 두 섹터가 서로 보이나 (시야 규칙 — GetAroundSectorList 와 같은 판정)
@@ -75,7 +75,7 @@ public:
 
     // 반경이 걸치는 섹터만 돈다 — 「어느 섹터를 도나」(격자 규칙)는 여기, 「그 섹터에서 무엇을 보나」는 fn 이 정한다.
     //   fn 은 (sectorX, sectorY) 를 받는다. 중심 ± range 를 CalcSectorX/Y 로 자르므로 맵 밖은 가장자리 섹터로 묶인다.
-    //   GetAroundPlayers(3×3 고정 · 벡터 복사) 대신 참조로 훑는 자리가 쓴다 — 공격 사거리 · 몬스터 시야 · 스폰 빈자리 · 줍기 반경.
+    //   GetAroundPlayers(3×3 고정 · 벡터 복사) 대신 참조로 훑는 자리가 쓴다 — 공격 사거리 · 몬스터 시야 · 줍기 반경.
     //   섹터가 20타일이라 대부분 1칸, 경계에 서 있을 때만 2~4칸이다. 도는 동안 목록을 바꾸지 말 것(ForEachInSector 와 같음).
     template <typename Fn>
     void ForEachSectorInRange(float x, float y, float range, Fn&& fn) const

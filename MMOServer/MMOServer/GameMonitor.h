@@ -216,8 +216,10 @@ public:
         Counter _stateTransitions;  // AI 상태 전이 총수 — 한 상태가 나머지를 삼키면 여기가 먼저 멈춘다
         Counter _thinkCalls;        // 판단을 실제로 돌린 횟수 (0 이면 AI 가 아예 안 도는 것)
 
-        Counter _spawnRerolls;          // 태어날 자리에 산 사람이 가까워 다시 뽑은 수
-        Counter _spawnRerollExhausted;  // 다시 뽑기를 다 써서 마지막 자리에 둔 수 — 사람이 빽빽하면 오른다
+        Counter _spawnedTotal;          // 깐 몬스터 수 — 처음 깔기와 주기 리젠 공통.
+                                        //   깐 수 − 죽은 수(_deathsTotal) = 지금 몬스터 수(빈 채널 정리로 같이 사라진 것만 예외).
+                                        //   지운 수는 따로 안 센다 — 죽는 순간 지우므로 죽은 수와 늘 같다
+                                        //   (사람 근처를 피해 다시 뽑던 계수기 둘은 그 검사와 함께 없앴다 — 10-09)
     } _monster;
 #endif
 

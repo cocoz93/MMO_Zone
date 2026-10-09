@@ -3,7 +3,15 @@
 //
 // [책임]
 //  - 몬스터 객체 소유 (unique_ptr 목록) — 존과 같이 태어나고 같이 사라지므로 존이 이 관리자를 값으로 든다
-//  - 깔기(스폰) · 판단(AI 적용) · 벽 앞 재판단
+//  - 깔기(스폰 — 구역 주기 리젠) · 판단(AI 적용) · 벽 앞 재판단 · 죽은 몬스터 지우기
+//  - 스폰 구역마다 count 마리를 유지한다 — 구역의 리젠 주기(스폰 표 regenSec)가 돌아올 때마다 빈 점마다 하나씩
+//    한꺼번에 깐다. 존의 첫 틱이 첫 리젠(처음 깔기)이고, 그 뒤로 주기마다. 죽은 몬스터는 자기 점을 비울 뿐
+//    따로 시간을 재지 않는다 — 주기 사이에 여럿 죽으면 다음 리젠에 함께 돌아온다(10-09 사용자 결정).
+//  - 자리는 점 — 스폰 표가 읽을 때 구역을 격자로 나눠 점(칸 안쪽 범위)을 계산해 둔다(SpawnRegion::spots).
+//    몬스터 한 마리가 점 하나를 맡고, 깔 때는 그 범위에서 난수만 뽑는다. 구역 전체 무작위로 뽑으면 우연히 한쪽에
+//    몰리고, 깔 때마다 계산할 이유가 없다(10-09 사용자 결정).
+//  - 사람 근처를 피하지 않는다(10-09 사용자 결정) — 격자에선 칸 안에 사람이 서 있으면 다시 뽑아도 거의 다 걸려
+//    효과가 없었고, 사람 옆에 깔려도 돌아다니던 뱀이 다가온 것과 같다. 깔 때 섹터를 훑는 일도 없어진다.
 //  - 송신·번호 발급은 하지 않는다 — 일이 생기면 IMonsterEvents·IZoneEvents(걷기·멈춤)로 알리고, 받는 쪽(CGameServer)이 한다
 //
 // [왜 떼어냈나]
@@ -76,9 +84,22 @@ public:
     CMonsterManager(const CMonsterManager&) = delete;
     CMonsterManager& operator=(const CMonsterManager&) = delete;
 
-    // 게임 루프 1-1) — 처음이면 깔고, 몬스터마다 판단한다.
+    // 존 초기화 때 한 번(CZone::Init) — 구역마다 「점 전부 빔 · 다음 리젠 = 첫 틱」으로 세운다. 첫 틱이 다 깐다(처음 깔기).
+    //   생성자에서 안 하는 이유 — 그때는 맵 번호를 아직 모른다(CMapInstance::CreateChannel 이 만든 뒤 Init).
+    void Init();
+
+    // 게임 루프 1-1) — 리젠 주기가 된 구역을 채우고, 몬스터마다 판단한다.
     //   좌표 갱신(2) 앞이어야 한다 — AI 가 정한 방향이 같은 틱에 반영돼야 한 틱씩 밀리지 않는다.
     void Tick(const MonsterContext& ctx, uint64_t frame);
+
+    // 죽은 몬스터를 지우고 그 점을 비운다 — 게임 서버가 죽음 처리 끝에 부른다. 빈 점은 그 구역 다음 리젠 때 찬다.
+    //   시체는 클라 연출이라 서버는 죽는 순간 지운다(서버가 들고 있으면 나중에 다가온 사람 화면에 다시 나타난다).
+    //   ★ 부르기 전에 존에서 빼 둘 것 — 주변 DELETE·대기열 빼기·LeaveZone 은 플레이어 퇴장과 같은 길
+    //     (CGameServer::BroadcastLeaveZone)이다. 여기는 객체(소유)와 점만 다룬다.
+    //   ★ 판단 순회(Tick) 중에는 부르지 않는다 — 도는 목록에서 지우면 순회가 깨진다(단언).
+    //     지금 몬스터를 죽이는 건 플레이어 공격(틱 1 패킷 처리)뿐이다. 범위 공격이 생기면 그것도
+    //     지금 공격처럼 「대상을 다 고른 뒤 피해 적용」으로 짤 것(CCombatSystem::PerformAttack 3)·4)).
+    void Despawn(CMonster* monster);
 
     // 존 틱이 맵 경계에서 세웠다 → 다음 틱에 바로 다시 판단하게 한다(CZone::Tick 이 부른다).
     void OnBlockedByWall(CMonster* monster);
@@ -86,11 +107,11 @@ public:
     // 목록을 밖에 내주는 함수는 두지 않는다 — 몬스터를 도는 자리(판단·정리)가 전부 이 클래스 안이다.
 
 private:
-    static constexpr float   SPAWN_CLEAR_RANGE = 6.0f; // = MonsterAI::SIGHT_RANGE — 태어나자마자 누군가를 알아채지 않게(단언이 맞춘다)
-    static constexpr int32_t SPAWN_MAX_TRIES   = 5;
+    // 리젠 주기가 된 구역마다 빈 점에 하나씩 깐다. 존을 통째로 채운 때(처음 깔기)만 로그 한 줄을 남긴다.
+    void RegenDue(const MonsterContext& ctx, uint64_t frame);
 
-    // 존에 몬스터를 깐다 — 위치·방향·섹터 등록은 CZone::EnterZoneAt 이 전부 해 준다.
-    void Spawn(const MonsterContext& ctx, uint64_t frame);
+    // 그 구역의 그 점에 몬스터 하나를 깐다 — 위치·방향·섹터 등록은 CZone::EnterZoneAt 이 전부 해 준다. 존에 못 넣으면 false.
+    bool Spawn(const MonsterContext& ctx, int32_t regionIndex, int32_t point, uint64_t frame);
 
     // 몬스터 하나의 판단 — 대상 찾기·상태 적용·알림은 여기가, "무엇을 할까"는 MonsterAI 가.
     void Think(const MonsterContext& ctx, CMonster* monster, uint64_t frame);
@@ -98,13 +119,8 @@ private:
     // 시야 안에서 가장 가까운 산 플레이어 (없으면 nullptr). 플레이어 목록만 돈다.
     CCharacter* FindAITarget(CMonster* monster) const;
 
-    // 태어날 자리 — 그 구역 안 무작위. 산 플레이어가 SPAWN_CLEAR_RANGE 안이면 다시 뽑고,
-    //   SPAWN_MAX_TRIES 번 다 걸리면 마지막 자리를 그대로 쓴다(사람이 빽빽하면 어디든 걸린다).
-    //   첫 사람이 채널을 만든 그 틱에 뱀이 깔리므로 깔 때도 사람이 있을 수 있다.
-    void PickSpawnPos(const MonsterContext& ctx, int32_t regionIndex, float& outX, float& outY) const;
-
-    // (x, y) 에서 range 안에 산 플레이어가 있나 — 걸치는 섹터의 플레이어 목록만 참조로 훑는다
-    bool IsLivePlayerNear(float x, float y, float range) const;
+    // 태어날 자리 — 그 점의 범위(스폰 표가 읽을 때 계산해 둔 칸 안쪽) 안 균등 무작위. 난수 두 번이 전부다.
+    void PickSpawnPos(int32_t regionIndex, int32_t point, float& outX, float& outY) const;
 
     CZone& _zone;   // 나를 든 존 — 존이 나보다 오래 산다(멤버)
     const CGameDataFiles& _gameData;   // 기획 데이터 — 게임 서버가 들고 기동 뒤 안 바뀐다. 존보다 오래 산다
@@ -114,16 +130,28 @@ private:
     //   여기는 "누가 스스로 판단하나"라 종류가 곧 조건이다. 몬스터는 두 목록에 다 들어간다
     //   (_characterList 에 있어야 움직인다). 섹터 쪽은 받는 쪽이 플레이어뿐이라
     //   플레이어·나머지 둘로 갈라져 있다(SectorManager.h [목록 둘]).
-    // 소유 — 몬스터는 존과 수명이 같다(죽어도 지우지 않고 시체로 남으므로 사라지는 때는 존이 사라질 때뿐).
+    // 소유 — 몬스터가 사라지는 때는 둘이다: 죽는 순간(Despawn)과 존이 사라질 때(멤버 소멸).
     //   원소는 존의 캐릭터 목록·섹터에도 들어 있다(같은 객체, 거기는 빌린 포인터).
     //   ★ 원소 타입이 CCharacter 가 아니라 CMonster 인 이유 — AI 가 _aiState 같은 몬스터 전용 필드를 읽는데,
     //     CCharacter* 로 담으면 순회마다 내려 캐스팅을 하게 되고 그 캐스팅은 "여기엔 몬스터만 들어 있다"는
     //     전제에 기댄다. 타입으로 담으면 컴파일러가 그 전제를 지킨다.
     std::vector<std::unique_ptr<CMonster>> _monsters;
 
-    // 이 존에 몬스터를 이미 깔았나 — 존 생성 직후에 부를 자리가 없어서(CreateChannel 이 private 이고
-    //   호출처가 전부 MapManager 안이다) 게임 루프가 존마다 Tick 을 부르고 처음 한 번만 깐다.
-    bool _spawned = false;
+    // 구역마다 — 점마다 차 있나 · 다음 리젠 틱. 색인 = 이 맵 구역 목록(CSpawnRegionTable::RegionsOf)의 색인.
+    //   점의 자리 범위는 스폰 표에 있다(SpawnRegion::spots — 같은 점 번호). 여기는 차 있나만 든다.
+    //   차 있음은 Spawn 이 세우고 Despawn 이 내린다(점마다라서 「산 수」를 따로 들지 않는다).
+    //   다음 리젠은 0(첫 틱에 바로 — 처음 깔기)에서 시작해 리젠할 때마다 「그 틱 + 주기」로 민다.
+    //   틱이 매 프레임 돌아 리젠은 늘 제 틱에 일어나므로 존이 생긴 때부터 일정 간격이 된다(죽은 때를 기준으로 삼지 않는다).
+    struct RegionState
+    {
+        std::vector<uint8_t> taken;            // 점(count 개)마다 몬스터가 있나
+        uint64_t             nextRegenFrame = 0;
+    };
+    std::vector<RegionState> _regions;
+
+    int32_t  _capacity = 0;    // 이 존의 몬스터 정원 = 구역 count 의 합 — 로그를 남길 패스(존을 통째로 채운 때)를 가린다
+    uint32_t _spawnSeq = 0;    // 깐 순번 — 첫 판단 시점을 흩는 데 쓴다
+    bool     _thinking = false;   // 판단 순회 중인가 — 그동안 Despawn 이 불리면 단언이 잡는다
 };
 
 #endif // USE_MONSTER

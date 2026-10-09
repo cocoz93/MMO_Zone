@@ -6,14 +6,15 @@
 #include "MonsterTable.h"    // MonsterDef — 깔 때 몬스터 표의 행을 넘긴다
 #include "MonsterAI.h"       // 판단 (Combat 과 같은 자리의 순수 판정 모듈)
 #include "Player.h"          // GetSectorPlayers 가 CPlayer* 를 돌려준다 — 후보의 생사·좌표를 읽는다
-#include "GameMonitor.h"     // 판단·전이·다시 뽑기 계수기
+#include "GameMonitor.h"     // 판단·전이·깐 수 계수기
 #include "GameDataFiles.h"   // 쥔 기획 데이터에서 스폰 구역 표를 꺼낸다
 #if USE_COMBAT
 #include "CombatSystem.h"    // 공격 흐름 — 몬스터가 물 때 플레이어와 같은 것을 부른다
 #endif
 #include <Common/ErrorLog.h> // 스폰 로그 한 줄
+#include <algorithm>         // find_if — Despawn
 #include <cassert>
-#include <random>            // 스폰 구역 안 자리 뽑기
+#include <random>            // 점의 범위 안 자리 뽑기
 #include <string>
 
 CMonsterManager::CMonsterManager(CZone& zone, const CGameDataFiles& gameData)
@@ -24,21 +25,64 @@ CMonsterManager::CMonsterManager(CZone& zone, const CGameDataFiles& gameData)
 
 // 몬스터는 목록이 멤버 소멸 때 해제한다 — 존이 지워질 때(빈 채널 정리·서버 종료) 같이.
 //   밖에서 빼 줄 대기열이 없다: 몬스터를 틱 너머로 포인터로 드는 것은 이 목록과 존(캐릭터 목록·섹터)뿐이다.
+//   (죽은 몬스터는 이 소멸을 기다리지 않는다 — 죽는 순간 Despawn 이 지운다)
 CMonsterManager::~CMonsterManager() = default;
 
-// 게임 루프 1-1) — 아직 몬스터를 안 깐 존이면 깔고, 몬스터마다 판단한다.
-//   "존이 만들어질 때 깐다"가 아니라 루프가 훑는 이유 — 존은 CMapInstance::CreateChannel
-//   (private)에서만 생기고 그 호출처가 전부 MapManager 안이다. CGameServer 는
-//   FindOrCreateChannel 의 반환값만 받으므로 그게 새 존인지 원래 있던 존인지 알 길이 없다.
-//   받는 자리 셋에 "스폰했나"를 흩으면 하나를 빠뜨린 날 몬스터 없는 채널이 생긴다.
-//   비용은 틱마다 존 수만큼의 플래그 비교이고, 스폰은 존마다 딱 한 번만 돈다.
+// 존이 생길 때 한 번 — 구역마다 「점 전부 빔 · 다음 리젠 = 첫 틱」. 첫 Tick 이 다 깐다(처음 깔기).
+//   점의 자리 범위는 스폰 표가 읽을 때 계산해 뒀다(SpawnRegion::spots) — 여기서는 차 있나만 세운다.
+//   처음 깔기를 따로 두지 않는 이유 — 처음과 다시 채우기가 같은 길이면 「처음엔 깔렸는데 다시는 안 찬다」가 없다.
+//   존 생성 순간에 바로 깔지 않는 이유 — 깔려면 게임 서버 연락처(번호·등장 알림)와 지금 프레임이 필요한데
+//   존을 만드는 곳(MapManager)은 그것을 모른다. 첫 틱까지 기다리는 값은 한 틱(40ms)이다.
+void CMonsterManager::Init()
+{
+    // 이 맵에 구역이 없는 일은 없다 — 기동 때 스폰 표를 읽으며(CSpawnRegionTable::Load) 맵 표의 맵마다 구역 ≥ 1 을 봤다.
+    const std::vector<SpawnRegion>& regions = _gameData.SpawnRegions().RegionsOf(_zone.GetMapId());
+
+    _regions.assign(regions.size(), RegionState{});   // 다음 리젠 0 = 첫 틱에 바로
+    _capacity = 0;
+    for (size_t i = 0; i < regions.size(); ++i)
+    {
+        _regions[i].taken.assign(static_cast<size_t>(regions[i].count), 0);
+        _capacity += regions[i].count;
+    }
+}
+
+// 게임 루프 1-1) — 리젠 주기가 된 구역을 채우고, 몬스터마다 판단한다.
+//   채우기를 판단 앞에 두는 이유 — 막 깐 몬스터 중 첫 판단 시점이 이번 틱인 것(_spawnSeq 로 흩은 0번)도
+//   같은 틱에 판단하게(예전 처음 깔기와 같은 순서).
 void CMonsterManager::Tick(const MonsterContext& ctx, uint64_t frame)
 {
-    if (!_spawned)
-        Spawn(ctx, frame);
+    RegenDue(ctx, frame);
 
+    _thinking = true;   // 이 순회 중엔 Despawn 금지(헤더 ★) — 몬스터 공격이 죽이는 건 플레이어뿐이라 지금은 안 불린다
     for (const auto& monster : _monsters)
         Think(ctx, monster.get(), frame);
+    _thinking = false;
+}
+
+// 죽은 몬스터 지우기 — 존에서는 이미 빠졌다(CGameServer::BroadcastLeaveZone). 객체를 놓고 그 점을 비운다.
+void CMonsterManager::Despawn(CMonster* monster)
+{
+    assert(!_thinking && "판단 순회 중에 몬스터를 지우면 순회가 깨진다 — 헤더 Despawn ★");
+    assert(monster->_listIndex == -1 && "존에서 먼저 뺄 것 — CGameServer::BroadcastLeaveZone");
+
+    // [불변식] 구역·점 색인은 깔 때(Spawn) 같은 목록에서 준 것이다
+    assert(monster->_spawnRegion >= 0 && monster->_spawnRegion < static_cast<int32_t>(_regions.size()));
+    RegionState& st = _regions[static_cast<size_t>(monster->_spawnRegion)];
+    assert(monster->_spawnPoint >= 0 && monster->_spawnPoint < static_cast<int32_t>(st.taken.size()));
+
+    auto it = std::find_if(_monsters.begin(), _monsters.end(),
+                           [monster](const std::unique_ptr<CMonster>& m) { return m.get() == monster; });
+    assert(it != _monsters.end());
+    if (it == _monsters.end())
+        return;   // 내 몬스터가 아니다 — 점을 비우면 남의 점에 하나 더 깐다
+
+    // 점만 비운다 — 그 구역 다음 리젠 때 다른 빈 점과 함께 찬다(죽은 때를 따로 재지 않는다)
+    st.taken[static_cast<size_t>(monster->_spawnPoint)] = 0;
+
+    // 목록에서 빼면 unique_ptr 가 객체를 해제한다 — 순서는 상관없어 맨 뒤와 바꿔 뺀다
+    std::swap(*it, _monsters.back());
+    _monsters.pop_back();   // ← monster 는 여기서 해제된다
 }
 
 // 몬스터 하나의 판단 — 대상 찾기와 알림은 여기가 하고, "무엇을 할까"는 MonsterAI 가 정한다.
@@ -127,118 +171,98 @@ CCharacter* CMonsterManager::FindAITarget(CMonster* monster) const
     return best;
 }
 
-void CMonsterManager::Spawn(const MonsterContext& ctx, uint64_t frame)
+// 리젠 — 주기가 된 구역마다 빈 점에 하나씩 한꺼번에 깐다. 구역 수만큼 매 틱 비교 하나씩이다.
+void CMonsterManager::RegenDue(const MonsterContext& ctx, uint64_t frame)
 {
-    _spawned = true;   // 실패하더라도 매 틱 재시도하지 않게 먼저 세운다
-
-    // 구역마다 표에 적힌 몬스터를 적힌 마릿수만큼 — 스폰 구역 표 한 줄이 「이 구역에 이 몬스터 몇 마리」다.
-    //   이 맵에 구역이 없는 일은 없다 — 기동 때 스폰 표를 읽으며(CSpawnRegionTable::Load) 맵 표의 맵마다 구역 ≥ 1 을 보고, 아니면 서버를 안 띄웠다.
     const std::vector<SpawnRegion>& regions = _gameData.SpawnRegions().RegionsOf(_zone.GetMapId());
+    assert(_regions.size() == regions.size() && "Init 이 같은 목록으로 세웠다");
 
-    int32_t i = 0;   // 존 안 순번 — 첫 판단 시점을 흩는 데 쓴다
-    for (size_t region = 0; region < regions.size(); ++region)
+    int32_t spawned = 0;
+    for (size_t region = 0; region < _regions.size(); ++region)
     {
-        // [불변식] 몬스터 번호는 기동 때 몬스터 표와 대조했다(CSpawnRegionTable::Load)
-        const MonsterDef* def = _gameData.Monsters().Find(regions[region].monsterId);
-        assert(def != nullptr);
+        RegionState& st = _regions[region];
+        if (frame < st.nextRegenFrame)
+            continue;
+        st.nextRegenFrame = frame + static_cast<uint64_t>(regions[region].regenFrames);
 
-        for (int32_t k = 0; k < regions[region].count; ++k, ++i)
+        // 빈 점마다 하나씩 — 주기 사이에 여럿 죽었으면 여럿이 이 틱에 함께 돌아온다.
+        //   존에 못 넣으면(EnterZoneAt 실패) 그 점은 빈 채로 남아 다음 주기에 다시 잡힌다.
+        for (int32_t p = 0; p < regions[region].count; ++p)
         {
-            auto owned = std::make_unique<CMonster>(*def);  // 능력치는 생성자가 표의 행에서 복사한다
-            CMonster* monster = owned.get();               // 빌려 쓰는 포인터 — 소유는 아래에서 목록으로 넘어간다
-            monster->_actorId = ctx.events.AllocActorId(); // 단일 증가 카운터라 플레이어와 충돌하지 않는다
-
-            // 자리는 배정받은 구역 안 무작위(사람 근처면 다시 뽑음). 방향·정지 상태·섹터 등록·주민 목록 추가는
-            //   EnterZoneAt 이 전부 한다.
-            float x = 0.0f;
-            float y = 0.0f;
-            PickSpawnPos(ctx, static_cast<int32_t>(region), x, y);
-            if (!_zone.EnterZoneAt(monster, x, y))
-                continue;   // 입장 실패 — owned 가 여기서 해제한다(섹터·목록 어디에도 안 들어갔다)
-            _monsters.push_back(std::move(owned));
-
-            monster->_spawnX = monster->_x;   // 귀환을 넣을 때 쓴다
-            monster->_spawnY = monster->_y;
-
-            // 첫 판단 시점을 흩는다 — 다 같은 프레임에 깨어나면 한 존의 몬스터가 한 틱에 몰려
-            //   그 틱만 튄다. 판단 주기 안에서 고르게 퍼뜨린다.
-            monster->_nextThinkFrame = frame + (i % MonsterAI::THINK_INTERVAL_FRAMES);
-
-            // 주변에 알린다 — 이미 그 자리를 보고 있던 플레이어에게 CREATE 가 간다.
-            //   보는 사람이 없으면 아무에게도 안 가고, 나중에 걸어온 사람은 섹터 진입 때 받는다.
-            ctx.events.OnMonsterSpawn(&_zone, monster);
+            if (st.taken[static_cast<size_t>(p)] == 0 && Spawn(ctx, static_cast<int32_t>(region), p, frame))
+                ++spawned;
         }
     }
 
-    // 구역별 마릿수 — 표를 바꾼 뒤 뜻대로 깔렸는지 로그 한 줄로 본다(시험도 이 줄을 읽는다)
-    std::string split;
-    for (size_t region = 0; region < regions.size(); ++region)
+    // 존을 통째로 채운 패스(처음 깔기)만 로그 한 줄 — 표를 바꾼 뒤 뜻대로 깔렸는지 본다(시험도 이 줄을 읽는다).
+    //   주기마다 몇 마리 다시 채우기는 지표(mmo_monster_spawned_total)로만 센다 — 사냥할 때마다 로그가 쌓이지 않게.
+    if (spawned > 0 && spawned == _capacity)
     {
-        if (region > 0)
-            split += " / ";
-        split += std::to_string(regions[region].count);
+        std::string split;
+        for (size_t region = 0; region < regions.size(); ++region)
+        {
+            if (region > 0)
+                split += " / ";
+            split += std::to_string(regions[region].count);
+        }
+        SLOG_INFO("[Monster] zone {} spawned {} (regions {})", _zone.GetZoneId(), spawned, split);
     }
-    SLOG_INFO("[Monster] zone {} spawned {} (regions {})", _zone.GetZoneId(), i, split);
 }
 
-// 태어날 자리 — 구역 안 균등 무작위. 산 플레이어가 가까우면 다시 뽑는다(헤더 주석).
-void CMonsterManager::PickSpawnPos(const MonsterContext& ctx, int32_t regionIndex, float& outX, float& outY) const
+bool CMonsterManager::Spawn(const MonsterContext& ctx, int32_t regionIndex, int32_t point, uint64_t frame)
 {
-    static_assert(SPAWN_CLEAR_RANGE == MonsterAI::SIGHT_RANGE,
-                  "태어나자마자 누군가를 알아채지 않게 — 비우는 반경은 뱀 시야와 같아야 한다");
-
     const std::vector<SpawnRegion>& regions = _gameData.SpawnRegions().RegionsOf(_zone.GetMapId());
-    // [불변식] 색인은 Spawn 이 같은 목록에서 준 것이고, 목록은 기동 때 스폰 표 읽기(CSpawnRegionTable::Load)가 비어 있지 않음을 봤다
+    // [불변식] 색인은 RegenDue 가 Init 과 같은 목록에서 넘긴 것이다
+    assert(regionIndex >= 0 && regionIndex < static_cast<int32_t>(regions.size()));
+
+    // [불변식] 몬스터 번호는 기동 때 몬스터 표와 대조했다(CSpawnRegionTable::Load)
+    const MonsterDef* def = _gameData.Monsters().Find(regions[static_cast<size_t>(regionIndex)].monsterId);
+    assert(def != nullptr);
+
+    auto owned = std::make_unique<CMonster>(*def);  // 능력치는 생성자가 표의 행에서 복사한다
+    CMonster* monster = owned.get();               // 빌려 쓰는 포인터 — 소유는 아래에서 목록으로 넘어간다
+    monster->_actorId = ctx.events.AllocActorId(); // 단일 증가 카운터라 플레이어와 충돌하지 않는다 — 다시 깔 때마다 새 번호
+    monster->_spawnRegion = regionIndex;           // 죽으면 이 구역의
+    monster->_spawnPoint  = point;                 //   이 점을 비운다(Despawn)
+
+    // 자리는 그 점의 범위 안 무작위. 방향·정지 상태·섹터 등록·주민 목록 추가는 EnterZoneAt 이 전부 한다.
+    float x = 0.0f;
+    float y = 0.0f;
+    PickSpawnPos(regionIndex, point, x, y);
+    if (!_zone.EnterZoneAt(monster, x, y))
+        return false;   // 입장 실패 — owned 가 여기서 해제한다(섹터·목록 어디에도 안 들어갔다)
+    _monsters.push_back(std::move(owned));
+    _regions[static_cast<size_t>(regionIndex)].taken[static_cast<size_t>(point)] = 1;
+
+    monster->_spawnX = monster->_x;   // 귀환을 넣을 때 쓴다
+    monster->_spawnY = monster->_y;
+
+    // 첫 판단 시점을 흩는다 — 다 같은 프레임에 깨어나면 한 존의 몬스터가 한 틱에 몰려
+    //   그 틱만 튄다. 판단 주기 안에서 고르게 퍼뜨린다.
+    monster->_nextThinkFrame = frame + (_spawnSeq++ % MonsterAI::THINK_INTERVAL_FRAMES);
+
+    ctx.monitor._monster._spawnedTotal.Inc();
+
+    // 주변에 알린다 — 이미 그 자리를 보고 있던 플레이어에게 CREATE(SPAWN) 가 간다.
+    //   보는 사람이 없으면 아무에게도 안 가고, 나중에 걸어온 사람은 섹터 진입 때 받는다.
+    ctx.events.OnMonsterSpawn(&_zone, monster);
+    return true;
+}
+
+// 태어날 자리 — 그 점의 범위 안 균등 무작위. 범위는 스폰 표가 읽을 때 계산해 뒀다(헤더 주석).
+void CMonsterManager::PickSpawnPos(int32_t regionIndex, int32_t point, float& outX, float& outY) const
+{
+    const std::vector<SpawnRegion>& regions = _gameData.SpawnRegions().RegionsOf(_zone.GetMapId());
+    // [불변식] 색인은 Spawn 이 받은 것을 그대로 넘긴다(RegenDue — Init 과 같은 목록, 점은 count 개)
     assert(regionIndex >= 0 && regionIndex < static_cast<int32_t>(regions.size()));
     const SpawnRegion& r = regions[static_cast<size_t>(regionIndex)];
+    assert(point >= 0 && point < static_cast<int32_t>(r.spots.size()));
+    const SpawnSpot& s = r.spots[static_cast<size_t>(point)];
 
     // 게임 스레드 전용 — 서버의 다른 난수 자리(Zone.cpp CalcSpawnPos · MonsterAI.cpp)와 같은 꼴
     thread_local std::mt19937 rng{ std::random_device{}() };
-    std::uniform_real_distribution<float> distX(static_cast<float>(r.x0), static_cast<float>(r.x1));
-    std::uniform_real_distribution<float> distY(static_cast<float>(r.y0), static_cast<float>(r.y1));
-
-    for (int32_t attempt = 1; ; ++attempt)
-    {
-        outX = distX(rng);
-        outY = distY(rng);
-        if (!IsLivePlayerNear(outX, outY, SPAWN_CLEAR_RANGE))
-            return;
-
-        if (attempt >= SPAWN_MAX_TRIES)
-        {
-            ctx.monitor._monster._spawnRerollExhausted.Inc();   // 다 걸렸다 — 마지막 자리를 그대로 쓴다
-            return;
-        }
-        ctx.monitor._monster._spawnRerolls.Inc();
-    }
-}
-
-// (x, y) 에서 range 안에 산 플레이어가 있나 — 반경이 걸치는 섹터의 플레이어 목록만 참조로 훑는다(복사 0).
-//   어느 섹터를 도나는 섹터 관리자(ForEachSectorInRange). 하나 찾으면 남은 칸은 들여다보지 않는다(found).
-bool CMonsterManager::IsLivePlayerNear(float x, float y, float range) const
-{
-    const CSectorManager& sectors = _zone.GetSectorManager();
-    const float rangeSq = range * range;
-
-    bool found = false;
-    sectors.ForEachSectorInRange(x, y, range, [&](int32_t sx, int32_t sy)
-    {
-        if (found)
-            return;
-        for (const CPlayer* p : sectors.GetSectorPlayers(sx, sy))
-        {
-            if (p->_isDead)
-                continue;   // 시체 옆에 태어나는 건 괜찮다 — 알아챌 대상이 아니다
-            const float dx = p->_x - x;
-            const float dy = p->_y - y;
-            if (dx * dx + dy * dy < rangeSq)
-            {
-                found = true;
-                return;
-            }
-        }
-    });
-    return found;
+    outX = std::uniform_real_distribution<float>(s.x0, s.x1)(rng);
+    outY = std::uniform_real_distribution<float>(s.y0, s.y1)(rng);
 }
 
 // 벽에 닿은 몬스터는 다음 틱에 바로 다시 판단하게 한다.

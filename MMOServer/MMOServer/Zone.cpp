@@ -40,6 +40,10 @@ bool CZone::Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHei
     _mapId = mapId;
     _mapWidth = mapWidth;
     _mapHeight = mapHeight;
+#if USE_MONSTER
+    // 몬스터 구역 상태(점마다 차 있나·다음 리젠) — 맵 번호를 안 뒤라야 그 맵의 스폰 구역을 읽는다. 첫 틱이 다 깐다(처음 깔기)
+    _monsterManager.Init();
+#endif
     return true;
 }
 

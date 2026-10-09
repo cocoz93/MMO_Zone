@@ -171,7 +171,7 @@ void CCombatSystem::PerformAttack(CZone* zone, CCharacter* player, uint64_t fram
 #if USE_MONSTER
     if (As<CMonster>(target) != nullptr)
     {
-        _gameMonitor._monster._deathsTotal.Inc();   // 죽은 몬스터는 시체로 남는다 — 되살리지 않는다
+        _gameMonitor._monster._deathsTotal.Inc();   // 죽은 몬스터는 OnDeath 끝에서 지운다 — 되살리지 않고 스폰이 새로 채운다
     }
     else
     {
@@ -181,7 +181,8 @@ void CCombatSystem::PerformAttack(CZone* zone, CCharacter* player, uint64_t fram
     _gameMonitor._combat._deathsTotal.Inc();
 #endif
 
-    // 플레이어 죽은 목록 · 죽음 방송 · 보상(경험치·드랍)은 받는 쪽 몫 — 순서는 ICombatEvents::OnDeath 주석
+    // 플레이어 죽은 목록 · 죽음 방송 · 보상(경험치·드랍) · 몬스터 지우기는 받는 쪽 몫 — 순서는 ICombatEvents::OnDeath 주석
+    //   ★ 마지막 줄이어야 한다 — 몬스터면 이 안에서 target 이 해제된다
     _events.OnDeath(zone, player, target);
 }
 

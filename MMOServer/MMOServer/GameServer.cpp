@@ -1122,7 +1122,7 @@ void CGameServer::GameLoopThread()
         auto phaseT2 = Clock::now();
 
 #if USE_MONSTER
-        // 1-1) 몬스터 — 존마다 관리자가 새 존이면 깔고, 몬스터마다 판단한다(CMonsterManager::Tick).
+        // 1-1) 몬스터 — 존마다 관리자가 리젠 주기가 된 구역을 채우고, 몬스터마다 판단한다(CMonsterManager::Tick).
         //   좌표 갱신(2) 앞에 두는 이유: AI 가 정한 방향이 같은 틱에 반영돼야 한 틱씩 밀리지 않는다.
         TickMonsters();
 #endif
@@ -1154,7 +1154,7 @@ void CGameServer::GameLoopThread()
 
 #if USE_COMBAT
         // 3-2) 부활 대기자 훑기 (게임 로직 페이즈에 계상 — 브로드캐스트를 동반한다)
-        //   플레이어만 — 몬스터는 되살리지 않는다(죽으면 시체로 남는다).
+        //   플레이어만 — 몬스터는 되살리지 않는다(죽는 순간 지우고, 스폰이 새로 채운다 — 1-1).
         TickRespawn();
 #endif
 
@@ -2670,6 +2670,19 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
     if (looter != nullptr && prey != nullptr)
         DropLoot(zone, looter, prey);
 #endif
+
+#if USE_MONSTER
+    // ── 8) 죽은 몬스터 지우기 — 보상까지 끝낸 맨 끝(이 아래로, 그리고 부른 공격 흐름도 target 을 안 쓴다) ──
+    //   시체는 클라 연출이다(웹 클라는 죽어 있는 상대의 DELETE 를 받으면 흐려지며 지운다). 서버가 들고 있으면
+    //   나중에 다가온 사람 화면에 시체가 다시 나타나고, 스폰이 새로 채우니 객체가 쌓인다(10-09).
+    //   존에서 빼는 길은 플레이어 퇴장과 같다 — 주변 DELETE · 옛 섹터 시청자 · 같은 틱 이동자 · 이동 묶음 빼기 · LeaveZone.
+    //   객체를 놓고 그 점을 비우는 것은 존의 몬스터 관리자다 — 빈 점은 그 구역 다음 리젠 때 찬다.
+    if (CMonster* dead = As<CMonster>(target))
+    {
+        BroadcastLeaveZone(zone, dead);
+        zone->GetMonsterManager().Despawn(dead);   // ← 여기서 해제된다
+    }
+#endif
 }
 
 // ==========================================================================
@@ -2752,8 +2765,8 @@ void CGameServer::RemoveFromDeadActors(CCharacter* player)
 #if USE_MONSTER
 // ==========================================================================
 // 몬스터 (USE_MONSTER)
-//   몬스터 코드(깔기·판단·벽 앞 재판단)는 존마다 든 CMonsterManager 에 있다(MonsterManager.h).
-//   여기는 틱마다 그걸 부르고, 알림을 받아 송신·번호 발급만 한다.
+//   몬스터 코드(깔기·판단·벽 앞 재판단·죽은 몬스터 지우기)는 존마다 든 CMonsterManager 에 있다(MonsterManager.h).
+//   여기는 틱마다 그걸 부르고, 알림을 받아 송신·번호 발급만 한다. 죽은 몬스터를 존에서 빼고 지우라 부르는 것은 OnDeath 끝.
 // ==========================================================================
 
 MonsterContext CGameServer::MakeMonsterContext()
@@ -2765,8 +2778,7 @@ MonsterContext CGameServer::MakeMonsterContext()
     };
 }
 
-// 게임 루프 1-1) — 존마다 관리자 Tick. 아직 몬스터를 안 깐 존이면 깔고, 몬스터마다 판단한다.
-//   새 존을 루프가 훑어서 찾는 이유는 CMonsterManager::Tick 머리 주석.
+// 게임 루프 1-1) — 존마다 관리자 Tick. 리젠 주기가 된 구역을 채우고(처음 깔기 포함), 몬스터마다 판단한다.
 void CGameServer::TickMonsters()
 {
     const MonsterContext ctx = MakeMonsterContext();

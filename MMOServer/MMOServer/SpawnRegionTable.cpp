@@ -2,6 +2,9 @@
 
 #if USE_MONSTER
 
+#include <algorithm>   // min·max — 격자
+#include <cmath>       // ceil·sqrt — 격자
+
 #include <Common/ErrorLog.h>
 
 #include "GameDataCsv.h"
@@ -36,15 +39,15 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMapTable& maps, con
     for (const DataLine& dl : lines)
     {
         SplitCsv(dl.text, cell);
-        if (cell.size() < 7)
+        if (cell.size() < 8)
         {
-            SLOG_ERROR("[SpawnRegion] {}줄: 칸이 {}개입니다 — mapId,x0,y0,x1,y1,monsterId,count 일곱이 필요합니다",
+            SLOG_ERROR("[SpawnRegion] {}줄: 칸이 {}개입니다 — mapId,x0,y0,x1,y1,monsterId,count,regenSec 여덟이 필요합니다",
                        dl.fileLine, cell.size());
             return false;
         }
 
-        int64_t v[7] = {};
-        for (int i = 0; i < 7; ++i)
+        int64_t v[8] = {};
+        for (int i = 0; i < 8; ++i)
         {
             if (!ParseInt(cell[static_cast<size_t>(i)], v[i]))
             {
@@ -52,7 +55,7 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMapTable& maps, con
                 return false;
             }
         }
-        const int64_t mapId = v[0], x0 = v[1], y0 = v[2], x1 = v[3], y1 = v[4], monsterId = v[5], count = v[6];
+        const int64_t mapId = v[0], x0 = v[1], y0 = v[2], x1 = v[3], y1 = v[4], monsterId = v[5], count = v[6], regenSec = v[7];
 
         // ⑴ 맵 — 맵 표에 있어야 한다(표끼리 대조). 번호가 곧 색인이라 상한은 맵 표가 본다
         const MapDef* map = (mapId < 0 || mapId > CMapTable::MAX_MAP_ID) ? nullptr : maps.Find(static_cast<int32_t>(mapId));
@@ -90,6 +93,13 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMapTable& maps, con
             return false;
         }
 
+        // ⑸ 리젠 주기 — 0 이면 매 틱 채워 잡은 티가 안 난다
+        if (regenSec < 1 || regenSec > MAX_REGEN_SEC)
+        {
+            SLOG_ERROR("[SpawnRegion] {}줄: regenSec {} 는 1~{} 여야 합니다", dl.fileLine, regenSec, MAX_REGEN_SEC);
+            return false;
+        }
+
         if (static_cast<int64_t>(_byMap.size()) <= mapId)
             _byMap.resize(static_cast<size_t>(mapId) + 1);
 
@@ -101,12 +111,14 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMapTable& maps, con
         r.y1        = static_cast<int32_t>(y1);
         r.monsterId = static_cast<int32_t>(monsterId);
         r.count     = static_cast<int32_t>(count);
+        r.regenFrames = static_cast<int32_t>(regenSec) * FRAME_PER_SEC;
         r.fileLine  = dl.fileLine;
+        BuildSpots(r);
         _byMap[static_cast<size_t>(mapId)].push_back(r);
         ++_count;
     }
 
-    // ⑸ 맵 표의 맵마다 구역이 하나 이상 — 뱀을 깔 자리가 없는 맵을 만들지 않는다. 빠진 맵을 다 적고 끝낸다
+    // ⑹ 맵 표의 맵마다 구역이 하나 이상 — 뱀을 깔 자리가 없는 맵을 만들지 않는다. 빠진 맵을 다 적고 끝낸다
     bool ok = true;
     for (const MapDef& m : maps.All())
     {
@@ -121,6 +133,33 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMapTable& maps, con
 
     SLOG_INFO("[SpawnRegion] {} — 구역 {}개", path, _count);
     return true;
+}
+
+// 점 계산 — 기동 때 줄마다 한 번. 깔 때는 이 범위에서 난수만 뽑는다(CMonsterManager::PickSpawnPos).
+void CSpawnRegionTable::BuildSpots(SpawnRegion& r)
+{
+    // 칸이 정사각형에 가깝게 — 열 = ⌈√(count × 폭 ÷ 높이)⌉(마릿수를 넘지 않게), 행 = ⌈count ÷ 열⌉ → 칸 수 ≥ count.
+    //   한 마리면 1×1(구역 전체), 23마리·정사각형이면 5×5.
+    const float w = static_cast<float>(r.x1 - r.x0);
+    const float h = static_cast<float>(r.y1 - r.y0);
+    const int32_t cols  = (std::min)(r.count, (std::max)(1, static_cast<int32_t>(std::ceil(std::sqrt(static_cast<float>(r.count) * w / h)))));
+    const int32_t rows  = (r.count + cols - 1) / cols;
+    const int32_t cells = cols * rows;
+    const float cw = w / static_cast<float>(cols);
+    const float ch = h / static_cast<float>(rows);
+    const float mx = cw * (1.0f - SPOT_INNER) * 0.5f;   // 칸 가장자리 띠 — 여기엔 안 깐다
+    const float my = ch * (1.0f - SPOT_INNER) * 0.5f;
+
+    r.spots.clear();
+    r.spots.reserve(static_cast<size_t>(r.count));
+    for (int32_t p = 0; p < r.count; ++p)
+    {
+        // 점 → 칸 — 칸 수가 마릿수보다 많으면 남는 칸을 고르게 건너뛴다(23마리·25칸이면 12·24번 칸이 빈다)
+        const int32_t cell = static_cast<int32_t>(static_cast<int64_t>(p) * cells / r.count);
+        const float cx = static_cast<float>(r.x0) + static_cast<float>(cell % cols) * cw;   // 칸 왼쪽 위
+        const float cy = static_cast<float>(r.y0) + static_cast<float>(cell / cols) * ch;
+        r.spots.push_back({ cx + mx, cy + my, cx + cw - mx, cy + ch - my });
+    }
 }
 
 #endif // USE_MONSTER

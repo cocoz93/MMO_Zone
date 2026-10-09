@@ -65,6 +65,12 @@ public:
     // 스폰 지점 — 귀환(RETURN 상태)을 넣을 때 쓴다. 지금은 기록만 한다.
     float _spawnX = 0.0f;
     float _spawnY = 0.0f;
+
+    // 나를 낳은 스폰 구역 — 이 맵 구역 목록(CSpawnRegionTable::RegionsOf)의 색인. -1 = 아직 안 깔림
+    int32_t _spawnRegion = -1;
+    // 내가 맡은 점 — 그 구역의 점 목록(SpawnRegion::spots)의 색인. 죽으면 몬스터 관리자가 이 점을 비우고
+    //   (CMonsterManager::Despawn) 그 구역 다음 리젠 때 찬다. -1 = 아직 안 깔림
+    int32_t _spawnPoint  = -1;
 };
 
 #endif // USE_MONSTER
