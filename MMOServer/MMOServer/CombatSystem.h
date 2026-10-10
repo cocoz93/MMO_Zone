@@ -3,6 +3,7 @@
 //
 // [책임]
 //  - 공격 한 번의 처음부터 끝까지: 쿨타임 판정 → 대상 찾기(섹터 훑기) → 피해 → 죽음 필드
+//  - 대상 찾기(FindFrontTarget)와 맞힌 뒤 처리(ApplyHit)는 따로 열어 둔다 — 스킬도 같은 것을 부른다
 //  - 그 과정에서 정한 것을 지표(CGameMonitor)로 센다 — 무엇을 정했는지는 여기서만 안다
 //  - 송신·죽은 목록·보상은 하지 않는다 — 일이 생기면 ICombatEvents 로 알리고, 받는 쪽(CGameServer)이 한다
 //
@@ -45,7 +46,7 @@ public:
 
     // 죽었다 — 죽음 필드(_isDead·_deathFrame·_moveState)와 죽음 계수를 적은 뒤에 온다.
     //   받는 쪽 몫: 플레이어 죽은 목록 넣기 → S2C_DEATH → 보상(경험치·드랍) → 몬스터면 지우기, 이 순서.
-    //   ★ 몬스터면 이 호출 안에서 해제된다 — 부른 쪽은 이 뒤로 target 을 쓰지 말 것(PerformAttack 은 여기가 마지막 줄이다).
+    //   ★ 몬스터면 이 호출 안에서 해제된다 — 부른 쪽은 이 뒤로 target 을 쓰지 말 것(ApplyHit 은 여기가 마지막 줄이다).
     virtual void OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target) = 0;
 };
 
@@ -57,6 +58,25 @@ public:
     // 공격 한 번 — 플레이어(RecvAttack)와 몬스터(CMonsterManager::Think)가 같이 쓴다.
     //   frame 은 CGameServer::_frameCount — 쿨타임과 죽은 프레임의 기준.
     void PerformAttack(CZone* zone, CCharacter* attacker, uint64_t frame);
+
+    // 앞 한 칸 대상 찾기에 넣을 후보 — 섹터의 어느 목록을 보나(SectorManager.h [목록 둘])
+    enum class CandidateList : uint8_t
+    {
+        PLAYERS,   // 플레이어 목록만 — 몬스터가 때릴 때(몬스터는 몬스터를 못 때린다)
+        OTHERS,    // 나머지 목록만(지금은 몬스터뿐) — 스킬(사람은 안 맞는다)
+        ALL,       // 둘 다 — 사람이 일반 공격할 때(보이는 것 전부)
+    };
+
+    // 앞 한 칸에서 대상 하나 — 사거리·정면 안에서 살아 있는 것 중 가장 가까운 것. 없으면 nullptr.
+    //   본인은 후보에서 뺀다. outSawDeadInRange = 사거리 안에 있긴 했는데 시체였다("아무도 없었다"와 가르는 값).
+    //   세지도 알리지도 않는다 — 없을 때 무슨 사유로 셀지는 부른 쪽(일반 공격·스킬)마다 다르다.
+    CCharacter* FindFrontTarget(CZone* zone, CCharacter* attacker, CandidateList which, bool& outSawDeadInRange) const;
+
+    // 맞힌 뒤 처리 — 피해(attackValue − 방어력, 최소 1) 적용 → OnHit → 죽었으면 죽음 필드·계수 → OnDeath.
+    //   attackValue = 일반 공격은 때린 쪽 _attackPower, 스킬은 스킬이 정한 값.
+    //   ★ 몬스터가 죽으면 이 호출 안(OnDeath)에서 해제된다 — 부른 쪽은 이 뒤로 target 을 쓰지 말 것.
+    //   ★ 섹터 목록을 도는 중에 부르지 말 것 — 죽은 몬스터가 그 목록에서 빠진다(대상을 다 고른 뒤 부른다).
+    void ApplyHit(CZone* zone, CCharacter* attacker, CCharacter* target, int32_t attackValue, uint64_t frame);
 
 private:
     CGameMonitor&  _gameMonitor;
