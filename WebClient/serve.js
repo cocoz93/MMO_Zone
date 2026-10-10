@@ -22,6 +22,7 @@ const MIME = {
 //   Map 인 이유 — 평범한 객체면 요청 경로가 원형(prototype)의 속성 이름과 겹칠 때 엉뚱한 값이 걸린다.
 const DATA = new Map([
   ['/data/ItemTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'ItemTable.csv')],
+  ['/data/SkillTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'SkillTable.csv')],
 ]);
 
 http.createServer((req, res) => {
