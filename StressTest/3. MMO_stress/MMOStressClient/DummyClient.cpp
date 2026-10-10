@@ -256,6 +256,11 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     //     빠뜨리면 더미 전원이 접속하자마자 떨어진다. 끼우기는 안 하니 EQUIP_FAIL 은 올 일이 없지만 등록은 해 둔다.
     case MsgType::S2C_MY_STATS:           return sizeof(MSG_S2C_MY_STATS);
     case MsgType::S2C_EQUIP_FAIL:         return sizeof(MSG_S2C_EQUIP_FAIL);
+    // USE_SKILL: 스킬 — 위와 같은 이유로 크기만 등록한다.
+    //   ★ 더미는 스킬을 안 쓰지만 SKILL_CAST 는 받는다 — 옆에서 사람이 시전하면 주변에 방송된다.
+    //     빠뜨리면 그 순간 근처 더미가 전부 떨어진다. SKILL_FAIL 은 본인에게만 가서 올 일이 없지만 등록은 해 둔다.
+    case MsgType::S2C_SKILL_CAST:         return sizeof(MSG_S2C_SKILL_CAST);
+    case MsgType::S2C_SKILL_FAIL:         return sizeof(MSG_S2C_SKILL_FAIL);
     default: return 0;
     }
 }

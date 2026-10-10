@@ -28,7 +28,9 @@
     S2C_GROUND_ITEM_CREATE:1034, S2C_GROUND_ITEM_DELETE:1035,
     C2S_PICKUP:1036, S2C_PICKUP_FAIL:1037,
     // 스탯·장착 (USE_COMBAT · USE_EQUIP) — 내 스탯은 본인 전용. 끼우기·빼기 성공은 칸 갱신 둘 + MY_STATS 가 곧 결과다
-    S2C_MY_STATS:1038, C2S_EQUIP:1039, C2S_UNEQUIP:1040, S2C_EQUIP_FAIL:1041
+    S2C_MY_STATS:1038, C2S_EQUIP:1039, C2S_UNEQUIP:1040, S2C_EQUIP_FAIL:1041,
+    // 스킬 (USE_SKILL) — 방향·대상은 서버가 정한다. 시전은 주변 방송, 거절은 본인에게만
+    C2S_USE_SKILL:1042, S2C_SKILL_CAST:1043, S2C_SKILL_FAIL:1044
   };
   // 아이템 쓰기 거절 사유 — Protocol.h UseItemFail 순서 그대로(값이 와이어에 실린다). 서버가 이 순서로 보고 먼저 걸린 하나를 보낸다
   const USE_FAIL = ['BAD_SLOT','EMPTY','NOT_USABLE','DEAD','COOLDOWN','FULL_HP'];
@@ -43,6 +45,8 @@
   const EQUIP_SLOT = { WEAPON: 900 };
   // 끼우기·빼기 거절 사유 — Protocol.h EquipFail 순서 그대로(값이 와이어에 실린다)
   const EQUIP_FAIL = ['BAD_SLOT','EMPTY','NOT_EQUIPPABLE','DEAD','COOLDOWN','TAB_FULL'];
+  // 스킬 거절 사유 — Protocol.h SkillFail 순서 그대로(값이 와이어에 실린다). 거절이면 체력·쿨타임이 그대로다
+  const SKILL_FAIL = ['BAD_SKILL','DEAD','COOLDOWN','LOW_HP','NO_TARGET'];
   const NAME = Object.fromEntries(Object.entries(MSG).map(([k,v])=>[v,k]));
   const DIR = { NONE:0, UP:1, DOWN:2, LEFT:3, RIGHT:4 };  // Player.h
   const MOVE = { IDLE:0, MOVING:1 };
@@ -188,6 +192,13 @@
       //   EQUIP_FAIL 7B = slot u16 · reason u8 (요청에 실린 칸 번호 그대로)
       case MSG.S2C_EQUIP_FAIL:
         p.slot=dv.getUint16(o,true); p.reason=dv.getUint8(o+2); p.reasonName=EQUIP_FAIL[p.reason] || ('?'+p.reason); break;
+      // ---- 스킬 (USE_SKILL) ----
+      //   SKILL_CAST 10B = casterId i32 · skillId u8 · direction u8 — 시전자 주변 방송(본인 포함). 쿨타임은 표의 cooldownMs 로 받은 순간부터 센다
+      case MSG.S2C_SKILL_CAST:
+        p.casterId=dv.getInt32(o,true); p.skillId=dv.getUint8(o+4); p.direction=dv.getUint8(o+5); break;
+      //   SKILL_FAIL 6B = skillId u8 · reason u8 (요청에 실린 번호 그대로)
+      case MSG.S2C_SKILL_FAIL:
+        p.skillId=dv.getUint8(o); p.reason=dv.getUint8(o+1); p.reasonName=SKILL_FAIL[p.reason] || ('?'+p.reason); break;
       default: break; // ZONE_CHANGE_OK/FAIL, ADMIN_* etc. — not needed for the view
     }
     return p;
@@ -234,6 +245,8 @@
     equip(slot){ const {b,d}=hdr(6,MSG.C2S_EQUIP); d.setUint16(4, slot, true); return b; },
     // C2S_UNEQUIP: header(4) + slot u16 = 6B — 착용 칸(EQUIP_SLOT)
     unequip(slot){ const {b,d}=hdr(6,MSG.C2S_UNEQUIP); d.setUint16(4, slot, true); return b; },
+    // C2S_USE_SKILL: header(4) + skillId u8 = 5B — 방향·대상은 서버가 정한다(지금 바라보는 쪽)
+    useSkill(skillId){ const {b,d}=hdr(5,MSG.C2S_USE_SKILL); d.setUint8(4, skillId); return b; },
     moveStart(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_START); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     moveStop(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_STOP); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     // C2S_CHAT: header + wchar_t[] UTF-16LE, 널 종단 포함, (len+1)*2 바이트만 전송 (서버가 header.size로 역산)
@@ -247,7 +260,7 @@
     }
   };
 
-  const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, EQUIP_SLOT, USE_FAIL, EQUIP_FAIL, GROUND_APPEAR, GROUND_GONE, PICKUP_FAIL, decodePacket, Reassembler, enc };
+  const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, EQUIP_SLOT, USE_FAIL, EQUIP_FAIL, SKILL_FAIL, GROUND_APPEAR, GROUND_GONE, PICKUP_FAIL, decodePacket, Reassembler, enc };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else global.Proto = API;
 })(typeof window !== 'undefined' ? window : globalThis);

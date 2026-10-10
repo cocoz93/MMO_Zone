@@ -124,7 +124,14 @@ enum class MsgType : uint16_t
     S2C_MY_STATS,           // 서버 → 클라이언트: 내 최종 공격력·방어력 (본인 전용 — 입장·레벨업·끼우기·빼기 때)
     C2S_EQUIP,              // 클라이언트 → 서버: 이 가방 칸의 장비를 끼운다 (무기 칸에 있던 것은 그 칸으로 맞바꾼다)
     C2S_UNEQUIP,            // 클라이언트 → 서버: 이 착용 칸의 장비를 뺀다 (장비 탭의 첫 빈 칸으로)
-    S2C_EQUIP_FAIL          // 서버 → 클라이언트: 끼우기·빼기 거절 + 사유 (성공은 칸 갱신 둘과 S2C_MY_STATS 가 곧 결과다)
+    S2C_EQUIP_FAIL,         // 서버 → 클라이언트: 끼우기·빼기 거절 + 사유 (성공은 칸 갱신 둘과 S2C_MY_STATS 가 곧 결과다)
+
+    //--------------------------------------------------
+    // 스킬 (USE_SKILL)
+    //--------------------------------------------------
+    C2S_USE_SKILL,          // 클라이언트 → 서버: 이 스킬을 쓴다 (방향·대상은 서버가 정한다 — 지금 바라보는 쪽)
+    S2C_SKILL_CAST,         // 서버 → 클라이언트: 시전 방송 (시전자 주변, 본인 포함 — 남의 화면에 시전 모양이 그려진다)
+    S2C_SKILL_FAIL          // 서버 → 클라이언트: 스킬 거절 + 사유 (본인 — 거절이면 체력·쿨타임이 그대로다)
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -953,5 +960,59 @@ static_assert(sizeof(MSG_C2S_EQUIP)      == 6,  "C2S_EQUIP 은 6B (proto.js 와 
 static_assert(sizeof(MSG_C2S_UNEQUIP)    == 6,  "C2S_UNEQUIP 은 6B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_S2C_EQUIP_FAIL) == 7,  "EQUIP_FAIL 은 7B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_EQUIP_FAIL) == 1041, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");   // 문구에 긴 줄표를 쓰지 말 것 — 콘솔 클라가 CP949 로 읽어 C4566 경고
+
+//==================================================
+// 스킬 (USE_SKILL)
+//==================================================
+
+// 스킬 거절 사유 — 서버는 위에서부터 차례로 보고 먼저 걸린 하나로 답한다(순서가 곧 확인 순서).
+//   ★ 값이 와이어에 실린다 — 중간에 끼우지 말고 끝(COUNT 앞)에만 붙인다. WebClient/proto.js 에 같은 순서로 옮겨 둔다.
+//   서버 안의 판정 사유(SkillReject, SkillSystem.h)와 두 벌이다 — 판정 쪽은 확인 순서 자리에 끼울 수 있고, 여기는 끝에만 붙인다.
+enum class SkillFail : uint8_t
+{
+    BAD_SKILL,   // 표에 없는 번호
+    DEAD,        // 죽어 있다
+    COOLDOWN,    // 아직 쿨타임이다
+    LOW_HP,      // 체력을 떼고 나면 1 미만이 된다 — 자기 스킬로는 안 죽는다
+    NO_TARGET,   // 맞을 몬스터가 없다(사람은 스킬에 안 맞는다)
+    COUNT
+};
+
+// C2S: 이 스킬을 쓴다 — 방향·대상은 서버가 정한다(지금 바라보는 쪽 앞)
+struct MSG_C2S_USE_SKILL
+{
+    static constexpr MsgType TYPE = MsgType::C2S_USE_SKILL;
+    MsgHeader header;
+    uint8_t   skillId;   // 스킬 표 번호(1~)
+};
+
+// S2C: 시전 — 시전자 주변(본인 포함)에 방송. 맞은 결과는 따로 온다(S2C_DAMAGE · S2C_DEATH …).
+//   시전자 체력 소모는 S2C_ACTOR_STATS 가 바로 뒤따른다. 쿨타임은 안 싣는다 — 클라가 표의 cooldownMs 로 이 장을 받은 순간부터 센다.
+struct MSG_S2C_SKILL_CAST
+{
+    static constexpr MsgType TYPE = MsgType::S2C_SKILL_CAST;
+    MsgHeader header;
+    int32_t   casterId;
+    uint8_t   skillId;
+    uint8_t   direction;   // Direction enum (시전한 방향 — 시전 모양을 그쪽으로 그린다)
+
+    MSG_S2C_SKILL_CAST() : header{ sizeof(*this), TYPE }, casterId(0), skillId(0), direction(0) {}
+};
+
+// S2C: 스킬 거절 — 본인에게만. 거절이면 체력·쿨타임이 그대로다(비용은 모든 검사를 지난 뒤에만 뗀다)
+struct MSG_S2C_SKILL_FAIL
+{
+    static constexpr MsgType TYPE = MsgType::S2C_SKILL_FAIL;
+    MsgHeader header;
+    uint8_t   skillId;   // 요청에 실려 온 번호 그대로
+    uint8_t   reason;    // SkillFail
+
+    MSG_S2C_SKILL_FAIL() : header{ sizeof(*this), TYPE }, skillId(0), reason(0) {}
+};
+
+static_assert(sizeof(MSG_C2S_USE_SKILL)  == 5,  "C2S_USE_SKILL 은 5B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_SKILL_CAST) == 10, "SKILL_CAST 는 10B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_SKILL_FAIL) == 6,  "SKILL_FAIL 은 6B (proto.js 와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::S2C_SKILL_FAIL) == 1044, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 #pragma pack(pop)
