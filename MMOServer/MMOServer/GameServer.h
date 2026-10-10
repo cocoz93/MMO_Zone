@@ -36,6 +36,7 @@
 #include "CombatSystem.h"  // 공격 흐름 — 여기서는 그 알림(ICombatEvents)을 구현한다
 #include "StatSystem.h"    // 스탯·레벨 규칙 — 멤버로 들고 부른다
 #include "ItemSystem.h"    // 아이템 쓰기·장착 규칙 — 멤버로 들고 부른다
+#include "SkillSystem.h"   // 스킬 규칙 — 멤버로 들고 부르고, 그 알림(ISkillEvents)을 구현한다
 #include "MonsterManager.h" // 몬스터 — 여기서는 그 알림(IMonsterEvents)을 구현한다
 #include "GroundItemManager.h" // 땅 아이템 — 여기서는 그 알림(IGroundItemEvents)을 구현한다
 #include "MonitorManager.h"
@@ -46,12 +47,13 @@
 
 class CSerialBuffer;
 
-// 알림 통로 넷 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
+// 알림 통로 다섯 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
 //   IZoneEvents       = 존(존 틱·몬스터 관리자)의 걷기·멈춤 알림 둘 — 토글 없이 늘 있다
-//   ICombatEvents     = 공격 흐름(CCombatSystem)의 알림 셋
+//   ICombatEvents     = 공격 흐름(CCombatSystem)의 알림 셋 — 스킬의 피해·죽음도 이 셋으로 온다(ApplyHit)
 //   IMonsterEvents    = 몬스터 관리자(CMonsterManager)의 알림 하나와 번호 부탁 하나
 //   IGroundItemEvents = 땅 아이템 관리자(CGroundItemManager)의 알림 둘과 번호 부탁 하나
 //                       (USE_DROP 은 가방(→ 전투)과 몬스터가 다 켜져야 켜진다 — BuildConfig.h #error)
+//   ISkillEvents      = 스킬 규칙(CSkillSystem)의 알림 하나(시전)
 class CGameServer
     : private IZoneEvents
 #if USE_COMBAT
@@ -62,6 +64,9 @@ class CGameServer
 #endif
 #if USE_DROP
     , private IGroundItemEvents
+#endif
+#if USE_SKILL
+    , private ISkillEvents
 #endif
 {
 public:
@@ -230,6 +235,16 @@ private:
     // 받기 둘의 몸 — CItemSystem::Equip → 거절 답 또는 내보내기. 끼우기·빼기가 같은 길을 탄다.
     void ApplyEquip(CPlayer* player, uint16_t slot, bool unequip);
 #endif
+#endif
+
+#if USE_SKILL
+    // ── 스킬 (USE_SKILL) ──
+    // 판정·비용·대상·효과는 CSkillSystem(_skillSystem) — 여기는 받기와, 거절이면 사유를 본인에게(와이어 값으로 바꿔) 보내기만.
+    //   성공의 결과는 알림으로 돌아온다 — 시전(OnCast: 시전 방송 · 시전자 체력) → 피해·죽음·보상(ICombatEvents, 일반 공격과 같은 함수).
+    void RecvUseSkill(CPlayer* player, CSerialBuffer* pMsg);
+
+    // 시전 알림 (ISkillEvents) — 뜻과 순서는 SkillSystem.h. 시전자 주변 9섹터에 방송한다(본인 포함).
+    void OnCast(CZone* zone, CPlayer* caster, const SkillDef& def) override;
 #endif
 
 #if USE_MONSTER
@@ -567,6 +582,13 @@ private:
     // 공격 흐름 — 알림은 이 클래스(ICombatEvents)로 돌아온다.
     //   ★ _gameMonitor 보다 뒤에 선언해야 한다 — 멤버는 선언 순서로 세워지므로, 앞에 두면 아직 안 묶인 참조를 넘긴다.
     CCombatSystem _combatSystem{ _gameMonitor, *this };
+#endif
+
+#if USE_SKILL
+    // 스킬 규칙 — 알림은 이 클래스(ISkillEvents)로 돌아온다.
+    //   ★ _combatSystem 뒤에 선언해야 한다 — 그 참조(대상 찾기·맞힌 뒤 처리)를 받는다. 멤버는 선언 순서로 세워지므로
+    //     앞에 두면 아직 안 만들어진 객체의 참조를 넘긴다(위 _combatSystem 주석과 같은 까닭).
+    CSkillSystem _skillSystem{ _gameDataFiles, _gameMonitor, _combatSystem, *this };
 #endif
 
     // ── 섹터 아웃박스 ── 틱-지연 배칭 상태를 한 덩어리로 응집.

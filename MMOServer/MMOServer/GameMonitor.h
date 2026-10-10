@@ -21,10 +21,13 @@
 #include "Inventory.h"        // USE_INVENTORY — 넣기 결과 사유(InvAddResult) 수만큼 칸을 잡는다
 #include "GroundItem.h"       // USE_DROP — 땅에서 빠진 까닭(GroundItemRemoval, 땅 아이템 관리자의 어휘) 수만큼 칸을 잡는다
 #include "ItemSystem.h"       // USE_INVENTORY — 쓰기·장착 거절 사유(UseItemReject·EquipReject) 수만큼 칸을 잡는다
+#include "SkillSystem.h"      // USE_SKILL — 스킬 거절 사유(SkillReject) 수만큼 칸을 잡는다
+#include "SkillTable.h"       // USE_SKILL — 스킬 번호 수(MAX_SKILL_ID)만큼 시전 칸을 잡는다
 
 // [사유 enum 의 집 — 규칙 하나] 사유는 그것을 정하는 층의 헤더에 산다(10-06, 아키텍처 전수검사 7번).
 //   존·엔티티 층이 정하는 것: GroundItemRemoval·PickupReject(GroundItem.h) · ZoneChangeReject(MapManager.h) · InvAddResult(Inventory.h)
-//   규칙 클래스가 정하는 것: UseItemReject·EquipReject(ItemSystem.h — 10-08 판정이 게임 서버에서 CItemSystem 으로 옮겨 감)
+//   규칙 클래스가 정하는 것: UseItemReject·EquipReject(ItemSystem.h — 10-08 판정이 게임 서버에서 CItemSystem 으로 옮겨 감) ·
+//                          SkillReject(SkillSystem.h)
 //   게임 서버가 정하는 것: PickupFail(와이어 enum 그대로 — 정하는 쪽이 패킷을 아는 층이라 변환이 없다) ·
 //                        InvLoadSkip·ChatCommandReject(계수기만 쓰는 사유라 여기)
 //   여기(계수기)는 COUNT 로 칸을 잡고 이름표를 두는 자리일 뿐, 사유를 정하지 않는다.
@@ -140,6 +143,25 @@ struct alignas(64) DBItemSaveCounters
     Counter _failed;    // 재연결 뒤 다시 해 봐도 실패 — 0 이어야 한다(0 이 아니면 그 칸은 다음 변화 전까지 DB 와 다르다)
     Counter _retried;   // 재연결하고 다시 써 본 수(성공·실패 무관) — DB 가 한 번 끊겼다 살아난 흔적
 };
+#endif
+
+#if USE_SKILL
+// 스킬 거절의 지표 라벨 — 사유 enum 은 CSkillSystem 이 정한다(SkillSystem.h). 와이어 값으로는 게임 서버가 바꾼다.
+//   ★ 위 USE_INVENTORY 블록 밖이어야 한다 — 스킬은 가방과 따로 켜고 끈다(가방을 끈 빌드에서 이름표가 사라졌던 판, 10-10 토글 빌드).
+inline const char* SkillRejectName(SkillReject r)
+{
+    static_assert(static_cast<int>(SkillReject::COUNT) == 5, "SkillReject 를 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case SkillReject::BAD_SKILL: return "bad_skill";
+    case SkillReject::DEAD:      return "dead";
+    case SkillReject::COOLDOWN:  return "cooldown";
+    case SkillReject::LOW_HP:    return "low_hp";
+    case SkillReject::NO_TARGET: return "no_target";
+    case SkillReject::COUNT:     break;
+    }
+    return "?";
+}
 #endif
 
 // DB 저장 파이프라인 지표 — DB 워커 스레드가 센다(CDBWorker 가 생성자로 참조를 받는다). 위 DBItemSaveCounters 와 같은 쪽.
@@ -294,6 +316,19 @@ public:
         Counter _pickupRejected[static_cast<int>(PickupFail::COUNT)];   // 줍기 거절, 사유별
         Counter _lateMoverDeletes;   // 같은 틱에 섹터를 넘은 사람에게 보정으로 보낸 DELETE 수
     } _drop;
+#endif
+
+#if USE_SKILL
+    // ══════════════════════════════════════════════════════════════
+    // 스킬 (USE_SKILL) — 시전은 스킬 번호마다, 거절은 사유마다 한 칸(배열).
+    //   세는 곳은 CSkillSystem::UseSkill 한 곳이다. 시전 = 비용을 뗀 수(모든 검사를 지났다), 거절 = 아무것도 안 뗀 수.
+    //   맞힌 수·죽인 수는 여기서 안 센다 — 맞힌 뒤 처리(ApplyHit)가 일반 공격과 같은 지표로 센다.
+    // ══════════════════════════════════════════════════════════════
+    struct alignas(64) SkillCounters
+    {
+        Counter _cast[MAX_SKILL_ID + 1];                            // 시전 성공, 스킬 번호별([0] 칸은 안 쓴다)
+        Counter _rejected[static_cast<int>(SkillReject::COUNT)];    // 거절, 사유별
+    } _skill;
 #endif
 
     // ══════════════════════════════════════════════════════════════

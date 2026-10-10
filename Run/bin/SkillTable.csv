@@ -1,0 +1,16 @@
+# Skill table - design data, read once at startup (CSkillTable). The web client reads the same file.
+#   UTF-8 without BOM (names are Korean). No commas inside a cell.
+#   One row = one skill. Every player has every skill (no classes yet).
+#   skillId    : 1..8 (MAX_SKILL_ID). The number is the array index and goes on the wire - keep ids small.
+#   target     : front = the nearest monster in front, same range and facing as a normal attack. Players are never hit.
+#   effect     : damage
+#   costHpPct  : % of the CURRENT hp paid on cast, rounded down, at least 1 when above 0. 0..99.
+#                Refused (LOW_HP) when it would leave hp below 1 - your own skill never kills you.
+#   power      : damage = % of the hp BEFORE the cost. damage needs power >= costHpPct (the hit is never smaller than the cost).
+#   cooldownMs : rounded UP to server ticks (40ms) - 480 = 12 ticks, the same as a normal attack.
+#   The cost (hp, cooldown) is paid only after every check passes, target included - a refused cast changes nothing.
+#   Values are Baram classic (warrior) as-is - not tuned to the current monsters (snake hp 30). Lv1 Baekhocham: pay 400, hit 800.
+#   Baekhocham also costs 10 mana in this design - it is added together with MP later.
+#   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
+skillId,name,target,effect,costHpPct,power,cooldownMs
+1,백호참,front,damage,50,100,480

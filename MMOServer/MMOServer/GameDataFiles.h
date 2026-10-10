@@ -9,9 +9,10 @@
 #include "MonsterTable.h"
 #include "SpawnRegionTable.h"
 #include "DropTable.h"
+#include "SkillTable.h"
 
 // 담는 자리는 늘 있다 — 맵 표는 토글이 없다(MapTable.h [토글 없음]). 나머지 표는 표마다 토글이 따로다
-//   (레벨 표 USE_COMBAT · USE_INVENTORY · USE_MONSTER · USE_DROP).
+//   (레벨 표 USE_COMBAT · USE_INVENTORY · USE_MONSTER · USE_DROP · USE_SKILL).
 //   처음엔 레벨 표 하나라 USE_EXP 안에 두었다가, 아이템 표가 붙으며 "표가 하나라도 켜져 있으면"으로 꺼냈고,
 //   10-09 맵 표가 붙으며 그 조건(USE_GAME_DATA_FILES)도 없앴다.
 //   레벨 표가 경험치가 아니라 전투를 따르는 까닭은 LevelTable.h(1레벨 줄 = 바탕 스탯의 유일한 출처).
@@ -61,6 +62,9 @@ public:
 #if USE_DROP
     const CDropTable& Drop() const { return _drop; }
 #endif
+#if USE_SKILL
+    const CSkillTable& Skill() const { return _skill; }
+#endif
 
 private:
     CMapTable _map;   // 맨 먼저 읽는다 — 스폰 표가 맵 번호·크기를 이 표와 대조한다(LoadAll 순서)
@@ -76,5 +80,8 @@ private:
 #endif
 #if USE_DROP
     CDropTable _drop;   // 아이템 표·몬스터 표를 먼저 읽고 그 결과로 대조한다(LoadAll 순서)
+#endif
+#if USE_SKILL
+    CSkillTable _skill;   // 다른 표와 대조할 것이 없다 — 대상·효과 종류는 코드의 이름표와 대조한다(SkillTable.cpp)
 #endif
 };

@@ -194,6 +194,21 @@
 	#error "USE_EQUIP requires USE_INVENTORY=1 (끼울 장비가 가방에서 온다)"
 #endif
 
+// 스킬 — 스킬 표(Run/bin/SkillTable.csv) 한 줄이 스킬 하나. 지금은 백호참(앞의 한 명 · 피해) 하나.
+//   ★ 비용(체력·쿨타임)은 대상 확인까지 모든 검사를 지난 뒤에만 뗀다 — 거절이면 아무것도 안 바뀐다(SkillSystem.h).
+//   1: 스킬 활성 — 표를 읽고, C2S_USE_SKILL 을 받는다 [기본]
+//   0: 스킬 경로가 컴파일에서 빠짐 — 요청은 조용히 버려진다(크기 등록이 빠짐). 와이어 정의(Protocol.h)는 그대로 남는다
+//   기본값이 USE_COMBAT 을 따라가는 이유: 맞힌 뒤 처리(피해·죽음·보상)를 전투에서 빌린다(CCombatSystem::ApplyHit).
+//     전투를 끄면 같이 꺼져 아래 #error 를 안 만난다. USE_EXP 와 같은 꼴.
+//   주의: 켠 채 부하 더미를 돌리면 옆에서 사람이 시전할 때 더미가 S2C_SKILL_CAST 를 받는다 — 더미에 등록돼 있다(DummyClient.cpp).
+#ifndef USE_SKILL
+#define USE_SKILL USE_COMBAT
+#endif
+
+#if USE_SKILL && !USE_COMBAT
+	#error "USE_SKILL requires USE_COMBAT=1 (맞힌 뒤 처리를 전투에서 빌린다)"
+#endif
+
 // 틱 주기 — 서버 시간의 단위. 시간을 「틱 수」로 재는 설계(09-23)라 모든 시간 상수의 분모다.
 //   여기 한 곳에만 둔다 — 전투·몬스터 AI·땅 아이템처럼 게임 서버 헤더를 못 보는 층도 이 파일은 가장 먼저 읽는다.
 //   초 단위 상수는 숫자를 베끼지 말고 `초 × FRAME_PER_SEC` 로 유도할 것(25 가 흩어져 있으면 주기를 바꿀 때 한쪽만 바뀐다).

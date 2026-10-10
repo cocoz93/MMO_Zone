@@ -500,6 +500,49 @@ namespace
 #endif
 #endif // USE_INVENTORY
 
+#if USE_SKILL
+    // 스킬 거절 사유 → 와이어 값. 사유를 정하는 건 CSkillSystem(SkillSystem.h), 패킷 값으로 바꾸는 건 여기 —
+    //   위 ToUseItemFail 과 같은 꼴. 통과(COUNT)는 실패 패킷이 아니다.
+    SkillFail ToSkillFail(SkillReject reject)
+    {
+        switch (reject)
+        {
+        case SkillReject::BAD_SKILL: return SkillFail::BAD_SKILL;
+        case SkillReject::DEAD:      return SkillFail::DEAD;
+        case SkillReject::COOLDOWN:  return SkillFail::COOLDOWN;
+        case SkillReject::LOW_HP:    return SkillFail::LOW_HP;
+        case SkillReject::NO_TARGET: return SkillFail::NO_TARGET;
+        case SkillReject::COUNT:     break;
+        }
+        assert(false && "거절이 아닌 결과를 실패 패킷으로 바꾸려 했다");
+        return SkillFail::BAD_SKILL;
+    }
+
+    // 필드 순서는 Protocol.h 의 구조체와 글자 그대로 — 위 전투 패킷과 같은 주의(assert 는 크기만 본다)
+    CSerialBuffer* MakeSkillCast(int32_t casterId, uint8_t skillId, uint8_t direction)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_SKILL_CAST::TYPE);
+        *buf << static_cast<int>(casterId);
+        *buf << static_cast<uint8_t>(skillId);
+        *buf << static_cast<uint8_t>(direction);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_SKILL_CAST));
+        return buf;
+    }
+
+    CSerialBuffer* MakeSkillFail(uint8_t skillId, SkillFail reason)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_SKILL_FAIL::TYPE);
+        *buf << static_cast<uint8_t>(skillId);
+        *buf << static_cast<uint8_t>(reason);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_SKILL_FAIL));
+        return buf;
+    }
+#endif
+
 #if USE_DROP
     CSerialBuffer* MakeGroundItemCreate(const CGroundItem& g, GroundItemAppear reason)
     {
@@ -1726,6 +1769,12 @@ void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
         break;
 #endif
 
+#if USE_SKILL
+    case MsgType::C2S_USE_SKILL:
+        RecvUseSkill(player, pMsg);
+        break;
+#endif
+
     default:
         // C2S_HEARTBEAT 등 — 게임 로직 처리 불필요 (타임아웃 갱신은 IOCPServer 수신 시점에서 처리)
         break;
@@ -1764,6 +1813,10 @@ uint16_t CGameServer::GetExpectedSize(MsgType type)
 #endif
 #if USE_DROP
     case MsgType::C2S_PICKUP:       return sizeof(MSG_C2S_PICKUP);   // 몸 없음 — 헤더뿐
+#endif
+#if USE_SKILL
+    // 이 줄이 없으면 스킬 요청이 조용히 버려진다(위 물약과 같은 함정 — 거절 패킷도 안 간다)
+    case MsgType::C2S_USE_SKILL:    return sizeof(MSG_C2S_USE_SKILL);
 #endif
     default:                        return 0;
     }
@@ -2624,6 +2677,38 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
     }
 #endif
 }
+
+#if USE_SKILL
+// ==========================================================================
+// 스킬 — 판정·비용·대상·효과는 CSkillSystem(SkillSystem.cpp), 여기는 받기와 거절 답만
+//   성공의 결과는 알림으로 돌아온다 — 시전(OnCast, 아래) → 피해·죽음·보상(위 OnHit·OnDeath — 일반 공격과 같은 함수)
+// ==========================================================================
+void CGameServer::RecvUseSkill(CPlayer* player, CSerialBuffer* pMsg)
+{
+    MSG_C2S_USE_SKILL recvMsg{};
+    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
+
+    CZone* zone = _mapManager.GetZone(player->_zoneId);
+    if (zone == nullptr)
+        return;
+
+    // 거절이면 아무것도 안 바뀌었다(비용은 모든 검사 뒤에만 뗀다) — 사유만 본인에게
+    const SkillReject reject = _skillSystem.UseSkill(zone, player, recvMsg.skillId, _frameCount);
+    if (reject != SkillReject::COUNT)
+        SendPacket(player, MakeSkillFail(recvMsg.skillId, ToSkillFail(reject)));
+}
+
+// 시전했다 — 비용을 뗀 뒤, 효과 전에 온다. 와이어 순서 = 시전 모양 → 시전자 체력 → (효과의 DAMAGE …)
+void CGameServer::OnCast(CZone* zone, CPlayer* caster, const SkillDef& def)
+{
+    BroadcastAroundSector(zone, caster,
+        MakeSkillCast(caster->_actorId, static_cast<uint8_t>(def.skillId), static_cast<uint8_t>(caster->_direction)), false);
+
+    // 체력을 뗐으면 본인과 주변에 — 남의 머리 위 막대도 줄어야 한다(물약·레벨업 때 체력 방송과 같은 꼴)
+    if (def.costHpPct > 0)
+        BroadcastAroundSector(zone, caster, MakeActorStats(caster->_actorId, caster->_hp, caster->_maxHp), false);
+}
+#endif // USE_SKILL
 
 // ==========================================================================
 // 스탯·경험치 보내기 — 세우는 규칙은 CStatSystem(StatSystem.cpp), 여기는 결과를 패킷으로만

@@ -153,6 +153,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/CombatSystem.cpp
     ${SRV_DIR}/StatSystem.cpp
     ${SRV_DIR}/ItemSystem.cpp
+    ${SRV_DIR}/SkillSystem.cpp
     ${SRV_DIR}/LevelTable.cpp
     ${SRV_DIR}/GameDataFiles.cpp
     ${SRV_DIR}/GameDataCsv.cpp
@@ -162,6 +163,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/MonsterTable.cpp
     ${SRV_DIR}/SpawnRegionTable.cpp
     ${SRV_DIR}/DropTable.cpp
+    ${SRV_DIR}/SkillTable.cpp
     ${SRV_DIR}/DB/DBWorker.cpp
 )
 
