@@ -98,6 +98,7 @@ const BUBBLE_LIFE = 7;                       // 말풍선 표시 시간(초) —
 const HIT_LIFE = 0.5;                        // 피격 점멸 + 데미지 숫자
 const SWING_LIFE = 0.18;                     // 휘두르는 호
 const SKILL_HIT_LIFE = 0.5;                  // 스킬에 맞은 상대 발밑 표시(피격 점멸과 같은 길이)
+const CAST_LIFE = 0.3;                       // 범위 스킬(target=shape) 칸 깔기 — 맞는 칸을 잠깐 붉게
 const SPAWN_LIFE = 0.6;                      // 부활 섬광
 const FADE_LIFE = 0.5;                       // 죽은 채로 지워진 상대가 흐려지며 사라지는 시간(초)
 const LEVELUP_LIFE = 1.6;                    // 레벨업 문구 표시 시간(초)
@@ -119,7 +120,7 @@ const ITEMS = new Map();                                                // itemI
 let ITEM_SHEET = null;                                                  // assets/items.js 의 그림 시트 — 없으면 null(번호로 그린다)
 // 스킬 표 (USE_SKILL) — 서버와 같은 파일(Run/bin/SkillTable.csv)을 serve.js 의 /data/SkillTable.csv 로 받는다(아이템 표와 같은 꼴).
 //   못 받으면 SKILLS 가 비고 스킬 막대가 안 그려진다 — 숫자 키는 그래도 보낸다(판정은 서버).
-const SKILLS = new Map();                                               // skillId -> {name, target, effect, costHpPct, power, cooldownMs, costMp}
+const SKILLS = new Map();                                               // skillId -> {name, target, effect, costHpPct, power, cooldownMs, costMp, shape:[[앞,옆],…]}
 // 내 스킬 쿨타임 — 서버는 쿨타임을 안 보낸다. 자기 SKILL_CAST 를 받은 순간부터 표의 cooldownMs 를 센다. skillId -> 끝나는 시각(ms)
 const skillReadyAt = new Map();
 const skillState = { casts:0, lastFail:null };                          // 헤드리스 검증용 셈
@@ -177,7 +178,7 @@ const PICKUP_FAIL_TEXT = {
 };
 // 전투 필드 기본값 — CREATE 와 부활 양쪽에서 같은 모양으로 만들려고 한 곳에 둔다
 //   mp·maxMp(USE_SKILL) — S2C_ACTOR_MP 가 채운다. 본인 것만 오므로 남의 액터는 null 그대로다(남의 마력은 안 그린다). null = 아직 한 장도 못 받음
-const COMBAT_INIT = () => ({ hp:null, maxHp:null, mp:null, maxMp:null, hitT:0, hitDmg:0, swingT:0, spawnT:0, castSkill:0, skillHitT:0, dead:false });
+const COMBAT_INIT = () => ({ hp:null, maxHp:null, mp:null, maxMp:null, hitT:0, hitDmg:0, swingT:0, spawnT:0, castSkill:0, skillHitT:0, castT:0, castCells:null, dead:false });
 // 죽은 채로 지워진 상대 — 그리기만 한다. id -> others 에 있던 그 객체 + fadeT.
 //   서버는 몬스터가 죽는 순간 지우고 DEATH 바로 뒤에 DELETE 를 보낸다(10-09) — 시체는 이 연출뿐이다.
 //   DELETE 에 사유 칸이 없어 「죽어 있었나(dead)」로 가른다. 살아 있던 상대(시야 밖으로 나감·퇴장)는 바로 지운다.
@@ -323,12 +324,17 @@ function onPacket(p){
     // 시전은 주변 방송이다 — 누구의 시전이든 받는다. 쿨타임은 내 것만 센다(서버가 안 보낸다).
     //   맞은 결과(DAMAGE·DEATH …)는 일반 공격과 같은 패킷으로 따로 온다 — 시전자 체력 소모는 ACTOR_STATS 가 곧 뒤따른다.
     //   누가 맞았는지는 SKILL_CAST 에 없다 — 시전자에 castSkill 을 걸어 두고, 뒤따르는 DAMAGE 의 때린 쪽으로 알아본다.
-    //   대상은 서버가 고른다(1.5칸 안 앞쪽 반원에서 가장 가까운 하나) — 화면이 칸을 짐작해 칠하면 판정과 어긋난다.
+    //   칸 깔기는 대상 종류로 갈린다 —
+    //     front: 서버가 고른다(1.5칸 안 앞쪽 반원에서 가장 가까운 하나). 화면이 칸을 짐작해 칠하면 판정과 어긋나 안 깐다(맞은 상대 고리만).
+    //     shape: 서버와 같은 표의 칸 목록이라 짐작이 아니다 — 시전자 기준(앞, 옆)으로 칸을 깐다(어검술 역삼각형 4칸). 맞은 상대 고리는 그대로.
     case P.MSG.S2C_SKILL_CAST: {
       const a=actorOf(p.casterId);
-      if(a){ a.dir=p.direction; a.castSkill=p.skillId; }
+      const s=SKILLS.get(p.skillId);
+      if(a){
+        a.dir=p.direction; a.castSkill=p.skillId;
+        if(s && s.target==='shape' && s.shape.length){ a.castT=CAST_LIFE; a.castCells=s.shape; }
+      }
       if(self && p.casterId===self.id){
-        const s=SKILLS.get(p.skillId);
         skillReadyAt.set(p.skillId, performance.now()+(s?s.cooldownMs:0));
         skillState.casts++; skillChanged();
       }
@@ -623,6 +629,26 @@ function drawSwing(o,px,py){
   ctx.strokeStyle='#f2f7ea'; ctx.lineWidth=3.5; ctx.lineCap='round';
   ctx.beginPath(); ctx.arc(px+v.x*0.5*ZOOM, cy+v.y*0.5*ZOOM, 1.0*ZOOM, a0-0.75, a0+0.75); ctx.stroke();
   ctx.restore();
+}
+// 범위 스킬(target=shape) 시전 칸 — 표의 칸 목록을 시전자 기준으로 잠깐 붉게 깐다(땅 층 — 맞은 상대 고리 아래).
+//   칸은 [앞, 옆] — 옆은 바라보는 쪽 기준 오른쪽이 +, 오른쪽 = (−앞.y, 앞.x). 서버 칸 판정(SkillTable.h IsInShape)과 같은 기준이다.
+//   시전자의 실제 좌표 기준이라 땅 타일 격자와는 반 칸 어긋날 수 있다(서버도 타일에 붙이지 않는다).
+//   백호참(front)은 안 깐다 — S2C_SKILL_CAST 주석. 1단계의 앞 한 칸 깔기(25a473f)와 같은 그림을 칸 목록으로 넓힌 것이다.
+function drawSkillCast(o){
+  const k=o.castT/CAST_LIFE;                       // 1 → 0
+  const v=dvec(o.dir); if(v.x===0 && v.y===0) return;
+  ctx.save();
+  for(const [f,side] of o.castCells){
+    const cx=o.rx+v.x*f-v.y*side, cy=o.ry+v.y*f+v.x*side;   // 오른쪽 = (−앞.y, 앞.x)
+    const x=sx(cx)-ZOOM/2, y=sy(cy)-ZOOM/2;
+    ctx.fillStyle='rgba(255,90,40,'+(0.6*k)+')'; ctx.fillRect(x,y,ZOOM,ZOOM);   // 0.38 은 초록 바닥과 섞여 베이지로 흐려졌다(1단계)
+    ctx.strokeStyle='rgba(255,150,80,'+k+')'; ctx.lineWidth=2.5; ctx.strokeRect(x+1.25,y+1.25,ZOOM-2.5,ZOOM-2.5);
+  }
+  ctx.restore();
+}
+function drawSkillCasts(near){
+  others.forEach(o=>{ if(o.castT>0 && o.castCells && near(o)) drawSkillCast(o); });
+  if(self && self.castT>0 && self.castCells) drawSkillCast(self);
 }
 // 스킬에 맞은 상대 — 발밑에 붉은 고리를 깐다(땅에 깔려 나무·캐릭터 아래). 맞는 순간부터 조금씩 퍼지며 흐려진다.
 //   맞은 상대는 서버 결과(DAMAGE)로만 안다 — 예전에는 시전자 앞 한 칸을 칠했는데, 서버는 1.5칸 안 앞쪽 반원에서
@@ -1101,6 +1127,7 @@ function decayCombat(o,dt){
   if(o.swingT>0) o.swingT=Math.max(0,o.swingT-dt);
   if(o.spawnT>0) o.spawnT=Math.max(0,o.spawnT-dt);
   if(o.skillHitT>0) o.skillHitT=Math.max(0,o.skillHitT-dt);
+  if(o.castT>0)  o.castT =Math.max(0,o.castT-dt);
 }
 function render(t){
   ctx.clearRect(0,0,W,H);
@@ -1116,6 +1143,7 @@ function render(t){
   //   (5칸 = 스프라이트 키 3칸 + 그 위의 이름표·HP 막대·화살표가 걸칠 수 있는 폭).
   const hw=VW/2/ZOOM+5, hh=VH/2/ZOOM+5;
   const near=o=>Math.abs(o.rx-cam.x)<=hw && Math.abs(o.ry-cam.y)<=hh;
+  drawSkillCasts(near);   // 범위 스킬 시전 칸 — 땅에 깔린다(땅의 아이템 위, 고리·나무·캐릭터 아래)
   drawSkillHits(near);    // 스킬에 맞은 상대 발밑 고리 — 땅에 깔린다(땅의 아이템 위, 나무·캐릭터 아래)
   const view=[];
   propsInView().forEach(pr=>view.push({y:pr.y,kind:'prop',pr}));
@@ -1198,15 +1226,17 @@ function loadSkills(){
     .catch(e=>console.warn('[skill] 스킬 표를 못 받았다 — 스킬 막대를 안 그린다:', e))
     .then(skillChanged);
 }
-// 칸 위치로 읽는다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp (서버 SkillTable.cpp 와 같은 순서).
+// 칸 위치로 읽는다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp,shape (서버 SkillTable.cpp 와 같은 순서).
 //   걸러내는 규칙은 아이템 표와 같다(빈 줄 · '#' 주석 · 첫 칸이 숫자가 아닌 헤더). 값 검사는 서버가 기동 때 이미 했다.
+//   shape(아홉째)는 「앞:옆」 을 ';' 로 이은 칸 목록 — front 줄은 비어 있거나 칸 자체가 없다(빈 목록).
 function parseSkillTable(text){
   for(const raw of text.split(/\r?\n/)){
     const line=raw.replace(/^﻿/,'').trim();
     if(!line || line[0]==='#' || !/^\d/.test(line)) continue;
     const c=line.split(',').map(s=>s.trim());
     if(c.length<7) continue;
-    SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]), costMp:Number(c[7]||0) });
+    const shape=(c[8]||'').split(';').filter(Boolean).map(cell=>cell.split(':').map(Number));
+    SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]), costMp:Number(c[7]||0), shape });
   }
 }
 async function boot(){
