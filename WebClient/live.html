@@ -115,11 +115,11 @@ const INV_TAB_FILE  = new Map([['equip',0],['use',1],['etc',2]]);       // 아�
 // 아이템 표 — 서버와 같은 파일(Run/bin/ItemTable.csv)을 serve.js 의 /data/ItemTable.csv 로 받는다(두 벌로 적지 않는다).
 //   못 받으면(다른 정적 서버로 열었을 때 등) ITEMS 가 비고, 칸에는 그림 대신 아이템 번호를 회색으로 쓴다.
 //   판정은 서버라 그래도 동작은 안 막힌다.
-const ITEMS = new Map();                                                // itemId -> {name, tab, maxStack, healHp, icon}
+const ITEMS = new Map();                                                // itemId -> {name, tab, maxStack, healHp, icon, attack, healMp}
 let ITEM_SHEET = null;                                                  // assets/items.js 의 그림 시트 — 없으면 null(번호로 그린다)
 // 스킬 표 (USE_SKILL) — 서버와 같은 파일(Run/bin/SkillTable.csv)을 serve.js 의 /data/SkillTable.csv 로 받는다(아이템 표와 같은 꼴).
 //   못 받으면 SKILLS 가 비고 스킬 막대가 안 그려진다 — 숫자 키는 그래도 보낸다(판정은 서버).
-const SKILLS = new Map();                                               // skillId -> {name, target, effect, costHpPct, power, cooldownMs}
+const SKILLS = new Map();                                               // skillId -> {name, target, effect, costHpPct, power, cooldownMs, costMp}
 // 내 스킬 쿨타임 — 서버는 쿨타임을 안 보낸다. 자기 SKILL_CAST 를 받은 순간부터 표의 cooldownMs 를 센다. skillId -> 끝나는 시각(ms)
 const skillReadyAt = new Map();
 const skillState = { casts:0, lastFail:null };                          // 헤드리스 검증용 셈
@@ -128,6 +128,7 @@ function skillChanged(){ document.documentElement.setAttribute('data-skill', JSO
 const SKILL_FAIL_TEXT = {
   BAD_SKILL:'없는 스킬입니다', DEAD:'쓰러진 동안에는 쓸 수 없습니다', COOLDOWN:'아직 쓸 수 없습니다 — 잠시 뒤에 다시',
   LOW_HP:'체력이 모자랍니다 — 스킬로는 쓰러지지 않습니다', NO_TARGET:'앞에 맞을 몬스터가 없습니다',
+  LOW_MP:'마력이 부족합니다',
 };
 // ?admin=키 — 입장 뒤 운영자 로그인을 한 번 보낸다(드랍이 생기기 전까지 가방을 채우는 /item 명령용).
 const ADMIN_KEY = q.get('admin') || '';
@@ -140,17 +141,19 @@ function bagChanged(){
   document.documentElement.setAttribute('data-bag', JSON.stringify({ open:bag.open, tab:bag.tab, n, total, worn, items:ITEMS.size, sheet:!!ITEM_SHEET }));
   statsChanged();   // 무기 칸이 바뀌면 상태창 요약도 바뀐다
 }
-// 상태창 (USE_COMBAT · USE_EQUIP) — C 키로 열고 닫는다. 값은 me(레벨·공격·방어) · self(체력) · bag.slots 900(무기 칸).
+// 상태창 (USE_COMBAT · USE_EQUIP) — C 키로 열고 닫는다. 값은 me(레벨·공격·방어) · self(체력·마력) · bag.slots 900(무기 칸).
 const stw = { open:false, hover:false };
-// 헤드리스 검증용 — 상태창 요약(data-bag 과 같은 자리)
+// 헤드리스 검증용 — 상태창 요약(data-bag 과 같은 자리). 마력은 내 액터(self)에 있다 — S2C_ACTOR_MP 가 번호로 찾아 담는다
 function statsChanged(){
   const w=bag.slots.get(P.EQUIP_SLOT.WEAPON);
-  document.documentElement.setAttribute('data-stats', JSON.stringify({ open:stw.open, attack:me.attack, defense:me.defense, weapon:w?w.id:0 }));
+  document.documentElement.setAttribute('data-stats', JSON.stringify({ open:stw.open, attack:me.attack, defense:me.defense, weapon:w?w.id:0,
+    mp:self?self.mp:null, maxMp:self?self.maxMp:null }));
 }
 // 아이템 쓰기 거절 사유(P.USE_FAIL 이름) → 채팅 칸 [System] 문구
 const USE_FAIL_TEXT = {
   BAD_SLOT:'없는 칸입니다', EMPTY:'빈 칸입니다', NOT_USABLE:'쓸 수 없는 아이템입니다',
   DEAD:'쓰러진 동안에는 쓸 수 없습니다', COOLDOWN:'아직 쓸 수 없습니다 — 잠시 뒤에 다시', FULL_HP:'체력이 가득 찼습니다',
+  FULL_MP:'마력이 가득 찼습니다',
 };
 // 끼우기·빼기 거절 사유(P.EQUIP_FAIL 이름) → 채팅 칸 [System] 문구
 const EQUIP_FAIL_TEXT = {
@@ -173,7 +176,8 @@ const PICKUP_FAIL_TEXT = {
   NOT_OWNER:'다른 사람이 먼저 주울 수 있는 아이템입니다 — 잠시 뒤에 다시',
 };
 // 전투 필드 기본값 — CREATE 와 부활 양쪽에서 같은 모양으로 만들려고 한 곳에 둔다
-const COMBAT_INIT = () => ({ hp:null, maxHp:null, hitT:0, hitDmg:0, swingT:0, spawnT:0, castSkill:0, skillHitT:0, dead:false });
+//   mp·maxMp(USE_SKILL) — S2C_ACTOR_MP 가 채운다. 본인 것만 오므로 남의 액터는 null 그대로다(남의 마력은 안 그린다). null = 아직 한 장도 못 받음
+const COMBAT_INIT = () => ({ hp:null, maxHp:null, mp:null, maxMp:null, hitT:0, hitDmg:0, swingT:0, spawnT:0, castSkill:0, skillHitT:0, dead:false });
 // 죽은 채로 지워진 상대 — 그리기만 한다. id -> others 에 있던 그 객체 + fadeT.
 //   서버는 몬스터가 죽는 순간 지우고 DEATH 바로 뒤에 DELETE 를 보낸다(10-09) — 시체는 이 연출뿐이다.
 //   DELETE 에 사유 칸이 없어 「죽어 있었나(dead)」로 가른다. 살아 있던 상대(시야 밖으로 나감·퇴장)는 바로 지운다.
@@ -290,6 +294,10 @@ function onPacket(p){
       // 체력 갱신(물약·레벨업) — 본인 것도 온다. 등장 순간의 체력은 위 CREATE 셋이 싣는다.
       const a=actorOf(p.actorId); if(a){ a.hp=p.hp; a.maxHp=p.maxHp; }
       break; }
+    case P.MSG.S2C_ACTOR_MP: {
+      // 마력 갱신(접속·존 이동·레벨업·스킬 소모·마력 물약) — 본인 것만 온다. 체력과 같은 한 줄(번호로 찾는다 — 내 액터를 따로 다루지 않는다)
+      const a=actorOf(p.actorId); if(a){ a.mp=p.mp; a.maxMp=p.maxMp; if(a===self) statsChanged(); }
+      break; }
     case P.MSG.S2C_ATTACK: {
       const a=actorOf(p.attackerId);
       // castSkill 을 지운다 — 뒤따르는 DAMAGE 는 일반 공격 결과다(서버가 ATTACK 을 먼저 보낸다: OnSwing → FindFrontTarget → ApplyHit)
@@ -350,7 +358,7 @@ function onPacket(p){
     case P.MSG.S2C_ERROR: sysMsg(p.message||''); break;
     case P.MSG.S2C_ADMIN_LOGIN_OK:   sysMsg('운영자로 로그인했습니다'); break;
     case P.MSG.S2C_ADMIN_LOGIN_FAIL: sysMsg('운영자 로그인 실패 — 주소의 ?admin= 키를 확인하세요'); break;
-    // 쓰기 거절 — 성공은 따로 안 온다(칸 갱신과 S2C_ACTOR_STATS 가 곧 결과다)
+    // 쓰기 거절 — 성공은 따로 안 온다(칸 갱신과 S2C_ACTOR_STATS — 마력 물약이면 S2C_ACTOR_MP — 가 곧 결과다)
     case P.MSG.S2C_USE_ITEM_FAIL: sysMsg(USE_FAIL_TEXT[p.reasonName] || ('쓰지 못했습니다 ('+p.reasonName+')')); break;
 
     // ---- 스탯·장착 (USE_COMBAT · USE_EQUIP) ----
@@ -835,15 +843,35 @@ function drawHUD(){
 
 // ---- 스킬 막대 (USE_SKILL) — 게임 화면 아래 가운데. 표에 있는 스킬마다 한 칸: 키 번호 · 이름 · 쿨타임 덮개 ----
 //   덮개 = 남은 쿨타임만큼 위에서부터 어둡게 + 남은 초. 쿨타임은 내 SKILL_CAST 를 받은 순간부터 센다(skillReadyAt).
-const SKILL_CELL_W=68, SKILL_CELL_H=50, SKILL_GAP=8;
-function drawSkillBar(){
-  if(SKILLS.size===0) return;
+//   마력 막대는 스킬 칸들 왼쪽 — 둘을 한 덩어리로 가운데 맞춘다. 내 체력은 머리 위 막대가 있어 따로 두지 않는다.
+const SKILL_CELL_W=68, SKILL_CELL_H=50, SKILL_GAP=8, MP_BAR_W=132;
+// 자리 계산 한 곳 — 그리기와 헤드리스 시험이 같이 쓴다(bagLayout · statusLayout 과 같은 꼴).
+//   마력을 한 장도 못 받았으면(스킬을 끈 서버 · 입장 직후) 마력 막대를 안 그리고 스킬 칸만 가운데 맞춘다.
+function skillBarLayout(){
   const ids=[...SKILLS.keys()].sort((a,b)=>a-b);
-  const n=ids.length, w=n*SKILL_CELL_W+(n-1)*SKILL_GAP;
+  const showMp=!!self && self.maxMp>0;
+  const cellsW=ids.length ? ids.length*SKILL_CELL_W+(ids.length-1)*SKILL_GAP : 0;
+  const w=(showMp?MP_BAR_W:0)+(showMp && ids.length?SKILL_GAP:0)+cellsW;
   const x0=Math.round(VX+VW/2-w/2), y0=Math.round(VY+VH-SKILL_CELL_H-12);
+  const cx=x0+(showMp ? MP_BAR_W+(ids.length?SKILL_GAP:0) : 0);
+  return { mp: showMp ? {x:x0, y:y0, w:MP_BAR_W, h:SKILL_CELL_H, bar:{x:x0+10, y:y0+30, w:MP_BAR_W-20, h:10}} : null,
+           cells: ids.map((id,i)=>({id, x:cx+i*(SKILL_CELL_W+SKILL_GAP), y:y0})) };
+}
+// 마력 막대 — 이름 · 숫자 · 막대(남은 마력만큼 파랑). 값은 서버가 보낸 그대로(S2C_ACTOR_MP — 클라는 스스로 깎지 않는다)
+function drawMpBar(m){
+  panel(m.x,m.y,m.w,m.h);
+  ctx.textAlign='left'; ctx.fillStyle='#9ec8ff'; ctx.font='600 12px '+SANS; ctx.fillText('마력', m.x+10, m.y+19);
+  ctx.textAlign='right'; ctx.fillStyle='#eaf3e0'; ctx.font='600 12px '+MONO; ctx.fillText(self.mp+' / '+self.maxMp, m.x+m.w-10, m.y+19);
+  const b=m.bar, r=Math.max(0, Math.min(1, self.mp/self.maxMp));
+  ctx.fillStyle='rgba(0,0,0,.45)'; ctx.fillRect(b.x,b.y,b.w,b.h);
+  ctx.fillStyle='#3d7bff'; ctx.fillRect(b.x,b.y,Math.round(b.w*r),b.h);
+}
+function drawSkillBar(){
+  const L=skillBarLayout();
+  if(L.mp) drawMpBar(L.mp);
   const now=performance.now();
-  ids.forEach((id,i)=>{
-    const s=SKILLS.get(id), x=x0+i*(SKILL_CELL_W+SKILL_GAP);
+  L.cells.forEach(c=>{
+    const id=c.id, s=SKILLS.get(id), x=c.x, y0=c.y;
     panel(x,y0,SKILL_CELL_W,SKILL_CELL_H);
     ctx.textAlign='left'; ctx.fillStyle='#ffd84d'; ctx.font='700 12px '+MONO; ctx.fillText(String(id), x+8, y0+17);   // 키 번호 = 스킬 번호
     ctx.textAlign='center'; ctx.fillStyle='#eaf3e0'; ctx.font='600 13px '+SANS; ctx.fillText(fitText(s.name, SKILL_CELL_W-12), x+SKILL_CELL_W/2, y0+38);
@@ -945,9 +973,10 @@ function drawItemTip(winX, y, e){
   const equip = !!it && it.tab===INV_TAB_FILE.get('equip');
   const lines=[];
   if(it && it.healHp>0) lines.push(['체력 '+it.healHp+' 회복', '#bfe8c0']);
+  if(it && it.healMp>0) lines.push(['마력 '+it.healMp+' 회복', '#9ec8ff']);
   if(equip && it.attack>0) lines.push(['공격력 +'+it.attack, '#bfe8c0']);
   lines.push([it ? (e.c+' / '+it.maxStack+'개') : (e.c+'개'), 'rgba(200,215,200,.8)']);
-  if(it && it.healHp>0) lines.push(['두 번 눌러 사용', 'rgba(255,233,138,.9)']);
+  if(it && (it.healHp>0 || it.healMp>0)) lines.push(['두 번 눌러 사용', 'rgba(255,233,138,.9)']);
   if(equip) lines.push(['두 번 눌러 장착', 'rgba(255,233,138,.9)']);
   const tw=156, th=58+lines.length*17+6, tx=winX-tw-10, ty=Math.min(y, H-14-th);
   ctx.fillStyle='rgba(8,12,10,.97)'; rr(tx,ty,tw,th,8); ctx.fill();   // 게임 화면 위에 뜨므로 뒤가 비치지 않게 거의 불투명
@@ -965,11 +994,11 @@ function isEquipTabSlot(slot){ const r=P.INV_TAB_RANGES[INV_TAB_FILE.get('equip'
 // ---- 상태창 (USE_COMBAT · USE_EQUIP) — 그리기와 마우스 판정이 같은 자리 계산(statusLayout)을 쓴다 ----
 //   자리 = 왼쪽 위, 이름표 아래. 옆 여백이 있으면 연결 표시(resize() 가 110px 로 옮긴다, 높이 약 30) 아래 12px,
 //   없으면(여백 250px 미만 · 창 전체가 게임 화면) 연결 표시가 위 가운데로 가므로 이름표 바로 아래(110). 모양은 다른 HUD 와 같은 panel().
-const ST_W=220, ST_ROW=22, ST_TOP=30, ST_CELL=40;
+const ST_W=220, ST_ROW=22, ST_TOP=30, ST_CELL=40, ST_ROWS=5;   // 줄 = 레벨 · 체력 · 마력 · 공격력 · 방어력
 function statusLayout(){
   const px=14, py=(VX>=250) ? 152 : 110, pw=ST_W;
-  const ph=ST_TOP+12+4*ST_ROW+14+ST_CELL+12+24;
-  const cy=py+ST_TOP+12+4*ST_ROW+14;
+  const ph=ST_TOP+12+ST_ROWS*ST_ROW+14+ST_CELL+12+24;
+  const cy=py+ST_TOP+12+ST_ROWS*ST_ROW+14;
   return { px, py, pw, ph, cell:{ x:px+14, y:cy, w:ST_CELL, h:ST_CELL } };
 }
 // 마우스가 상태창 위면 'weapon'(무기 칸) · 'panel'(창 안 빈 곳), 밖이면 null
@@ -988,6 +1017,7 @@ function drawStatus(){
   const rows=[
     ['레벨',   me.level===null ? '—' : 'Lv.'+me.level],
     ['체력',   self ? self.hp+' / '+self.maxHp : '—'],
+    ['마력',   self && self.maxMp!==null ? self.mp+' / '+self.maxMp : '—'],   // null = 아직 못 받음(스킬을 끈 서버면 끝까지)
     ['공격력', me.attack===null ? '—' : String(me.attack)],
     ['방어력', me.defense===null ? '—' : String(me.defense)],
   ];
@@ -1157,7 +1187,8 @@ function parseItemTable(text){
     const tab=INV_TAB_FILE.get(c[2]);
     if(c.length<6 || tab===undefined) continue;
     // attack(7번째 칸) = 끼우면 더하는 공격력 — 보여 주기만 한다(무기 줄의 「공격력 +5」). 합은 서버가 셈한다
-    ITEMS.set(Number(c[0]), { name:c[1], tab, maxStack:Number(c[3]), healHp:Number(c[4]), icon:Number(c[5]), attack:Number(c[6]||0) });
+    // healMp(8번째 칸) = 마력 회복량(10-11) — 툴팁에만 쓴다. 쓸 수 있는지는 서버가 정한다(스킬을 끈 서버면 NOT_USABLE)
+    ITEMS.set(Number(c[0]), { name:c[1], tab, maxStack:Number(c[3]), healHp:Number(c[4]), icon:Number(c[5]), attack:Number(c[6]||0), healMp:Number(c[7]||0) });
   }
 }
 // 스킬 표(serve.js 의 /data/SkillTable.csv) — 못 받아도 멈추지 않는다(막대만 안 그린다). 없다는 사실은 콘솔 경고와 data-skill 에 남는다.
@@ -1167,7 +1198,7 @@ function loadSkills(){
     .catch(e=>console.warn('[skill] 스킬 표를 못 받았다 — 스킬 막대를 안 그린다:', e))
     .then(skillChanged);
 }
-// 칸 위치로 읽는다 — skillId,name,target,effect,costHpPct,power,cooldownMs (서버 SkillTable.cpp 와 같은 순서).
+// 칸 위치로 읽는다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp (서버 SkillTable.cpp 와 같은 순서).
 //   걸러내는 규칙은 아이템 표와 같다(빈 줄 · '#' 주석 · 첫 칸이 숫자가 아닌 헤더). 값 검사는 서버가 기동 때 이미 했다.
 function parseSkillTable(text){
   for(const raw of text.split(/\r?\n/)){
@@ -1175,7 +1206,7 @@ function parseSkillTable(text){
     if(!line || line[0]==='#' || !/^\d/.test(line)) continue;
     const c=line.split(',').map(s=>s.trim());
     if(c.length<7) continue;
-    SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]) });
+    SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]), costMp:Number(c[7]||0) });
   }
 }
 async function boot(){
