@@ -501,6 +501,22 @@ namespace
 #endif
 #endif // USE_INVENTORY
 
+#if USE_COMBAT
+    // 지속 효과 통보 — 본인에게만(Protocol.h MSG_S2C_ACTOR_BUFF). remainMs 0 = 풀림
+    CSerialBuffer* MakeActorBuff(int32_t actorId, uint8_t kind, int32_t value, uint32_t remainMs)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_ACTOR_BUFF::TYPE);
+        *buf << static_cast<int>(actorId);
+        *buf << static_cast<uint8_t>(kind);
+        *buf << static_cast<int>(value);
+        *buf << static_cast<unsigned int>(remainMs);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_ACTOR_BUFF));
+        return buf;
+    }
+#endif
+
 #if USE_SKILL
     // 스킬 거절 사유 → 와이어 값. 사유를 정하는 건 CSkillSystem(SkillSystem.h), 패킷 값으로 바꾸는 건 여기 —
     //   위 ToUseItemFail 과 같은 꼴. 통과(COUNT)는 실패 패킷이 아니다.
@@ -1219,6 +1235,10 @@ void CGameServer::GameLoopThread()
         // 3-2) 부활 대기자 훑기 (게임 로직 페이즈에 계상 — 브로드캐스트를 동반한다)
         //   플레이어만 — 몬스터는 되살리지 않는다(죽는 순간 지우고, 스폰이 새로 채운다 — 1-1).
         TickRespawn();
+
+        // 3-2b) 지속 효과 만료 — 효과가 걸린 캐릭터 목록만 훑는다(비면 그 자리에서 끝). 풀리면 알림(OnBuffChanged)으로 본인에게 간다.
+        //   존마다 돌지 않는다 — 목록이 게임 서버에 하나라 존을 옮긴 사람도 그대로 따라온다(BuffSystem.h [왜 따로인가]).
+        _buffSystem.Tick(_frameCount);
 #endif
 
 #if USE_DROP
@@ -1674,6 +1694,9 @@ void CGameServer::ReleasePlayer(CPlayer* player)
     //   그 상태로 죽어 있을 수는 없어도, 아래 해제 뒤에 대기열이 그 주소를 들고 있으면
     //   다음 틱이 해제된 메모리를 밟는다. 두 번 불러도 무해하므로 여기서도 뺀다.
     RemoveFromDeadActors(player);
+
+    // 지속 효과 목록도 같은 까닭으로 여기서 뺀다(알림 없음 — 세션이 없다). BroadcastLeaveZone 에서는 안 뺀다 — 존 이동이 그 길을 지난다.
+    _buffSystem.Forget(player);
 #endif
 
 #if USE_DB_WORKER
@@ -2636,6 +2659,10 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
 
     BroadcastAroundSector(zone, attacker, MakeDeath(target->_actorId), false);
 
+    // 죽으면 지속 효과가 풀린다(10-01) — 사람·몬스터 공통. 와이어 = DEATH → ACTOR_BUFF(0) → MY_STATS(바탕 공격력), 아래 레벨업 MY_STATS 보다 앞.
+    //   ★ 몬스터는 맨 끝 8) Despawn 이 해제하므로 그 "앞"인 여기서 목록에서 빼야 한다 — 뒤에 두면 해제된 주소가 목록에 남는다.
+    _buffSystem.ClearAll(target);
+
 #if USE_EXP && USE_MONSTER
     // ── 6) 경험치 — 사람이 몬스터를 잡았을 때만 ──
     //   ★ 막타 한 명에게만 준다. 나눠 주려면 누가 얼마나 때렸는지를 몬스터가 들고 있어야 하고,
@@ -2763,6 +2790,52 @@ void CGameServer::SendMyStats(CPlayer* player)
     SendPacket(player, MakeMyStats(player->_attackPower, player->_defense));
     _gameMonitor._combat._myStatsSent.Inc();
 }
+
+#if USE_COMBAT
+// ==========================================================================
+// 지속 효과 — 걸기·만료·정리는 CBuffSystem(BuffSystem.cpp), 여기는 알림을 받아 본인에게 보내기만
+// ==========================================================================
+
+// 효과가 바뀌었다(걸림·되감김·만료·죽음) — 스탯은 이미 다시 선 뒤라 MY_STATS 가 새 공격력이다. 와이어 = ACTOR_BUFF → MY_STATS.
+//   몬스터면 보낼 세션이 없어 둘 다 안 한다(스탯은 CBuffSystem 이 이미 세웠다 — 보스 버프는 거는 AI 가 생길 때 돈다).
+void CGameServer::OnBuffChanged(CCharacter* target, BuffKind kind)
+{
+    if (CPlayer* player = As<CPlayer>(target))
+    {
+        SendActorBuff(player, kind);
+        SendMyStats(player);
+    }
+}
+
+// 효과 칸 하나를 본인에게 — 비었으면 value 0 · remainMs 0(풀림). 세는 곳도 여기 한 곳(SendActorMp 와 같은 꼴).
+//   ★ 켜진 칸에 0 을 보내지 않는다 — 0 은 「풀림」의 뜻이다. 존 이동 패킷이 같은 틱의 만료 훑기(3-2b) 앞에 처리되면 남은 틱이 0 이
+//     될 수 있어 그때는 1ms 로 올린다(다음 틱의 만료가 곧 0 을 보낸다).
+void CGameServer::SendActorBuff(CPlayer* player, BuffKind kind)
+{
+    const BuffSlot& slot = player->_buffs[static_cast<int>(kind)];
+    uint32_t remainMs = 0;
+    if (slot.IsActive())
+    {
+        const uint64_t leftFrames = (slot.expireFrame > _frameCount) ? (slot.expireFrame - _frameCount) : 0;
+        remainMs = static_cast<uint32_t>(leftFrames * FRAME_INTERVAL_MS);
+        if (remainMs == 0)
+            remainMs = 1;
+    }
+    SendPacket(player, MakeActorBuff(player->_actorId, static_cast<uint8_t>(kind), slot.IsActive() ? slot.value : 0, remainMs));
+    _gameMonitor._buff._actorBuffSent.Inc();
+}
+
+// 켜져 있는 칸을 전부 — 입장·존 이동. 효과는 저장하지 않으므로 첫 입장엔 0장이고, 존 이동엔 그대로 따라온 효과가 다시 간다
+//   (웹이 존을 넘으면 내 액터를 새로 만드는 날 비지 않게 — ACTOR_MP 와 같은 까닭, 10-11).
+void CGameServer::SendActiveBuffs(CPlayer* player)
+{
+    for (int k = 0; k < BUFF_KIND_COUNT; ++k)
+    {
+        if (player->_buffs[k].IsActive())
+            SendActorBuff(player, static_cast<BuffKind>(k));
+    }
+}
+#endif // USE_COMBAT
 
 #if USE_EXP
 // 레벨·경험치 — 표(CLevelTable)의 누적 필요치를 그대로 싣는다(누적 기준은 StatSystem.cpp 경험치 머리 주석).
@@ -3109,6 +3182,12 @@ void CGameServer::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind kind)
     //     지금은 웹에 존 이동 처리가 없어 덧쓰기가 될 뿐이지만, 그 처리가 생기는 날 마력이 비지 않게 미리 보낸다(10-11).
     //   부하 더미도 입장 때 이 한 장을 반드시 받는다 — 등록을 빼면 전원 떨어진다(가방 전체·MY_STATS 와 같은 함정).
     SendActorMp(player);
+#endif
+
+#if USE_COMBAT
+    // 3-0) 켜져 있는 지속 효과 — 마력과 같은 자리·같은 까닭(존 이동 때 다시, firstEntry 밖). 첫 입장엔 칸이 비어 아무것도 안 간다.
+    //   부하 더미에겐 올 일이 없다(스킬을 안 쓴다) — 등록은 해 뒀다(DummyClient.cpp).
+    SendActiveBuffs(player);
 #endif
 
     if (rule.firstEntry)

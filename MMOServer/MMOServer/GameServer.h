@@ -35,6 +35,7 @@
 #include "Combat.h"        // 전투 판정 (순수 함수 — 송신·존·섹터를 모른다)
 #include "CombatSystem.h"  // 공격 흐름 — 여기서는 그 알림(ICombatEvents)을 구현한다
 #include "StatSystem.h"    // 스탯·레벨 규칙 — 멤버로 들고 부른다
+#include "BuffSystem.h"    // 지속 효과 규칙 — 멤버로 들고 부르고, 그 알림(IBuffEvents)을 구현한다
 #include "ItemSystem.h"    // 아이템 쓰기·장착 규칙 — 멤버로 들고 부른다
 #include "SkillSystem.h"   // 스킬 규칙 — 멤버로 들고 부르고, 그 알림(ISkillEvents)을 구현한다
 #include "MonsterManager.h" // 몬스터 — 여기서는 그 알림(IMonsterEvents)을 구현한다
@@ -47,9 +48,10 @@
 
 class CSerialBuffer;
 
-// 알림 통로 다섯 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
+// 알림 통로 여섯 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
 //   IZoneEvents       = 존(존 틱·몬스터 관리자)의 걷기·멈춤 알림 둘 — 토글 없이 늘 있다
 //   ICombatEvents     = 공격 흐름(CCombatSystem)의 알림 셋 — 스킬의 피해·죽음도 이 셋으로 온다(ApplyHit)
+//   IBuffEvents       = 지속 효과 규칙(CBuffSystem)의 알림 하나(효과가 바뀜 — 걸림·되감김·만료·죽음) · 전투 토글 소유
 //   IMonsterEvents    = 몬스터 관리자(CMonsterManager)의 알림 하나와 번호 부탁 하나
 //   IGroundItemEvents = 땅 아이템 관리자(CGroundItemManager)의 알림 둘과 번호 부탁 하나
 //                       (USE_DROP 은 가방(→ 전투)과 몬스터가 다 켜져야 켜진다 — BuildConfig.h #error)
@@ -58,6 +60,7 @@ class CGameServer
     : private IZoneEvents
 #if USE_COMBAT
     , private ICombatEvents
+    , private IBuffEvents
 #endif
 #if USE_MONSTER
     , private IMonsterEvents
@@ -117,7 +120,7 @@ public:
 
 #if USE_COMBAT
     // 스탯 세우기는 CStatSystem::RecalcStats(_statSystem) — 여기는 결과를 보내기만 한다.
-    // 본인에게 최종 공격력·방어력(S2C_MY_STATS) — 입장·레벨업·끼우기·빼기. 세는 곳도 여기 한 곳.
+    // 본인에게 최종 공격력·방어력(S2C_MY_STATS) — 입장·레벨업·끼우기·빼기·지속 효과 걸림·풀림(OnBuffChanged). 세는 곳도 여기 한 곳.
     //   존 이동 때는 안 보낸다 — 값이 안 바뀌고, 웹은 판을 안 비우며, 콘솔은 이 값을 안 그린다.
     void SendMyStats(CPlayer* player);
 #endif
@@ -191,6 +194,19 @@ private:
 
     // 부활 대기열에서 빼기 — 퇴장 경로가 반드시 부른다. 안 부르면 다음 틱이 해제된 포인터를 밟는다.
     void RemoveFromDeadActors(CCharacter* player);
+
+    // ── 지속 효과 (USE_COMBAT) ──
+    // 걸기·만료·정리는 CBuffSystem(_buffSystem) — 여기는 알림을 받아 보내기만. 틱 3-2b 가 만료를 훑고,
+    //   사라지는 두 길(ReleasePlayer → Forget · OnDeath → ClearAll)이 목록에서 뺀다(BuffSystem.h [목록은 틱 너머로 주소를 든다]).
+    // 효과 알림 (IBuffEvents) — 스탯은 이미 다시 선 뒤다. 사람이면 S2C_ACTOR_BUFF(본인) → S2C_MY_STATS(바뀐 공격력). 몬스터면 보낼 세션이 없다.
+    void OnBuffChanged(CCharacter* target, BuffKind kind) override;
+
+    // 본인에게 효과 칸 하나(S2C_ACTOR_BUFF) — 비었으면 remainMs 0(풀림). 세는 곳도 여기 한 곳.
+    //   ★ 본인 전용이다 — BroadcastAroundSector 로 보내지 말 것(Protocol.h MSG_S2C_ACTOR_BUFF).
+    void SendActorBuff(CPlayer* player, BuffKind kind);
+
+    // 켜져 있는 효과를 전부 본인에게 — 입장·존 이동(NotifyArrival). 첫 입장엔 칸이 비어 0장(효과는 저장하지 않는다).
+    void SendActiveBuffs(CPlayer* player);
 
     // 공격 알림 셋 (ICombatEvents) — 뜻과 순서는 CombatSystem.h. 셋 다 공격자 주변 9섹터에 방송한다.
     void OnSwing(CZone* zone, CCharacter* attacker) override;
@@ -532,6 +548,10 @@ private:
     // 스탯·레벨 규칙 — 표(_gameDataFiles)를 참조한다.
     //   ★ _gameDataFiles·_gameMonitor 보다 뒤에 선언해야 한다(멤버는 선언 순서로 세워진다 — _combatSystem 주석과 같은 까닭).
     CStatSystem _statSystem{ _gameDataFiles, _gameMonitor };
+
+    // 지속 효과 규칙 — 알림은 이 클래스(IBuffEvents)로 돌아온다. 바뀌면 _statSystem 으로 스탯을 다시 세운다(그래서 그 뒤에 선언).
+    //   거는 쪽은 _skillSystem(아래 — 그 참조를 받으므로 이보다 뒤) · 아이템이 걸게 되면 _itemSystem 도 받는다.
+    CBuffSystem _buffSystem{ _gameMonitor, _statSystem, *this };
 #endif
 
 #if USE_INVENTORY

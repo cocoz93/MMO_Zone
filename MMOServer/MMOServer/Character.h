@@ -4,6 +4,7 @@
 
 #include "Actor.h"
 #include "SkillTable.h"  // USE_SKILL — MAX_SKILL_ID(쿨타임 배열 크기). 헤더 안에서 스스로 토글을 본다
+#include "Buff.h"        // USE_COMBAT — BuffSlot·BUFF_KIND_COUNT(지속 효과 칸). 같은 규칙
 
 // ==========================================================================
 // CCharacter — 살아 있고, 싸우고, 화면에 보이는 것
@@ -55,14 +56,22 @@ public:
     uint8_t _colorIndex;    // 색상 인덱스 (0-6)
 
     // ── 전투 스탯 ──
-    //   공격력·방어력은 "최종값"이다 — 플레이어는 CStatSystem::RecalcStats 가 레벨 표 + 착용 장비로 세운다.
-    //   때릴 때마다 다시 세지 않는다(바뀌는 자리가 입장·레벨업·끼우기·빼기뿐이라 때리는 경로는 필드만 읽는다).
+    //   공격력·방어력은 "최종값"이다 — CStatSystem::RecalcStats 가 「바탕(플레이어 = 레벨 표 · 몬스터 = 몬스터 표) + 착용 장비(플레이어)
+    //   → 지속 효과 배수(아래 _buffs)」 순서로 세운다. 몬스터는 생성자가 표 값을 먼저 넣고, 효과가 걸리면 같은 함수가 표 값에서 다시 세운다.
+    //   때릴 때마다 다시 세지 않는다(바뀌는 자리가 입장·레벨업·끼우기·빼기·효과 걸림·풀림뿐이라 때리는 경로는 필드만 읽는다).
     //   피해 = Combat::CalcDamage(때린 쪽 _attackPower, 맞는 쪽 _defense) — 최소 1.
     //   초기값 0 = 아직 안 정해짐 — 플레이어는 RecalcStats(표), 몬스터는 파생 생성자가 채운다(위 주석).
     int32_t _hp          = 0;   // 현재 체력 (0 이하 = 죽음)
     int32_t _maxHp       = 0;   // 최대 체력
     int32_t _attackPower = 0;   // 공격력 (최종값)
     int32_t _defense     = 0;   // 방어력 (최종값) — 맞을 때 공격력에서 뺀다
+
+#if USE_COMBAT
+    // 지속 효과 칸 — 종류마다 하나(Buff.h BuffSlot · 색인 = BuffKind). 비우는 자리는 CBuffSystem(만료·죽음·퇴장)뿐 — 여기서 직접 손대지 않는다.
+    //   공격력 최종값은 위 주석대로 RecalcStats 가 이 칸을 읽어 곱한다. 몬스터도 같은 칸이다(보스 버프 — 거는 AI 는 아직 없다).
+    //   전투 토글 소유다 — 거는 쪽이 스킬만이 아니라서(아이템도 걸 수 있는 틀). 저장하지 않는다.
+    BuffSlot _buffs[BUFF_KIND_COUNT];
+#endif
 
     bool     _isDead = false;        // 죽은 상태 (이동·공격 거부, 공격 대상에서 제외)
     uint64_t _lastAttackFrame = 0;   // 마지막 공격 프레임 (쿨타임 판정 — CGameServer::_frameCount 기준)

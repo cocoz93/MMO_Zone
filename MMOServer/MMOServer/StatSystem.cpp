@@ -3,9 +3,12 @@
 #if USE_COMBAT
 
 #include "Player.h"          // 레벨·경험치·스탯 필드 · 착용 칸(가방)
+#include "Monster.h"         // USE_MONSTER — 몬스터 바탕은 표 행(_def). 헤더 안에서 스스로 토글을 본다
+#include "MonsterTable.h"    // USE_MONSTER — MonsterDef 의 칸(maxHp·attack·defense)
 #include "GameDataFiles.h"   // 레벨 표 · 아이템 표(무기 몫)
 #include "GameMonitor.h"     // 레벨업·보정 지표
 #include <Common/ErrorLog.h>
+#include <cassert>           // 몬스터를 끈 빌드에 몬스터 종류가 오는 일은 없다
 
 CStatSystem::CStatSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor)
     : _tables(tables)
@@ -16,45 +19,81 @@ CStatSystem::CStatSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor
 // ==========================================================================
 // 스탯 — 최대 체력·공격력·방어력을 세우는 한 곳
 //   공격력·방어력은 최종값을 필드에 둔다(Character.h [전투 스탯]). 때리는 경로는 필드만 읽는다.
-//   바탕은 레벨 표 하나다 — 표는 전투(USE_COMBAT)가 켜지면 늘 읽는다(경험치를 꺼도 1레벨 줄은 바탕 스탯이라 필요).
+//   순서 = 바탕(종류로 갈림) → 장비(플레이어) → 지속 효과 배수(공통). 배수를 맨 뒤에 두는 까닭 — 장착이 이 함수를 다시 부르는데,
+//   배수가 앞에 있으면 무기를 바꾸는 순간 효과가 사라진다.
+//   플레이어 바탕은 레벨 표 하나다 — 표는 전투(USE_COMBAT)가 켜지면 늘 읽는다(경험치를 꺼도 1레벨 줄은 바탕 스탯이라 필요).
 //   코드 상수(CHARACTER_DEFAULT_*)는 10-06 에 없앴다 — 표와 두 벌이었고, 전투를 끈 빌드는 스탯을 안 보낸다(WriteSnapshot 0).
+//   몬스터 바탕은 몬스터 표 행(_def) — 생성자(Monster.cpp)가 넣는 것과 같은 복사다(식이 아니라 복사라 두 곳에 둔다, 10-12).
+//   효과가 풀릴 때 돌아갈 「바탕」이 여기서 다시 선다 — 생성자 값을 필드에 두고 거기서 곱하면 풀 때 나눌 수밖에 없고, 그건 반올림이 남는다.
 // ==========================================================================
-void CStatSystem::RecalcStats(CPlayer* player, bool refill)
+void CStatSystem::RecalcStats(CCharacter* character, bool refill)
 {
-    const CLevelTable& table = _tables.Level();
-    player->_maxHp       = table.MaxHp(player->_level);
-    player->_attackPower = table.AttackPower(player->_level);
-    player->_defense     = table.Defense(player->_level);
+    // ── 1) 바탕 — 종류마다 표가 다르다. 갈래 둘이라 switch 다(하나가 나머지를 삼키지 않게) ──
+    switch (character->_kind)
+    {
+    case CharacterKind::PLAYER:
+    {
+        CPlayer* player = As<CPlayer>(character);
+        const CLevelTable& table = _tables.Level();
+        player->_maxHp       = table.MaxHp(player->_level);
+        player->_attackPower = table.AttackPower(player->_level);
+        player->_defense     = table.Defense(player->_level);
 #if USE_SKILL
-    player->_maxMp       = table.MaxMp(player->_level);   // 장비 몫은 없다 — 마력을 올리는 아이템이 아직 없다
+        player->_maxMp       = table.MaxMp(player->_level);   // 장비 몫은 없다 — 마력을 올리는 아이템이 아직 없다
 #endif
 
 #if USE_EQUIP
-    // 착용 칸의 몫 — 칸마다 아이템 표의 attack 을 더한다(지금은 무기 칸 하나).
-    //   표에서 사라진 번호(패치로 지운 아이템)는 더하지 않는다 — 불러오기가 이미 건너뛰므로 평소엔 안 닿는다.
-    for (int w = 0; w < INVENTORY_WORN_SLOTS; ++w)
-    {
-        const Item& worn = player->_inventory.At(WornIndexOf(static_cast<EquipSlot>(w)));
-        if (worn.itemId == 0)
-            continue;
-        if (const ItemDef* def = _tables.Item().Find(worn.itemId))
-            player->_attackPower += def->attack;
-    }
+        // 착용 칸의 몫 — 칸마다 아이템 표의 attack 을 더한다(지금은 무기 칸 하나).
+        //   표에서 사라진 번호(패치로 지운 아이템)는 더하지 않는다 — 불러오기가 이미 건너뛰므로 평소엔 안 닿는다.
+        for (int w = 0; w < INVENTORY_WORN_SLOTS; ++w)
+        {
+            const Item& worn = player->_inventory.At(WornIndexOf(static_cast<EquipSlot>(w)));
+            if (worn.itemId == 0)
+                continue;
+            if (const ItemDef* def = _tables.Item().Find(worn.itemId))
+                player->_attackPower += def->attack;
+        }
 #endif
+        break;
+    }
 
+    case CharacterKind::MONSTER:
+    {
+#if USE_MONSTER
+        // 몬스터 표 행 — 생성자가 넣은 것과 같은 값(Monster.cpp 생성자와 서로 가리킨다). 마력은 안 건드린다(몬스터 마력은 보스 단계 — 0).
+        //   ★ 아직 아무도 안 탄다 — 몬스터에 효과를 거는 길(보스 스킬 AI)이 없다. 보스 단계에서 시험한다.
+        const MonsterDef& def = As<CMonster>(character)->_def;
+        character->_maxHp       = def.maxHp;
+        character->_attackPower = def.attack;
+        character->_defense     = def.defense;
+#else
+        assert(false && "몬스터를 끈 빌드에 몬스터가 있을 수 없다");
+#endif
+        break;
+    }
+    }
+
+    // ── 2) 지속 효과 배수 — 바탕 + 장비 "뒤". 칸은 CBuffSystem 만 켜고 끈다(Character.h _buffs) ──
+    {
+        const BuffSlot& mul = character->_buffs[static_cast<int>(BuffKind::ATTACK_MUL)];
+        if (mul.IsActive())
+            character->_attackPower *= mul.value;
+    }
+
+    // ── 3) 체력·마력 맞추기 ──
     // 레벨이 올랐을 때만 채운다. 입장 때는 DB 가 들고 있던 체력이 아직 없으므로(스탯만 맞춘다)
-    //   호출부가 정한다 — 지금은 스폰도 만피라 둘 다 true 로 들어온다.
+    //   호출부가 정한다 — 지금은 스폰도 만피라 둘 다 true 로 들어온다. 효과 걸림·풀림은 false(최대치만 맞춘다 — 효과가 최대 체력을 안 바꿔 지금은 아무 일 없다).
     if (refill)
-        player->_hp = player->_maxHp;
-    else if (player->_hp > player->_maxHp)
-        player->_hp = player->_maxHp;   // 표를 낮춘 패치 뒤엔 들고 있던 체력이 최대를 넘을 수 있다
+        character->_hp = character->_maxHp;
+    else if (character->_hp > character->_maxHp)
+        character->_hp = character->_maxHp;   // 표를 낮춘 패치 뒤엔 들고 있던 체력이 최대를 넘을 수 있다
 
 #if USE_SKILL
-    // 마력도 같은 줄 — 마력은 저장하지 않아 입장 때 가득이고(refill=true), 끼우기·빼기는 최대치만 맞춘다
+    // 마력도 같은 줄 — 마력은 저장하지 않아 입장 때 가득이고(refill=true), 끼우기·빼기는 최대치만 맞춘다. 몬스터는 둘 다 0 이라 아무 일 없다
     if (refill)
-        player->_mp = player->_maxMp;
-    else if (player->_mp > player->_maxMp)
-        player->_mp = player->_maxMp;
+        character->_mp = character->_maxMp;
+    else if (character->_mp > character->_maxMp)
+        character->_mp = character->_maxMp;
 #endif
 }
 

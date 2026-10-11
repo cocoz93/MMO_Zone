@@ -455,8 +455,34 @@ private:
                      "Hits raised to the minimum damage (attack - defense < 1), any attacker",
                      _gameMonitor._combat._damageFloored);
         WriteCounter(ss, "mmo_my_stats_sent_total",
-                     "S2C_MY_STATS packets sent (only SendMyStats sends them; one per enter, level-up and equip change)",
+                     "S2C_MY_STATS packets sent (only SendMyStats sends them; one per enter, level-up, equip change and buff change)",
                      _gameMonitor._combat._myStatsSent);
+
+#if USE_COMBAT
+        // 지속 효과(버프). 등식(조용해진 뒤) = Σ applied = Σ ended + mmo_buff_active (GameMonitor.h) — 다 표를 돈다(늘어도 노출에서 안 빠진다).
+        const auto& bf = _gameMonitor._buff;
+        ss << "# HELP mmo_buff_applied_total Buffs newly applied (an empty slot turned on), split by kind\n";
+        ss << "# TYPE mmo_buff_applied_total counter\n";
+        for (int i = 0; i < BUFF_KIND_COUNT; ++i)
+            ss << "mmo_buff_applied_total{kind=\"" << BuffKindName(static_cast<BuffKind>(i)) << "\"} " << bf._applied[i] << "\n";
+        ss << "\n";
+        ss << "# HELP mmo_buff_refreshed_total Buffs re-applied onto a live slot (value and time overwritten), split by kind\n";
+        ss << "# TYPE mmo_buff_refreshed_total counter\n";
+        for (int i = 0; i < BUFF_KIND_COUNT; ++i)
+            ss << "mmo_buff_refreshed_total{kind=\"" << BuffKindName(static_cast<BuffKind>(i)) << "\"} " << bf._refreshed[i] << "\n";
+        ss << "\n";
+        ss << "# HELP mmo_buff_ended_total Buff slots turned off, split by reason (expired, death, leave)\n";
+        ss << "# TYPE mmo_buff_ended_total counter\n";
+        for (int i = 0; i < static_cast<int>(BuffEnd::COUNT); ++i)
+            ss << "mmo_buff_ended_total{reason=\"" << BuffEndName(static_cast<BuffEnd>(i)) << "\"} " << bf._ended[i] << "\n";
+        ss << "\n";
+        ss << "# HELP mmo_buff_active Buff slots live right now across every character\n";
+        ss << "# TYPE mmo_buff_active gauge\n";
+        ss << "mmo_buff_active " << bf._active << "\n\n";
+        WriteCounter(ss, "mmo_actor_buff_sent_total",
+                     "S2C_ACTOR_BUFF packets sent (only SendActorBuff sends them, to the owner only; one per apply, refresh, expiry, death and zone change)",
+                     bf._actorBuffSent);
+#endif
 
 #if USE_MONSTER
         // 위 값들은 "플레이어만" 센다 — 몬스터를 섞으면 기존 A/B 실측의 기준선이 오염된다.

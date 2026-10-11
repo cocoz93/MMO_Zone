@@ -22,6 +22,7 @@
 #include "GroundItem.h"       // USE_DROP — 땅에서 빠진 까닭(GroundItemRemoval, 땅 아이템 관리자의 어휘) 수만큼 칸을 잡는다
 #include "ItemSystem.h"       // USE_INVENTORY — 쓰기·장착 거절 사유(UseItemReject·EquipReject) 수만큼 칸을 잡는다
 #include "SkillSystem.h"      // USE_SKILL — 스킬 거절 사유(SkillReject) 수만큼 칸을 잡는다
+#include "Buff.h"             // USE_COMBAT — 지속 효과 종류(BuffKind)·끝난 사유(BuffEnd) 수만큼 칸을 잡는다
 #include "SkillTable.h"       // USE_SKILL — 스킬 번호 수(MAX_SKILL_ID)만큼 시전 칸을 잡는다
 
 // [사유 enum 의 집 — 규칙 하나] 사유는 그것을 정하는 층의 헤더에 산다(10-06, 아키텍처 전수검사 7번).
@@ -146,6 +147,34 @@ struct alignas(64) DBItemSaveCounters
 };
 #endif
 
+#if USE_COMBAT
+// 지속 효과의 지표 라벨 둘 — 종류(BuffKind, 와이어 enum — Protocol.h)와 끝난 사유(BuffEnd — Buff.h).
+//   종류 이름은 스킬 표의 effect 글자 「buff_<종류>」 뒤쪽과 같게 둔다(웹 proto.js BUFF_KIND 도 같은 이름).
+inline const char* BuffKindName(BuffKind k)
+{
+    static_assert(static_cast<int>(BuffKind::COUNT) == 1, "BuffKind 를 늘렸으면 이름도 붙일 것");
+    switch (k)
+    {
+    case BuffKind::ATTACK_MUL: return "attack_mul";
+    case BuffKind::COUNT:      break;
+    }
+    return "?";
+}
+
+inline const char* BuffEndName(BuffEnd e)
+{
+    static_assert(static_cast<int>(BuffEnd::COUNT) == 3, "BuffEnd 를 늘렸으면 이름도 붙일 것");
+    switch (e)
+    {
+    case BuffEnd::EXPIRED: return "expired";
+    case BuffEnd::DEATH:   return "death";
+    case BuffEnd::LEAVE:   return "leave";
+    case BuffEnd::COUNT:   break;
+    }
+    return "?";
+}
+#endif
+
 #if USE_SKILL
 // 스킬 거절의 지표 라벨 — 사유 enum 은 CSkillSystem 이 정한다(SkillSystem.h). 와이어 값으로는 게임 서버가 바꾼다.
 //   ★ 위 USE_INVENTORY 블록 밖이어야 한다 — 스킬은 가방과 따로 켜고 끈다(가방을 끈 빌드에서 이름표가 사라졌던 판, 10-10 토글 빌드).
@@ -217,6 +246,25 @@ public:
         // S2C_MY_STATS 보낸 수 — SendMyStats 한 곳에서만 센다. 입장마다 1 이라 더미 시험의 분모다.
         Counter _myStatsSent;
     } _combat;
+
+#if USE_COMBAT
+    // ══════════════════════════════════════════════════════════════
+    // 지속 효과 (USE_COMBAT) — 세는 곳은 CBuffSystem 안이다(걸림·되감김 = Apply, 끝남 = Tick·ClearAll·Forget).
+    //   ★ 등식(조용해진 뒤): Σ _applied = Σ _ended + _active — 끝나는 자리가 셋이라 사유마다 한 칸이다(드랍 등식과 같은 꼴).
+    //     한 자리라도 안 세면 등식이 영영 안 맞는다. _refreshed 는 등식 밖이다(칸이 이미 켜져 있어 _active 가 안 변한다).
+    //   토글 안에 두는 까닭 — 칸 수(BuffKind·BuffEnd)가 Buff.h 의 토글 안에 있다(스킬 계수기와 같은 꼴).
+    // ══════════════════════════════════════════════════════════════
+    struct alignas(64) BuffCounters
+    {
+        Counter _applied[BUFF_KIND_COUNT];                      // 새로 걸림(빈 칸이 켜짐), 종류별
+        Counter _refreshed[BUFF_KIND_COUNT];                    // 켜진 칸을 덮음(되감기 — 값·시간 다시), 종류별
+        Counter _ended[static_cast<int>(BuffEnd::COUNT)];      // 끝남, 사유별(만료·죽음·퇴장)
+        Counter _active;                                        // [게이지] 지금 켜져 있는 칸 수(전원 합계) — 켤 때 +1, 끝낼 때 −1
+
+        // S2C_ACTOR_BUFF 보낸 수 — SendActorBuff 한 곳에서만 센다(_myStatsSent 와 같은 꼴). 걸림·되감김·만료·죽음·존 이동마다 1.
+        Counter _actorBuffSent;
+    } _buff;
+#endif
 
 #if USE_MONSTER
     // ══════════════════════════════════════════════════════════════
