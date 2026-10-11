@@ -404,8 +404,10 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
 
     // 스킬 (서버 USE_SKILL) — 콘솔 클라는 스킬을 쓰지도 그리지도 않는다(위 가방과 같은 이유).
     //   옆에서 사람이 시전할 때마다 SKILL_CAST 가 오므로, 빠뜨리면 모르는 타입 로그가 찍힌다.
+    //   내 마력(ACTOR_MP)은 입장·존 이동 때 반드시 한 장 오므로, 빠뜨리면 그때마다 모르는 타입 로그가 찍힌다.
     case MsgType::S2C_SKILL_CAST:
     case MsgType::S2C_SKILL_FAIL:
+    case MsgType::S2C_ACTOR_MP:
         break;
 
     default:

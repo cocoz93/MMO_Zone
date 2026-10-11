@@ -30,10 +30,12 @@
     // 스탯·장착 (USE_COMBAT · USE_EQUIP) — 내 스탯은 본인 전용. 끼우기·빼기 성공은 칸 갱신 둘 + MY_STATS 가 곧 결과다
     S2C_MY_STATS:1038, C2S_EQUIP:1039, C2S_UNEQUIP:1040, S2C_EQUIP_FAIL:1041,
     // 스킬 (USE_SKILL) — 방향·대상은 서버가 정한다. 시전은 주변 방송, 거절은 본인에게만
-    C2S_USE_SKILL:1042, S2C_SKILL_CAST:1043, S2C_SKILL_FAIL:1044
+    C2S_USE_SKILL:1042, S2C_SKILL_CAST:1043, S2C_SKILL_FAIL:1044,
+    // 마력 (USE_SKILL) — 본인에게만 온다. 대상 번호를 싣는다(ACTOR_STATS 와 같은 꼴)
+    S2C_ACTOR_MP:1045
   };
   // 아이템 쓰기 거절 사유 — Protocol.h UseItemFail 순서 그대로(값이 와이어에 실린다). 서버가 이 순서로 보고 먼저 걸린 하나를 보낸다
-  const USE_FAIL = ['BAD_SLOT','EMPTY','NOT_USABLE','DEAD','COOLDOWN','FULL_HP'];
+  const USE_FAIL = ['BAD_SLOT','EMPTY','NOT_USABLE','DEAD','COOLDOWN','FULL_HP','FULL_MP'];
   // 땅의 아이템 — Protocol.h GroundItemAppear · GroundItemGone · PickupFail 순서 그대로(값이 와이어에 실린다)
   const GROUND_APPEAR = ['SEEN','DROP'];
   const GROUND_GONE   = ['OUT_OF_SIGHT','PICKED','EXPIRED'];
@@ -46,7 +48,7 @@
   // 끼우기·빼기 거절 사유 — Protocol.h EquipFail 순서 그대로(값이 와이어에 실린다)
   const EQUIP_FAIL = ['BAD_SLOT','EMPTY','NOT_EQUIPPABLE','DEAD','COOLDOWN','TAB_FULL'];
   // 스킬 거절 사유 — Protocol.h SkillFail 순서 그대로(값이 와이어에 실린다). 거절이면 체력·쿨타임이 그대로다
-  const SKILL_FAIL = ['BAD_SKILL','DEAD','COOLDOWN','LOW_HP','NO_TARGET'];
+  const SKILL_FAIL = ['BAD_SKILL','DEAD','COOLDOWN','LOW_HP','NO_TARGET','LOW_MP'];
   const NAME = Object.fromEntries(Object.entries(MSG).map(([k,v])=>[v,k]));
   const DIR = { NONE:0, UP:1, DOWN:2, LEFT:3, RIGHT:4 };  // Player.h
   const MOVE = { IDLE:0, MOVING:1 };
@@ -169,7 +171,7 @@
       }
       case MSG.S2C_INVENTORY_SLOT:               // 칸의 최종값 — itemId 0 = 비었다
         p.slot=dv.getUint16(o,true); p.itemId=dv.getInt32(o+2,true); p.count=dv.getInt32(o+6,true); break;
-      case MSG.S2C_USE_ITEM_FAIL:                // 성공은 따로 안 온다 — 칸 갱신과 S2C_ACTOR_STATS 가 곧 결과다
+      case MSG.S2C_USE_ITEM_FAIL:                // 성공은 따로 안 온다 — 칸 갱신과 S2C_ACTOR_STATS(마력 물약이면 S2C_ACTOR_MP)가 곧 결과다
         p.slot=dv.getUint16(o,true); p.reason=dv.getUint8(o+2); p.reasonName=USE_FAIL[p.reason] || ('?'+p.reason); break;
       // ---- 땅의 아이템 (USE_DROP) — pack(1) 이라 int32·float 뒤 uint8 이 곧바로 붙는다 ----
       //   CREATE 25B = groundId i32 · itemId i32 · count i32 · x f32 · y f32 · reason u8 (Protocol.h static_assert)
@@ -199,6 +201,9 @@
       //   SKILL_FAIL 6B = skillId u8 · reason u8 (요청에 실린 번호 그대로)
       case MSG.S2C_SKILL_FAIL:
         p.skillId=dv.getUint8(o); p.reason=dv.getUint8(o+1); p.reasonName=SKILL_FAIL[p.reason] || ('?'+p.reason); break;
+      //   ACTOR_MP 16B = actorId i32 · mp i32 · maxMp i32 — 본인에게만(접속·존 이동·레벨업·스킬 소모·마력 물약)
+      case MSG.S2C_ACTOR_MP:
+        p.actorId=dv.getInt32(o,true); p.mp=dv.getInt32(o+4,true); p.maxMp=dv.getInt32(o+8,true); break;
       default: break; // ZONE_CHANGE_OK/FAIL, ADMIN_* etc. — not needed for the view
     }
     return p;

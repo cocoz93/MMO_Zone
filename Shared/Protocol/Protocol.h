@@ -108,7 +108,7 @@ enum class MsgType : uint16_t
     S2C_INVENTORY,          // 서버 → 클라이언트: 가방 전체 (입장 때 한 번 — 빈 칸은 안 싣는다)
     S2C_INVENTORY_SLOT,     // 서버 → 클라이언트: 가방 한 칸이 바뀜 (itemId 0 = 비었음)
     C2S_USE_ITEM,           // 클라이언트 → 서버: 이 칸의 아이템을 쓴다 (지금은 물약만)
-    S2C_USE_ITEM_FAIL,      // 서버 → 클라이언트: 쓰기 거절 + 사유 (성공은 칸 갱신·체력 통보가 곧 결과다)
+    S2C_USE_ITEM_FAIL,      // 서버 → 클라이언트: 쓰기 거절 + 사유 (성공은 칸 갱신·체력 통보가 곧 결과다 — 마력 물약이면 체력 대신 마력 통보)
 
     //--------------------------------------------------
     // 땅의 아이템·줍기 (USE_DROP)
@@ -131,7 +131,8 @@ enum class MsgType : uint16_t
     //--------------------------------------------------
     C2S_USE_SKILL,          // 클라이언트 → 서버: 이 스킬을 쓴다 (방향·대상은 서버가 정한다 — 지금 바라보는 쪽)
     S2C_SKILL_CAST,         // 서버 → 클라이언트: 시전 방송 (시전자 주변, 본인 포함 — 남의 화면에 시전 모양이 그려진다)
-    S2C_SKILL_FAIL          // 서버 → 클라이언트: 스킬 거절 + 사유 (본인 — 거절이면 체력·쿨타임이 그대로다)
+    S2C_SKILL_FAIL,         // 서버 → 클라이언트: 스킬 거절 + 사유 (본인 — 거절이면 체력·쿨타임이 그대로다)
+    S2C_ACTOR_MP            // 서버 → 클라이언트: 마력 통보 (본인에게만 — 마력은 스킬 토글 소유)
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -785,6 +786,7 @@ enum class UseItemFail : uint8_t
     DEAD,         // 죽어 있다
     COOLDOWN,     // 아직 대기 중이다(지난번에 쓴 지 1초가 안 됐다)
     FULL_HP,      // 체력이 가득 — 물약을 안 줄인다
+    FULL_MP,      // 마력이 가득 — 마력 물약을 안 줄인다
     COUNT
 };
 
@@ -796,7 +798,8 @@ struct MSG_C2S_USE_ITEM
     uint16_t  slot;
 };
 
-// S2C: 쓰기 거절 — 성공은 따로 안 알린다(칸 패킷과 체력 패킷 S2C_ACTOR_STATS 가 곧 결과다)
+// S2C: 쓰기 거절 — 성공은 따로 안 알린다(칸 패킷과 체력 패킷 S2C_ACTOR_STATS 가 곧 결과다.
+//   마력 물약이면 체력 패킷 대신 S2C_ACTOR_MP — 본인에게만)
 struct MSG_S2C_USE_ITEM_FAIL
 {
     static constexpr MsgType TYPE = MsgType::S2C_USE_ITEM_FAIL;
@@ -975,6 +978,7 @@ enum class SkillFail : uint8_t
     COOLDOWN,    // 아직 쿨타임이다
     LOW_HP,      // 체력을 떼고 나면 1 미만이 된다 — 자기 스킬로는 안 죽는다
     NO_TARGET,   // 맞을 몬스터가 없다(사람은 스킬에 안 맞는다)
+    LOW_MP,      // 마력이 비용보다 적다 — 판정은 LOW_HP 다음, NO_TARGET 앞이다(와이어 값만 끝에 붙였다)
     COUNT
 };
 
@@ -987,7 +991,8 @@ struct MSG_C2S_USE_SKILL
 };
 
 // S2C: 시전 — 시전자 주변(본인 포함)에 방송. 맞은 결과는 따로 온다(S2C_DAMAGE · S2C_DEATH …).
-//   시전자 체력 소모는 S2C_ACTOR_STATS 가 바로 뒤따른다. 쿨타임은 안 싣는다 — 클라가 표의 cooldownMs 로 이 장을 받은 순간부터 센다.
+//   시전자 체력 소모는 S2C_ACTOR_STATS 가 바로 뒤따르고, 마력 소모는 그 뒤 S2C_ACTOR_MP(시전자 본인에게만)가 따른다.
+//   쿨타임은 안 싣는다 — 클라가 표의 cooldownMs 로 이 장을 받은 순간부터 센다.
 struct MSG_S2C_SKILL_CAST
 {
     static constexpr MsgType TYPE = MsgType::S2C_SKILL_CAST;
@@ -1014,5 +1019,25 @@ static_assert(sizeof(MSG_C2S_USE_SKILL)  == 5,  "C2S_USE_SKILL 은 5B (proto.js 
 static_assert(sizeof(MSG_S2C_SKILL_CAST) == 10, "SKILL_CAST 는 10B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_S2C_SKILL_FAIL) == 6,  "SKILL_FAIL 은 6B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_SKILL_FAIL) == 1044, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+
+// S2C: 마력 통보 — 접속·존 이동·레벨업·스킬 마력 소모·마력 물약 때 보낸다.
+//   ★ 받는 사람 = 본인만 — 방송 함수로 보내지 말 것. 이름 앞머리(ACTOR_)가 같은 S2C_ACTOR_STATS 는 주변 방송이라
+//     습관대로 방송하기 쉽다(그러면 남의 마력이 새고, 시전마다 주변 전원에게 한 장씩 간다). 남의 마력은 화면에 안 그린다.
+//   ★ CCharacter 에 있는 값은 대상 번호를 싣는다 — 메시지가 「누구의 마력」을 스스로 말하고, 받는 사람은 보내는 쪽이 정한다.
+//     본인 전용인데 번호가 없는 S2C_MY_STATS 는 이 원칙 전에 생긴 알려진 예외다.
+//   부하 더미도 입장 때 반드시 한 장 받는다 — 더미가 이 타입을 몰라서는 안 된다(S2C_MY_STATS 와 같은 함정).
+struct MSG_S2C_ACTOR_MP
+{
+    static constexpr MsgType TYPE = MsgType::S2C_ACTOR_MP;
+    MsgHeader header;
+    int32_t actorId;
+    int32_t mp;
+    int32_t maxMp;
+
+    MSG_S2C_ACTOR_MP() : header{ sizeof(*this), TYPE }, actorId(0), mp(0), maxMp(0) {}
+};
+
+static_assert(sizeof(MSG_S2C_ACTOR_MP) == 16, "ACTOR_MP 는 16B (proto.js 와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::S2C_ACTOR_MP) == 1045, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 #pragma pack(pop)

@@ -261,6 +261,9 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     //     빠뜨리면 그 순간 근처 더미가 전부 떨어진다. SKILL_FAIL 은 본인에게만 가서 올 일이 없지만 등록은 해 둔다.
     case MsgType::S2C_SKILL_CAST:         return sizeof(MSG_S2C_SKILL_CAST);
     case MsgType::S2C_SKILL_FAIL:         return sizeof(MSG_S2C_SKILL_FAIL);
+    //   ★ S2C_ACTOR_MP 는 더미도 반드시 받는다 — 입장 때 본인에게 한 장 간다(S2C_MY_STATS 와 같은 함정).
+    //     빠뜨리면 더미 전원이 접속하자마자 떨어진다.
+    case MsgType::S2C_ACTOR_MP:           return sizeof(MSG_S2C_ACTOR_MP);
     default: return 0;
     }
 }
