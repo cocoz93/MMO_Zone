@@ -131,7 +131,7 @@ enum class MsgType : uint16_t
     //--------------------------------------------------
     C2S_USE_SKILL,          // 클라이언트 → 서버: 이 스킬을 쓴다 (방향·대상은 서버가 정한다 — 지금 바라보는 쪽)
     S2C_SKILL_CAST,         // 서버 → 클라이언트: 시전 방송 (시전자 주변, 본인 포함 — 남의 화면에 시전 모양이 그려진다)
-    S2C_SKILL_FAIL,         // 서버 → 클라이언트: 스킬 거절 + 사유 (본인 — 거절이면 체력·쿨타임이 그대로다)
+    S2C_SKILL_FAIL,         // 서버 → 클라이언트: 스킬 거절 + 사유 (본인 — 거절이면 체력·마력·쿨타임이 그대로다)
     S2C_ACTOR_MP            // 서버 → 클라이언트: 마력 통보 (본인에게만 — 마력은 스킬 토글 소유)
 };
 
@@ -1004,7 +1004,7 @@ struct MSG_S2C_SKILL_CAST
     MSG_S2C_SKILL_CAST() : header{ sizeof(*this), TYPE }, casterId(0), skillId(0), direction(0) {}
 };
 
-// S2C: 스킬 거절 — 본인에게만. 거절이면 체력·쿨타임이 그대로다(비용은 모든 검사를 지난 뒤에만 뗀다)
+// S2C: 스킬 거절 — 본인에게만. 거절이면 체력·마력·쿨타임이 그대로다(비용은 모든 검사를 지난 뒤에만 뗀다)
 struct MSG_S2C_SKILL_FAIL
 {
     static constexpr MsgType TYPE = MsgType::S2C_SKILL_FAIL;

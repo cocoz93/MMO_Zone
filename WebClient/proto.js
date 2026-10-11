@@ -47,7 +47,7 @@
   const EQUIP_SLOT = { WEAPON: 900 };
   // 끼우기·빼기 거절 사유 — Protocol.h EquipFail 순서 그대로(값이 와이어에 실린다)
   const EQUIP_FAIL = ['BAD_SLOT','EMPTY','NOT_EQUIPPABLE','DEAD','COOLDOWN','TAB_FULL'];
-  // 스킬 거절 사유 — Protocol.h SkillFail 순서 그대로(값이 와이어에 실린다). 거절이면 체력·쿨타임이 그대로다
+  // 스킬 거절 사유 — Protocol.h SkillFail 순서 그대로(값이 와이어에 실린다). 거절이면 체력·마력·쿨타임이 그대로다
   const SKILL_FAIL = ['BAD_SKILL','DEAD','COOLDOWN','LOW_HP','NO_TARGET','LOW_MP'];
   const NAME = Object.fromEntries(Object.entries(MSG).map(([k,v])=>[v,k]));
   const DIR = { NONE:0, UP:1, DOWN:2, LEFT:3, RIGHT:4 };  // Player.h

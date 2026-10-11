@@ -124,7 +124,7 @@ const SKILLS = new Map();                                               // skill
 const skillReadyAt = new Map();
 const skillState = { casts:0, lastFail:null };                          // 헤드리스 검증용 셈
 function skillChanged(){ document.documentElement.setAttribute('data-skill', JSON.stringify({ skills:SKILLS.size, casts:skillState.casts, lastFail:skillState.lastFail })); }
-// 스킬 거절 사유(P.SKILL_FAIL 이름) → 채팅 칸 [System] 문구. 거절이면 체력·쿨타임이 그대로다(서버는 모든 검사 뒤에만 뗀다)
+// 스킬 거절 사유(P.SKILL_FAIL 이름) → 채팅 칸 [System] 문구. 거절이면 체력·마력·쿨타임이 그대로다(서버는 모든 검사 뒤에만 뗀다)
 const SKILL_FAIL_TEXT = {
   BAD_SKILL:'없는 스킬입니다', DEAD:'쓰러진 동안에는 쓸 수 없습니다', COOLDOWN:'아직 쓸 수 없습니다 — 잠시 뒤에 다시',
   LOW_HP:'체력이 모자랍니다 — 스킬로는 쓰러지지 않습니다', NO_TARGET:'앞에 맞을 몬스터가 없습니다',

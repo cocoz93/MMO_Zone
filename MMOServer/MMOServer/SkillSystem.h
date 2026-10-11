@@ -7,7 +7,7 @@
 //  - 보내기는 하지 않는다 — 시전은 ISkillEvents 로 알리고, 피해·죽음·보상은 CCombatSystem::ApplyHit 가 ICombatEvents 로 알린다.
 //    거절은 알림이 아니라 돌려주는 값이다(CItemSystem::UseItem 꼴) — 게임 서버가 와이어 SkillFail 로 바꿔 보낸다
 //
-// [세 칸] 정의 = 스킬 표(CSkillTable — 기획 데이터) · 진행 = 캐릭터마다의 쿨타임(CCharacter::_skillReadyFrame) · 규칙 = 여기
+// [세 칸] 정의 = 스킬 표(CSkillTable — 기획 데이터) · 진행 = 캐릭터마다의 쿨타임·마력(CCharacter::_skillReadyFrame·_mp) · 규칙 = 여기
 //
 // [시전자] CCharacter 다 — 사람도 몬스터(보스)도 같은 규칙으로 쓴다(10-11). 일반 공격(CCombatSystem::PerformAttack)과 같은 꼴.
 //   종류로 갈리는 것은 대상 후보 하나뿐이다(SelectTargets). 몬스터가 스킬을 부르는 곳은 아직 없다(보스 단계).

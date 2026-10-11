@@ -4,7 +4,7 @@
 // [책임]
 //  - 최대 체력·공격력·방어력·최대 마력 세우기(레벨 표 + 착용 장비) · 경험치 더하기와 레벨 올리기 · 표 밖 레벨 보정
 //  - 그 과정에서 정한 것(레벨업·보정)을 지표(CGameMonitor)로 센다 — 무엇을 정했는지는 여기서만 안다(CCombatSystem 과 같은 꼴)
-//  - 보내기·저장 표시·보상은 하지 않는다 — 부르는 쪽(CGameServer)이 SendExp·SendMyStats·_dbDirty 로 한다
+//  - 보내기·저장 표시·보상은 하지 않는다 — 부르는 쪽(CGameServer)이 SendExp·SendMyStats·SendActorMp(마력 — USE_SKILL)·_dbDirty 로 한다
 //
 // [왜 떼어냈나]
 //  규칙의 입력이 CPlayer 필드와 기획 표뿐인데 CGameServer 멤버였다. 그러면 게임 서버가 부르는 쪽(존·몬스터 관리자)은

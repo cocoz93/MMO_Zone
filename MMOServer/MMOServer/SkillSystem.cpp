@@ -45,7 +45,7 @@ SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skil
     caster->_skillReadyFrame[def->skillId] = frame + def->cooldownFrames;   // 성공했을 때만 — 거절은 쿨타임을 안 건다
     _gameMonitor._skill._cast[def->skillId].Inc();
 
-    // ── 5) 시전 알림 — 방송과 시전자 체력 알림은 받는 쪽(게임 서버) ──
+    // ── 5) 시전 알림 — 방송과 시전자 체력·마력 알림은 받는 쪽(게임 서버) ──
     _events.OnCast(zone, caster, *def);
 
     // ── 6) 효과 ──
