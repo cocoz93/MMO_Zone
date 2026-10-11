@@ -11,6 +11,37 @@
 #include "Monster.h"         // 죽음을 몬스터·플레이어로 갈라 셀 때 As<CMonster> — 완전한 타입이 필요
 #endif
 
+namespace
+{
+    // 후보 훑기 — 「어느 섹터를 도나」는 섹터 관리자(ForEachSectorInRange — 반경이 걸치는 칸만),
+    //   「그 섹터의 어느 목록을 보나」(which)는 여기 한 곳이다. 후보를 훑는 자리가 늘어도 목록 고르기는 이 하나로 —
+    //   한쪽 목록을 빠뜨리면 컴파일이 아니라 화면에서 드러나므로 빠뜨릴 자리를 줄인다(SectorManager.h ForEachInSector 와 같은 까닭).
+    //   fn 은 CCharacter* 하나를 받는다. 도는 동안 목록을 바꾸지 말 것 — 맞히기(ApplyHit)는 다 고른 뒤에.
+    template <typename Fn>
+    void ForEachCandidate(const CSectorManager& sectors, float x, float y, float range, CCombatSystem::CandidateList which, Fn&& fn)
+    {
+        sectors.ForEachSectorInRange(x, y, range, [&](int32_t sx, int32_t sy)
+        {
+            switch (which)
+            {
+            case CCombatSystem::CandidateList::PLAYERS:
+                for (CPlayer* candidate : sectors.GetSectorPlayers(sx, sy))
+                    fn(candidate);
+                break;
+
+            case CCombatSystem::CandidateList::OTHERS:
+                for (CCharacter* candidate : sectors.GetSectorOthers(sx, sy))
+                    fn(candidate);
+                break;
+
+            case CCombatSystem::CandidateList::ALL:
+                sectors.ForEachInSector(sx, sy, fn);
+                break;
+            }
+        });
+    }
+}
+
 CCombatSystem::CCombatSystem(CGameMonitor& gameMonitor, ICombatEvents& events)
     : _gameMonitor(gameMonitor)
     , _events(events)
@@ -120,7 +151,7 @@ CCharacter* CCombatSystem::FindFrontTarget(CZone* zone, CCharacter* attacker, Ca
     float bestDistSq = 0.0f;
     outSawDeadInRange = false;
 
-    // 후보 하나를 재 본다 — 아래 세 순회가 같은 판정을 쓴다
+    // 후보 하나를 재 본다 — 어느 목록에서 온 후보든 같은 판정이다(ForEachCandidate 가 목록마다 부른다)
     auto consider = [&](CCharacter* candidate)
     {
         if (candidate == attacker)
@@ -143,26 +174,8 @@ CCharacter* CCombatSystem::FindFrontTarget(CZone* zone, CCharacter* attacker, Ca
         }
     };
 
-    // 어느 섹터를 도나는 섹터 관리자(ForEachSectorInRange — 사거리가 걸치는 칸만), 그 칸에서 무엇을 보나는 여기
-    sectors.ForEachSectorInRange(attacker->_x, attacker->_y, Combat::ATTACK_RANGE, [&](int32_t sx, int32_t sy)
-    {
-        switch (which)
-        {
-        case CandidateList::PLAYERS:
-            for (CPlayer* candidate : sectors.GetSectorPlayers(sx, sy))
-                consider(candidate);
-            break;
-
-        case CandidateList::OTHERS:
-            for (CCharacter* candidate : sectors.GetSectorOthers(sx, sy))
-                consider(candidate);
-            break;
-
-        case CandidateList::ALL:
-            sectors.ForEachInSector(sx, sy, consider);
-            break;
-        }
-    });
+    // 사거리가 걸치는 섹터의, which 가 고른 목록만 훑는다(섹터·목록 고르기는 ForEachCandidate 한 곳)
+    ForEachCandidate(sectors, attacker->_x, attacker->_y, Combat::ATTACK_RANGE, which, consider);
 
     return target;
 }
