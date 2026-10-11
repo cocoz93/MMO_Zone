@@ -97,7 +97,7 @@ const BUBBLE_LIFE = 7;                       // 말풍선 표시 시간(초) —
 // 전투 표시 시간(초). 서버 쿨타임이 0.48초라 휘두름은 그보다 짧아야 연타가 끊겨 보인다.
 const HIT_LIFE = 0.5;                        // 피격 점멸 + 데미지 숫자
 const SWING_LIFE = 0.18;                     // 휘두르는 호
-const CAST_LIFE = 0.3;                       // 스킬 시전 칸 깔기(맞는 칸을 잠깐 붉게)
+const SKILL_HIT_LIFE = 0.5;                  // 스킬에 맞은 상대 발밑 표시(피격 점멸과 같은 길이)
 const SPAWN_LIFE = 0.6;                      // 부활 섬광
 const FADE_LIFE = 0.5;                       // 죽은 채로 지워진 상대가 흐려지며 사라지는 시간(초)
 const LEVELUP_LIFE = 1.6;                    // 레벨업 문구 표시 시간(초)
@@ -173,7 +173,7 @@ const PICKUP_FAIL_TEXT = {
   NOT_OWNER:'다른 사람이 먼저 주울 수 있는 아이템입니다 — 잠시 뒤에 다시',
 };
 // 전투 필드 기본값 — CREATE 와 부활 양쪽에서 같은 모양으로 만들려고 한 곳에 둔다
-const COMBAT_INIT = () => ({ hp:null, maxHp:null, hitT:0, hitDmg:0, swingT:0, spawnT:0, castT:0, castSkill:0, dead:false });
+const COMBAT_INIT = () => ({ hp:null, maxHp:null, hitT:0, hitDmg:0, swingT:0, spawnT:0, castSkill:0, skillHitT:0, dead:false });
 // 죽은 채로 지워진 상대 — 그리기만 한다. id -> others 에 있던 그 객체 + fadeT.
 //   서버는 몬스터가 죽는 순간 지우고 DEATH 바로 뒤에 DELETE 를 보낸다(10-09) — 시체는 이 연출뿐이다.
 //   DELETE 에 사유 칸이 없어 「죽어 있었나(dead)」로 가른다. 살아 있던 상대(시야 밖으로 나감·퇴장)는 바로 지운다.
@@ -292,11 +292,15 @@ function onPacket(p){
       break; }
     case P.MSG.S2C_ATTACK: {
       const a=actorOf(p.attackerId);
-      if(a){ a.dir=p.direction; a.swingT=SWING_LIFE; }   // 헛스윙도 온다 — 휘두르는 호를 그린다
+      // castSkill 을 지운다 — 뒤따르는 DAMAGE 는 일반 공격 결과다(서버가 ATTACK 을 먼저 보낸다: OnSwing → FindFrontTarget → ApplyHit)
+      if(a){ a.dir=p.direction; a.swingT=SWING_LIFE; a.castSkill=0; }   // 헛스윙도 온다 — 휘두르는 호를 그린다
       break; }
     case P.MSG.S2C_DAMAGE: {
       const a=actorOf(p.targetId);
       if(a){ a.hp=p.remainHp; a.hitT=HIT_LIFE; a.hitDmg=p.damage; }
+      // 때린 쪽이 방금 스킬을 썼으면 스킬에 맞은 것 — 발밑에 표시한다(아래 S2C_SKILL_CAST)
+      const by=actorOf(p.attackerId);
+      if(a && by && by.castSkill) a.skillHitT=SKILL_HIT_LIFE;
       break; }
     case P.MSG.S2C_DEATH: {
       const a=actorOf(p.targetId);
@@ -308,11 +312,13 @@ function onPacket(p){
       break; }
 
     // ---- 스킬 (USE_SKILL) ----
-    // 시전은 주변 방송이다 — 누구의 시전이든 맞는 칸을 깐다. 쿨타임은 내 것만 센다(서버가 안 보낸다).
+    // 시전은 주변 방송이다 — 누구의 시전이든 받는다. 쿨타임은 내 것만 센다(서버가 안 보낸다).
     //   맞은 결과(DAMAGE·DEATH …)는 일반 공격과 같은 패킷으로 따로 온다 — 시전자 체력 소모는 ACTOR_STATS 가 곧 뒤따른다.
+    //   누가 맞았는지는 SKILL_CAST 에 없다 — 시전자에 castSkill 을 걸어 두고, 뒤따르는 DAMAGE 의 때린 쪽으로 알아본다.
+    //   대상은 서버가 고른다(1.5칸 안 앞쪽 반원에서 가장 가까운 하나) — 화면이 칸을 짐작해 칠하면 판정과 어긋난다.
     case P.MSG.S2C_SKILL_CAST: {
       const a=actorOf(p.casterId);
-      if(a){ a.dir=p.direction; a.castT=CAST_LIFE; a.castSkill=p.skillId; }
+      if(a){ a.dir=p.direction; a.castSkill=p.skillId; }
       if(self && p.casterId===self.id){
         const s=SKILLS.get(p.skillId);
         skillReadyAt.set(p.skillId, performance.now()+(s?s.cooldownMs:0));
@@ -610,26 +616,25 @@ function drawSwing(o,px,py){
   ctx.beginPath(); ctx.arc(px+v.x*0.5*ZOOM, cy+v.y*0.5*ZOOM, 1.0*ZOOM, a0-0.75, a0+0.75); ctx.stroke();
   ctx.restore();
 }
-// 스킬 시전 칸 — 맞는 칸을 잠깐 붉게 깐다(땅에 깔려 나무·캐릭터 아래). 칸은 [앞, 옆] — 옆은 바라보는 쪽 기준 오른쪽이 +.
-//   대상 종류마다 칸이 다르다 — 지금은 front(앞 한 칸) 하나. 범위 스킬이 생기면 표의 모양 칸을 여기서 깐다.
-//   ★ 땅에만 깐다 — 테두리를 맨 위에 올려 봤더니 위를 보고 쏠 때 내 캐릭터 몸통을 가로질렀다(캐릭터는 위로 3칸 높이).
-//     나무 밑 칸이 나무에 가려지는 것은 캐릭터가 나무 뒤에서 가려지는 것과 같은 규칙이다(10-10 헤드리스 확대).
-function drawSkillCast(o){
-  const k=o.castT/CAST_LIFE;                       // 1 → 0
-  const v=dvec(o.dir); if(v.x===0 && v.y===0) return;
-  const cells=[[1,0]];
+// 스킬에 맞은 상대 — 발밑에 붉은 고리를 깐다(땅에 깔려 나무·캐릭터 아래). 맞는 순간부터 조금씩 퍼지며 흐려진다.
+//   맞은 상대는 서버 결과(DAMAGE)로만 안다 — 예전에는 시전자 앞 한 칸을 칠했는데, 서버는 1.5칸 안 앞쪽 반원에서
+//   고르므로 대각선의 뱀이 맞을 때 빈 칸이 깜빡였다(10-10 사람 확인 2번). 범위 스킬도 맞은 상대마다 이 고리가 붙는다.
+//   ★ 땅에만 깐다 — 시전 칸 시절 테두리를 맨 위에 올려 봤더니 위를 보고 쏠 때 내 캐릭터 몸통을 가로질렀다(캐릭터는 위로 3칸 높이).
+//     나무 밑이 나무에 가려지는 것은 캐릭터가 나무 뒤에서 가려지는 것과 같은 규칙이다(10-10 헤드리스 확대).
+function drawSkillHit(o){
+  const k=o.skillHitT/SKILL_HIT_LIFE;              // 1 → 0
+  const px=sx(o.rx), py=sy(o.ry);
+  const r=(0.55+0.3*(1-k))*ZOOM;                   // 0.55칸 → 0.85칸으로 퍼진다
   ctx.save();
-  for(const [f,side] of cells){
-    const cx=o.rx+v.x*f-v.y*side, cy=o.ry+v.y*f+v.x*side;   // 오른쪽 = (−앞.y, 앞.x)
-    const x=sx(cx)-ZOOM/2, y=sy(cy)-ZOOM/2;
-    ctx.fillStyle='rgba(255,90,40,'+(0.6*k)+')'; ctx.fillRect(x,y,ZOOM,ZOOM);   // 0.38 은 초록 바닥과 섞여 베이지로 흐려졌다
-    ctx.strokeStyle='rgba(255,150,80,'+k+')'; ctx.lineWidth=2.5; ctx.strokeRect(x+1.25,y+1.25,ZOOM-2.5,ZOOM-2.5);
-  }
+  ctx.beginPath(); ctx.ellipse(px,py,r,r*0.45,0,0,7);   // 그림자(shadow)처럼 납작한 타원 — 발밑 바닥에 누운 모양
+  ctx.fillStyle='rgba(255,90,40,'+(0.55*k)+')'; ctx.fill();   // 0.38 은 초록 바닥과 섞여 베이지로 흐려졌다(시전 칸 시절)
+  ctx.strokeStyle='rgba(255,150,80,'+k+')'; ctx.lineWidth=2.5; ctx.stroke();
   ctx.restore();
 }
-function drawSkillCasts(near){
-  others.forEach(o=>{ if(o.castT>0 && near(o)) drawSkillCast(o); });
-  if(self && self.castT>0) drawSkillCast(self);
+function drawSkillHits(near){
+  others.forEach(o=>{ if(o.skillHitT>0 && near(o)) drawSkillHit(o); });
+  fading.forEach(o=>{ if(o.skillHitT>0 && near(o)) drawSkillHit(o); });   // 막타 — 맞고 죽어 지워지는 중인 상대
+  if(self && self.skillHitT>0) drawSkillHit(self);
 }
 function drawSpawnRing(o,px,py){
   const k=1-o.spawnT/SPAWN_LIFE;                   // 0 → 1 로 퍼진다
@@ -1060,12 +1065,12 @@ function drawGroundItems(){
     }
   });
 }
-// 전투 표시 타이머 감쇠 — 셋을 한 곳에서 줄인다(자리를 나누면 하나를 빠뜨려 표시가 안 꺼진다)
+// 전투 표시 타이머 감쇠 — 전부 한 곳에서 줄인다(자리를 나누면 하나를 빠뜨려 표시가 안 꺼진다)
 function decayCombat(o,dt){
   if(o.hitT>0)   o.hitT  =Math.max(0,o.hitT-dt);
   if(o.swingT>0) o.swingT=Math.max(0,o.swingT-dt);
   if(o.spawnT>0) o.spawnT=Math.max(0,o.spawnT-dt);
-  if(o.castT>0)  o.castT =Math.max(0,o.castT-dt);
+  if(o.skillHitT>0) o.skillHitT=Math.max(0,o.skillHitT-dt);
 }
 function render(t){
   ctx.clearRect(0,0,W,H);
@@ -1081,7 +1086,7 @@ function render(t){
   //   (5칸 = 스프라이트 키 3칸 + 그 위의 이름표·HP 막대·화살표가 걸칠 수 있는 폭).
   const hw=VW/2/ZOOM+5, hh=VH/2/ZOOM+5;
   const near=o=>Math.abs(o.rx-cam.x)<=hw && Math.abs(o.ry-cam.y)<=hh;
-  drawSkillCasts(near);   // 스킬 시전 칸 — 땅에 깔린다(땅의 아이템 위, 나무·캐릭터 아래)
+  drawSkillHits(near);    // 스킬에 맞은 상대 발밑 고리 — 땅에 깔린다(땅의 아이템 위, 나무·캐릭터 아래)
   const view=[];
   propsInView().forEach(pr=>view.push({y:pr.y,kind:'prop',pr}));
   others.forEach((o,id)=>{ if(near(o)) view.push({y:o.ry,kind:'char',o:Object.assign(o,{id}),isMe:false,fade:1}); });
