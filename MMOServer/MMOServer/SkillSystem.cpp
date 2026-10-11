@@ -21,7 +21,7 @@ SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skil
     // 지표(_skill)는 지금 사람 몫뿐이다 — 몬스터가 스킬을 부르는 곳이 아직 없다.
     //   보스 단계에서 몬스터가 부르게 되면 일반 공격(PerformAttack)처럼 종류로 갈라 센다 — 안 가르면 사람 지표에 섞인다.
 
-    // ── 1) 시전자 검사 — 번호·생사·쿨타임·체력. 뗄 체력은 여기서 세고 4) 가 그대로 뗀다 ──
+    // ── 1) 시전자 검사 — 번호·생사·쿨타임·체력·마력. 뗄 체력은 여기서 세고 4) 가 그대로 뗀다 ──
     const SkillDef* def = nullptr;
     int32_t hpCost = 0;
     SkillReject reject = CheckCaster(caster, skillId, frame, def, hpCost);
@@ -41,6 +41,7 @@ SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skil
 
     // ── 4) 떼기 — 여기까지 왔으면 효과가 반드시 난다(모든 검사를 지났다) ──
     caster->_hp -= hpCost;
+    caster->_mp -= def->costMp;   // 모자라지 않음은 1) 의 LOW_MP 검사가 이미 봤다
     caster->_skillReadyFrame[def->skillId] = frame + def->cooldownFrames;   // 성공했을 때만 — 거절은 쿨타임을 안 건다
     _gameMonitor._skill._cast[def->skillId].Inc();
 
@@ -77,6 +78,10 @@ SkillReject CSkillSystem::CheckCaster(const CCharacter* caster, int32_t skillId,
     // 자기 스킬로는 안 죽는다 — 떼고 나서 1 미만이면 거절(아무것도 안 뗀다)
     if (caster->_hp - outHpCost < 1)
         return SkillReject::LOW_HP;
+
+    // 마력 비용 — 표 값 그대로(고정). 딱 맞으면 쓴다(0 까지 쓸 수 있다 — 체력과 달리 0 이 죽음이 아니다)
+    if (caster->_mp < outDef->costMp)
+        return SkillReject::LOW_MP;
 
     return SkillReject::COUNT;   // 통과
 }

@@ -511,6 +511,7 @@ namespace
         case SkillReject::DEAD:      return SkillFail::DEAD;
         case SkillReject::COOLDOWN:  return SkillFail::COOLDOWN;
         case SkillReject::LOW_HP:    return SkillFail::LOW_HP;
+        case SkillReject::LOW_MP:    return SkillFail::LOW_MP;
         case SkillReject::NO_TARGET: return SkillFail::NO_TARGET;
         case SkillReject::COUNT:     break;
         }
@@ -539,6 +540,19 @@ namespace
         *buf << static_cast<uint8_t>(reason);
         FinalizePacket(buf);
         assert(buf->GetDataSize() == sizeof(MSG_S2C_SKILL_FAIL));
+        return buf;
+    }
+
+    // 마력 — 본인 전용(SendActorMp 만 부른다). 모양은 ACTOR_STATS 꼴(대상 번호 먼저)
+    CSerialBuffer* MakeActorMp(int32_t actorId, int32_t mp, int32_t maxMp)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_ACTOR_MP::TYPE);
+        *buf << static_cast<int>(actorId);
+        *buf << static_cast<int>(mp);
+        *buf << static_cast<int>(maxMp);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_ACTOR_MP));
         return buf;
     }
 #endif
@@ -1448,8 +1462,8 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
 #if USE_COMBAT
     // ── 스탯 세우기 — 레벨 정산 뒤 ──
     //   GainExp 는 레벨이 올랐을 때만 스탯을 세운다. 안 올랐으면 생성자 기본값 그대로라 여기서 세운다.
-    //   지금은 스폰이 늘 만피라 refillHp=true — 죽은 채로 들어오는 경로가 생기면 그때 가른다.
-    //   ★ NotifyArrival 보다 앞이다(위 레벨 정산 주석과 같은 이유 — CREATE 가 최대 체력을 싣는다).
+    //   지금은 스폰이 늘 만피라 refill=true — 죽은 채로 들어오는 경로가 생기면 그때 가른다. 마력도 가득(저장하지 않는다).
+    //   ★ NotifyArrival 보다 앞이다(위 레벨 정산 주석과 같은 이유 — CREATE 가 최대 체력을, ACTOR_MP 가 마력을 싣는다).
     //   USE_EXP 밖인 이유는 RecalcStats 선언 주석(StatSystem.h).
     _statSystem.RecalcStats(player, true);
 #endif
@@ -2651,6 +2665,11 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
 
             // 오른 공격력·방어력은 본인에게만 — 남의 공격력은 화면에 안 쓴다(S2C_MY_STATS 는 본인 전용)
             SendMyStats(killer);
+
+#if USE_SKILL
+            // 늘고 가득 찬 마력도 본인에게만(RecalcStats 가 레벨업 때 채운다)
+            SendActorMp(killer);
+#endif
         }
     }
 #endif
@@ -2698,7 +2717,7 @@ void CGameServer::RecvUseSkill(CPlayer* player, CSerialBuffer* pMsg)
         SendPacket(player, MakeSkillFail(recvMsg.skillId, ToSkillFail(reject)));
 }
 
-// 시전했다 — 비용을 뗀 뒤, 효과 전에 온다. 와이어 순서 = 시전 모양 → 시전자 체력 → (효과의 DAMAGE …)
+// 시전했다 — 비용을 뗀 뒤, 효과 전에 온다. 와이어 순서 = 시전 모양 → 시전자 체력 → 시전자 마력(본인만) → (효과의 DAMAGE …)
 void CGameServer::OnCast(CZone* zone, CCharacter* caster, const SkillDef& def)
 {
     BroadcastAroundSector(zone, caster,
@@ -2707,6 +2726,21 @@ void CGameServer::OnCast(CZone* zone, CCharacter* caster, const SkillDef& def)
     // 체력을 뗐으면 본인과 주변에 — 남의 머리 위 막대도 줄어야 한다(물약·레벨업 때 체력 방송과 같은 꼴)
     if (def.costHpPct > 0)
         BroadcastAroundSector(zone, caster, MakeActorStats(caster->_actorId, caster->_hp, caster->_maxHp), false);
+
+    // 마력을 뗐으면 시전자 본인에게만 — 남의 마력은 화면에 안 그린다(주변 방송 금지, Protocol.h MSG_S2C_ACTOR_MP).
+    //   시전자가 사람일 때만이다 — 몬스터는 받을 세션이 없다(몬스터 시전은 보스 단계).
+    if (def.costMp > 0)
+    {
+        if (CPlayer* player = As<CPlayer>(caster))
+            SendActorMp(player);
+    }
+}
+
+// 마력 알림 — 그 사람 자신의 마력을 그 사람에게만. 세는 곳도 여기 한 곳(SendMyStats 와 같은 꼴).
+void CGameServer::SendActorMp(CPlayer* player)
+{
+    SendPacket(player, MakeActorMp(player->_actorId, player->_mp, player->_maxMp));
+    _gameMonitor._skill._actorMpSent.Inc();
 }
 #endif // USE_SKILL
 
@@ -3056,6 +3090,14 @@ void CGameServer::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind kind)
     //   GameInstance.cpp 의 ZONE_CHANGE_OK). 안 보내면 거기서 화면이 1 레벨로 돌아가고
     //   다음 경험치가 들어올 때까지 그대로다. 웹 클라는 안 비우므로 이 장이 덧쓰기가 될 뿐 무해하다.
     SendExp(player);
+#endif
+
+#if USE_SKILL
+    // 3) 마력도 같은 자리 — 내 캐릭터 뒤(클라가 번호로 내 액터를 찾게). 경험치와 같이 존 이동 때도 다시 보낸다(firstEntry 밖).
+    //   ★ 웹은 마력을 내 액터(self)에 담는다 — 웹 주석(live.html 의 me 정의 위)은 존을 넘으면 self 를 새로 만든다고 적어 둔다.
+    //     지금은 웹에 존 이동 처리가 없어 덧쓰기가 될 뿐이지만, 그 처리가 생기는 날 마력이 비지 않게 미리 보낸다(10-11).
+    //   부하 더미도 입장 때 이 한 장을 반드시 받는다 — 등록을 빼면 전원 떨어진다(가방 전체·MY_STATS 와 같은 함정).
+    SendActorMp(player);
 #endif
 
     if (rule.firstEntry)

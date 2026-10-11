@@ -19,12 +19,15 @@ CStatSystem::CStatSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor
 //   바탕은 레벨 표 하나다 — 표는 전투(USE_COMBAT)가 켜지면 늘 읽는다(경험치를 꺼도 1레벨 줄은 바탕 스탯이라 필요).
 //   코드 상수(CHARACTER_DEFAULT_*)는 10-06 에 없앴다 — 표와 두 벌이었고, 전투를 끈 빌드는 스탯을 안 보낸다(WriteSnapshot 0).
 // ==========================================================================
-void CStatSystem::RecalcStats(CPlayer* player, bool refillHp)
+void CStatSystem::RecalcStats(CPlayer* player, bool refill)
 {
     const CLevelTable& table = _tables.Level();
     player->_maxHp       = table.MaxHp(player->_level);
     player->_attackPower = table.AttackPower(player->_level);
     player->_defense     = table.Defense(player->_level);
+#if USE_SKILL
+    player->_maxMp       = table.MaxMp(player->_level);   // 장비 몫은 없다 — 마력을 올리는 아이템이 아직 없다
+#endif
 
 #if USE_EQUIP
     // 착용 칸의 몫 — 칸마다 아이템 표의 attack 을 더한다(지금은 무기 칸 하나).
@@ -41,10 +44,18 @@ void CStatSystem::RecalcStats(CPlayer* player, bool refillHp)
 
     // 레벨이 올랐을 때만 채운다. 입장 때는 DB 가 들고 있던 체력이 아직 없으므로(스탯만 맞춘다)
     //   호출부가 정한다 — 지금은 스폰도 만피라 둘 다 true 로 들어온다.
-    if (refillHp)
+    if (refill)
         player->_hp = player->_maxHp;
     else if (player->_hp > player->_maxHp)
         player->_hp = player->_maxHp;   // 표를 낮춘 패치 뒤엔 들고 있던 체력이 최대를 넘을 수 있다
+
+#if USE_SKILL
+    // 마력도 같은 줄 — 마력은 저장하지 않아 입장 때 가득이고(refill=true), 끼우기·빼기는 최대치만 맞춘다
+    if (refill)
+        player->_mp = player->_maxMp;
+    else if (player->_mp > player->_maxMp)
+        player->_mp = player->_maxMp;
+#endif
 }
 
 #if USE_EXP
@@ -91,7 +102,7 @@ bool CStatSystem::GainExp(CPlayer* player, int64_t amount)
     if (player->_level == before)
         return false;
 
-    RecalcStats(player, true);   // 오르면 체력을 가득 채운다
+    RecalcStats(player, true);   // 오르면 체력·마력을 가득 채운다
     _gameMonitor._exp._levelUps.Inc();
     return true;
 }

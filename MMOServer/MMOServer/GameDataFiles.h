@@ -82,6 +82,6 @@ private:
     CDropTable _drop;   // 아이템 표·몬스터 표를 먼저 읽고 그 결과로 대조한다(LoadAll 순서)
 #endif
 #if USE_SKILL
-    CSkillTable _skill;   // 다른 표와 대조할 것이 없다 — 대상·효과 종류는 코드의 이름표와 대조한다(SkillTable.cpp)
+    CSkillTable _skill;   // 레벨 표를 먼저 읽고 마력 비용을 최대 마력과 대조한다(LoadAll 순서). 대상·효과 종류는 코드의 이름표와 대조한다(SkillTable.cpp)
 #endif
 };

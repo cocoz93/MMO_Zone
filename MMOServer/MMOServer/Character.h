@@ -74,6 +74,13 @@ public:
     //   일반 공격 쿨타임(_lastAttackFrame)과 따로 센다 — 스킬을 써도 일반 공격은 안 막힌다(10-10 기본값).
     //   여기 있는 까닭 — 몬스터·보스도 스킬을 쓴다(10-11). 시전자는 CCharacter 다(SkillSystem.h).
     uint64_t _skillReadyFrame[MAX_SKILL_ID + 1] = {};
+
+    // 마력 — 스킬 비용(SkillDef::costMp)으로 쓰고 마력 물약으로만 찬다(자연 회복 없음 — 체력과 같다, 10-01).
+    //   플레이어는 CStatSystem::RecalcStats 가 레벨 표 maxMp 로 세운다. 몬스터는 0 이다(몬스터 표 칸은 보스 단계).
+    //   부활해도 그대로다(Combat::Respawn 은 체력만 채운다). 저장하지 않는다 — 입장 때 가득 찬다.
+    //   스킬 토글 소유다 — 마력을 쓰는 곳이 스킬뿐이라서. 여기 있는 까닭은 위 쿨타임 배열과 같다.
+    int32_t _mp    = 0;   // 현재 마력
+    int32_t _maxMp = 0;   // 최대 마력
 #endif
 };
 

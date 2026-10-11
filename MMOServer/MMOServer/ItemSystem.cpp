@@ -131,7 +131,7 @@ EquipReject CItemSystem::Equip(CPlayer* player, uint16_t slot, bool unequip, uin
     if (unequip) _gameMonitor._equip._unequipped.Inc();
     else         _gameMonitor._equip._equipped.Inc();
 
-    // 무기가 바뀌었으니 공격력을 다시 세운다 — 체력은 그대로다(refillHp=false, 무기는 공격력만 바꾼다).
+    // 무기가 바뀌었으니 공격력을 다시 세운다 — 체력·마력은 그대로다(refill=false, 무기는 공격력만 바꾼다).
     //   ★ 여기서 세우는 이유 — 「끼우면 공격력이 다시 선다」는 장착 규칙이라, 다른 길이 장착을 불러도 빠뜨릴 수 없게.
     //     보내지는 않으므로 와이어 순서(칸 패킷 → S2C_MY_STATS)는 부르는 쪽이 그대로 지킨다.
     _statSystem.RecalcStats(player, false);

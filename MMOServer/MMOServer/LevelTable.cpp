@@ -35,16 +35,17 @@ bool CLevelTable::Load(const std::string& path)
     for (const DataLine& dl : lines)
     {
         SplitCsv(dl.text, cell);
-        if (cell.size() < 5)
+        if (cell.size() < 6)
         {
-            SLOG_ERROR("[LevelTable] {}줄: 칸이 {}개입니다 — level,requiredExp,maxHp,attackPower,defense 다섯이 필요합니다",
+            SLOG_ERROR("[LevelTable] {}줄: 칸이 {}개입니다 — level,requiredExp,maxHp,attackPower,defense,maxMp 여섯이 필요합니다",
                        dl.fileLine, cell.size());
             return false;
         }
 
-        int64_t level = 0, requiredExp = 0, maxHp = 0, attackPower = 0, defense = 0;
+        int64_t level = 0, requiredExp = 0, maxHp = 0, attackPower = 0, defense = 0, maxMp = 0;
         if (!ParseInt(cell[0], level) || !ParseInt(cell[1], requiredExp) ||
-            !ParseInt(cell[2], maxHp) || !ParseInt(cell[3], attackPower) || !ParseInt(cell[4], defense))
+            !ParseInt(cell[2], maxHp) || !ParseInt(cell[3], attackPower) || !ParseInt(cell[4], defense) ||
+            !ParseInt(cell[5], maxMp))
         {
             SLOG_ERROR("[LevelTable] {}줄: 숫자가 아닌 칸이 있습니다 — \"{}\"", dl.fileLine, dl.text);
             return false;
@@ -59,11 +60,11 @@ bool CLevelTable::Load(const std::string& path)
             return false;
         }
 
-        // ⑵ 음수 금지
-        if (requiredExp < 0 || maxHp <= 0 || attackPower < 0 || defense < 0)
+        // ⑵ 음수 금지 — 최대 마력은 0 도 된다(마력 없는 레벨)
+        if (requiredExp < 0 || maxHp <= 0 || attackPower < 0 || defense < 0 || maxMp < 0)
         {
-            SLOG_ERROR("[LevelTable] {}줄: 값이 범위를 벗어납니다 (requiredExp={}, maxHp={}, attackPower={}, defense={})",
-                       dl.fileLine, requiredExp, maxHp, attackPower, defense);
+            SLOG_ERROR("[LevelTable] {}줄: 값이 범위를 벗어납니다 (requiredExp={}, maxHp={}, attackPower={}, defense={}, maxMp={})",
+                       dl.fileLine, requiredExp, maxHp, attackPower, defense, maxMp);
             return false;
         }
 
@@ -89,15 +90,16 @@ bool CLevelTable::Load(const std::string& path)
         row.maxHp       = static_cast<int32_t>(maxHp);
         row.attackPower = static_cast<int32_t>(attackPower);
         row.defense     = static_cast<int32_t>(defense);
+        row.maxMp       = static_cast<int32_t>(maxMp);
         _rows.push_back(row);
     }
 
-    SLOG_INFO("[LevelTable] {} — 레벨 1~{} · 만렙 필요 경험치 {} · 만렙 체력 {}",
-              path, MaxLevel(), _rows.back().requiredExp, _rows.back().maxHp);
+    SLOG_INFO("[LevelTable] {} — 레벨 1~{} · 만렙 필요 경험치 {} · 만렙 체력 {} · 만렙 마력 {}",
+              path, MaxLevel(), _rows.back().requiredExp, _rows.back().maxHp, _rows.back().maxMp);
     return true;
 }
 
-// 아래 넷은 clamp 하지 않는다 — 헤더 [범위] 참조. 범위를 벗어난 호출은 부르는 쪽의 결함이다.
+// 아래 다섯은 clamp 하지 않는다 — 헤더 [범위] 참조. 범위를 벗어난 호출은 부르는 쪽의 결함이다.
 //   ※ 릴리즈(NDEBUG)에서는 단언이 사라져 곧장 범위 밖 접근이 된다. 불러오는 자리에서 한 번
 //     내려 두는 것이 그 불변식을 세우는 유일한 장치이므로 그 줄을 지우지 말 것.
 int64_t CLevelTable::RequiredExp(int32_t level) const
@@ -122,6 +124,12 @@ int32_t CLevelTable::Defense(int32_t level) const
 {
     assert(InRange(level));
     return _rows[static_cast<size_t>(level)].defense;
+}
+
+int32_t CLevelTable::MaxMp(int32_t level) const
+{
+    assert(InRange(level));
+    return _rows[static_cast<size_t>(level)].maxMp;
 }
 
 #endif // USE_COMBAT

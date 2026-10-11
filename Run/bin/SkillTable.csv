@@ -8,9 +8,10 @@
 #                Refused (LOW_HP) when it would leave hp below 1 - your own skill never kills you.
 #   power      : damage = % of the hp BEFORE the cost. damage needs power >= costHpPct (the hit is never smaller than the cost).
 #   cooldownMs : rounded UP to server ticks (40ms) - 480 = 12 ticks, the same as a normal attack.
-#   The cost (hp, cooldown) is paid only after every check passes, target included - a refused cast changes nothing.
+#   The cost (hp, mana, cooldown) is paid only after every check passes, target included - a refused cast changes nothing.
 #   Values are Baram classic (warrior) as-is - not tuned to the current monsters (snake hp 30). Lv1 Baekhocham: pay 400, hit 800.
-#   Baekhocham also costs 10 mana in this design - it is added together with MP later.
+#   costMp     : mana paid on cast, a fixed amount (not %). 0..the largest maxMp in LevelTable.csv - above it no level could ever cast.
+#                Refused (LOW_MP) when mp is below it. Baekhocham 10 (Baram classic 60 is on the classic mana scale; ours is small, 2026-10-01).
 #   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
-skillId,name,target,effect,costHpPct,power,cooldownMs
-1,백호참,front,damage,50,100,480
+skillId,name,target,effect,costHpPct,power,cooldownMs,costMp
+1,백호참,front,damage,50,100,480,10

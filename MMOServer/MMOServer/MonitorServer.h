@@ -611,6 +611,9 @@ private:
                << "\"} " << sk._rejected[i] << "\n";
         }
         ss << "\n";
+        WriteCounter(ss, "mmo_actor_mp_sent_total",
+                     "S2C_ACTOR_MP packets sent (only SendActorMp sends them, to the owner only; one per enter, zone change, level-up, mana cast and mana potion)",
+                     sk._actorMpSent);
 #endif
 
 #if USE_DROP

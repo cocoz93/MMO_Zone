@@ -150,13 +150,14 @@ struct alignas(64) DBItemSaveCounters
 //   ★ 위 USE_INVENTORY 블록 밖이어야 한다 — 스킬은 가방과 따로 켜고 끈다(가방을 끈 빌드에서 이름표가 사라졌던 판, 10-10 토글 빌드).
 inline const char* SkillRejectName(SkillReject r)
 {
-    static_assert(static_cast<int>(SkillReject::COUNT) == 5, "SkillReject 를 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(SkillReject::COUNT) == 6, "SkillReject 를 늘렸으면 이름도 붙일 것");
     switch (r)
     {
     case SkillReject::BAD_SKILL: return "bad_skill";
     case SkillReject::DEAD:      return "dead";
     case SkillReject::COOLDOWN:  return "cooldown";
     case SkillReject::LOW_HP:    return "low_hp";
+    case SkillReject::LOW_MP:    return "low_mp";
     case SkillReject::NO_TARGET: return "no_target";
     case SkillReject::COUNT:     break;
     }
@@ -328,6 +329,10 @@ public:
     {
         Counter _cast[MAX_SKILL_ID + 1];                            // 시전 성공, 스킬 번호별([0] 칸은 안 쓴다)
         Counter _rejected[static_cast<int>(SkillReject::COUNT)];    // 거절, 사유별
+
+        // S2C_ACTOR_MP 보낸 수 — SendActorMp 한 곳에서만 센다(_combat._myStatsSent 와 같은 꼴). 입장마다 1 이라 더미 시험의 분모다.
+        //   마력은 스킬 토글 소유라 여기 둔다.
+        Counter _actorMpSent;
     } _skill;
 #endif
 

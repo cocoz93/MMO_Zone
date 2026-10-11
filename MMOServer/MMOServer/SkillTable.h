@@ -8,6 +8,8 @@
 
 #if USE_SKILL
 
+class CLevelTable;
+
 // 스킬 번호 상한 — 번호가 곧 배열 색인이다(이 표도, 캐릭터마다의 쿨타임 배열 CCharacter::_skillReadyFrame 도).
 //   표 읽기가 1~MAX_SKILL_ID 밖 번호를 거부한다. 스킬이 여덟을 넘는 날 올린다.
 constexpr int32_t MAX_SKILL_ID = 8;
@@ -35,7 +37,7 @@ enum class SkillEffect : uint8_t
 // [색인] 번호가 곧 색인이다(아이템·몬스터 표와 같은 꼴). 0 = 없음, 구멍은 skillId 0 인 빈 행.
 //        번호는 와이어에도 실린다(C2S_USE_SKILL · S2C_SKILL_CAST) — 웹이 같은 파일에서 이름을 읽는다.
 //
-// [스킬마다 클래스 없음] 스킬마다 다른 것은 숫자(소모·위력·쿨타임)뿐이라 표 한 줄이다.
+// [스킬마다 클래스 없음] 스킬마다 다른 것은 숫자(체력·마력 소모·위력·쿨타임)뿐이라 표 한 줄이다.
 //        코드로 늘어나는 것은 대상 종류(SkillTarget)와 효과 종류(SkillEffect) 두 축이다.
 // ==========================================================================
 struct SkillDef
@@ -45,6 +47,7 @@ struct SkillDef
     SkillTarget target         = SkillTarget::COUNT;
     SkillEffect effect         = SkillEffect::COUNT;
     int32_t     costHpPct      = 0;   // 시전 때 떼는 현재 체력의 % (0 = 소모 없음)
+    int32_t     costMp         = 0;   // 시전 때 떼는 마력 — 고정값(0 = 소모 없음). 모자라면 LOW_MP
     int32_t     power          = 0;   // DAMAGE = 시전 전 체력의 %
     int32_t     cooldownMs     = 0;   // 파일에 적힌 값 그대로 — 로그용
     uint64_t    cooldownFrames = 0;   // 쿨타임(틱) — ms 를 올림해서 담는다(짧아지지 않게)
@@ -57,7 +60,8 @@ public:
     static constexpr int32_t MAX_COOLDOWN_MS = 3600000;   // 1시간 — 그 위는 오타로 본다
 
     // 파일을 읽어 표를 세운다. 실패하면 false 이고 까닭을 로그로 남긴다 — main 이 서버를 안 띄운다.
-    bool Load(const std::string& path);
+    //   levels = 먼저 읽은 레벨 표 — costMp 가 닿을 수 있는 최대 마력을 넘는지 대조한다(드랍 표가 아이템 표를 받는 꼴).
+    bool Load(const std::string& path, const CLevelTable& levels);
 
     // 없는 번호면 nullptr — 와이어로 온 번호(아무 값이나 올 수 있다)를 그대로 넣어도 된다.
     const SkillDef* Find(int32_t skillId) const

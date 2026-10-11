@@ -9,8 +9,10 @@
 #if USE_COMBAT   // 경험치(USE_EXP)가 아니라 전투를 따른다 — 1레벨 줄이 캐릭터 바탕 스탯의 유일한 출처라서(코드 상수 없음, 10-06)
 
 // ==========================================================================
-// CLevelTable — 레벨별 기획 값 (필요 경험치 · 최대 체력 · 공격력 · 방어력)
+// CLevelTable — 레벨별 기획 값 (필요 경험치 · 최대 체력 · 공격력 · 방어력 · 최대 마력)
 //   스탯 셋은 전투가 켜지면 늘 쓰고(RecalcStats), 필요 경험치는 경험치(USE_EXP)가 켜질 때만 쓴다(GainExp).
+//   최대 마력은 스킬(USE_SKILL)이 켜질 때만 쓴다 — 그래도 칸은 늘 읽는다(한 파일 한 꼴 — 토글마다 칸 수가 다르면
+//   같은 파일이 어느 빌드에선 거부된다). 쓰는 자리(RecalcStats·스킬 표의 costMp 대조)만 #if USE_SKILL 이다.
 //
 // [어디 것이냐] 기획 데이터다. 유저 데이터(내 레벨·내 경험치)는 DB 의 characters 행에 있고,
 //        "레벨 10 이 되려면 경험치 얼마"는 전원 공통이라 파일에 둔다. 파일인 이유는
@@ -42,6 +44,7 @@ public:
     int32_t MaxHp(int32_t level) const;
     int32_t AttackPower(int32_t level) const;
     int32_t Defense(int32_t level) const;
+    int32_t MaxMp(int32_t level) const;
 
 private:
     struct Row
@@ -50,6 +53,7 @@ private:
         int32_t maxHp       = 0;
         int32_t attackPower = 0;
         int32_t defense     = 0;
+        int32_t maxMp       = 0;
     };
 
     bool InRange(int32_t level) const

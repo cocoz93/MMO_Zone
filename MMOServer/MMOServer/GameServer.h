@@ -240,11 +240,15 @@ private:
 #if USE_SKILL
     // ── 스킬 (USE_SKILL) ──
     // 판정·비용·대상·효과는 CSkillSystem(_skillSystem) — 여기는 받기와, 거절이면 사유를 본인에게(와이어 값으로 바꿔) 보내기만.
-    //   성공의 결과는 알림으로 돌아온다 — 시전(OnCast: 시전 방송 · 시전자 체력) → 피해·죽음·보상(ICombatEvents, 일반 공격과 같은 함수).
+    //   성공의 결과는 알림으로 돌아온다 — 시전(OnCast: 시전 방송 · 시전자 체력 · 시전자 마력) → 피해·죽음·보상(ICombatEvents, 일반 공격과 같은 함수).
     void RecvUseSkill(CPlayer* player, CSerialBuffer* pMsg);
 
-    // 시전 알림 (ISkillEvents) — 뜻과 순서는 SkillSystem.h. 시전자 주변 9섹터에 방송한다(본인 포함).
+    // 시전 알림 (ISkillEvents) — 뜻과 순서는 SkillSystem.h. 시전자 주변 9섹터에 방송한다(본인 포함). 마력은 본인에게만.
     void OnCast(CZone* zone, CCharacter* caster, const SkillDef& def) override;
+
+    // 본인에게 마력(S2C_ACTOR_MP) — 입장·존 이동·레벨업·스킬 마력 소모·마력 물약. 세는 곳도 여기 한 곳.
+    //   ★ 본인 전용이다 — BroadcastAroundSector 로 보내지 말 것(Protocol.h MSG_S2C_ACTOR_MP).
+    void SendActorMp(CPlayer* player);
 #endif
 
 #if USE_MONSTER

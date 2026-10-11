@@ -30,7 +30,8 @@ bool CGameDataFiles::LoadAll(const std::string& dir)
         return false;
 #endif
 #if USE_SKILL
-    if (!_skill.Load(dir + "SkillTable.csv"))
+    // ★ 레벨 표 "뒤" — 마력 비용(costMp)을 닿을 수 있는 최대 마력과 대조한다(USE_SKILL 은 USE_COMBAT 을 요구해 레벨 표가 늘 있다)
+    if (!_skill.Load(dir + "SkillTable.csv", _level))
         return false;
 #endif
 

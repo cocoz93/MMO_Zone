@@ -2,7 +2,7 @@
 // StatSystem — 플레이어 스탯·레벨 규칙 (USE_COMBAT)
 //
 // [책임]
-//  - 최대 체력·공격력·방어력 세우기(레벨 표 + 착용 장비) · 경험치 더하기와 레벨 올리기 · 표 밖 레벨 보정
+//  - 최대 체력·공격력·방어력·최대 마력 세우기(레벨 표 + 착용 장비) · 경험치 더하기와 레벨 올리기 · 표 밖 레벨 보정
 //  - 그 과정에서 정한 것(레벨업·보정)을 지표(CGameMonitor)로 센다 — 무엇을 정했는지는 여기서만 안다(CCombatSystem 과 같은 꼴)
 //  - 보내기·저장 표시·보상은 하지 않는다 — 부르는 쪽(CGameServer)이 SendExp·SendMyStats·_dbDirty 로 한다
 //
@@ -32,12 +32,12 @@ public:
     // 표는 게임 서버가 든 것을 참조한다 — 기동 때 LoadGameDataFiles 가 채운 뒤에만 부른다.
     CStatSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor);
 
-    // 스탯 함수 — 최대 체력·공격력·방어력을 이 한 곳에서 세운다(입장·레벨업·끼우기·빼기 공통).
-    //   바탕 = 레벨 표(전투가 켜지면 늘 읽는다 — 코드 상수 없음, 10-06).
+    // 스탯 함수 — 최대 체력·공격력·방어력·최대 마력을 이 한 곳에서 세운다(입장·레벨업·끼우기·빼기 공통).
+    //   바탕 = 레벨 표(전투가 켜지면 늘 읽는다 — 코드 상수 없음, 10-06). 마력은 스킬(USE_SKILL)이 켜졌을 때만.
     //   ★ USE_EXP 밖에 두는 이유 — 장착(USE_EQUIP)은 경험치를 꺼도 돌고, 그때도 공격력은 여기서 세워야 한다.
     //     USE_COMBAT 안인 이유 — 스탯을 읽는 곳이 전투뿐이고, 경험치·가방·장착이 전부 USE_COMBAT 을 요구한다.
-    //   refillHp = 체력을 가득 채우나(레벨업·스폰). false 면 최대치를 넘은 몫만 깎는다.
-    void RecalcStats(CPlayer* player, bool refillHp);
+    //   refill = 체력·마력을 가득 채우나(레벨업·스폰). false 면 둘 다 최대치를 넘은 몫만 깎는다.
+    void RecalcStats(CPlayer* player, bool refill);
 
 #if USE_EXP
     // 경험치를 더하고, 올라갈 만큼 올린다. 레벨이 올랐으면 true(스탯도 다시 세우고 레벨업 수를 센다).

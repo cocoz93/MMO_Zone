@@ -2,7 +2,7 @@
 // SkillSystem — 스킬 쓰기 규칙 (USE_SKILL)
 //
 // [책임]
-//  - 스킬 한 번: 시전자 검사 → 대상 고르기 → 시전 전 체력 잡기 → 비용 떼기·쿨타임 → 시전 알림 → 효과
+//  - 스킬 한 번: 시전자 검사 → 대상 고르기 → 시전 전 체력 잡기 → 비용(체력·마력) 떼기·쿨타임 → 시전 알림 → 효과
 //  - 그 과정에서 정한 것(시전·거절 사유)을 지표(CGameMonitor)로 센다 — CCombatSystem·CItemSystem 과 같은 꼴
 //  - 보내기는 하지 않는다 — 시전은 ISkillEvents 로 알리고, 피해·죽음·보상은 CCombatSystem::ApplyHit 가 ICombatEvents 로 알린다.
 //    거절은 알림이 아니라 돌려주는 값이다(CItemSystem::UseItem 꼴) — 게임 서버가 와이어 SkillFail 로 바꿔 보낸다
@@ -15,8 +15,8 @@
 // [두 축] 스킬마다 다른 것은 숫자뿐이라 클래스를 스킬마다 두지 않는다. 코드로 늘어나는 것은 둘이다 —
 //   대상 종류(SkillTarget → SelectTargets) · 효과 종류(SkillEffect → ApplyEffect). 새 종류 = 그 축의 case 하나.
 //
-// [비용은 마지막에] 체력·쿨타임은 대상 확인까지 모든 검사를 지난 뒤에만 뗀다 — 거절이면 아무것도 안 바뀐다.
-//   게임 로직이 한 스레드라 검사와 떼기 사이에 끼어드는 일이 없다. 마력·재료가 생겨도 같은 자리에서 뗀다.
+// [비용은 마지막에] 체력·마력·쿨타임은 대상 확인까지 모든 검사를 지난 뒤에만 뗀다 — 거절이면 아무것도 안 바뀐다.
+//   게임 로직이 한 스레드라 검사와 떼기 사이에 끼어드는 일이 없다. 재료가 생겨도 같은 자리에서 뗀다.
 //
 // [계층 경계]
 //  CCharacter·CZone(넘겨받아 전투에 건넬 뿐)·스킬 표·CCombatSystem·CGameMonitor 를 안다. 세션·패킷·CGameServer 는 모른다.
@@ -47,6 +47,7 @@ enum class SkillReject : uint8_t
     DEAD,        // 죽어 있다
     COOLDOWN,    // 아직 쿨타임이다
     LOW_HP,      // 체력을 떼고 나면 1 미만이 된다 — 자기 스킬로는 안 죽는다
+    LOW_MP,      // 마력이 비용보다 적다(몬스터는 마력이 0 이라 마력 드는 스킬이면 늘 여기 — 몬스터 마력은 보스 단계)
     NO_TARGET,   // 맞을 상대가 없다(사람이 쓰면 몬스터만, 몬스터가 쓰면 사람만 맞는다)
     COUNT
 };
@@ -58,8 +59,9 @@ class ISkillEvents
 public:
     virtual ~ISkillEvents() = default;
 
-    // 시전했다 — 비용(체력·쿨타임)을 뗀 뒤, 효과를 적용하기 "전"에 온다. → S2C_SKILL_CAST(주변) + 체력이 줄었으면 S2C_ACTOR_STATS(주변)
-    //   ★ 효과(피해·죽음·보상)는 이 뒤에 ICombatEvents 로 따로 온다 — 와이어 순서가 시전 → 시전자 체력 → 피해다.
+    // 시전했다 — 비용(체력·마력·쿨타임)을 뗀 뒤, 효과를 적용하기 "전"에 온다.
+    //   → S2C_SKILL_CAST(주변) + 체력이 줄었으면 S2C_ACTOR_STATS(주변) + 마력이 줄었으면 S2C_ACTOR_MP(시전자 본인만 — 사람일 때)
+    //   ★ 효과(피해·죽음·보상)는 이 뒤에 ICombatEvents 로 따로 온다 — 와이어 순서가 시전 → 시전자 체력 → 시전자 마력 → 피해다.
     virtual void OnCast(CZone* zone, CCharacter* caster, const SkillDef& def) = 0;
 };
 
@@ -74,7 +76,8 @@ public:
     SkillReject UseSkill(CZone* zone, CCharacter* caster, int32_t skillId, uint64_t frame);
 
 private:
-    // 1) 시전자 — 번호·생사·쿨타임·체력. 통과면 COUNT 이고 outDef 에 스킬, outHpCost 에 뗄 체력(4) 가 그대로 뗀다).
+    // 1) 시전자 — 번호·생사·쿨타임·체력·마력. 통과면 COUNT 이고 outDef 에 스킬, outHpCost 에 뗄 체력(4) 가 그대로 뗀다).
+    //    뗄 마력은 표 값 그대로(SkillDef::costMp)라 따로 돌려주지 않는다.
     SkillReject CheckCaster(const CCharacter* caster, int32_t skillId, uint64_t frame, const SkillDef*& outDef, int32_t& outHpCost) const;
 
     // 2) 대상 축 — _targets 를 채운다. 하나도 없으면 NO_TARGET, 있으면 COUNT.

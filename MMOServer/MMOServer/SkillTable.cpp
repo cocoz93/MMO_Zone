@@ -5,6 +5,7 @@
 #include <Common/ErrorLog.h>
 
 #include "GameDataCsv.h"
+#include "LevelTable.h"   // costMp 상한 — 닿을 수 있는 최대 마력(USE_SKILL 은 USE_COMBAT 을 요구하므로 레벨 표가 늘 있다)
 
 using GameDataCsv::DataLine;
 using GameDataCsv::ReadDataLines;
@@ -34,10 +35,19 @@ namespace
     }
 }
 
-bool CSkillTable::Load(const std::string& path)
+bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
 {
     _rows.clear();
     _count = 0;
+
+    // 사람이 닿을 수 있는 가장 큰 최대 마력 — costMp 가 이보다 크면 어느 레벨에서도 못 쓴다(아래 ⑺).
+    //   만렙 값이 아니라 전 레벨의 최댓값이다 — 표가 레벨마다 늘지 않아도 맞게.
+    int32_t highestMaxMp = 0;
+    for (int32_t level = 1; level <= levels.MaxLevel(); ++level)
+    {
+        const int32_t mp = levels.MaxMp(level);
+        highestMaxMp = (mp > highestMaxMp) ? mp : highestMaxMp;   // std::max 는 윈도 헤더의 max 매크로에 먹힌다
+    }
 
     std::vector<DataLine> lines;
     if (!ReadDataLines(path, lines))
@@ -55,15 +65,16 @@ bool CSkillTable::Load(const std::string& path)
     for (const DataLine& dl : lines)
     {
         SplitCsv(dl.text, cell);
-        if (cell.size() < 7)
+        if (cell.size() < 8)
         {
-            SLOG_ERROR("[SkillTable] {}줄: 칸이 {}개입니다 — skillId,name,target,effect,costHpPct,power,cooldownMs 일곱이 필요합니다",
+            SLOG_ERROR("[SkillTable] {}줄: 칸이 {}개입니다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp 여덟이 필요합니다",
                        dl.fileLine, cell.size());
             return false;
         }
 
-        int64_t skillId = 0, costHpPct = 0, power = 0, cooldownMs = 0;
-        if (!ParseInt(cell[0], skillId) || !ParseInt(cell[4], costHpPct) || !ParseInt(cell[5], power) || !ParseInt(cell[6], cooldownMs))
+        int64_t skillId = 0, costHpPct = 0, power = 0, cooldownMs = 0, costMp = 0;
+        if (!ParseInt(cell[0], skillId) || !ParseInt(cell[4], costHpPct) || !ParseInt(cell[5], power) || !ParseInt(cell[6], cooldownMs) ||
+            !ParseInt(cell[7], costMp))
         {
             SLOG_ERROR("[SkillTable] {}줄: 숫자여야 하는 칸이 숫자가 아닙니다 — \"{}\"", dl.fileLine, dl.text);
             return false;
@@ -133,6 +144,14 @@ bool CSkillTable::Load(const std::string& path)
             return false;
         }
 
+        // ⑺ 마력 비용 — 0~닿을 수 있는 최대 마력. 넘으면 어느 레벨에서도 못 쓰는 스킬이 된다(LOW_MP — ⑷ 의 99 와 같은 까닭)
+        if (costMp < 0 || costMp > highestMaxMp)
+        {
+            SLOG_ERROR("[SkillTable] {}줄: costMp {} 는 0~{}(레벨 표의 가장 큰 maxMp) 여야 합니다 (스킬 {})",
+                       dl.fileLine, costMp, highestMaxMp, skillId);
+            return false;
+        }
+
         if (static_cast<int64_t>(_rows.size()) <= skillId)
             _rows.resize(static_cast<size_t>(skillId) + 1);
 
@@ -142,6 +161,7 @@ bool CSkillTable::Load(const std::string& path)
         d.target         = target;
         d.effect         = effect;
         d.costHpPct      = static_cast<int32_t>(costHpPct);
+        d.costMp         = static_cast<int32_t>(costMp);
         d.power          = static_cast<int32_t>(power);
         d.cooldownMs     = static_cast<int32_t>(cooldownMs);
         // 올림 — 480ms 면 12틱(일반 공격 쿨타임과 같다). 내림이면 틱 주기를 바꿀 때 쿨타임이 짧아질 수 있다
