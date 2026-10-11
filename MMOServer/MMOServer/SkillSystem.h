@@ -7,7 +7,10 @@
 //  - 보내기는 하지 않는다 — 시전은 ISkillEvents 로 알리고, 피해·죽음·보상은 CCombatSystem::ApplyHit 가 ICombatEvents 로 알린다.
 //    거절은 알림이 아니라 돌려주는 값이다(CItemSystem::UseItem 꼴) — 게임 서버가 와이어 SkillFail 로 바꿔 보낸다
 //
-// [세 칸] 정의 = 스킬 표(CSkillTable — 기획 데이터) · 진행 = 사람마다의 쿨타임(CPlayer::_skillReadyFrame) · 규칙 = 여기
+// [세 칸] 정의 = 스킬 표(CSkillTable — 기획 데이터) · 진행 = 캐릭터마다의 쿨타임(CCharacter::_skillReadyFrame) · 규칙 = 여기
+//
+// [시전자] CCharacter 다 — 사람도 몬스터(보스)도 같은 규칙으로 쓴다(10-11). 일반 공격(CCombatSystem::PerformAttack)과 같은 꼴.
+//   종류로 갈리는 것은 대상 후보 하나뿐이다(SelectTargets). 몬스터가 스킬을 부르는 곳은 아직 없다(보스 단계).
 //
 // [두 축] 스킬마다 다른 것은 숫자뿐이라 클래스를 스킬마다 두지 않는다. 코드로 늘어나는 것은 둘이다 —
 //   대상 종류(SkillTarget → SelectTargets) · 효과 종류(SkillEffect → ApplyEffect). 새 종류 = 그 축의 case 하나.
@@ -16,7 +19,7 @@
 //   게임 로직이 한 스레드라 검사와 떼기 사이에 끼어드는 일이 없다. 마력·재료가 생겨도 같은 자리에서 뗀다.
 //
 // [계층 경계]
-//  CPlayer·CZone(넘겨받아 전투에 건넬 뿐)·스킬 표·CCombatSystem·CGameMonitor 를 안다. 세션·패킷·CGameServer 는 모른다.
+//  CCharacter·CZone(넘겨받아 전투에 건넬 뿐)·스킬 표·CCombatSystem·CGameMonitor 를 안다. 세션·패킷·CGameServer 는 모른다.
 //  객체는 CGameServer 가 멤버로 든다 — CCombatSystem 을 참조로 받으므로 그 뒤에 선언한다(멤버는 선언 순서로 세워진다).
 // ==========================================================================
 #pragma once
@@ -30,7 +33,6 @@
 
 class CZone;
 class CCharacter;
-class CPlayer;
 class CGameDataFiles;
 class CGameMonitor;
 class CCombatSystem;
@@ -45,7 +47,7 @@ enum class SkillReject : uint8_t
     DEAD,        // 죽어 있다
     COOLDOWN,    // 아직 쿨타임이다
     LOW_HP,      // 체력을 떼고 나면 1 미만이 된다 — 자기 스킬로는 안 죽는다
-    NO_TARGET,   // 맞을 몬스터가 없다(사람은 스킬에 안 맞는다)
+    NO_TARGET,   // 맞을 상대가 없다(사람이 쓰면 몬스터만, 몬스터가 쓰면 사람만 맞는다)
     COUNT
 };
 
@@ -58,7 +60,7 @@ public:
 
     // 시전했다 — 비용(체력·쿨타임)을 뗀 뒤, 효과를 적용하기 "전"에 온다. → S2C_SKILL_CAST(주변) + 체력이 줄었으면 S2C_ACTOR_STATS(주변)
     //   ★ 효과(피해·죽음·보상)는 이 뒤에 ICombatEvents 로 따로 온다 — 와이어 순서가 시전 → 시전자 체력 → 피해다.
-    virtual void OnCast(CZone* zone, CPlayer* caster, const SkillDef& def) = 0;
+    virtual void OnCast(CZone* zone, CCharacter* caster, const SkillDef& def) = 0;
 };
 
 class CSkillSystem
@@ -69,17 +71,17 @@ public:
 
     // 스킬 한 번 — 통과면 COUNT(비용을 떼고 효과까지 냈다), 아니면 거절 사유(아무것도 안 바뀌었다).
     //   skillId 는 와이어에서 온 값 그대로 넣어도 된다(표에 없으면 BAD_SKILL). frame = CGameServer::_frameCount.
-    SkillReject UseSkill(CZone* zone, CPlayer* player, int32_t skillId, uint64_t frame);
+    SkillReject UseSkill(CZone* zone, CCharacter* caster, int32_t skillId, uint64_t frame);
 
 private:
     // 1) 시전자 — 번호·생사·쿨타임·체력. 통과면 COUNT 이고 outDef 에 스킬, outHpCost 에 뗄 체력(4) 가 그대로 뗀다).
-    SkillReject CheckCaster(const CPlayer* player, int32_t skillId, uint64_t frame, const SkillDef*& outDef, int32_t& outHpCost) const;
+    SkillReject CheckCaster(const CCharacter* caster, int32_t skillId, uint64_t frame, const SkillDef*& outDef, int32_t& outHpCost) const;
 
     // 2) 대상 축 — _targets 를 채운다. 하나도 없으면 NO_TARGET, 있으면 COUNT.
-    SkillReject SelectTargets(CZone* zone, CPlayer* player, const SkillDef& def);
+    SkillReject SelectTargets(CZone* zone, CCharacter* caster, const SkillDef& def);
 
     // 6) 효과 축 — _targets 에 효과를 내고 버퍼를 비운다. hpBefore = 비용을 떼기 전 체력(피해 식의 바탕).
-    void ApplyEffect(CZone* zone, CPlayer* player, const SkillDef& def, int32_t hpBefore, uint64_t frame);
+    void ApplyEffect(CZone* zone, CCharacter* caster, const SkillDef& def, int32_t hpBefore, uint64_t frame);
 
     const CGameDataFiles& _tables;
     CGameMonitor&         _gameMonitor;

@@ -244,7 +244,7 @@ private:
     void RecvUseSkill(CPlayer* player, CSerialBuffer* pMsg);
 
     // 시전 알림 (ISkillEvents) — 뜻과 순서는 SkillSystem.h. 시전자 주변 9섹터에 방송한다(본인 포함).
-    void OnCast(CZone* zone, CPlayer* caster, const SkillDef& def) override;
+    void OnCast(CZone* zone, CCharacter* caster, const SkillDef& def) override;
 #endif
 
 #if USE_MONSTER

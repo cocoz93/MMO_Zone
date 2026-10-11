@@ -6,7 +6,6 @@
 
 #include "Character.h"   // CCharacter ← CActor · Direction · MoveState
 #include "Inventory.h"   // USE_INVENTORY — 헤더 안에서 스스로 토글을 본다
-#include "SkillTable.h"  // USE_SKILL — MAX_SKILL_ID(쿨타임 배열 크기). 헤더 안에서 스스로 토글을 본다
 
 // CPlayer — 사람이 조종하는 캐릭터.
 //   좌표·섹터·이동은 CActor 에, HP·표시는 CCharacter 에 있다.
@@ -66,13 +65,6 @@ public:
     //   성공했을 때만 앞으로 민다. 연타 한 번이 DB 두 줄이라 사람당 초당 상한을 두는 것이다.
     uint64_t _equipReadyFrame = 0;
 #endif
-#endif
-
-#if USE_SKILL
-    // 스킬마다 다시 쓸 수 있는 프레임 — 색인 = 스킬 번호(1~MAX_SKILL_ID, [0] 칸은 안 쓴다). 0 = 바로 쓸 수 있다.
-    //   성공했을 때만 앞으로 민다(CSkillSystem::UseSkill — 거절은 쿨타임을 안 건다). 저장하지 않는다(접속을 끊으면 풀린다).
-    //   일반 공격 쿨타임(_lastAttackFrame)과 따로 센다 — 스킬을 써도 일반 공격은 안 막힌다(10-10 기본값).
-    uint64_t _skillReadyFrame[MAX_SKILL_ID + 1] = {};
 #endif
 
 private:

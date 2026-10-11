@@ -8,14 +8,14 @@
 
 #if USE_SKILL
 
-// 스킬 번호 상한 — 번호가 곧 배열 색인이다(이 표도, 사람마다의 쿨타임 배열 CPlayer::_skillReadyFrame 도).
+// 스킬 번호 상한 — 번호가 곧 배열 색인이다(이 표도, 캐릭터마다의 쿨타임 배열 CCharacter::_skillReadyFrame 도).
 //   표 읽기가 1~MAX_SKILL_ID 밖 번호를 거부한다. 스킬이 여덟을 넘는 날 올린다.
 constexpr int32_t MAX_SKILL_ID = 8;
 
 // 대상 종류 — 「누가 맞나」를 고르는 축. 새 종류 = 여기 한 줄 + 표 이름 한 줄 + CSkillSystem::SelectTargets 의 case 하나.
 enum class SkillTarget : uint8_t
 {
-    FRONT,   // 앞의 한 명 — 일반 공격과 같은 사거리·정면 판정(CCombatSystem::FindFrontTarget), 단 몬스터만
+    FRONT,   // 앞의 한 명 — 일반 공격과 같은 사거리·정면 판정(CCombatSystem::FindFrontTarget), 단 사람이 쓰면 몬스터만·몬스터가 쓰면 사람만
     COUNT
 };
 
@@ -30,7 +30,7 @@ enum class SkillEffect : uint8_t
 // CSkillTable — 스킬 정의 (Run/bin/SkillTable.csv)
 //
 // [어디 것이냐] 기획 데이터다. 「백호참은 체력 몇 %를 떼나」는 전원 공통이라 여기,
-//        「이 사람이 백호참을 언제 다시 쓸 수 있나」는 사람 쪽(CPlayer::_skillReadyFrame)이다.
+//        「이 캐릭터가 백호참을 언제 다시 쓸 수 있나」는 캐릭터 쪽(CCharacter::_skillReadyFrame)이다.
 //
 // [색인] 번호가 곧 색인이다(아이템·몬스터 표와 같은 꼴). 0 = 없음, 구멍은 skillId 0 인 빈 행.
 //        번호는 와이어에도 실린다(C2S_USE_SKILL · S2C_SKILL_CAST) — 웹이 같은 파일에서 이름을 읽는다.

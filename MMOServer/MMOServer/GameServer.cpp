@@ -2699,7 +2699,7 @@ void CGameServer::RecvUseSkill(CPlayer* player, CSerialBuffer* pMsg)
 }
 
 // 시전했다 — 비용을 뗀 뒤, 효과 전에 온다. 와이어 순서 = 시전 모양 → 시전자 체력 → (효과의 DAMAGE …)
-void CGameServer::OnCast(CZone* zone, CPlayer* caster, const SkillDef& def)
+void CGameServer::OnCast(CZone* zone, CCharacter* caster, const SkillDef& def)
 {
     BroadcastAroundSector(zone, caster,
         MakeSkillCast(caster->_actorId, static_cast<uint8_t>(def.skillId), static_cast<uint8_t>(caster->_direction)), false);

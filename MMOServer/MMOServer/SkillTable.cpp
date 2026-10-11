@@ -69,7 +69,7 @@ bool CSkillTable::Load(const std::string& path)
             return false;
         }
 
-        // ⑴ 번호 — 1~MAX_SKILL_ID · 중복 없음. 번호가 곧 색인이고 사람마다의 쿨타임 배열 칸이다
+        // ⑴ 번호 — 1~MAX_SKILL_ID · 중복 없음. 번호가 곧 색인이고 캐릭터마다의 쿨타임 배열 칸이다
         if (skillId <= 0 || skillId > MAX_SKILL_ID)
         {
             SLOG_ERROR("[SkillTable] {}줄: 스킬 번호 {} 는 1~{} 여야 합니다", dl.fileLine, skillId, MAX_SKILL_ID);

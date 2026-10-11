@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "Actor.h"
+#include "SkillTable.h"  // USE_SKILL — MAX_SKILL_ID(쿨타임 배열 크기). 헤더 안에서 스스로 토글을 본다
 
 // ==========================================================================
 // CCharacter — 살아 있고, 싸우고, 화면에 보이는 것
@@ -66,6 +67,14 @@ public:
     bool     _isDead = false;        // 죽은 상태 (이동·공격 거부, 공격 대상에서 제외)
     uint64_t _lastAttackFrame = 0;   // 마지막 공격 프레임 (쿨타임 판정 — CGameServer::_frameCount 기준)
     uint64_t _deathFrame = 0;        // 죽은 프레임 (부활 시점 판정 기준)
+
+#if USE_SKILL
+    // 스킬마다 다시 쓸 수 있는 프레임 — 색인 = 스킬 번호(1~MAX_SKILL_ID, [0] 칸은 안 쓴다). 0 = 바로 쓸 수 있다.
+    //   성공했을 때만 앞으로 민다(CSkillSystem::UseSkill — 거절은 쿨타임을 안 건다). 저장하지 않는다(접속을 끊으면 풀린다).
+    //   일반 공격 쿨타임(_lastAttackFrame)과 따로 센다 — 스킬을 써도 일반 공격은 안 막힌다(10-10 기본값).
+    //   여기 있는 까닭 — 몬스터·보스도 스킬을 쓴다(10-11). 시전자는 CCharacter 다(SkillSystem.h).
+    uint64_t _skillReadyFrame[MAX_SKILL_ID + 1] = {};
+#endif
 };
 
 // 내려 바꾸는 자리는 코드 전체에서 이 함수 하나뿐이다 — 다른 곳의 static_cast<CPlayer*>·<CMonster*> 는 잘못이다.
