@@ -264,6 +264,8 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     //   ★ S2C_ACTOR_MP 는 더미도 반드시 받는다 — 입장 때 본인에게 한 장 간다(S2C_MY_STATS 와 같은 함정).
     //     빠뜨리면 더미 전원이 접속하자마자 떨어진다.
     case MsgType::S2C_ACTOR_MP:           return sizeof(MSG_S2C_ACTOR_MP);
+    // USE_COMBAT: 지속 효과 — 본인에게만 가고 더미는 스킬을 안 써서 올 일이 없지만, 전례대로 크기만 등록한다.
+    case MsgType::S2C_ACTOR_BUFF:         return sizeof(MSG_S2C_ACTOR_BUFF);
     default: return 0;
     }
 }

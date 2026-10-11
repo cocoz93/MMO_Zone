@@ -32,7 +32,9 @@
     // 스킬 (USE_SKILL) — 방향·대상은 서버가 정한다. 시전은 주변 방송, 거절은 본인에게만
     C2S_USE_SKILL:1042, S2C_SKILL_CAST:1043, S2C_SKILL_FAIL:1044,
     // 마력 (USE_SKILL) — 본인에게만 온다. 대상 번호를 싣는다(ACTOR_STATS 와 같은 꼴)
-    S2C_ACTOR_MP:1045
+    S2C_ACTOR_MP:1045,
+    // 지속 효과 (USE_COMBAT) — 본인에게만 온다. 걸림·되감김·만료·죽음·존 이동, remainMs 0 = 풀림. 공격력 숫자는 MY_STATS 가 뒤따른다
+    S2C_ACTOR_BUFF:1046
   };
   // 아이템 쓰기 거절 사유 — Protocol.h UseItemFail 순서 그대로(값이 와이어에 실린다). 서버가 이 순서로 보고 먼저 걸린 하나를 보낸다
   const USE_FAIL = ['BAD_SLOT','EMPTY','NOT_USABLE','DEAD','COOLDOWN','FULL_HP','FULL_MP'];
@@ -49,7 +51,9 @@
   const EQUIP_FAIL = ['BAD_SLOT','EMPTY','NOT_EQUIPPABLE','DEAD','COOLDOWN','TAB_FULL'];
   // 스킬 거절 사유 — Protocol.h SkillFail 순서 그대로(값이 와이어에 실린다). 거절이면 체력·마력·쿨타임이 그대로다
   const SKILL_FAIL = ['BAD_SKILL','DEAD','COOLDOWN','LOW_HP','NO_TARGET','LOW_MP'];
-  const NAME = Object.fromEntries(Object.entries(MSG).map(([k,v])=>[v,k]));
+  // 지속 효과 종류 — Protocol.h BuffKind 순서 그대로(값이 와이어에 실린다). 스킬 표의 effect 「buff_<종류>」 와 이름이 같다
+  const BUFF_KIND = ['attack_mul'];
+  const NAME =Object.fromEntries(Object.entries(MSG).map(([k,v])=>[v,k]));
   const DIR = { NONE:0, UP:1, DOWN:2, LEFT:3, RIGHT:4 };  // Player.h
   const MOVE = { IDLE:0, MOVING:1 };
   const POS_QUANT_INV = 1 / 512;   // SectorUpdateEntry ships coords as uint16 ticks (Protocol.h POS_QUANT_SCALE)
@@ -204,6 +208,10 @@
       //   ACTOR_MP 16B = actorId i32 · mp i32 · maxMp i32 — 본인에게만(접속·존 이동·레벨업·스킬 소모·마력 물약)
       case MSG.S2C_ACTOR_MP:
         p.actorId=dv.getInt32(o,true); p.mp=dv.getInt32(o+4,true); p.maxMp=dv.getInt32(o+8,true); break;
+      //   ACTOR_BUFF 17B = actorId i32 · kind u8 · value i32 · remainMs u32 — 본인에게만(걸림·되감김·만료·죽음·존 이동). remainMs 0 = 풀림
+      case MSG.S2C_ACTOR_BUFF:
+        p.actorId=dv.getInt32(o,true); p.kind=dv.getUint8(o+4); p.kindName=BUFF_KIND[p.kind] || ('?'+p.kind);
+        p.value=dv.getInt32(o+5,true); p.remainMs=dv.getUint32(o+9,true); break;
       default: break; // ZONE_CHANGE_OK/FAIL, ADMIN_* etc. — not needed for the view
     }
     return p;
@@ -265,7 +273,7 @@
     }
   };
 
-  const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, EQUIP_SLOT, USE_FAIL, EQUIP_FAIL, SKILL_FAIL, GROUND_APPEAR, GROUND_GONE, PICKUP_FAIL, decodePacket, Reassembler, enc };
+  const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, EQUIP_SLOT, USE_FAIL, EQUIP_FAIL, SKILL_FAIL, BUFF_KIND, GROUND_APPEAR, GROUND_GONE, PICKUP_FAIL, decodePacket, Reassembler, enc };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else global.Proto = API;
 })(typeof window !== 'undefined' ? window : globalThis);

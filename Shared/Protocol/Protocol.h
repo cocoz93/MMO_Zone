@@ -132,7 +132,12 @@ enum class MsgType : uint16_t
     C2S_USE_SKILL,          // 클라이언트 → 서버: 이 스킬을 쓴다 (방향·대상은 서버가 정한다 — 지금 바라보는 쪽)
     S2C_SKILL_CAST,         // 서버 → 클라이언트: 시전 방송 (시전자 주변, 본인 포함 — 남의 화면에 시전 모양이 그려진다)
     S2C_SKILL_FAIL,         // 서버 → 클라이언트: 스킬 거절 + 사유 (본인 — 거절이면 체력·마력·쿨타임이 그대로다)
-    S2C_ACTOR_MP            // 서버 → 클라이언트: 마력 통보 (본인에게만 — 마력은 스킬 토글 소유)
+    S2C_ACTOR_MP,           // 서버 → 클라이언트: 마력 통보 (본인에게만 — 마력은 스킬 토글 소유)
+
+    //--------------------------------------------------
+    // 지속 효과 (USE_COMBAT — 효과 칸은 전투 토글 소유. 거는 쪽은 지금 스킬뿐이고 아이템도 걸 수 있는 틀이다)
+    //--------------------------------------------------
+    S2C_ACTOR_BUFF          // 서버 → 클라이언트: 효과 통보 (본인에게만 — 걸림·되감김·만료·죽음·존 이동. remainMs 0 = 풀림)
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -1038,6 +1043,35 @@ struct MSG_S2C_ACTOR_MP
 };
 
 static_assert(sizeof(MSG_S2C_ACTOR_MP) == 16, "ACTOR_MP 는 16B (proto.js 와 맞출 것)");
-static_assert(static_cast<uint16_t>(MsgType::S2C_ACTOR_MP) == 1045, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+
+// 지속 효과(버프)의 종류 — 와이어 값이자 서버 효과 칸의 색인(CCharacter::_buffs — InvTab 처럼 서버가 이 enum 을 그대로 쓴다).
+//   효과의 정체는 「어느 스킬이 걸었나」가 아니라 종류다 — 스킬이 걸든 아이템이 걸든 같은 칸이고, 같은 종류는 나중 것이 값·시간을 덮는다.
+//   ★ 끝에만 붙인다(값이 와이어에 실린다) — 가운데에 끼우면 옛 클라가 다른 효과로 읽는다.
+enum class BuffKind : uint8_t
+{
+    ATTACK_MUL,   // 공격력 × value (이중공격 2 · 삼중공격 3 …) — 바탕 + 장비 뒤에 곱한다(CStatSystem::RecalcStats)
+    COUNT
+};
+
+// S2C: 지속 효과 통보 — 걸림·되감김(시간만 다시)·만료·죽음(풀림)·존 이동(살아 있는 효과마다 한 장) 때 보낸다.
+//   remainMs 0 = 풀렸다(만료·죽음). value 는 그때의 배수 — 클라가 표를 안 뒤져도 「공격력 ×2」를 그린다(아이템이 걸어도 같다).
+//   공격력이 바뀐 숫자는 S2C_MY_STATS 가 곧 뒤따른다 — 이 패킷은 「무엇이 걸렸고 언제 풀리나」만 말한다.
+//   ★ 받는 사람 = 본인만 — 방송 함수로 보내지 말 것(S2C_ACTOR_MP 와 같은 함정 — 남의 효과는 화면에 안 그린다).
+//   ★ CCharacter 에 있는 값은 대상 번호를 싣는다(S2C_ACTOR_MP 주석의 원칙).
+//   부하 더미에겐 올 일이 없다(본인만, 더미는 스킬을 안 쓴다) — 크기 등록은 전례대로 해 둔다.
+struct MSG_S2C_ACTOR_BUFF
+{
+    static constexpr MsgType TYPE = MsgType::S2C_ACTOR_BUFF;
+    MsgHeader header;
+    int32_t  actorId;
+    uint8_t  kind;       // BuffKind
+    int32_t  value;      // 종류마다 뜻이 다르다 — ATTACK_MUL 은 배수
+    uint32_t remainMs;   // 남은 시간(ms) — 0 = 풀림
+
+    MSG_S2C_ACTOR_BUFF() : header{ sizeof(*this), TYPE }, actorId(0), kind(0), value(0), remainMs(0) {}
+};
+
+static_assert(sizeof(MSG_S2C_ACTOR_BUFF) == 17, "ACTOR_BUFF 는 17B (proto.js 와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::S2C_ACTOR_BUFF) == 1046, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 #pragma pack(pop)
