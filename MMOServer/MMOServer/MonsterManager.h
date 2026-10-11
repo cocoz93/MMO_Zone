@@ -97,8 +97,8 @@ public:
     //   ★ 부르기 전에 존에서 빼 둘 것 — 주변 DELETE·대기열 빼기·LeaveZone 은 플레이어 퇴장과 같은 길
     //     (CGameServer::BroadcastLeaveZone)이다. 여기는 객체(소유)와 점만 다룬다.
     //   ★ 판단 순회(Tick) 중에는 부르지 않는다 — 도는 목록에서 지우면 순회가 깨진다(단언).
-    //     지금 몬스터를 죽이는 건 플레이어 공격(틱 1 패킷 처리)뿐이다. 범위 공격이 생기면 그것도
-    //     지금 공격처럼 「대상을 다 고른 뒤 피해 적용」으로 짤 것(CCombatSystem::PerformAttack 3)·4)).
+    //     지금 몬스터를 죽이는 건 플레이어의 공격·스킬(틱 1 패킷 처리)뿐이다. 한 번에 여럿을 죽이는 범위 스킬(어검술)도
+    //     「대상을 다 고른 뒤 피해 적용」으로 짰다(CSkillSystem 의 대상 버퍼 — SelectTargets 로 모은 뒤 ApplyEffect 가 하나씩).
     void Despawn(CMonster* monster);
 
     // 존 틱이 맵 경계에서 세웠다 → 다음 틱에 바로 다시 판단하게 한다(CZone::Tick 이 부른다).
