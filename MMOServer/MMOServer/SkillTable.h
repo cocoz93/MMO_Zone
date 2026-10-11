@@ -1,10 +1,12 @@
 ﻿#pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
 
 #include "BuildConfig.h"   // USE_SKILL — 안 읽으면 아래 #if 가 조용히 0 이 된다
+#include "Actor.h"         // Direction · DirectionStep — 범위 스킬의 칸은 바라보는 쪽 기준이다
 
 #if USE_SKILL
 
@@ -14,10 +16,56 @@ class CLevelTable;
 //   표 읽기가 1~MAX_SKILL_ID 밖 번호를 거부한다. 스킬이 여덟을 넘는 날 올린다.
 constexpr int32_t MAX_SKILL_ID = 8;
 
+// 범위 스킬의 칸 하나 — 시전자 기준 (앞, 옆). 옆은 바라보는 쪽 기준 오른쪽이 +. 표의 shape 칸이 「앞:옆」 으로 적는다.
+//   칸 크기는 1타일 — 대상 좌표(float)를 반올림해 어느 칸인지 정한다(IsInShape).
+struct ShapeCell
+{
+    int8_t forward = 0;   // 1~MAX_SHAPE_REACH — 앞쪽만(0 이하는 표 읽기가 거부한다: 시전자 자리·뒤는 칸이 아니다)
+    int8_t side    = 0;   // −MAX_SHAPE_REACH~MAX_SHAPE_REACH
+};
+
+constexpr int32_t MAX_SHAPE_REACH = 5;    // 칸 하나가 닿는 거리 상한(앞·옆 각각) — 오타를 거르는 값
+constexpr int32_t MAX_SHAPE_CELLS = 16;   // 한 스킬의 칸 수 상한
+
+// 칸 판정 — 대상이 모양 안의 칸에 서 있나. 로그도 서버도 모르는 순수 함수라 칸 시험이 이 헤더만 넣고 돌린다(RollDrops 와 같은 꼴).
+//   dx, dy = 대상 − 시전자 좌표. 앞 = (dx,dy)·DirectionStep(facing), 옆 = (dx,dy)·(−앞.y, 앞.x) 를 각각 반올림해 칸 번호로 —
+//   칸 k 는 [k−0.5, k+0.5) 다. 기준은 시전자의 실제 좌표다(타일에 붙이지 않는다 — 일반 공격의 사거리 판정과 같은 float 기준).
+//   facing 이 NONE 이면 앞 성분이 늘 0 이라 어떤 칸(앞 ≥ 1)에도 안 든다.
+inline bool IsInShape(Direction facing, float dx, float dy, const std::vector<ShapeCell>& cells)
+{
+    const DirectionVec f = DirectionStep(facing);
+    const float along = dx * f.x + dy * f.y;      // 앞 성분
+    const float right = dx * -f.y + dy * f.x;     // 옆 성분 — 오른쪽 = (−앞.y, 앞.x)
+    const int32_t cellForward = static_cast<int32_t>(std::floor(along + 0.5f));
+    const int32_t cellSide    = static_cast<int32_t>(std::floor(right + 0.5f));
+    for (const ShapeCell& c : cells)
+    {
+        if (c.forward == cellForward && c.side == cellSide)
+            return true;
+    }
+    return false;
+}
+
+// 칸 목록이 닿는 가장 먼 거리 — 칸마다 바깥 모서리(|앞|+0.5, |옆|+0.5)까지. 대상 찾기가 이 반경으로 섹터를 고른다.
+//   모서리까지 재므로 방향을 늘려도(대각선) 칸 안의 점은 다 이 반경 안이다.
+inline float ShapeReach(const std::vector<ShapeCell>& cells)
+{
+    float reach = 0.0f;
+    for (const ShapeCell& c : cells)
+    {
+        const float a = std::fabs(static_cast<float>(c.forward)) + 0.5f;
+        const float b = std::fabs(static_cast<float>(c.side)) + 0.5f;
+        const float d = std::sqrt(a * a + b * b);
+        reach = (d > reach) ? d : reach;   // std::max 는 윈도 헤더의 max 매크로에 먹힌다
+    }
+    return reach;
+}
+
 // 대상 종류 — 「누가 맞나」를 고르는 축. 새 종류 = 여기 한 줄 + 표 이름 한 줄 + CSkillSystem::SelectTargets 의 case 하나.
 enum class SkillTarget : uint8_t
 {
     FRONT,   // 앞의 한 명 — 일반 공격과 같은 사거리·정면 판정(CCombatSystem::FindFrontTarget), 단 사람이 쓰면 몬스터만·몬스터가 쓰면 사람만
+    SHAPE,   // 칸 목록 — 표의 shape 칸(시전자 기준 앞:옆)에 선 상대 전부(IsInShape). 한 칸에 여럿이면 다 맞는다. 상대 종류는 FRONT 와 같다
     COUNT
 };
 
@@ -37,7 +85,7 @@ enum class SkillEffect : uint8_t
 // [색인] 번호가 곧 색인이다(아이템·몬스터 표와 같은 꼴). 0 = 없음, 구멍은 skillId 0 인 빈 행.
 //        번호는 와이어에도 실린다(C2S_USE_SKILL · S2C_SKILL_CAST) — 웹이 같은 파일에서 이름을 읽는다.
 //
-// [스킬마다 클래스 없음] 스킬마다 다른 것은 숫자(체력·마력 소모·위력·쿨타임)뿐이라 표 한 줄이다.
+// [스킬마다 클래스 없음] 스킬마다 다른 것은 숫자(체력·마력 소모·위력·쿨타임)와 범위 스킬의 칸 목록뿐이라 표 한 줄이다.
 //        코드로 늘어나는 것은 대상 종류(SkillTarget)와 효과 종류(SkillEffect) 두 축이다.
 // ==========================================================================
 struct SkillDef
@@ -51,6 +99,8 @@ struct SkillDef
     int32_t     power          = 0;   // DAMAGE = 시전 전 체력의 %
     int32_t     cooldownMs     = 0;   // 파일에 적힌 값 그대로 — 로그용
     uint64_t    cooldownFrames = 0;   // 쿨타임(틱) — ms 를 올림해서 담는다(짧아지지 않게)
+    std::vector<ShapeCell> shape;     // SHAPE 의 칸 목록(다른 대상 종류는 빈 목록)
+    float       shapeReach     = 0.0f;   // ShapeReach(shape) — 대상 찾기가 훑을 반경. 표 읽기가 한 번 센다
 };
 
 class CSkillTable

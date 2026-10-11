@@ -3,7 +3,7 @@
 //
 // [책임]
 //  - 공격 한 번의 처음부터 끝까지: 쿨타임 판정 → 대상 찾기(섹터 훑기) → 피해 → 죽음 필드
-//  - 대상 찾기(FindFrontTarget)와 맞힌 뒤 처리(ApplyHit)는 따로 열어 둔다 — 스킬도 같은 것을 부른다
+//  - 대상 찾기(FindFrontTarget · CollectCandidates)와 맞힌 뒤 처리(ApplyHit)는 따로 열어 둔다 — 스킬도 같은 것을 부른다
 //  - 그 과정에서 정한 것을 지표(CGameMonitor)로 센다 — 무엇을 정했는지는 여기서만 안다
 //  - 송신·죽은 목록·보상은 하지 않는다 — 일이 생기면 ICombatEvents 로 알리고, 받는 쪽(CGameServer)이 한다
 //
@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 
 #include "BuildConfig.h"   // USE_COMBAT — 안 읽으면 아래 #if 가 조용히 0 이 된다
 
@@ -59,7 +60,7 @@ public:
     //   frame 은 CGameServer::_frameCount — 쿨타임과 죽은 프레임의 기준.
     void PerformAttack(CZone* zone, CCharacter* attacker, uint64_t frame);
 
-    // 앞 한 칸 대상 찾기에 넣을 후보 — 섹터의 어느 목록을 보나(SectorManager.h [목록 둘])
+    // 대상 찾기(앞 한 칸 · 범위)에 넣을 후보 — 섹터의 어느 목록을 보나(SectorManager.h [목록 둘])
     enum class CandidateList : uint8_t
     {
         PLAYERS,   // 플레이어 목록만 — 몬스터가 때리거나 스킬을 쓸 때(몬스터는 몬스터를 못 때린다)
@@ -71,6 +72,13 @@ public:
     //   본인은 후보에서 뺀다. outSawDeadInRange = 사거리 안에 있긴 했는데 시체였다("아무도 없었다"와 가르는 값).
     //   세지도 알리지도 않는다 — 없을 때 무슨 사유로 셀지는 부른 쪽(일반 공격·스킬)마다 다르다.
     CCharacter* FindFrontTarget(CZone* zone, CCharacter* attacker, CandidateList which, bool& outSawDeadInRange) const;
+
+    // 반경 안의 후보를 다 모은다 — 범위 스킬이 쓴다. 모양 판정은 안 한다(어느 칸이 맞나는 부른 쪽 몫 — 스킬의 칸 목록).
+    //   (x, y) 둘레 range 가 걸치는 섹터의, which 가 고른 목록에서 살아 있는 것만. exclude(시전자 본인)는 뺀다.
+    //   out 은 비우지 않고 뒤에 붙인다. 한 캐릭터는 한 섹터 목록에만 있어 같은 후보가 두 번 들지 않는다.
+    //   ★ 모으기만 한다 — 맞히기(ApplyHit)는 다 모은 뒤에(죽은 몬스터가 섹터 목록에서 빠진다).
+    void CollectCandidates(CZone* zone, float x, float y, float range, CandidateList which, const CCharacter* exclude,
+                           std::vector<CCharacter*>& out) const;
 
     // 맞힌 뒤 처리 — 피해(attackValue − 방어력, 최소 1) 적용 → OnHit → 죽었으면 죽음 필드·계수 → OnDeath.
     //   attackValue = 일반 공격은 때린 쪽 _attackPower, 스킬은 스킬이 정한 값.

@@ -2,6 +2,8 @@
 
 #if USE_SKILL
 
+#include <utility>   // std::move — 칸 목록을 표 행으로 넘긴다
+
 #include <Common/ErrorLog.h>
 
 #include "GameDataCsv.h"
@@ -15,7 +17,7 @@ using GameDataCsv::ParseInt;
 namespace
 {
     // 파일 글자 — SkillTarget · SkillEffect 순서 그대로. 줄 수가 모자라면 아래 단언이 컴파일을 막는다.
-    constexpr const char* TARGET_NAMES[] = { "front" };
+    constexpr const char* TARGET_NAMES[] = { "front", "shape" };
     constexpr const char* EFFECT_NAMES[] = { "damage" };
     static_assert(sizeof(TARGET_NAMES) / sizeof(TARGET_NAMES[0]) == static_cast<size_t>(SkillTarget::COUNT),
                   "TARGET_NAMES 는 SkillTarget 마다 한 줄이어야 한다");
@@ -32,6 +34,50 @@ namespace
                 return static_cast<E>(i);
         }
         return E::COUNT;
+    }
+
+    // shape 칸 글자 → 칸 목록. 「앞:옆」 을 ';' 로 이은 것(예: 1:0;2:-1;2:0;2:1). 틀리면 false 와 까닭.
+    //   앞 1~MAX_SHAPE_REACH(앞쪽만 — 시전자 자리·뒤는 칸이 아니다) · 옆 ±MAX_SHAPE_REACH · 겹침 금지 · 1~MAX_SHAPE_CELLS 칸.
+    bool ParseShape(const std::string& text, std::vector<ShapeCell>& out, std::string& why)
+    {
+        out.clear();
+        size_t begin = 0;
+        while (begin <= text.size())
+        {
+            const size_t end = text.find(';', begin);
+            const std::string item = text.substr(begin, (end == std::string::npos ? text.size() : end) - begin);
+            const size_t colon = item.find(':');
+            int64_t forward = 0, side = 0;
+            if (colon == std::string::npos || !ParseInt(item.substr(0, colon), forward) || !ParseInt(item.substr(colon + 1), side))
+            {
+                why = "칸 \"" + item + "\" 은 「앞:옆」 정수 둘이어야 합니다";
+                return false;
+            }
+            if (forward < 1 || forward > MAX_SHAPE_REACH || side < -MAX_SHAPE_REACH || side > MAX_SHAPE_REACH)
+            {
+                why = "칸 \"" + item + "\" — 앞은 1~" + std::to_string(MAX_SHAPE_REACH) + ", 옆은 ±" + std::to_string(MAX_SHAPE_REACH) + " 여야 합니다";
+                return false;
+            }
+            for (const ShapeCell& c : out)
+            {
+                if (c.forward == forward && c.side == side)
+                {
+                    why = "칸 \"" + item + "\" 이 겹칩니다";
+                    return false;
+                }
+            }
+            if (static_cast<int32_t>(out.size()) >= MAX_SHAPE_CELLS)
+            {
+                why = "칸이 " + std::to_string(MAX_SHAPE_CELLS) + " 개를 넘습니다";
+                return false;
+            }
+            out.push_back(ShapeCell{ static_cast<int8_t>(forward), static_cast<int8_t>(side) });
+
+            if (end == std::string::npos)
+                break;
+            begin = end + 1;
+        }
+        return true;
     }
 }
 
@@ -67,10 +113,12 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
         SplitCsv(dl.text, cell);
         if (cell.size() < 8)
         {
-            SLOG_ERROR("[SkillTable] {}줄: 칸이 {}개입니다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp 여덟이 필요합니다",
+            SLOG_ERROR("[SkillTable] {}줄: 칸이 {}개입니다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp 여덟(+ shape)이 필요합니다",
                        dl.fileLine, cell.size());
             return false;
         }
+        // 아홉째 shape 칸은 shape 대상만 쓴다. 끝의 빈 칸은 SplitCsv 가 안 담으므로 front 줄은 여덟 칸으로 온다(아홉을 요구하면 안 된다)
+        const std::string shapeText = (cell.size() > 8) ? cell[8] : std::string();
 
         int64_t skillId = 0, costHpPct = 0, power = 0, cooldownMs = 0, costMp = 0;
         if (!ParseInt(cell[0], skillId) || !ParseInt(cell[4], costHpPct) || !ParseInt(cell[5], power) || !ParseInt(cell[6], cooldownMs) ||
@@ -103,7 +151,7 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
         const SkillTarget target = ParseName<SkillTarget>(cell[2], TARGET_NAMES);
         if (target == SkillTarget::COUNT)
         {
-            SLOG_ERROR("[SkillTable] {}줄: 모르는 target \"{}\" — front 여야 합니다 (스킬 {})", dl.fileLine, cell[2], skillId);
+            SLOG_ERROR("[SkillTable] {}줄: 모르는 target \"{}\" — front · shape 중 하나여야 합니다 (스킬 {})", dl.fileLine, cell[2], skillId);
             return false;
         }
         const SkillEffect effect = ParseName<SkillEffect>(cell[3], EFFECT_NAMES);
@@ -152,6 +200,35 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
             return false;
         }
 
+        // ⑻ 칸 목록 — shape 대상은 반드시 있고, 다른 대상은 비어 있어야 한다(안 쓰이는 값이 뜻을 가진 척하지 않게)
+        std::vector<ShapeCell> shape;
+        switch (target)
+        {
+        case SkillTarget::FRONT:
+            if (!shapeText.empty())
+            {
+                SLOG_ERROR("[SkillTable] {}줄: target front 는 shape 칸을 비워야 합니다 — \"{}\" (스킬 {})", dl.fileLine, shapeText, skillId);
+                return false;
+            }
+            break;
+
+        case SkillTarget::SHAPE:
+        {
+            std::string why;
+            if (shapeText.empty())
+                why = "칸이 비어 있습니다";
+            if (!why.empty() || !ParseShape(shapeText, shape, why))
+            {
+                SLOG_ERROR("[SkillTable] {}줄: shape {} (스킬 {})", dl.fileLine, why, skillId);
+                return false;
+            }
+            break;
+        }
+
+        case SkillTarget::COUNT:
+            return false;   // 위 ⑶ 이 이미 걸렀다 — 여기 오지 않는다
+        }
+
         if (static_cast<int64_t>(_rows.size()) <= skillId)
             _rows.resize(static_cast<size_t>(skillId) + 1);
 
@@ -166,6 +243,8 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
         d.cooldownMs     = static_cast<int32_t>(cooldownMs);
         // 올림 — 480ms 면 12틱(일반 공격 쿨타임과 같다). 내림이면 틱 주기를 바꿀 때 쿨타임이 짧아질 수 있다
         d.cooldownFrames = static_cast<uint64_t>((cooldownMs + FRAME_INTERVAL_MS - 1) / FRAME_INTERVAL_MS);
+        d.shapeReach     = ShapeReach(shape);
+        d.shape          = std::move(shape);
         ++_count;
     }
 

@@ -3,7 +3,7 @@
 //
 // [책임]
 //  - 스킬 한 번: 시전자 검사 → 대상 고르기 → 시전 전 체력 잡기 → 비용(체력·마력) 떼기·쿨타임 → 시전 알림 → 효과
-//  - 그 과정에서 정한 것(시전·거절 사유)을 지표(CGameMonitor)로 센다 — CCombatSystem·CItemSystem 과 같은 꼴
+//  - 그 과정에서 정한 것(시전·거절 사유·맞힌 수)을 지표(CGameMonitor)로 센다 — CCombatSystem·CItemSystem 과 같은 꼴
 //  - 보내기는 하지 않는다 — 시전은 ISkillEvents 로 알리고, 피해·죽음·보상은 CCombatSystem::ApplyHit 가 ICombatEvents 로 알린다.
 //    거절은 알림이 아니라 돌려주는 값이다(CItemSystem::UseItem 꼴) — 게임 서버가 와이어 SkillFail 로 바꿔 보낸다
 //
@@ -88,7 +88,7 @@ private:
 
     const CGameDataFiles& _tables;
     CGameMonitor&         _gameMonitor;
-    CCombatSystem&        _combat;   // 대상 찾기(FindFrontTarget)와 맞힌 뒤 처리(ApplyHit)를 일반 공격과 같이 쓴다
+    CCombatSystem&        _combat;   // 대상 찾기(FindFrontTarget · CollectCandidates)와 맞힌 뒤 처리(ApplyHit)를 일반 공격과 같이 쓴다
     ISkillEvents&         _events;
 
     // 대상 버퍼 — 다 고른 뒤 하나씩 적용한다(섹터 목록을 도는 중에 맞히면 죽은 몬스터가 목록에서 빠져 순회가 깨진다).

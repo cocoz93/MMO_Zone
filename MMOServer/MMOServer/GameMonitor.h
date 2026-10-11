@@ -322,14 +322,15 @@ public:
 
 #if USE_SKILL
     // ══════════════════════════════════════════════════════════════
-    // 스킬 (USE_SKILL) — 시전은 스킬 번호마다, 거절은 사유마다 한 칸(배열).
-    //   세는 곳은 CSkillSystem::UseSkill 한 곳이다. 시전 = 비용을 뗀 수(모든 검사를 지났다), 거절 = 아무것도 안 뗀 수.
-    //   맞힌 수·죽인 수는 여기서 안 센다 — 맞힌 뒤 처리(ApplyHit)가 일반 공격과 같은 지표로 센다.
+    // 스킬 (USE_SKILL) — 시전·맞힌 수는 스킬 번호마다, 거절은 사유마다 한 칸(배열).
+    //   세는 곳은 CSkillSystem 안이다(시전·거절 = UseSkill, 맞힌 수 = ApplyEffect). 시전 = 비용을 뗀 수(모든 검사를 지났다), 거절 = 아무것도 안 뗀 수.
+    //   죽인 수는 여기서 안 센다 — 맞힌 뒤 처리(ApplyHit)가 일반 공격과 같은 죽음 지표로 센다.
     // ══════════════════════════════════════════════════════════════
     struct alignas(64) SkillCounters
     {
         Counter _cast[MAX_SKILL_ID + 1];                            // 시전 성공, 스킬 번호별([0] 칸은 안 쓴다)
         Counter _rejected[static_cast<int>(SkillReject::COUNT)];    // 거절, 사유별
+        Counter _hits[MAX_SKILL_ID + 1];                            // 스킬로 맞힌 대상 수, 스킬 번호별 — 범위 스킬은 한 시전에 여럿([0] 칸은 안 쓴다)
 
         // S2C_ACTOR_MP 보낸 수 — SendActorMp 한 곳에서만 센다(_combat._myStatsSent 와 같은 꼴). 입장·존 이동·레벨업·마력 소모·마력 물약마다 1.
         //   마력은 스킬 토글 소유라 여기 둔다.

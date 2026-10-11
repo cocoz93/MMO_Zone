@@ -595,13 +595,18 @@ private:
 #endif
 
 #if USE_SKILL
-        // 스킬 — 시전은 스킬 번호마다, 거절은 사유마다 한 줄. 둘 다 표를 돈다(늘어도 노출에서 안 빠진다).
-        //   시전 = 비용을 뗀 수, 거절 = 아무것도 안 뗀 수. 맞힌·죽인 수는 일반 공격과 같은 mmo_deaths_total 등으로 센다.
+        // 스킬 — 시전·맞힌 수는 스킬 번호마다, 거절은 사유마다 한 줄. 다 표를 돈다(늘어도 노출에서 안 빠진다).
+        //   시전 = 비용을 뗀 수, 거절 = 아무것도 안 뗀 수, 맞힌 수 = 피해를 준 대상 수. 죽인 수는 일반 공격과 같은 mmo_deaths_total 등으로 센다.
         const auto& sk = _gameMonitor._skill;
         ss << "# HELP mmo_skill_cast_total Skill casts that passed every check (cost paid), split by skill id\n";
         ss << "# TYPE mmo_skill_cast_total counter\n";
         for (int i = 1; i <= MAX_SKILL_ID; ++i)
             ss << "mmo_skill_cast_total{skill=\"" << i << "\"} " << sk._cast[i] << "\n";
+        ss << "\n";
+        ss << "# HELP mmo_skill_hits_total Targets hit by skills (one per target per cast - an area skill can hit several), split by skill id\n";
+        ss << "# TYPE mmo_skill_hits_total counter\n";
+        for (int i = 1; i <= MAX_SKILL_ID; ++i)
+            ss << "mmo_skill_hits_total{skill=\"" << i << "\"} " << sk._hits[i] << "\n";
         ss << "\n";
         ss << "# HELP mmo_skill_rejected_total Skill casts refused (nothing paid), split by reason\n";
         ss << "# TYPE mmo_skill_rejected_total counter\n";

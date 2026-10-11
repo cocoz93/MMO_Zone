@@ -180,6 +180,19 @@ CCharacter* CCombatSystem::FindFrontTarget(CZone* zone, CCharacter* attacker, Ca
     return target;
 }
 
+// 반경 안의 후보를 다 모은다 — 범위 스킬(CSkillSystem::SelectTargets 의 SHAPE)이 쓴다. 어느 칸이 맞나는 부른 쪽이 거른다.
+//   FindFrontTarget 과 같은 훑기(ForEachCandidate)라 후보 목록 고르기가 일반 공격·스킬에서 갈리지 않는다.
+void CCombatSystem::CollectCandidates(CZone* zone, float x, float y, float range, CandidateList which, const CCharacter* exclude,
+                                      std::vector<CCharacter*>& out) const
+{
+    ForEachCandidate(zone->GetSectorManager(), x, y, range, which, [&](CCharacter* candidate)
+    {
+        if (candidate == exclude || candidate->_isDead)
+            return;   // 본인 · 시체는 안 맞는다
+        out.push_back(candidate);
+    });
+}
+
 // 맞힌 뒤 처리 — 일반 공격(PerformAttack 4·5)과 스킬이 같이 쓴다. 공격값만 부른 쪽이 정한다.
 void CCombatSystem::ApplyHit(CZone* zone, CCharacter* attacker, CCharacter* target, int32_t attackValue, uint64_t frame)
 {

@@ -2,10 +2,12 @@
 
 #if USE_SKILL
 
-#include "SkillTable.h"      // SkillDef · 대상·효과 종류
+#include <algorithm>         // remove_if — 모양 밖 후보 버리기
+
+#include "SkillTable.h"      // SkillDef · 대상·효과 종류 · IsInShape
 #include "GameDataFiles.h"   // 스킬 표
 #include "GameMonitor.h"     // 시전·거절 지표
-#include "CombatSystem.h"    // FindFrontTarget · ApplyHit — 일반 공격과 같이 쓴다
+#include "CombatSystem.h"    // FindFrontTarget · CollectCandidates · ApplyHit — 일반 공격과 같이 쓴다
 #include "Character.h"       // 종류·생사·체력·쿨타임 필드 — 시전자는 CCharacter 다
 
 CSkillSystem::CSkillSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor, CCombatSystem& combat, ISkillEvents& events)
@@ -113,6 +115,21 @@ SkillReject CSkillSystem::SelectTargets(CZone* zone, CCharacter* caster, const S
         break;
     }
 
+    case SkillTarget::SHAPE:
+    {
+        // 칸 목록이 닿는 반경(shapeReach)의 후보를 다 모은 뒤 모양 밖을 버린다 — 맞히기는 ApplyEffect(다 고른 뒤)다.
+        //   기준은 시전자의 실제 좌표와 바라보는 쪽(IsInShape). 한 칸에 여럿이면 다 남는다(맞는 수 상한 없음, 10-11).
+        _combat.CollectCandidates(zone, caster->_x, caster->_y, def.shapeReach, which, caster, _targets);
+        const float     casterX = caster->_x;
+        const float     casterY = caster->_y;
+        const Direction facing  = caster->_direction;
+        _targets.erase(std::remove_if(_targets.begin(), _targets.end(), [&](const CCharacter* t)
+        {
+            return !IsInShape(facing, t->_x - casterX, t->_y - casterY, def.shape);
+        }), _targets.end());
+        break;
+    }
+
     case SkillTarget::COUNT:
         break;   // 표 읽기가 막는다(SkillTable.cpp ⑶) — 여기 오지 않는다
     }
@@ -132,7 +149,10 @@ void CSkillSystem::ApplyEffect(CZone* zone, CCharacter* caster, const SkillDef& 
         // ★ 다 고른 뒤 하나씩 — 몬스터가 죽으면 ApplyHit 안(OnDeath)에서 해제되고 섹터 목록에서 빠진다.
         //   버퍼의 그 칸은 이 뒤로 안 읽는다(한 대상은 한 번만 맞는다).
         for (CCharacter* target : _targets)
+        {
+            _gameMonitor._skill._hits[def.skillId].Inc();   // 맞힌 대상마다 1 — ApplyHit 앞에서 센다(몬스터면 그 안에서 해제된다)
             _combat.ApplyHit(zone, caster, target, attackValue, frame);
+        }
         break;
     }
 
