@@ -353,6 +353,7 @@ namespace
         case UseItemReject::DEAD:       return UseItemFail::DEAD;
         case UseItemReject::COOLDOWN:   return UseItemFail::COOLDOWN;
         case UseItemReject::FULL_HP:    return UseItemFail::FULL_HP;
+        case UseItemReject::FULL_MP:    return UseItemFail::FULL_MP;
         case UseItemReject::COUNT:      break;
         }
         assert(false && "거절이 아닌 결과를 실패 패킷으로 바꾸려 했다");
@@ -2244,20 +2245,30 @@ void CGameServer::RecvUseItem(CPlayer* player, CSerialBuffer* pMsg)
     MSG_C2S_USE_ITEM recvMsg{};
     pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
 
-    // 판정·적용(체력·개수·대기시간)·세기는 CItemSystem — 여기는 결과를 패킷으로 바꿔 내보내기만 한다
-    const UseItemReject reject = _itemSystem.UseItem(player, recvMsg.slot, _frameCount);
+    // 판정·적용(체력·마력·개수·대기시간)·세기는 CItemSystem — 여기는 결과를 패킷으로 바꿔 내보내기만 한다
+    const ItemDef* used = nullptr;
+    const UseItemReject reject = _itemSystem.UseItem(player, recvMsg.slot, _frameCount, used);
     if (reject != UseItemReject::COUNT)
     {
         SendPacket(player, MakeUseItemFail(recvMsg.slot, ToUseItemFail(reject)));
         return;
     }
 
-    // 칸 갱신(본인) → 체력 통보(본인 + 주변 — 남의 머리 위 막대도 차야 한다). 레벨업 때 체력 방송과 같은 꼴.
-    //   ★ 순서가 곧 와이어 순서다 — 칸 패킷이 체력 패킷보다 앞선다(시험이 이 순서로 "이 체력이 물약 몫"을 가린다).
+    // 칸 갱신(본인) → 채운 쪽 통보. 효과마다 받는 사람이 다르다(10-11) — 한 물약 한 효과라 둘 중 하나만 간다.
+    //   체력이면 본인 + 주변(남의 머리 위 막대도 차야 한다 — 레벨업 때 체력 방송과 같은 꼴),
+    //   마력이면 본인에게만(S2C_ACTOR_MP — 남의 마력은 화면에 안 그린다).
+    //   ★ 순서가 곧 와이어 순서다 — 칸 패킷이 통보보다 앞선다(시험이 이 순서로 "이 값이 물약 몫"을 가린다).
     FlushInventory(player);
-    CZone* zone = _mapManager.GetZone(player->_zoneId);
-    if (zone != nullptr)
-        BroadcastAroundSector(zone, player, MakeActorStats(player->_actorId, player->_hp, player->_maxHp), false);
+    if (used->healHp > 0)
+    {
+        CZone* zone = _mapManager.GetZone(player->_zoneId);
+        if (zone != nullptr)
+            BroadcastAroundSector(zone, player, MakeActorStats(player->_actorId, player->_hp, player->_maxHp), false);
+    }
+#if USE_SKILL
+    if (used->healMp > 0)
+        SendActorMp(player);
+#endif
 }
 
 #if USE_EQUIP

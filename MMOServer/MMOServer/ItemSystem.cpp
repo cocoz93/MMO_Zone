@@ -29,7 +29,8 @@ UseItemReject CItemSystem::CheckUseItem(const CPlayer* player, uint16_t slot, ui
         return UseItemReject::EMPTY;
 
     // 표에서 사라진 번호(패치로 지운 아이템)도 여기서 "못 쓴다"로 떨어진다.
-    //   「쓸 수 있나」는 표 쪽 한 곳(ItemDef::IsUsable)에 묻는다 — 표 읽기가 거부하는 기준과 같은 답이다.
+    //   「이 빌드에서 쓸 수 있나」는 표 쪽 한 곳(ItemDef::IsUsable)에 묻는다 — 스킬을 끈 빌드의 마력 물약도 여기서 떨어진다.
+    //   표 읽기는 다른 물음(HasEffect — 효과 칸이 있나)을 묻는다(ItemTable.h 의 IsUsable 주석).
     outDef = _tables.Item().Find(s.itemId);
     if (outDef == nullptr || !outDef->IsUsable())
         return UseItemReject::NOT_USABLE;
@@ -40,15 +41,21 @@ UseItemReject CItemSystem::CheckUseItem(const CPlayer* player, uint16_t slot, ui
     if (frame < player->_itemUseReadyFrame)
         return UseItemReject::COOLDOWN;
 
-    // 체력이 가득이면 안 줄인다 — 물약만 날리게 두지 않는다
-    if (player->_hp >= player->_maxHp)
+    // 가득이면 안 줄인다 — 물약만 날리게 두지 않는다. 가득 판정은 그 물약이 채우는 쪽만 본다(한 물약 한 효과 — 표 읽기가 막는다).
+    //   예전엔 종류를 안 보고 체력만 봐서, 만피일 때 마력 물약까지 FULL_HP 로 막혔을 자리다(10-10 플랜).
+    if (outDef->healHp > 0 && player->_hp >= player->_maxHp)
         return UseItemReject::FULL_HP;
+#if USE_SKILL
+    if (outDef->healMp > 0 && player->_mp >= player->_maxMp)
+        return UseItemReject::FULL_MP;
+#endif
 
     return UseItemReject::COUNT;   // 통과
 }
 
-UseItemReject CItemSystem::UseItem(CPlayer* player, uint16_t slot, uint64_t frame)
+UseItemReject CItemSystem::UseItem(CPlayer* player, uint16_t slot, uint64_t frame, const ItemDef*& outUsed)
 {
+    outUsed = nullptr;
     int index = -1;
     const ItemDef* def = nullptr;
     const UseItemReject reject = CheckUseItem(player, slot, frame, index, def);
@@ -58,12 +65,24 @@ UseItemReject CItemSystem::UseItem(CPlayer* player, uint16_t slot, uint64_t fram
         return reject;
     }
 
-    // ── 성공 — 체력을 채우고(최대치에서 멈춘다) 한 개 줄이고 대기시간을 건다 ──
-    const int32_t healed = player->_hp + def->healHp;   // std::min 은 윈도 헤더의 min 매크로에 먹힌다
-    player->_hp = (healed < player->_maxHp) ? healed : player->_maxHp;
+    // ── 성공 — 물약이 채우는 쪽을 채우고(최대치에서 멈춘다) 한 개 줄이고 대기시간을 건다 ──
+    //   std::min 은 윈도 헤더의 min 매크로에 먹힌다
+    if (def->healHp > 0)
+    {
+        const int32_t healed = player->_hp + def->healHp;
+        player->_hp = (healed < player->_maxHp) ? healed : player->_maxHp;
+    }
+#if USE_SKILL
+    if (def->healMp > 0)   // 스킬을 끈 빌드에선 여기 안 온다 — IsUsable 이 NOT_USABLE 로 막는다
+    {
+        const int32_t filled = player->_mp + def->healMp;
+        player->_mp = (filled < player->_maxMp) ? filled : player->_maxMp;
+    }
+#endif
     player->_inventory.ConsumeOne(index);
     player->_itemUseReadyFrame = frame + ITEM_USE_COOLDOWN_FRAMES;   // 성공했을 때만 — 거절은 대기시간을 안 건다
     _gameMonitor._inventory._itemsUsed.Inc();
+    outUsed = def;
     return UseItemReject::COUNT;
 }
 

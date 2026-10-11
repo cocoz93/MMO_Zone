@@ -2,15 +2,19 @@
 #   UTF-8 without BOM (names are Korean). No commas inside a cell.
 #   tab      : equip | use | etc  (bag tabs - slot ranges live in Protocol.h INV_TAB_RANGES)
 #   maxStack : items per slot. equip must be 1 (equipment never stacks).
-#   healHp   : HP restored when used. use items need >= 1, others 0.
+#   healHp   : HP restored when used. A use item needs healHp or healMp >= 1 - one effect per potion, never both. Others 0.
 #   icon     : cell index on the LPC item sheet (16 cells per row, 32px). Server ignores it.
-#              Checked by eye on a numbered grid (09-23): 83 red bottle, 85 green bottle, 136 hide, 7 dagger.
+#              Checked by eye on a numbered grid (09-23): 83 red bottle, 85 green bottle, 136 hide, 7 dagger; 84 blue bottle = mana potion (10-11).
 #   attack   : added to attack power while worn (2026-09-30). equip items only - others must be 0.
 #              Every equip item goes to the weapon slot (Protocol.h EquipSlot has one part for now).
 #              Lv1 attack 10 kills a snake (30 HP) in 3 hits; the dagger (+5) makes it 2.
+#   healMp   : mana restored when used (2026-10-11, appended last like attack). Others 0.
+#              A build without skills (USE_SKILL=0) still loads the row but refuses to use it (NOT_USABLE) - it has no mana.
 #   Lv1 HP is 800 and a snake bite is 5, so a small potion (200) is 40 bites.
-itemId,name,tab,maxStack,healHp,icon,attack
-1,작은 물약,use,99,200,83,0
-2,큰 물약,use,99,500,85,0
-3,뱀 가죽,etc,99,0,136,0
-4,낡은 단검,equip,1,0,7,5
+#   Lv1 mana is 100 and Baekhocham costs 10, so a mana potion (50) is 5 casts.
+itemId,name,tab,maxStack,healHp,icon,attack,healMp
+1,작은 물약,use,99,200,83,0,0
+2,큰 물약,use,99,500,85,0,0
+3,뱀 가죽,etc,99,0,136,0,0
+4,낡은 단검,equip,1,0,7,5,0
+5,마력 물약,use,99,0,84,0,50

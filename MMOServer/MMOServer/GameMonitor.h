@@ -105,7 +105,7 @@ inline const char* InvLoadSkipName(InvLoadSkip r)
 // 쓰기·장착 거절의 지표 라벨 — 사유 enum 은 CItemSystem 이 정한다(ItemSystem.h). 와이어 값으로는 게임 서버가 바꾼다.
 inline const char* UseItemRejectName(UseItemReject r)
 {
-    static_assert(static_cast<int>(UseItemReject::COUNT) == 6, "UseItemReject 를 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(UseItemReject::COUNT) == 7, "UseItemReject 를 늘렸으면 이름도 붙일 것");
     switch (r)
     {
     case UseItemReject::BAD_SLOT:   return "bad_slot";
@@ -114,6 +114,7 @@ inline const char* UseItemRejectName(UseItemReject r)
     case UseItemReject::DEAD:       return "dead";
     case UseItemReject::COOLDOWN:   return "cooldown";
     case UseItemReject::FULL_HP:    return "full_hp";
+    case UseItemReject::FULL_MP:    return "full_mp";
     case UseItemReject::COUNT:      break;
     }
     return "?";

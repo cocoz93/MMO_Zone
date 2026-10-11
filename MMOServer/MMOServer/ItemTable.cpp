@@ -72,16 +72,17 @@ bool CItemTable::Load(const std::string& path)
     for (const DataLine& dl : lines)
     {
         SplitCsv(dl.text, cell);
-        if (cell.size() < 7)
+        if (cell.size() < 8)
         {
-            SLOG_ERROR("[ItemTable] {}줄: 칸이 {}개입니다 — itemId,name,tab,maxStack,healHp,icon,attack 일곱이 필요합니다",
+            SLOG_ERROR("[ItemTable] {}줄: 칸이 {}개입니다 — itemId,name,tab,maxStack,healHp,icon,attack,healMp 여덟이 필요합니다",
                        dl.fileLine, cell.size());
             return false;
         }
 
-        int64_t itemId = 0, maxStack = 0, healHp = 0, icon = 0, attack = 0;
+        int64_t itemId = 0, maxStack = 0, healHp = 0, icon = 0, attack = 0, healMp = 0;
         if (!ParseInt(cell[0], itemId) || !ParseInt(cell[3], maxStack) ||
-            !ParseInt(cell[4], healHp) || !ParseInt(cell[5], icon) || !ParseInt(cell[6], attack))
+            !ParseInt(cell[4], healHp) || !ParseInt(cell[5], icon) || !ParseInt(cell[6], attack) ||
+            !ParseInt(cell[7], healMp))
         {
             SLOG_ERROR("[ItemTable] {}줄: 숫자여야 하는 칸이 숫자가 아닙니다 — \"{}\"", dl.fileLine, dl.text);
             return false;
@@ -129,10 +130,18 @@ bool CItemTable::Load(const std::string& path)
             return false;
         }
 
-        // ⑸ 회복량 — 음수 금지. 「소비 아이템은 써서 무슨 일이 일어나야 한다」는 아래 ⑻ 이 ItemDef::IsUsable 로 본다
-        if (healHp < 0)
+        // ⑸ 회복량 — 음수 금지. 「소비 아이템은 써서 무슨 일이 일어나야 한다」는 아래 ⑻ 이 ItemDef::HasEffect 로 본다
+        if (healHp < 0 || healMp < 0)
         {
-            SLOG_ERROR("[ItemTable] {}줄: healHp {} 는 0 이상이어야 합니다 (아이템 {})", dl.fileLine, healHp, itemId);
+            SLOG_ERROR("[ItemTable] {}줄: healHp {} · healMp {} 는 0 이상이어야 합니다 (아이템 {})", dl.fileLine, healHp, healMp, itemId);
+            return false;
+        }
+        //    한 물약 한 효과 — 둘 다 채우는 줄은 거부한다(10-10). 성공 알림이 효과마다 받는 사람이 달라서
+        //    (체력은 주변 방송, 마력은 본인만) 한 줄에 둘이면 알림이 「둘 중 하나」가 아니라 조합이 된다.
+        if (healHp > 0 && healMp > 0)
+        {
+            SLOG_ERROR("[ItemTable] {}줄: healHp {} 와 healMp {} 가 둘 다 있습니다 — 한 물약은 한 효과만 (아이템 {})",
+                       dl.fileLine, healHp, healMp, itemId);
             return false;
         }
 
@@ -157,12 +166,14 @@ bool CItemTable::Load(const std::string& path)
         d.tab      = tab;
         d.maxStack = static_cast<int32_t>(maxStack);
         d.healHp   = static_cast<int32_t>(healHp);
+        d.healMp   = static_cast<int32_t>(healMp);
         d.attack   = static_cast<int32_t>(attack);
 
-        // ⑻ 소비 아이템은 써서 무슨 일이 일어나야 한다 — 「쓸 수 있나」는 ItemDef::IsUsable 하나만 답한다(사용 판정과 같은 물음)
-        if (d.tab == InvTab::USE && !d.IsUsable())
+        // ⑻ 소비 아이템은 써서 무슨 일이 일어나야 한다 — 「효과가 있나」는 ItemDef::HasEffect 하나만 답한다.
+        //    「이 빌드에서 쓸 수 있나」(IsUsable)를 묻지 않는 까닭 — 스킬을 끈 빌드도 마력 물약 줄을 받아야 서버가 뜬다(ItemTable.h)
+        if (d.tab == InvTab::USE && !d.HasEffect())
         {
-            SLOG_ERROR("[ItemTable] {}줄: 소비 아이템인데 쓸 효과가 없습니다 — healHp 가 1 이상이어야 합니다 (아이템 {})",
+            SLOG_ERROR("[ItemTable] {}줄: 소비 아이템인데 쓸 효과가 없습니다 — healHp 나 healMp 가 1 이상이어야 합니다 (아이템 {})",
                        dl.fileLine, itemId);
             return false;
         }

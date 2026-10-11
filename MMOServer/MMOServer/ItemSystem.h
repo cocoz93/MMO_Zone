@@ -2,7 +2,7 @@
 // ItemSystem — 아이템 쓰기·장착 규칙 (USE_INVENTORY · 장착은 USE_EQUIP)
 //
 // [책임]
-//  - 물약 쓰기: 쓸 수 있나(판정) → 체력 채우기·한 개 줄이기·대기시간
+//  - 물약 쓰기: 쓸 수 있나(판정) → 체력 또는 마력 채우기·한 개 줄이기·대기시간
 //  - 장착: 끼울·뺄 수 있나(판정) → 칸 둘 맞바꾸기·대기시간·스탯 다시 세우기(CStatSystem)
 //  - 그 과정에서 정한 것(성공·거절 사유)을 지표(CGameMonitor)로 센다 — CCombatSystem 과 같은 꼴
 //  - 보내기·저장은 하지 않는다 — 바뀐 칸은 가방이 스스로 표시해 두고(CInventory), 부르는 쪽(CGameServer)이
@@ -32,15 +32,16 @@ class CStatSystem;
 struct ItemDef;
 
 // 쓰기 거절 사유 — 열거 순서가 곧 확인 순서다(여럿이 겹치면 먼저 걸린 하나로 답한다). 통과 = COUNT.
-//   판정을 값을 돌려주는 함수로 둔 이유 — 사유가 여섯이라 호출부에서 if 사슬로 쓰면 하나를 빠뜨려도 안 보인다.
+//   판정을 값을 돌려주는 함수로 둔 이유 — 사유가 일곱이라 호출부에서 if 사슬로 쓰면 하나를 빠뜨려도 안 보인다.
 enum class UseItemReject : uint8_t
 {
     BAD_SLOT,     // 칸 번호가 어느 탭 구간에도 없다
     EMPTY,        // 빈 칸
-    NOT_USABLE,   // 쓸 수 있는 아이템이 아니다(소비 탭이 아니거나 효과가 없다) · 표에서 사라진 번호 포함
+    NOT_USABLE,   // 쓸 수 있는 아이템이 아니다(소비 탭이 아니거나 효과가 없다) · 표에서 사라진 번호 포함 · 스킬을 끈 빌드의 마력 물약
     DEAD,         // 죽어 있다
     COOLDOWN,     // 아직 대기 중이다(지난번에 쓴 지 1초가 안 됐다)
-    FULL_HP,      // 체력이 가득 — 물약을 안 줄인다
+    FULL_HP,      // 체력 물약인데 체력이 가득 — 물약을 안 줄인다
+    FULL_MP,      // 마력 물약인데 마력이 가득 — 물약을 안 줄인다(FULL_HP 와 겹치지 않는다 — 한 물약 한 효과)
     COUNT
 };
 
@@ -63,10 +64,11 @@ public:
     // 표는 게임 서버가 든 것을 참조한다 — 기동 때 LoadGameDataFiles 가 채운 뒤에만 부른다.
     CItemSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor, CStatSystem& statSystem);
 
-    // 아이템 쓰기(지금은 물약만) — 판정 → 성공이면 체력 채우기(최대치에서 멈춘다)·한 개 줄이기·대기시간. 통과면 COUNT.
+    // 아이템 쓰기(지금은 물약만) — 판정 → 성공이면 물약이 채우는 쪽(체력·마력) 채우기(최대치에서 멈춘다)·한 개 줄이기·대기시간.
+    //   통과면 COUNT 이고 outUsed 에 쓴 아이템 — 무엇을 채웠는지는 그 표 값(healHp·healMp)이 말한다. 거절이면 outUsed 는 nullptr.
     //   frame = 지금 틱(CGameServer::_frameCount) — 대기시간의 기준.
-    //   바뀐 칸은 가방이 표시해 둔다 — 부르는 쪽이 FlushInventory 로 내보내고 체력을 방송한다.
-    UseItemReject UseItem(CPlayer* player, uint16_t slot, uint64_t frame);
+    //   바뀐 칸은 가방이 표시해 둔다 — 부르는 쪽이 FlushInventory 로 내보내고, 채운 쪽을 알린다(체력은 주변 방송, 마력은 본인만).
+    UseItemReject UseItem(CPlayer* player, uint16_t slot, uint64_t frame, const ItemDef*& outUsed);
 
 #if USE_EQUIP
     // 끼우기(가방 칸 → 무기 칸, 차 있으면 맞바꿈) · 빼기(무기 칸 → 장비 탭 첫 빈 칸). 통과면 COUNT.

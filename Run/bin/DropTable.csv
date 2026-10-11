@@ -5,9 +5,11 @@
 #   min/max : 1 <= min <= max <= the item's maxStack.
 #   monsterId : MonsterTable.csv (1 = snake)
 #   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
-#   With the rows below a snake drops nothing 28% of the time; on average 0.92 ground items (1.22 pieces) per kill.
+#   With the rows below a snake drops nothing 21% of the time; on average 1.17 ground items (1.47 pieces) per kill.
+#   (mana potion row added 2026-10-11 - 25%, same as the small potion. Before it: nothing 28%, 0.92 items, 1.22 pieces.)
 itemId,monsterId,chance,min,max
 3,1,60,1,2
 1,1,25,1,1
 2,1,5,1,1
 4,1,2,1,1
+5,1,25,1,1

@@ -215,7 +215,7 @@ private:
     void SendSystemMessage(CPlayer* player, const std::string& utf8);
 
     // 아이템 쓰기(지금은 물약만) — CItemSystem::UseItem 을 불러, 거절이면 사유를 본인에게(와이어 값으로 바꿔),
-    //   성공이면 칸 갱신 + 체력 통보(주변 포함). 판정·적용·세기는 CItemSystem 이다.
+    //   성공이면 칸 갱신 + 채운 쪽 통보(체력 물약 = 체력 주변 방송 · 마력 물약 = 마력 본인만). 판정·적용·세기는 CItemSystem 이다.
     void RecvUseItem(CPlayer* player, CSerialBuffer* pMsg);
 
 #if USE_DB_WORKER
