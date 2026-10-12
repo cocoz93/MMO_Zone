@@ -26,6 +26,7 @@
 <script src="assets/lpc_layers.js"></script>
 <script src="assets/monsters.js"></script>
 <script src="assets/items.js"></script>
+<script src="assets/town.js"></script>
 <script>
 (()=>{
 "use strict";
@@ -560,21 +561,62 @@ const hash=(i,j)=>{let h=(i*73856093)^(j*19349663);h=(h^(h>>13))*1274126177;retu
 function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
 function shadow(x,y,r,fade=1){ ctx.save(); ctx.globalAlpha=.26*fade; ctx.fillStyle='#000'; ctx.beginPath(); ctx.ellipse(x,y,r,r*.4,0,0,7); ctx.fill(); ctx.restore(); }
 
+// ---- 마을 그림(assets/town.js — tools/town/build.js 가 만든다) ----
+//   맵 번호마다 땅 칸 번호·집·소품·나무 자리가 들어 있다. 그 맵 번호의 배치가 있으면 그 그림으로, 없으면(던전) 예전 땅·나무로 그린다.
+//   town.js 가 없거나 그림이 안 실려도 멈추지 않는다 — 예전 흙 땅·나무·포털 고리로 떨어진다(콘솔 경고만).
+//   크기: 원본 32px = 월드 TOWN.tile(1.5)칸 — 캐릭터(64px = 3칸)와 같은 비율
+const TOWN_SPRITE = {};                 // 그림 이름 → {im, w, h, foot(발밑 줄 — 이 줄을 그 자리 y 에 맞춘다)}
+let TOWN_ATLAS = null, TOWN_PORTAL = null;
+const TOWN_GROUND = new Map();          // 맵 번호 → 땅 전체를 한 번 그려 둔 캔버스(처음 그릴 때 만든다)
+function townMap(){ return (window.TOWN && window.TOWN.maps[ZONE.mapId]) || null; }
+function loadTown(){
+  const T=window.TOWN; if(!T){ console.warn('[town] assets/town.js 가 없다 — 마을을 예전 흙 땅으로 그린다'); return Promise.resolve(); }
+  const img=(b64,ok)=>new Promise(res=>{ const im=new Image(); im.onload=()=>{ ok(im); res(); }; im.onerror=()=>{ console.warn('[town] 그림 로드 실패'); res(); }; im.src='data:image/png;base64,'+b64; });
+  return Promise.all([
+    img(T.atlas, im=>{ TOWN_ATLAS=im; }),
+    img(T.portal.png, im=>{ TOWN_PORTAL=im; }),
+    ...Object.entries(T.sprites).map(([n,s])=>img(s.png, im=>{ TOWN_SPRITE[n]={im, w:s.w, h:s.h, foot:s.foot}; })),
+  ]);
+}
+function townGround(m){
+  let c=TOWN_GROUND.get(ZONE.mapId); if(c) return c;
+  c=document.createElement('canvas'); c.width=c.height=m.cells*32; const x=c.getContext('2d'); x.imageSmoothingEnabled=false;
+  for(const row of m.layers) for(let i=0;i<row.length;i++){ const a=row[i]; if(a<0) continue;   // 층 순서대로(뒤 층이 위) · -1 = 그 층에 칸 없음
+    x.drawImage(TOWN_ATLAS,(a%m.atlasCols)*32,Math.floor(a/m.atlasCols)*32,32,32,(i%m.cells)*32,Math.floor(i/m.cells)*32,32,32); }
+  TOWN_GROUND.set(ZONE.mapId,c); return c;
+}
+// 나무·캐릭터와 같이 깊이 정렬되는 것 — 집이 커서(가로 24칸까지) 화면 밖 16칸까지 넣는다
+function townProps(m){
+  const hw=VW/2/ZOOM+16, hh=VH/2/ZOOM+16, out=[];
+  for(const [name,x,y] of m.objects) if(Math.abs(x-cam.x)<=hw && Math.abs(y-cam.y)<=hh) out.push({x,y,kind:'town',name});
+  for(const [kind,x,y,v] of m.trees) if(Math.abs(x-cam.x)<=hw && Math.abs(y-cam.y)<=hh) out.push({x,y,kind,v});
+  return out;
+}
+function drawTownObject(pr){
+  const s=TOWN_SPRITE[pr.name]; if(!s) return;
+  const k=window.TOWN.tile/32*ZOOM;       // 원본 1px → 화면 px
+  ctx.drawImage(s.im, sx(pr.x)-s.w*k/2, sy(pr.y)-(s.foot+1)*k, s.w*k, s.h*k);   // 발밑 줄을 y 에 · 그 아래는 그림자
+}
+
 function drawGround(){
   ctx.imageSmoothingEnabled=false;
   // 마을(맵 표 kind = town)은 흙, 그 밖(던전·표를 못 받음)은 풀 — 두 시트가 같은 꼴(96×192, 아래 칸이 채움 무늬)이라 칸 자리를 같이 쓴다
   const town=(MAPS.get(ZONE.mapId)||{}).kind==='town';
-  const g=(town && IMG.dirt) ? IMG.dirt : IMG.grass; if(!g) return;
+  const g=(town && IMG.dirt) ? IMG.dirt : IMG.grass;
   const step=2; // world units per grass cell
   const u0=Math.floor((cam.x - VW/2/ZOOM)/step)*step - step, u1=cam.x + VW/2/ZOOM + step;
   const v0=Math.floor((cam.y - VH/2/ZOOM)/step)*step - step, v1=cam.y + VH/2/ZOOM + step;
   const cell=[[32,160],[64,160],[0,160]];
-  for(let u=u0;u<=u1;u+=step)for(let v=v0;v<=v1;v+=step){
+  if(g) for(let u=u0;u<=u1;u+=step)for(let v=v0;v<=v1;v+=step){
     const h=hash(u/step|0,v/step|0), c=cell[h%3];
     ctx.drawImage(g,c[0],c[1],32,32, sx(u),sy(v), step*ZOOM+1, step*ZOOM+1);
   }
+  // 마을 그림이 있는 맵은 그 땅을 위에 덮는다 — 예전 땅을 먼저 까는 건 맵 밖까지 보이는 창(?rows=0 등)에서 빈칸이 안 생기게
+  const m=townMap();
+  if(m && TOWN_ATLAS){ const size=m.cells*window.TOWN.tile*ZOOM; ctx.drawImage(townGround(m), sx(0), sy(0), size, size); }
 }
 function propsInView(){
+  const m=townMap(); if(m) return townProps(m);   // 마을 그림이 있는 맵은 정해 둔 집·소품·나무만(저절로 깔리는 나무·바위 없음)
   const out=[]; const step=5;
   const u0=Math.floor((cam.x-VW/2/ZOOM)/step)*step-step, u1=cam.x+VW/2/ZOOM+step;
   const v0=Math.floor((cam.y-VH/2/ZOOM)/step)*step-step, v1=cam.y+VH/2/ZOOM+step;
@@ -586,6 +628,7 @@ function propsInView(){
   return out;
 }
 function drawProp(pr){
+  if(pr.kind==='town') return drawTownObject(pr);
   const X=sx(pr.x), Y=sy(pr.y);
   if(pr.kind==='pine') ctx.drawImage(IMG.treetop, pr.v?96:0,96,96,128, X-2.6*ZOOM, Y-3.4*ZOOM, 2.6*ZOOM*2, 3.4*ZOOM*2);
   else if(pr.kind==='bush') ctx.drawImage(IMG.treetop, pr.v?96:0,0,96,96, X-1.8*ZOOM, Y-2.2*ZOOM, 1.8*ZOOM*2, 2.2*ZOOM*2);
@@ -1206,9 +1249,9 @@ function step(dt,t){
   ground.forEach(g=>{ if(g.dropT>0) g.dropT=Math.max(0,g.dropT-dt); });   // 떨어지는 그림
 }
 // 땅의 아이템 — 캐릭터보다 먼저 그린다(발밑). 그림은 가방 칸과 같은 drawItemIcon, 개수가 1 보다 크면 오른쪽 아래 숫자
-// 포털 — 지금 맵의 포털마다 바닥 고리(반경 크기) + 이름. 손이 닿으면 고리가 밝아지고 「F 키로 이동」이 붙는다.
-//   포털 그림 에셋이 없어 첫판은 고리다(플랜 town-map ⑪ — 에셋은 화면 확인 때 정한다).
-//   두 번에 나눠 그린다 — 고리는 땅에(땅 아이템 아래), 글자는 캐릭터 뒤에 고리 아래쪽으로(포털에 선 캐릭터 몸에 이름이 가리지 않게).
+// 포털 — 지금 맵의 포털마다 바닥 그림(반경 크기) + 이름. 손이 닿으면 그림이 켜지고 「F 키로 이동」이 붙는다.
+//   그림 = Teleporter Circle 돌 받침(assets/town.js — 0번 장 꺼짐, 1~4번 장 켜짐 회전). 못 실렸으면 첫판의 고리로 그린다.
+//   두 번에 나눠 그린다 — 그림(고리)은 땅에(땅 아이템 아래), 글자는 캐릭터 뒤에 그림 아래쪽으로(포털에 선 캐릭터 몸에 이름이 가리지 않게).
 function portalsInView(){
   const hw=VW/2/ZOOM+4, hh=VH/2/ZOOM+4;
   return PORTALS.filter(pt=>pt.mapId===ZONE.mapId && Math.abs(pt.x-cam.x)<=hw && Math.abs(pt.y-cam.y)<=hh);
@@ -1217,6 +1260,13 @@ function drawPortals(t){
   const reach=portalInReach();
   for(const pt of portalsInView()){
     const X=sx(pt.x), Y=sy(pt.y), R=pt.radius*ZOOM, on=(reach===pt);
+    if(TOWN_PORTAL){
+      const T=window.TOWN.portal, f=on ? 1+Math.floor(t*8)%(T.frames-1) : 0;   // 켜짐 = 1~4번 장을 초당 8장
+      ctx.save(); ctx.imageSmoothingEnabled=true;                               // 3D 렌더 그림을 줄여 그린다 — 픽셀 그림이 아니라 부드럽게
+      ctx.drawImage(TOWN_PORTAL, 0, f*T.fh, T.fw, T.fh, X-R*1.2, Y-R*0.62, R*2.4, R*1.2);
+      ctx.restore();
+      continue;
+    }
     const pulse=0.5+0.5*Math.sin(t*3);
     ctx.save();
     ctx.beginPath(); ctx.ellipse(X,Y,R,R*0.5,0,0,Math.PI*2);
@@ -1414,7 +1464,7 @@ function parsePortalTable(text){
     PORTALS.push({ id:Number(c[0]), mapId:Number(c[1]), x:Number(c[2]), y:Number(c[3]), radius:Number(c[4]), targetMapId:Number(c[5]), name:c[8] });
 }
 async function boot(){
-  resize(); await loadAssets(); checkLayers(); await loadItems(); await loadSkills(); await loadWorldTables();
+  resize(); await loadAssets(); await loadTown(); checkLayers(); await loadItems(); await loadSkills(); await loadWorldTables();
   if(SNAP){
     // headless verification: load a real snapshot, render one frame, expose PNG
     // 전투 확인용 스냅샷을 따로 두려고 파일명을 열어 둔다 (?snap&file=snapshot-combat.json)
