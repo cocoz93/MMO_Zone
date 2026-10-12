@@ -50,7 +50,7 @@ WS↔TCP 릴레이(`relay.js`, Node)를 두어 서버의 TCP 프로토콜을 그
 | `assets/items.js` | 아이템 그림 시트 — [LPC] Items and game effects(512×512, 32px 칸 16×16), base64. 크레딧: Reemax(Tuomo Untinen) 외 — 원문 `assets/items_credits.txt` (CC-BY-SA 3.0 / GPL 3.0 / GPL 2.0, https://opengameart.org/content/lpc-items-and-game-effects) |
 | `assets/assetsB.js` | LPC 스프라이트/타일(base64). 크레딧: LPC — Sharm·Redshrike·Mandi Paugh·William.Thompsonj (CC-BY-SA) |
 | `assets/lpc_layers.js` | 캐릭터 합성용 LPC 레이어(몸/머리/바지/상의/머리카락) 걸음 블록 576×256, base64. 크레딧: Universal LPC Spritesheet Character Generator (CC-BY-SA) |
-| `assets/town.js` | 마을(맵 0) 그림 — 땅 아틀라스 + 층별 칸 번호 · 초가집 6꼴 · 장터 소품 · 자리 · 포털 돌 받침, base64. **`tools/town/build.js` 가 만든다(손으로 고치지 말 것)** — 배치는 `tools/town/town0.js`, 원본 그림은 `tools/town/src/`. 크레딧: [LPC] Terrains · [LPC] Thatched-roof Cottage · [LPC] Windows & Doors · [LPC] Medieval Village Decorations · LPC Base Assets (CC-BY-SA / GPL) · Teleporter Circle — Clint Bellanger (CC-BY 3.0) — 원문 `assets/town_credits.txt` |
+| `assets/town.js` | 마을(맵 0) 그림 — 땅 아틀라스 + 층별 칸 번호 · 초가집 6꼴 · 장터 소품 · 자리 · 포털 돌 받침, base64. **`tools/town/build.js` 가 만든다(손으로 고치지 말 것)** — 배치는 `tools/town/town0.js`, 원본 그림은 `tools/town/src/`. 크레딧: [LPC] Terrains · [LPC] Medieval Village Decorations (CC-BY-SA 4.0 / 3.0) · [LPC] Thatched-roof Cottage · [LPC] Windows & Doors · LPC Base Assets (CC-BY-SA 3.0 / GPL 3.0) · Teleporter Circle — Clint Bellanger (CC-BY 3.0) — 원문 `assets/town_credits.txt` |
 | `tools/town/` | 마을 그림 만들기 — `node tools/town/build.js`(크롬 필요: 그림 오리기·합치기를 헤드리스 크롬 캔버스로). 집 다섯 꼴은 Cottage 팩 미리보기 그림에서 땅 색 픽셀을 지워 오려 낸 것 |
 
 ## 프로토콜 메모 (재구현 근거)

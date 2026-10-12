@@ -3,7 +3,7 @@
 //   좌표 = 월드 칸(서버와 같은 단위). 마을 60×60 = 땅 40×40칸(한 칸 1.5) · 시작 구역 (27~33) · 포털 1 (55,30) — 서버 표(Run/bin/MapTable.csv · PortalTable.csv)와 맞춘 것
 //   땅: 바탕 하나 + 층(뒤 층이 위). 층마다 지형 이름(terrain-v7.tsx 의 <terrain name>)과 모양 목록 — 모서리 하나라도 모양 안이면 그 칸에 경계 타일이 깔린다
 //     모양 = { ell:[중심x, 중심y, 반지름x, 반지름y] } · { rect:[x0, y0, x1, y1] } · { seg:[x0, y0, x1, y1, 반지름] }(굵은 선분)
-//   물건: [그림 이름, x, 발밑 y] — 그림 이름은 build.js 의 HOUSES·PROPS · 깊이 정렬은 발밑 y 로
+//   물건: [그림 이름, x, 발밑 y] — 그림 이름은 build.js 의 PREVIEW.regions(집 다섯) · cottage_small · PROPS · 깊이 정렬은 발밑 y 로
 //   나무: [종류(pine·bush — 웹 기존 나무 그림), x, y, 변형 0·1]
 module.exports = {
   mapId: 0,
