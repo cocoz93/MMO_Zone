@@ -1,0 +1,5 @@
+"[LPC] Thatched-roof Cottage" by bluecarrot16
+License: CC-BY-SA 3.0 / GPL 3.0
+https://opengameart.org/content/lpc-thatched-roof-cottage
+Page description: "Medieval-style thatched-roof, timber-frame cottages. Preview also includes tiles from http://opengameart.org/content/lpc-windows-doors ."
+Files used here: cottage.png, thatched-roof.png, preview_280.png (the preview; five houses are cut out of it)
