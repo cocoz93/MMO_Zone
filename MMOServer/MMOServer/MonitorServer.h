@@ -729,7 +729,7 @@ private:
                      "Load results whose session was already gone",
                      e._orphaned);
         WriteCounter(ss, "mmo_enter_fallback_total",
-                     "Found rows whose map or position was unusable - spawned at a random spot (subset of found)",
+                     "Found rows whose map or position was unusable - spawned at the map entry spot, start area or random (subset of found)",
                      e._fallback);
         WriteCounter(ss, "mmo_enter_duplicate_total",
                      "Old sessions kicked because the same account entered again",

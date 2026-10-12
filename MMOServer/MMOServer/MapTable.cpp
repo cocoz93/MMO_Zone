@@ -143,6 +143,15 @@ bool CMapTable::Load(const std::string& path)
         _rows.push_back(d);
     }
 
+    // ⑸ 첫 줄은 마을 — 첫 줄이 기본 맵이고(새 캐릭터가 들어가는 곳), 죽으면 그 맵의 시작 구역에서 되살아난다(CGameServer::TickRespawn).
+    //    던전이 첫 줄이면 새 캐릭터가 뱀 한가운데 무작위로 떨어지고 부활도 갈 곳이 없다
+    if (_rows.front().kind != MapKind::TOWN)
+    {
+        SLOG_ERROR("[MapTable] {}줄: 첫 줄(맵 {})은 마을(town)이어야 합니다 — 새 캐릭터가 들어가고 죽으면 돌아오는 맵이다",
+                   _rows.front().fileLine, _rows.front().mapId);
+        return false;
+    }
+
     SLOG_INFO("[MapTable] {} — 맵 {}개", path, _rows.size());
     return true;
 }

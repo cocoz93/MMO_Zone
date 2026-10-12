@@ -56,13 +56,14 @@ inline const char* PickupFailName(PickupFail r)
 //   성공·거절을 한 배열로 세야 「요청 수 = 칸의 합」이 되고, 한 갈래를 빼먹으면 합이 안 맞아 드러난다. 세는 곳은 RecvZoneChange 한 곳.
 inline const char* ZoneChangeResultName(ZoneChangeReject r)
 {
-    static_assert(static_cast<int>(ZoneChangeReject::COUNT) == 4, "ZoneChangeReject 를 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(ZoneChangeReject::COUNT) == 5, "ZoneChangeReject 를 늘렸으면 이름도 붙일 것");
     switch (r)
     {
     case ZoneChangeReject::NONE:      return "ok";
     case ZoneChangeReject::NOT_FOUND: return "not_found";
     case ZoneChangeReject::FULL:      return "full";
     case ZoneChangeReject::SAME_ZONE: return "same_zone";
+    case ZoneChangeReject::NOT_ALLOWED: return "not_allowed";
     case ZoneChangeReject::COUNT:     break;
     }
     return "?";
@@ -462,7 +463,7 @@ public:
         Counter _orphaned;       // 결과가 왔는데 주인(세션)이 이미 나가고 없다 — 코드는 안 본다
 
         // [2단계] 등식 밖의 다섯 — 위 등식에 더하지 않는다.
-        Counter _fallback;       // 찾았지만 맵·좌표가 못 쓸 값이라 무작위 자리에 넣었다 (_found 의 부분집합)
+        Counter _fallback;       // 찾았지만 맵·좌표가 못 쓸 값이라 그 맵의 들어오는 자리(시작 구역 · 없으면 무작위)에 넣었다 (_found 의 부분집합)
         Counter _duplicate;      // [입장] 같은 계정이 이미 있어 옛 세션을 걷어낸 수 (게임 중·불러오는 중 양쪽)
         Counter _pending;        // [게이지] 지금 불러오는 중인 세션 수. 조용해지면 0 — 안 내려가면 대기표가 샌 것이다
         Counter _waiting;        // [게이지] 접속은 했는데 입장 요청을 아직 안 보낸 세션 수 (USE_LOGIN=1 에서만 0 이 아니다)
@@ -528,7 +529,7 @@ public:
     } _sector;
 
     // ══════════════════════════════════════════════════════════════
-    // 포털 — 세는 곳은 RecvPortalUse 한 곳. 칸의 합(_used + Σ _rejected) = 받은 C2S_PORTAL_USE 수.
+    // 포털 — 세는 곳은 RecvPortalUse 한 곳. 칸의 합(_used + Σ _rejected) = 받은 C2S_PORTAL_USE 수(방어 갈래 둘 빼고 — 그 함수 주석).
     //   토글 없음 — 맵 표처럼 세계 데이터다(PortalTable.h). 포털 표가 비면 늘 0 이다.
     // ══════════════════════════════════════════════════════════════
     struct alignas(64) PortalCounters

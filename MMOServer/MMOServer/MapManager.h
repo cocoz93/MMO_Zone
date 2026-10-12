@@ -43,7 +43,8 @@ enum class ZoneChangeReject : uint8_t
     NOT_FOUND,   // 맵·채널이 없음 (무작위 맵 후보가 없는 경우 포함)
     FULL,        // 지정한 채널이 정원 초과 (운영자는 안 걸림)
     SAME_ZONE,   // 지금 있는 존과 같음
-    COUNT        // 개수 표시 — 요청 결과 계수기가 이 수만큼 칸을 잡는다(NONE 칸 = 성공, GameMonitor.h ZoneChangeResultName)
+    NOT_ALLOWED, // 다른 맵 지정(맵 번호·무작위)은 운영자만 — 다른 맵으로 가는 길은 포털이다. 같은 맵 채널 지정은 누구나
+    COUNT       // 개수 표시 — 요청 결과 계수기가 이 수만큼 칸을 잡는다(NONE 칸 = 성공, GameMonitor.h ZoneChangeResultName)
 };
 
 struct ZoneChangeTarget
@@ -130,7 +131,8 @@ public:
 
     // 존 이동 목적지 고르기 — 지금 존에서 받은 요청(맵·채널)으로 목적지 존 또는 거절 사유를 돌려준다
     //   targetChannelIndex >= 0 : 지금 맵의 그 채널 (targetMapId 는 안 본다) — 없음 · 같은 존 · 정원 순으로 거절
-    //   targetChannelIndex <  0 : 자동 배정 — targetMapId == -1 이면 지금 맵을 뺀 무작위 맵. 없음 · 같은 존 순으로 거절
+    //   targetChannelIndex <  0 : 자동 배정 — 운영자만(아니면 NOT_ALLOWED — 다른 맵으로 가는 길은 포털).
+    //                             targetMapId == -1 이면 지금 맵을 뺀 무작위 맵. 없음 · 같은 존 순으로 거절
     //   자동 배정은 채널을 새로 만들 수 있다(FindOrCreateChannel)
     ZoneChangeTarget PickZoneChangeTarget(int32_t currentZoneId, int32_t targetMapId, int32_t targetChannelIndex, bool isAdmin);
 

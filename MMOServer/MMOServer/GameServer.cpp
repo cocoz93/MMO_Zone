@@ -304,6 +304,7 @@ namespace
         case ZoneChangeReject::NOT_FOUND: return 0;
         case ZoneChangeReject::FULL:      return 1;
         case ZoneChangeReject::SAME_ZONE: return 2;
+        case ZoneChangeReject::NOT_ALLOWED: return 3;
         case ZoneChangeReject::NONE:      break;
         case ZoneChangeReject::COUNT:     break;
         }
@@ -1087,7 +1088,7 @@ void CGameServer::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
     //   존 조회(FindOrCreateChannel)는 찾음·없음 갈래에서만 한다 — 채널을 만들 수도 있는 함수라
     //   들여보내지 않을 갈래(주인 없음·실패)에서는 부르면 안 된다.
     CZone* zone = nullptr;
-    EnterPlacement place;   // 기본값 = 무작위 자리 · 다음 주기에 저장
+    EnterPlacement place;   // 기본값 = 그 맵의 들어오는 자리(시작 구역 · 없으면 무작위) · 다음 주기에 저장
 
     static_assert(static_cast<int>(DBResultCode::COUNT) == 3, "DBResultCode 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
     switch (result.code)
@@ -1115,15 +1116,15 @@ void CGameServer::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
         }
         else
         {
-            // 맵이 없어졌거나 좌표가 맵 밖·숫자 아님 → 무작위 자리. 그 자리는 DB 와 다르므로 dbDirty 는 기본값(true) 그대로.
+            // 맵이 없어졌거나 좌표가 맵 밖·숫자 아님 → 그 맵의 들어오는 자리(시작 구역 · 없으면 무작위 — CZone::CalcSpawnPos). 그 자리는 DB 와 다르므로 dbDirty 는 기본값(true) 그대로.
             enter._fallback.Inc();
-            SLOG_WARN("[DB] saved position unusable -> random spawn (account={}, map={}, x={}, y={})",
+            SLOG_WARN("[DB] saved position unusable -> map entry spot, start area or random (account={}, map={}, x={}, y={})",
                       result.accountId, result.mapId, result.x, result.y);
         }
         break;
 
     case DBResultCode::NOT_FOUND:
-        enter._newCharacter.Inc();   // 새 캐릭터 — 기본 맵 무작위 자리. 행은 첫 저장(UPSERT)이 만든다
+        enter._newCharacter.Inc();   // 새 캐릭터 — 기본 맵(마을) 시작 구역. 행은 첫 저장(UPSERT)이 만든다
 #if USE_INVENTORY
         // ★ 캐릭터 행이 없어도 가방 줄은 있을 수 있다(첫 저장 전에 서버가 죽은 계정) — 워커가 읽어 왔다. 그대로 넣는다.
         place.loaded = &result;
@@ -1412,7 +1413,7 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
     if (_playerSpeed > 0)
         player->_speed = _playerSpeed;   // 게임용 속도 — 0 이면 생성자의 25~50 무작위(부하 시험 기준) 그대로
 
-    // 저장된 자리가 있으면 그 자리에, 없으면 무작위 자리에 (입장은 실패가 없다 — CZone::EnterZone 주석)
+    // 저장된 자리가 있으면 그 자리에, 없으면 그 맵의 들어오는 자리에(시작 구역 · 없으면 무작위) (입장은 실패가 없다 — CZone::EnterZone 주석)
     if (place.hasPos)
         zone->EnterZoneAt(player, place.x, place.y);
     else
@@ -1445,7 +1446,7 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
 #if USE_DB_WORKER
     // 1단계 임시: playerId를 계정 식별자로 사용 (2단계는 접속 핸드셰이크로 수신)
     player->_accountId = accountId;
-    // 새 캐릭터·무작위 자리면 true(첫 주기에 저장 → 신규 행 INSERT 유도), DB 에서 불러온 자리 그대로면 false
+    // 새 캐릭터·들어오는 자리면 true(첫 주기에 저장 → 신규 행 INSERT 유도), DB 에서 불러온 자리 그대로면 false
     player->_dbDirty   = place.dbDirty;
 #else
     (void)accountId;
@@ -1538,7 +1539,7 @@ void CGameServer::OnConnected(int64_t sessionId)
     }
 #endif
 
-    // DB 워커가 없으면(토글 OFF·미기동) 예전 그대로 곧바로 스폰 — 기본 맵의 여유 채널, 무작위 자리.
+    // DB 워커가 없으면(토글 OFF·미기동) 예전 그대로 곧바로 스폰 — 기본 맵(마을)의 여유 채널, 시작 구역.
     CZone* zone = _mapManager.FindOrCreateChannel(_defaultMapId);
     if (SpawnPlayer(sessionId, actorId, actorId, zone, EnterPlacement{}) == nullptr)
         _network->RequestDisconnectSession(sessionId);
@@ -1776,6 +1777,10 @@ void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
         RecvZoneChange(player, pMsg);
         break;
 
+    case MsgType::C2S_PORTAL_USE:
+        RecvPortalUse(player, pMsg);
+        break;
+
     case MsgType::C2S_ADMIN_LOGIN:
         RecvAdminLogin(player, pMsg);
         break;
@@ -1831,6 +1836,8 @@ uint16_t CGameServer::GetExpectedSize(MsgType type)
     case MsgType::C2S_MOVE_STOP:    return sizeof(MSG_C2S_MOVE_STOP);
     case MsgType::C2S_CHAT:         return sizeof(MsgHeader) + sizeof(ChatChar); // 가변 길이: 최소 1글자
     case MsgType::C2S_ZONE_CHANGE:  return sizeof(MSG_C2S_ZONE_CHANGE);
+    // 이 줄이 없으면 포털 키가 조용히 버려진다(아래 물약과 같은 함정 — 답도 로그도 없다). 토글 없음(포털 표처럼)
+    case MsgType::C2S_PORTAL_USE:   return sizeof(MSG_C2S_PORTAL_USE);
     case MsgType::C2S_HEARTBEAT:    return sizeof(MSG_C2S_HEARTBEAT);
 #if USE_COMBAT
     // 이 줄을 빠뜨리면 0이 돌아가 위 OnReceived가 패킷을 조용히 버린다(로그 없음, _packetErrors만 증가).
@@ -2544,7 +2551,7 @@ void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
     MSG_C2S_ZONE_CHANGE recvMsg{};
     pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
 
-    // 목적지 고르기(지정 채널 · 자동 배정 · 무작위 맵 · 정원 · 같은 존 거부)는 맵 관리자 몫 — 여기는 거절 사유를 패킷으로 바꿔 보낼 뿐
+    // 목적지 고르기(지정 채널 · 자동 배정 · 무작위 맵 · 정원 · 같은 존 거부 · 맵 지정은 운영자만)는 맵 관리자 몫 — 여기는 거절 사유를 패킷으로 바꿔 보낼 뿐
     const ZoneChangeTarget target = _mapManager.PickZoneChangeTarget(
         oldZone->GetZoneId(), recvMsg.targetMapId, recvMsg.targetChannelIndex, player->_isAdmin);
     _gameMonitor._sector._zoneChangeResults[static_cast<int>(target.reject)].Inc();   // 성공(NONE)·거절 모두 — 칸의 합 = 요청 수
@@ -2556,6 +2563,67 @@ void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
     // 들어갈 수 있는지는 위 PickZoneChangeTarget 이 나가기 "전에" 다 봤다 — 옮기기는 TransferPlayer 한 곳.
     //   자리는 그 존의 규칙(at = nullptr — CZone::CalcSpawnPos)
     TransferPlayer(player, oldZone, target.zone, ArrivalKind::ZONE_CHANGE, nullptr);
+}
+
+// 포털 사용 — 어디로 가는지는 포털 표가 정한다(클라는 번호만 보낸다 — PortalTable.h [무엇]).
+//   판정 = 살았나 · 표에 있나 · 지금 맵의 포털인가 · 반경 안인가. 넷을 다 지나야 옮긴다(옮긴 뒤 되돌리는 길은 없다 — TransferPlayer).
+//   실패 답은 S2C_ZONE_CHANGE_FAIL 을 같이 쓴다(4 포털에서 멂 · 5 포털 없음 — Protocol.h). 죽은 채면 답이 없다(존 이동 요청과 같다).
+//   세는 곳은 여기 한 곳 — 칸의 합(_used + Σ _rejected) = 받은 요청 수(GameMonitor.h _portal). 방어 갈래 둘(존 없음 ·
+//   목적지 채널 못 얻음)은 안 센다 — 지금 일어나는 길이 없고, 일어나면 앞엣것은 조용히, 뒤엣것은 로그로 드러난다.
+void CGameServer::RecvPortalUse(CPlayer* player, CSerialBuffer* pMsg)
+{
+    MSG_C2S_PORTAL_USE recvMsg{};
+    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
+
+    auto& pc = _gameMonitor._portal;
+    auto reject = [&](PortalReject why) { pc._rejected[static_cast<int>(why)].Inc(); };
+
+#if USE_COMBAT
+    if (player->_isDead)
+    {
+        reject(PortalReject::DEAD);   // 죽은 채로 존을 옮기면 부활 대기열이 옛 존을 가리킨 채 남는다(RecvZoneChange 와 같은 까닭)
+        return;
+    }
+#endif
+
+    CZone* oldZone = _mapManager.GetZone(player->_zoneId);
+    if (oldZone == nullptr)
+        return;   // 게임 중인 플레이어는 늘 존에 있다 — 존 이동 요청과 같은 방어
+
+    const PortalDef* portal = _gameDataFiles.Portals().Find(recvMsg.portalId);
+    if (portal == nullptr)
+    {
+        reject(PortalReject::NO_PORTAL);
+        SendZoneChangeFail(player, 5);   // 5: 포털 없음
+        return;
+    }
+    if (portal->mapId != oldZone->GetMapId())
+    {
+        reject(PortalReject::WRONG_MAP);
+        SendZoneChangeFail(player, 5);   // 5: 포털 없음 — 클라에겐 「없는 번호」와 같은 답이다(GameMonitor.h PortalReject)
+        return;
+    }
+    if (!portal->InReach(player->_x, player->_y))
+    {
+        reject(PortalReject::TOO_FAR);
+        SendZoneChangeFail(player, 4);   // 4: 포털에서 멂
+        return;
+    }
+
+    // 목적지 채널은 자동 배정 — 정원 규칙은 존 이동 요청과 같다(FindOrCreateChannel 이 자리 있는 채널을 고르고, 다 차면 새로 만든다).
+    //   다른 맵이라 지금 존과 같을 수 없다(포털 표가 같은 맵 포털을 막았다 — PortalTable.h [맵 대조]).
+    CZone* newZone = _mapManager.FindOrCreateChannel(portal->targetMapId, player->_isAdmin);
+    if (newZone == nullptr)
+    {
+        // 맵은 표가 대조했으니 채널 만들기 실패뿐이다 — 존 이동 요청의 NOT_FOUND 와 같은 답
+        SLOG_ERROR("[Portal] 목적지 채널을 못 얻었습니다 (portal={}, map={})", portal->portalId, portal->targetMapId);
+        SendZoneChangeFail(player, 0);   // 0: 존재하지 않는 맵/채널
+        return;
+    }
+
+    pc._used.Inc();
+    const SpawnAt at{ static_cast<float>(portal->targetX), static_cast<float>(portal->targetY) };
+    TransferPlayer(player, oldZone, newZone, ArrivalKind::ZONE_CHANGE, &at);
 }
 
 // 존에서 존으로 옮기기 한 곳(GameServer.h 선언 주석).
@@ -2592,7 +2660,8 @@ void CGameServer::TransferPlayer(CPlayer* player, CZone* oldZone, CZone* newZone
 // ── 운영자 인증 ──
 
 // 부하 테스트 도구용 고정 키 — 실서비스 인증 아님.
-// 와이어에 평문으로 흐르고 해시·시도 제한도 없다. admin 권한 효과는 채널 인원 제한 우회뿐(CMapInstance::HasRoom).
+// 와이어에 평문으로 흐르고 해시·시도 제한도 없다. admin 권한 효과는 채널 인원 제한 우회(CMapInstance::HasRoom)와
+//   다른 맵 지정 이동(CMapManager::PickZoneChangeTarget — 일반은 포털로만) 둘, 그리고 채팅 운영 명령이다.
 // 실계정 연동 단계에서 계정 DB 조회 기반 인증으로 교체한다.
 static constexpr char ADMIN_KEY[] = "admin1234";
 
@@ -2872,6 +2941,10 @@ void CGameServer::TickRespawn()
     if (_deadActors.empty())
         return;
 
+    // 마을로 옮길 사람 — 대기열을 도는 동안엔 옮기지 않는다. 옮기기(TransferPlayer → BroadcastLeaveZone)가
+    //   이 대기열을 지우므로(RemoveFromDeadActors) 도는 자리가 어긋난다. 담아 두고 다 돈 뒤 아래에서 옮긴다.
+    _respawnTransferBuffer.clear();
+
     for (size_t i = 0; i < _deadActors.size(); )
     {
         CCharacter* dead = _deadActors[i];
@@ -2888,15 +2961,30 @@ void CGameServer::TickRespawn()
         // 부활도 "되살아난 쪽"으로 가른다 (죽음과 같은 기준 — GameMonitor.h 참조).
         //   이 대기열엔 플레이어만 있다 — 몬스터는 되살리지 않는다.
         _gameMonitor._combat._respawnsTotal.Inc();
-        _gameMonitor._combat._respawnInPlace.Inc();   // 부활 자리 — 합 = _respawnsTotal(GameMonitor.h)
 
+        // 어디서 되살아나나 — 죽은 맵이 마을(기본 맵 = 맵 표 첫 줄)이 아니면 마을 시작 구역으로, 마을이면 제자리.
+        //   지금은 마을에서 죽는 길이 없다(몬스터 구역 0 · 대인전은 던전에서만 일어난다) — 그 갈래는 예전 그대로 남겨 둔다.
+        //   마을 채널은 여기서 고른다(자리 있는 채널 — 존 이동 요청과 같은 규칙). 못 얻으면 제자리로 — 되살리지 못한 채 두지 않는다
         CZone* zone = _mapManager.GetZone(dead->_zoneId);
-        if (zone != nullptr)
+        CPlayer* player = As<CPlayer>(dead);
+        CZone* town = nullptr;
+        if (zone != nullptr && player != nullptr && zone->GetMapId() != _defaultMapId)
+            town = _mapManager.FindOrCreateChannel(_defaultMapId, player->_isAdmin);
+
+        if (town != nullptr)
         {
-            // 플레이어는 제자리에서 되살아난다(부활 지점·마을은 따로 정할 일).
-            //   본인 포함 — 자기 부활을 자기가 알아야 클라가 조작을 다시 연다
-            BroadcastAroundSector(zone, dead,
-                MakeRespawn(dead->_actorId, dead->_x, dead->_y, dead->_hp), false);
+            _gameMonitor._combat._respawnToTown.Inc();   // 부활 자리 — 합 = _respawnsTotal(GameMonitor.h)
+            _respawnTransferBuffer.emplace_back(player, town);
+        }
+        else
+        {
+            _gameMonitor._combat._respawnInPlace.Inc();
+            if (zone != nullptr)
+            {
+                // 제자리 — 본인 포함. 자기 부활을 자기가 알아야 클라가 조작을 다시 연다
+                BroadcastAroundSector(zone, dead,
+                    MakeRespawn(dead->_actorId, dead->_x, dead->_y, dead->_hp), false);
+            }
         }
 
         // 순서가 뜻을 갖지 않는 대기열이라 뒤엣것과 바꿔치기로 O(1) 제거.
@@ -2904,6 +2992,17 @@ void CGameServer::TickRespawn()
         _deadActors[i] = _deadActors.back();
         _deadActors.pop_back();
     }
+
+    // 마을로 — 대기열을 다 돈 뒤(위 주석). 이미 대기열에서 빠졌으니 퇴장의 RemoveFromDeadActors 는 할 일이 없다.
+    //   틱 가운데서 옮겨도 되는 까닭 — 이 자리(3-2)는 섹터 이동 대기열을 다 비운 뒤라 같은 틱 이동자 보정이 필요 없다(3-3 주석과 같다).
+    //   와이어: 던전 이웃 = DELETE(퇴장) · 본인 = ZONE_INFO → ZONE_CHANGE_OK → RESPAWN → … · 마을 이웃 = CREATE(체력 가득)
+    for (const auto& [player, town] : _respawnTransferBuffer)
+    {
+        CZone* oldZone = _mapManager.GetZone(player->_zoneId);
+        assert(oldZone != nullptr && oldZone != town);   // 위에서 「존이 있고 마을이 아님」을 보고 담았다
+        TransferPlayer(player, oldZone, town, ArrivalKind::RESPAWN, nullptr);
+    }
+    _respawnTransferBuffer.clear();
 }
 
 // 부활 대기열에서 빼기 — 퇴장 경로가 부른다.
@@ -3163,10 +3262,12 @@ void CGameServer::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind kind)
 {
     // 길마다 다른 셋 — 내 캐릭터를 CREATE_MY 로 알리나(아니면 ZONE_CHANGE_OK) · 가방·스탯까지 보내나 · 등장 사유.
     //   ArrivalKind 마다 한 줄. 줄 수가 길 수와 다르면 컴파일이 막는다(switch 는 이 빌드들에서 빠진 갈래를 경고하지 않는다).
-    struct ArrivalRule { bool createMy; bool firstEntry; SpawnReason reason; };
+    //   revive — 마을 부활만. 다른 맵에서 되살아났다는 사실은 ZONE_CHANGE_OK 가 못 싣는다(체력이 없다) — 본인에게 RESPAWN 한 장.
+    struct ArrivalRule { bool createMy; bool firstEntry; SpawnReason reason; bool revive; };
     static constexpr ArrivalRule ARRIVAL_RULES[] = {
-        { true,  true,  SpawnReason::CONNECT },        // CONNECT
-        { false, false, SpawnReason::ZONE_TRANSFER },  // ZONE_CHANGE — 내 캐릭터는 ZONE_CHANGE_OK 가 알린다
+        { true,  true,  SpawnReason::CONNECT,       false },  // CONNECT
+        { false, false, SpawnReason::ZONE_TRANSFER, false },  // ZONE_CHANGE — 내 캐릭터는 ZONE_CHANGE_OK 가 알린다
+        { false, false, SpawnReason::ZONE_TRANSFER, true  },  // RESPAWN — 존 이동 + 본인에게 RESPAWN
     };
     static_assert(sizeof(ARRIVAL_RULES) / sizeof(ARRIVAL_RULES[0]) == static_cast<size_t>(ArrivalKind::COUNT),
                   "ARRIVAL_RULES 는 ArrivalKind 마다 한 줄이어야 한다");
@@ -3181,6 +3282,13 @@ void CGameServer::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind kind)
         SendCreateMyPlayer(player);
     else
         SendZoneChangeOk(player, zone->GetMapId(), CMapManager::GetChannelIndexFromZoneId(zone->GetZoneId()));
+
+#if USE_COMBAT
+    // 2-1) 마을 부활 — 내 자리를 안 뒤에 「되살아났다」(체력). 웹·콘솔이 이미 받는 패킷이라 클라는 죽음 풀기를 새로 안 짠다.
+    //   본인에게만 — 마을 사람들은 아래 4) 의 CREATE 가 체력 가득한 나를 보여 준다(CREATE 가 체력을 싣는다)
+    if (rule.revive)
+        SendPacket(player, MakeRespawn(player->_actorId, player->_x, player->_y, player->_hp));
+#endif
 
 #if USE_EXP
     // 3) 레벨·경험치 — 내 캐릭터 뒤에 보낸다(클라가 내 액터를 알고 나서 숫자를 채우게).

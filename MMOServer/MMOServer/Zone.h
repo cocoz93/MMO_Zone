@@ -78,8 +78,8 @@ public:
     //   나간 뒤에 들어가다 실패해 되돌리는 길이 없다. 확인할 것이 늘면 이 함수가 아니라 확인 쪽에 넣는다.
     void EnterZone(CCharacter* player);
 
-    // 자리를 받는 입장 — 위 EnterZone 과 하는 일이 같고 스폰 좌표만 호출부가 준다(DB 에서 불러온 자리).
-    //   입장 절차는 이쪽 하나뿐이다: EnterZone 은 무작위 자리를 뽑아 이걸 부른다.
+    // 자리를 받는 입장 — 위 EnterZone 과 하는 일이 같고 스폰 좌표만 호출부가 준다(DB 에서 불러온 자리 · 포털 도착 자리).
+    //   입장 절차는 이쪽 하나뿐이다: EnterZone 은 들어오는 자리(시작 구역 · 없으면 무작위 — CalcSpawnPos)를 뽑아 이걸 부른다.
     //   좌표가 맵 안인지는 호출부가 본다(IsInsideMap 으로) — 여기는 받은 대로 넣는다.
     void EnterZoneAt(CCharacter* player, float x, float y);
 

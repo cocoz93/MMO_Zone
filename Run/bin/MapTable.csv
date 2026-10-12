@@ -1,5 +1,5 @@
 # Maps - design data, read once at startup (CMapTable). Every build reads it (no toggle) - the map is the world itself.
-#   One row = one map. The first row is the default map players enter.
+#   One row = one map. The first row is the default map players enter and must be a town (death sends you back there).
 #   mapId  : 0..1000, no duplicates. SpawnRegion.csv points at a map by mapId.
 #   width / height : tiles. The wire carries coordinates on a grid of at most 128 (Protocol.h POS_QUANT_MAX_MAP_SIZE) -
 #                    a bigger map is refused at startup.
@@ -11,4 +11,5 @@
 #   (until 10-09 the map count and size were MMOServerConfig.ini MapCount / Width / Height)
 #   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
 mapId,width,height,kind,startX0,startY0,startX1,startY1
-0,120,120,dungeon
+0,60,60,town,27,27,33,33
+1,120,120,dungeon

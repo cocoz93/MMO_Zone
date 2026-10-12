@@ -8,3 +8,5 @@
 #   Zero rows is fine - a world without portals.
 #   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
 portalId,mapId,x,y,radius,targetMapId,targetX,targetY,name
+1,0,55,30,2,1,60,63,던전 입구
+2,1,60,60,2,0,52,30,마을로

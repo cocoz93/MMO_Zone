@@ -180,6 +180,11 @@ ZoneChangeTarget CMapManager::PickZoneChangeTarget(int32_t currentZoneId, int32_
     {
         // ── 기존 맵 이동 (자동 채널 배정) ──
 
+        // 맵을 고르는 요청은 운영자만 — 다른 맵으로 가는 길은 포털이다(CGameServer::RecvPortalUse).
+        //   「가득 차면 다음 채널」은 이 요청이 아니라 입장 때 FindOrCreateChannel 이 고른다. 채널 지정(위 갈래)은 누구나
+        if (!isAdmin)
+            return { nullptr, ZoneChangeReject::NOT_ALLOWED };
+
         // 랜덤 맵 이동 요청 처리
         if (targetMapId == -1)
         {

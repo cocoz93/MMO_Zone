@@ -148,7 +148,7 @@ private:
     //     스폰 뒤에 바깥에서 넣으면 그 패킷이 기본값을 싣고 나간다.
     struct EnterPlacement
     {
-        bool    hasPos  = false;   // false = 무작위 자리
+        bool    hasPos  = false;   // false = 그 맵의 들어오는 자리(CZone::CalcSpawnPos — 시작 구역 · 없으면 무작위)
         float   x       = 0.0f;
         float   y       = 0.0f;
         bool    dbDirty = true;    // 스폰 자리를 다음 주기에 저장할까 (DB 와 같은 값으로 들어왔으면 false)
@@ -180,6 +180,7 @@ private:
     void RecvMoveStop(CPlayer* player, CSerialBuffer* pMsg);
     void RecvChat(CPlayer* player, CSerialBuffer* pMsg);
     void RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg);
+    void RecvPortalUse(CPlayer* player, CSerialBuffer* pMsg);   // 포털 — 판정 뒤 TransferPlayer 로 포털 표의 도착 자리에
     void RecvAdminLogin(CPlayer* player, CSerialBuffer* pMsg);
 
 #if USE_COMBAT
@@ -190,6 +191,7 @@ private:
 
     // 부활 대기자 훑기 — 틱마다 1회. 존 전체를 돌지 않으려고 죽은 것만 따로 들고 있는다.
     //   플레이어만 — 몬스터는 되살리지 않는다(죽는 순간 지우고, 스폰이 새로 채운다).
+    //   마을(기본 맵)이 아닌 맵에서 죽었으면 마을 시작 구역으로 옮겨 되살린다(TransferPlayer, ArrivalKind::RESPAWN) — 대기열을 다 돈 뒤에.
     void TickRespawn();
 
     // 부활 대기열에서 빼기 — 퇴장 경로가 반드시 부른다. 안 부르면 다음 틱이 해제된 포인터를 밟는다.
@@ -400,7 +402,8 @@ private:
     enum class ArrivalKind : uint8_t
     {
         CONNECT,       // 처음 접속 — CREATE_MY · 가방 · 공격력/방어력까지, 사유 CONNECT
-        ZONE_CHANGE,   // 존 이동 — ZONE_CHANGE_OK 가 내 캐릭터를 알림, 사유 ZONE_TRANSFER
+        ZONE_CHANGE,   // 존 이동(요청·포털) — ZONE_CHANGE_OK 가 내 캐릭터를 알림, 사유 ZONE_TRANSFER
+        RESPAWN,       // 마을 부활 — 존 이동과 같고 ZONE_CHANGE_OK 바로 뒤에 본인에게 RESPAWN(체력·되살아남)
         COUNT
     };
     // 순서 = 존 정보 → 내 캐릭터 → 레벨·경험치 → (접속만) 가방 전체 → 공격력·방어력 → 주변과 서로 생성(BroadcastEnterZone).
@@ -542,7 +545,7 @@ private:
     //   루프백 실측은 RTT≈0이라 이 오탐을 못 잡는다 → mmo_move_budget_rejects_total 실네트워크 관측 필요.
     static constexpr float MOVE_BUDGET_SLACK = 0.25f;
 
-    int32_t _defaultMapId = 0;  // 최초 접속 시 입장할 맵
+    int32_t _defaultMapId = 0;  // 최초 접속 시 입장할 맵 = 맵 표 첫 줄 = 마을(죽으면 여기 시작 구역으로 — TickRespawn)
     int32_t _nextPlayerId = 1;  // 전역 playerId 카운터 (싱글스레드 게임 루프)
 
 #if USE_DROP
@@ -609,6 +612,9 @@ private:
     //   몬스터는 여기 안 들어온다 — 죽는 순간 지운다(OnDeath 끝 → 존의 몬스터 관리자 Despawn).
     //   같은 규율이 이미 dirtyMovers 와 존의 섹터 이동 대기열(CZone::LeaveZone 이 뺀다)에 있다.
     std::vector<CCharacter*> _deadActors;
+    // 마을 부활로 옮길 사람과 목적지 채널 — TickRespawn 이 대기열을 다 돈 뒤에 옮긴다(도는 중에 옮기면 퇴장이 대기열을 지운다).
+    //   틱 너머로 안 든다(그 함수 안에서 채우고 비운다) — 멤버인 까닭은 틱마다 할당하지 않으려는 것뿐(_eventAroundBuffer 와 같은 꼴)
+    std::vector<std::pair<CPlayer*, CZone*>> _respawnTransferBuffer;
 
     // 공격 흐름 — 알림은 이 클래스(ICombatEvents)로 돌아온다.
     //   ★ _gameMonitor 보다 뒤에 선언해야 한다 — 멤버는 선언 순서로 세워지므로, 앞에 두면 아직 안 묶인 참조를 넘긴다.
