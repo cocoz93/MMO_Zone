@@ -7,7 +7,8 @@
 #   regenSec : 1..86400. Regen cycle of the region: every regenSec the server spawns (count - alive) NEW monsters (new ids)
 #              at once, at random spots in the region. The cycle starts when the zone is made (first fill), not when one dies.
 #              A killed monster is removed at once (the corpse is a client effect) and comes back at the next regen.
-#   Checked at startup against MapTable.csv: mapId must be there, every map there needs >= 1 region, and x1 <= width-1, y1 <= height-1.
+#   Checked at startup against MapTable.csv: mapId must be there, every dungeon map needs >= 1 region, a town map must have none,
+#   and x1 <= width-1, y1 <= height-1.
 #   Wandering is not bound to the region - regions only decide where monsters are born.
 #   Default layout (map 120x120): four corner blocks, the 10-tile cross in the middle is left empty (NOT a safe zone).
 mapId,x0,y0,x1,y1,monsterId,count,regenSec

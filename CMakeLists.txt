@@ -159,6 +159,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/GameDataFiles.cpp
     ${SRV_DIR}/GameDataCsv.cpp
     ${SRV_DIR}/MapTable.cpp
+    ${SRV_DIR}/PortalTable.cpp
     ${SRV_DIR}/ItemTable.cpp
     ${SRV_DIR}/Inventory.cpp
     ${SRV_DIR}/MonsterTable.cpp

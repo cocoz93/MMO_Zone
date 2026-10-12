@@ -4,6 +4,7 @@
 
 #include "BuildConfig.h"
 #include "MapTable.h"
+#include "PortalTable.h"
 #include "LevelTable.h"
 #include "ItemTable.h"
 #include "MonsterTable.h"
@@ -48,6 +49,7 @@ public:
     bool LoadAll(const std::string& dir);
 
     const CMapTable& Maps() const { return _map; }
+    const CPortalTable& Portals() const { return _portal; }
 #if USE_COMBAT
     const CLevelTable& Level() const { return _level; }
 #endif
@@ -68,6 +70,7 @@ public:
 
 private:
     CMapTable _map;   // 맨 먼저 읽는다 — 스폰 표가 맵 번호·크기를 이 표와 대조한다(LoadAll 순서)
+    CPortalTable _portal;   // 맵 표 바로 다음 — 맵 표만 대조한다. 토글 없음(PortalTable.h [토글 없음])
 #if USE_COMBAT
     CLevelTable _level;
 #endif

@@ -118,14 +118,33 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMapTable& maps, con
         ++_count;
     }
 
-    // ⑹ 맵 표의 맵마다 구역이 하나 이상 — 뱀을 깔 자리가 없는 맵을 만들지 않는다. 빠진 맵을 다 적고 끝낸다
+    // ⑹ 맵 종류마다 구역 개수 — 던전은 하나 이상(뱀을 깔 자리가 없는 던전을 만들지 않는다), 마을은 0(마을에 몬스터를 깔지 않는다).
+    //    틀린 맵을 다 적고 끝낸다. 종류가 늘면 갈래가 하나 는다(빠지면 컴파일러가 아니라 COUNT 갈래가 막는다)
     bool ok = true;
     for (const MapDef& m : maps.All())
     {
-        if (RegionsOf(m.mapId).empty())
+        const size_t regions = RegionsOf(m.mapId).size();
+        switch (m.kind)
         {
-            SLOG_ERROR("[SpawnRegion] 맵 {} (MapTable.csv {}줄) 에 구역이 없습니다 — 뱀을 깔 자리가 없습니다", m.mapId, m.fileLine);
+        case MapKind::DUNGEON:
+            if (regions == 0)
+            {
+                SLOG_ERROR("[SpawnRegion] 던전 맵 {} (MapTable.csv {}줄) 에 구역이 없습니다 — 뱀을 깔 자리가 없습니다", m.mapId, m.fileLine);
+                ok = false;
+            }
+            break;
+        case MapKind::TOWN:
+            if (regions != 0)
+            {
+                SLOG_ERROR("[SpawnRegion] 마을 맵 {} (MapTable.csv {}줄) 을 가리키는 구역이 {}개 있습니다 — 마을엔 몬스터를 깔지 않습니다",
+                           m.mapId, m.fileLine, regions);
+                ok = false;
+            }
+            break;
+        case MapKind::COUNT:
+            SLOG_ERROR("[SpawnRegion] 맵 {} 의 종류 값이 개수 표시(COUNT)입니다 — 맵 표가 걸렀어야 합니다", m.mapId);
             ok = false;
+            break;
         }
     }
     if (!ok)

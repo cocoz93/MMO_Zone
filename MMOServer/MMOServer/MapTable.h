@@ -17,15 +17,40 @@
 // [목록 = 줄] 한 줄이 맵 하나. 첫 줄이 기본 접속 맵이다(CGameServer::Init 의 _defaultMapId).
 //        스폰 표가 이 번호로 맵을 가리키고, 읽을 때 이 표와 대조한다(CGameDataFiles::LoadAll 순서).
 //
+// [종류·시작 구역] 칸 = mapId,width,height,kind,startX0,startY0,startX1,startY1.
+//        kind 는 마을(town — 몬스터 구역 0)·던전(dungeon — 구역 ≥1). 구역 개수는 스폰 표가 읽을 때 대조한다.
+//        시작 구역은 「지정 자리 없이 이 맵에 들어올 때」의 자리다(CZone::CalcSpawnPos) — 마을은 반드시, 던전은 비우면 맵 전체 무작위.
+//
 // [와이어 상한은 여기서 안 본다] 섹터 묶음이 좌표를 실어 나르는 눈금의 상한(POS_QUANT_MAX_MAP_SIZE)은
 //        와이어 사정이라 패킷을 아는 게임 서버가 맵을 등록하기 전에 본다(CGameServer::Init).
 // ==========================================================================
+// 맵 종류 — 표의 글자는 MapTable.cpp 의 이름표(KIND_NAMES)다. 갈래가 늘면 둘을 같이 넓힌다(개수 static_assert).
+enum class MapKind : uint8_t
+{
+    TOWN,      // "town"    — 몬스터 구역 0 · 시작 구역 필수
+    DUNGEON,   // "dungeon" — 몬스터 구역 ≥1 · 시작 구역은 있어도 되고 없어도 된다
+    COUNT
+};
+
+// 시작 구역 — 지정 자리 없이 이 맵에 들어올 때(새 캐릭터 · 저장 자리 못 씀 · 다른 맵으로 옮겨 옴) 이 사각형 안 무작위.
+//   좌표(타일 단위 실수)로 읽고 양끝을 포함한다. has == false 면 맵 전체 무작위(CZone::CalcSpawnPos).
+struct StartArea
+{
+    bool    has = false;
+    int32_t x0  = 0;
+    int32_t y0  = 0;
+    int32_t x1  = 0;
+    int32_t y1  = 0;
+};
+
 struct MapDef
 {
-    int32_t mapId    = 0;
-    int32_t width    = 0;   // 칸
-    int32_t height   = 0;   // 칸
-    int32_t fileLine = 0;   // 스폰 표 대조에서 틀렸을 때 가리킬 줄
+    int32_t   mapId    = 0;
+    int32_t   width    = 0;   // 칸
+    int32_t   height   = 0;   // 칸
+    MapKind   kind     = MapKind::DUNGEON;
+    StartArea start;
+    int32_t   fileLine = 0;   // 스폰 표 대조에서 틀렸을 때 가리킬 줄
 };
 
 class CMapTable

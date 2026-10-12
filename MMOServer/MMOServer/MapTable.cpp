@@ -9,6 +9,27 @@ using GameDataCsv::ReadDataLines;
 using GameDataCsv::SplitCsv;
 using GameDataCsv::ParseInt;
 
+namespace
+{
+    // 맵 종류 이름표 — MapKind 순서 그대로. 표의 kind 칸 글자가 이 중 하나여야 한다
+    constexpr const char* KIND_NAMES[] = { "town", "dungeon" };
+    static_assert(sizeof(KIND_NAMES) / sizeof(KIND_NAMES[0]) == static_cast<size_t>(MapKind::COUNT),
+                  "KIND_NAMES 는 MapKind 마다 한 줄이어야 한다");
+
+    bool ParseKind(const std::string& s, MapKind& out)
+    {
+        for (size_t i = 0; i < static_cast<size_t>(MapKind::COUNT); ++i)
+        {
+            if (s == KIND_NAMES[i])
+            {
+                out = static_cast<MapKind>(i);
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
 bool CMapTable::Load(const std::string& path)
 {
     _rows.clear();
@@ -29,9 +50,9 @@ bool CMapTable::Load(const std::string& path)
     for (const DataLine& dl : lines)
     {
         SplitCsv(dl.text, cell);
-        if (cell.size() < 3)
+        if (cell.size() < 4)
         {
-            SLOG_ERROR("[MapTable] {}줄: 칸이 {}개입니다 — mapId,width,height 셋이 필요합니다", dl.fileLine, cell.size());
+            SLOG_ERROR("[MapTable] {}줄: 칸이 {}개입니다 — mapId,width,height,kind 넷이 필요합니다", dl.fileLine, cell.size());
             return false;
         }
 
@@ -62,10 +83,62 @@ bool CMapTable::Load(const std::string& path)
             return false;
         }
 
+        // ⑶ 종류 — 이름표 글자 중 하나
+        MapKind kind = MapKind::DUNGEON;
+        if (!ParseKind(cell[3], kind))
+        {
+            SLOG_ERROR("[MapTable] {}줄: 종류 \"{}\" 를 모릅니다 — town · dungeon 중 하나 (맵 {})", dl.fileLine, cell[3], mapId);
+            return false;
+        }
+
+        // ⑷ 시작 구역 — 넷 다 쓰거나 다 비운다. 비우는 꼴은 칸을 아예 안 쓰거나(칸 4개) 「,,,」 처럼 빈 칸으로 둔다
+        //    (SplitCsv 는 맨 끝 빈 칸 하나만 안 담으므로 빈 칸으로 비우면 칸 수가 5~7 이 된다 — 그래서 수가 아니라 내용으로 가른다).
+        //    맵 안(0 ~ 폭-1)이고 시작 ≤ 끝. 마을은 반드시 있어야 한다 — 새 캐릭터·부활이 설 자리다.
+        StartArea start;
+        size_t filled = 0;
+        for (size_t i = 4; i < cell.size(); ++i)
+        {
+            if (!cell[i].empty())
+                ++filled;
+        }
+        if (cell.size() > 8 || (filled != 0 && (filled != 4 || cell.size() != 8)))
+        {
+            SLOG_ERROR("[MapTable] {}줄: 시작 구역(startX0,startY0,startX1,startY1)은 넷 다 쓰거나 다 비웁니다 — 칸 {}개 중 값 {}개 (맵 {})",
+                       dl.fileLine, cell.size(), filled, mapId);
+            return false;
+        }
+        if (filled == 4)
+        {
+            int64_t x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+            if (!ParseInt(cell[4], x0) || !ParseInt(cell[5], y0) || !ParseInt(cell[6], x1) || !ParseInt(cell[7], y1))
+            {
+                SLOG_ERROR("[MapTable] {}줄: 시작 구역 칸이 숫자가 아닙니다 — \"{}\"", dl.fileLine, dl.text);
+                return false;
+            }
+            if (x0 < 0 || y0 < 0 || x0 > x1 || y0 > y1 || x1 > width - 1 || y1 > height - 1)
+            {
+                SLOG_ERROR("[MapTable] {}줄: 시작 구역 ({},{})~({},{}) — 맵 안(0~{}, 0~{})이고 시작 ≤ 끝이어야 합니다 (맵 {})",
+                           dl.fileLine, x0, y0, x1, y1, width - 1, height - 1, mapId);
+                return false;
+            }
+            start.has = true;
+            start.x0  = static_cast<int32_t>(x0);
+            start.y0  = static_cast<int32_t>(y0);
+            start.x1  = static_cast<int32_t>(x1);
+            start.y1  = static_cast<int32_t>(y1);
+        }
+        if (kind == MapKind::TOWN && !start.has)
+        {
+            SLOG_ERROR("[MapTable] {}줄: 마을(town)은 시작 구역이 있어야 합니다 — 새 캐릭터와 부활이 설 자리 (맵 {})", dl.fileLine, mapId);
+            return false;
+        }
+
         MapDef d;
         d.mapId    = static_cast<int32_t>(mapId);
         d.width    = static_cast<int32_t>(width);
         d.height   = static_cast<int32_t>(height);
+        d.kind     = kind;
+        d.start    = start;
         d.fileLine = dl.fileLine;
         _rows.push_back(d);
     }

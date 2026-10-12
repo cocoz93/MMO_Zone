@@ -9,6 +9,9 @@ bool CGameDataFiles::LoadAll(const std::string& dir)
     // 맵 표는 토글이 없다 — 모든 빌드가 이 표로 맵을 세운다(MapTable.h [토글 없음])
     if (!_map.Load(dir + "MapTable.csv"))
         return false;
+    // 포털 표도 토글이 없다 — 맵 표만 대조한다(PortalTable.h [맵 대조])
+    if (!_portal.Load(dir + "PortalTable.csv", _map))
+        return false;
 #if USE_COMBAT   // 레벨 표는 전투를 따른다(바탕 스탯) — 경험치만 끈 빌드도 읽는다
     if (!_level.Load(dir + "LevelTable.csv"))
         return false;

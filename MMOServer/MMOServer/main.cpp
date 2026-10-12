@@ -100,7 +100,7 @@ int main()
     for (const MapDef& def : server.GameData().Maps().All())
     {
         const MapOps ops = config.MapOpsOf(def.mapId);
-        maps.push_back({ def.mapId, def.width, def.height, ops.sectorSize, ops.maxPlayersPerChannel });
+        maps.push_back({ def.mapId, def.width, def.height, ops.sectorSize, ops.maxPlayersPerChannel, def.start });
         SLOG_INFO("[Map] {} — {}×{} · sector {} · channel cap {}", def.mapId, def.width, def.height, ops.sectorSize, ops.maxPlayersPerChannel);
     }
 

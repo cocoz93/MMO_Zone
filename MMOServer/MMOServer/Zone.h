@@ -25,6 +25,7 @@
 
 #include "Actor.h"         // Direction — 벽 판정(IsBlockedByWall)이 방향을 받는다
 #include "BuildConfig.h"
+#include "MapTable.h"       // StartArea — 맵 표의 시작 구역(CalcSpawnPos 가 읽는다)
 #include "SectorManager.h"
 #include "MonsterManager.h"   // 몬스터 관리자 — 존이 값으로 든다(USE_MONSTER 가 꺼져 있으면 빈 헤더)
 #include "GroundItemManager.h" // 땅 아이템 관리자 — 존이 값으로 든다(USE_DROP 이 꺼져 있으면 빈 헤더)
@@ -67,7 +68,7 @@ public:
     CZone& operator=(const CZone&) = delete;
 
     // 존 초기화 (존 ID, 맵 ID, 맵 크기, 섹터 크기)
-    bool Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHeight, int32_t sectorSize);
+    bool Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHeight, int32_t sectorSize, const StartArea& start);
 
     // 캐릭터 입장 — 스폰 좌표 설정, 섹터 등록
     // actorId 발급은 CGameServer 가 담당 — 객체를 만들고 지우는 것은 플레이어는 CGameServer,
@@ -179,7 +180,7 @@ public:
 #endif
 
 private:
-    // 스폰 좌표 계산 (맵 전체 랜덤)
+    // 스폰 좌표 계산 — 시작 구역이 있으면 그 안, 없으면 맵 전체 무작위(맵 표 StartArea)
     void CalcSpawnPos(float& outX, float& outY) const;
 
     // 섹터 이동 대기열에 추가 (같은 캐릭터는 최초 출발 섹터만 유지)
@@ -194,6 +195,7 @@ private:
     int32_t _mapId;
     int32_t _mapWidth;
     int32_t _mapHeight;
+    StartArea _start;   // 지정 자리 없이 들어올 때의 자리 — 없으면(has == false) 맵 전체(CalcSpawnPos)
 
     CSectorManager _sectorManager;
 

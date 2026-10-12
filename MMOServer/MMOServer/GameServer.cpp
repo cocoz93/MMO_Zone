@@ -305,6 +305,7 @@ namespace
         case ZoneChangeReject::FULL:      return 1;
         case ZoneChangeReject::SAME_ZONE: return 2;
         case ZoneChangeReject::NONE:      break;
+        case ZoneChangeReject::COUNT:     break;
         }
         assert(false && "거절이 아닌 결과를 실패 패킷으로 바꾸려 했다");
         return 0;
@@ -2546,20 +2547,33 @@ void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
     // 목적지 고르기(지정 채널 · 자동 배정 · 무작위 맵 · 정원 · 같은 존 거부)는 맵 관리자 몫 — 여기는 거절 사유를 패킷으로 바꿔 보낼 뿐
     const ZoneChangeTarget target = _mapManager.PickZoneChangeTarget(
         oldZone->GetZoneId(), recvMsg.targetMapId, recvMsg.targetChannelIndex, player->_isAdmin);
+    _gameMonitor._sector._zoneChangeResults[static_cast<int>(target.reject)].Inc();   // 성공(NONE)·거절 모두 — 칸의 합 = 요청 수
     if (target.reject != ZoneChangeReject::NONE)
     {
         SendZoneChangeFail(player, ToZoneChangeFailReason(target.reject));
         return;
     }
-    CZone* newZone = target.zone;
+    // 들어갈 수 있는지는 위 PickZoneChangeTarget 이 나가기 "전에" 다 봤다 — 옮기기는 TransferPlayer 한 곳.
+    //   자리는 그 존의 규칙(at = nullptr — CZone::CalcSpawnPos)
+    TransferPlayer(player, oldZone, target.zone, ArrivalKind::ZONE_CHANGE, nullptr);
+}
+
+// 존에서 존으로 옮기기 한 곳(GameServer.h 선언 주석).
+void CGameServer::TransferPlayer(CPlayer* player, CZone* oldZone, CZone* newZone, ArrivalKind kind, const SpawnAt* at)
+{
+    // 같은 존으로 옮기기는 부르는 쪽이 막았다 — 통과시키면 자리만 다시 뽑혀 순간이동이 된다(PickZoneChangeTarget 의 SAME_ZONE 주석)
+    assert(oldZone != newZone);
 
     // ── 현재 존에서 퇴장 ──
     BroadcastLeaveZone(oldZone, player);
 
     // ── 새 존에 입장 (player 객체 재활용, playerId 유지) ──
-    //   들어갈 수 있는지는 위 PickZoneChangeTarget 이 나가기 "전에" 다 봤다 — 입장은 실패가 없다(CZone::EnterZone 주석).
+    //   들어갈 수 있는지는 부르는 쪽이 나가기 "전에" 다 봤다 — 입장은 실패가 없다(CZone::EnterZone 주석).
     //   그래서 나간 뒤 들어가다 실패해 원래 맵으로 되돌리는 길이 없다(10-09 에 없앰 — 한 번도 안 도는 길이었다).
-    newZone->EnterZone(player);
+    if (at != nullptr)
+        newZone->EnterZoneAt(player, at->x, at->y);
+    else
+        newZone->EnterZone(player);
 
     _gameMonitor._sector._zoneChangeCount.Inc();
 
@@ -2572,7 +2586,7 @@ void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
     player->_lastSyncY = player->_y;
 
     // 존 정보 + 존 이동 성공 통보 + 숫자 → 주변과 서로 생성 (NotifyArrival 한 곳)
-    NotifyArrival(player, newZone, ArrivalKind::ZONE_CHANGE);
+    NotifyArrival(player, newZone, kind);
 }
 
 // ── 운영자 인증 ──
@@ -2874,6 +2888,7 @@ void CGameServer::TickRespawn()
         // 부활도 "되살아난 쪽"으로 가른다 (죽음과 같은 기준 — GameMonitor.h 참조).
         //   이 대기열엔 플레이어만 있다 — 몬스터는 되살리지 않는다.
         _gameMonitor._combat._respawnsTotal.Inc();
+        _gameMonitor._combat._respawnInPlace.Inc();   // 부활 자리 — 합 = _respawnsTotal(GameMonitor.h)
 
         CZone* zone = _mapManager.GetZone(dead->_zoneId);
         if (zone != nullptr)

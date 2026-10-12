@@ -154,7 +154,23 @@ private:
         WriteCounter(ss, "mmo_recv_buffer_overflow_total",
                      "Total recv buffer overflows", _monitor._recvBufferOverflow);
         WriteCounter(ss, "mmo_zone_change_total",
-                     "Total zone changes", _gameMonitor._sector._zoneChangeCount);   // 게임 그릇(10-06 코어에서 옮김) — 이름은 그대로
+                     "Zone transfers of any cause (counted in TransferPlayer)", _gameMonitor._sector._zoneChangeCount);   // 게임 그릇(10-06 코어에서 옮김) — 이름은 그대로
+        // 존 이동 요청 결과 — result="ok" 가 성공. 칸의 합 = 목적지를 고른 요청 수(GameMonitor.h) — 표를 돌아 늘어도 안 빠진다
+        ss << "# HELP mmo_zone_change_requests_total C2S_ZONE_CHANGE requests by result (ok or the reject reason)\n";
+        ss << "# TYPE mmo_zone_change_requests_total counter\n";
+        for (int i = 0; i < ZONE_CHANGE_RESULT_COUNT; ++i)
+            ss << "mmo_zone_change_requests_total{result=\"" << ZoneChangeResultName(static_cast<ZoneChangeReject>(i)) << "\"} "
+               << _gameMonitor._sector._zoneChangeResults[i] << "\n";
+        ss << "\n";
+        // 포털 — 칸의 합(used + Σ rejected) = 받은 C2S_PORTAL_USE 수(GameMonitor.h)
+        WriteCounter(ss, "mmo_portal_used_total",
+                     "Portal uses that moved the player", _gameMonitor._portal._used);
+        ss << "# HELP mmo_portal_rejected_total Portal uses rejected, split by reason\n";
+        ss << "# TYPE mmo_portal_rejected_total counter\n";
+        for (int i = 0; i < PORTAL_REJECT_COUNT; ++i)
+            ss << "mmo_portal_rejected_total{reason=\"" << PortalRejectName(static_cast<PortalReject>(i)) << "\"} "
+               << _gameMonitor._portal._rejected[i] << "\n";
+        ss << "\n";
         WriteCounter(ss, "mmo_send_contention_total",
                      "Total PostSend contentions (backed off because another thread was submitting)", _monitor._sendContention);
         WriteCounter(ss, "mmo_recv_contention_total",
@@ -451,6 +467,11 @@ private:
         WriteCounter(ss, "mmo_respawns_total",
                      "Respawns after death (trails deaths by at most one)",
                      _gameMonitor._combat._respawnsTotal);
+        // 부활 자리 — 둘의 합 = mmo_respawns_total(GameMonitor.h)
+        WriteCounter(ss, "mmo_respawn_in_place_total",
+                     "Respawns where the player died (same zone)", _gameMonitor._combat._respawnInPlace);
+        WriteCounter(ss, "mmo_respawn_to_town_total",
+                     "Respawns moved to the town (another map)", _gameMonitor._combat._respawnToTown);
         WriteCounter(ss, "mmo_damage_floored_total",
                      "Hits raised to the minimum damage (attack - defense < 1), any attacker",
                      _gameMonitor._combat._damageFloored);

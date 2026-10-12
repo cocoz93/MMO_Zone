@@ -32,6 +32,7 @@ struct MapConfig
     int32_t mapHeight;
     int32_t sectorSize;
     int32_t maxPlayersPerChannel;  // 채널당 최대 인원 (소프트 리밋)
+    StartArea start;               // 맵 표의 시작 구역 — 채널(존)마다 그대로 넘긴다(CZone::CalcSpawnPos)
 };
 
 // 존 이동 목적지 고르기의 거절 사유 — CMapManager::PickZoneChangeTarget
@@ -42,6 +43,7 @@ enum class ZoneChangeReject : uint8_t
     NOT_FOUND,   // 맵·채널이 없음 (무작위 맵 후보가 없는 경우 포함)
     FULL,        // 지정한 채널이 정원 초과 (운영자는 안 걸림)
     SAME_ZONE,   // 지금 있는 존과 같음
+    COUNT        // 개수 표시 — 요청 결과 계수기가 이 수만큼 칸을 잡는다(NONE 칸 = 성공, GameMonitor.h ZoneChangeResultName)
 };
 
 struct ZoneChangeTarget

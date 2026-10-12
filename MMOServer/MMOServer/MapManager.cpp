@@ -93,7 +93,7 @@ CZone* CMapInstance::CreateChannel(int32_t channelIndex)
     int32_t zoneId = CMapManager::MakeZoneId(_config.mapId, channelIndex);
 
     auto zone = std::make_unique<CZone>(_gameData);
-    if (!zone->Init(zoneId, _config.mapId, _config.mapWidth, _config.mapHeight, _config.sectorSize))
+    if (!zone->Init(zoneId, _config.mapId, _config.mapWidth, _config.mapHeight, _config.sectorSize, _config.start))
         return nullptr;
 
     CZone* ptr = zone.get();

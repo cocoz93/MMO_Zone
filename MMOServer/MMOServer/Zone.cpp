@@ -27,7 +27,7 @@ CZone::~CZone()
     _characterList.clear();
 }
 
-bool CZone::Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHeight, int32_t sectorSize)
+bool CZone::Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHeight, int32_t sectorSize, const StartArea& start)
 {
     if (!_sectorManager.Init(mapWidth, mapHeight, sectorSize))
         return false;
@@ -40,6 +40,7 @@ bool CZone::Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHei
     _mapId = mapId;
     _mapWidth = mapWidth;
     _mapHeight = mapHeight;
+    _start = start;   // 맵 안인지는 맵 표가 읽을 때 봤다(CMapTable::Load ⑷)
 #if USE_MONSTER
     // 몬스터 구역 상태(점마다 차 있나·다음 리젠) — 맵 번호를 안 뒤라야 그 맵의 스폰 구역을 읽는다. 첫 틱이 다 깐다(처음 깔기)
     _monsterManager.Init();
@@ -418,8 +419,19 @@ bool CZone::IsBlockedByWall(float x, float y, Direction dir) const
 
 void CZone::CalcSpawnPos(float& outX, float& outY) const
 {
-    // 맵 전체 랜덤 스폰 (경계 1칸 여유)
     thread_local std::mt19937 rng{ std::random_device{}() };
+
+    // 시작 구역이 있으면 그 안 — 지정 자리 없이 들어오는 길(새 캐릭터 · 저장 자리 못 씀 · 다른 맵으로 옮겨 옴)이 다 여기를 지난다
+    if (_start.has)
+    {
+        std::uniform_real_distribution<float> distSX(static_cast<float>(_start.x0), static_cast<float>(_start.x1));
+        std::uniform_real_distribution<float> distSY(static_cast<float>(_start.y0), static_cast<float>(_start.y1));
+        outX = distSX(rng);
+        outY = distSY(rng);
+        return;
+    }
+
+    // 없으면 맵 전체 랜덤 스폰 (경계 1칸 여유)
     std::uniform_real_distribution<float> distX(1.0f, static_cast<float>(_mapWidth - 1));
     std::uniform_real_distribution<float> distY(1.0f, static_cast<float>(_mapHeight - 1));
     outX = distX(rng);

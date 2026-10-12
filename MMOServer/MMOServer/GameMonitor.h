@@ -24,13 +24,14 @@
 #include "SkillSystem.h"      // USE_SKILL — 스킬 거절 사유(SkillReject) 수만큼 칸을 잡는다
 #include "Buff.h"             // USE_COMBAT — 지속 효과 종류(BuffKind)·끝난 사유(BuffEnd) 수만큼 칸을 잡는다
 #include "SkillTable.h"       // USE_SKILL — 스킬 번호 수(MAX_SKILL_ID)만큼 시전 칸을 잡는다
+#include "MapManager.h"       // 존 이동 요청 결과(ZoneChangeReject — 맵 관리자의 어휘) 수만큼 칸을 잡는다
 
 // [사유 enum 의 집 — 규칙 하나] 사유는 그것을 정하는 층의 헤더에 산다(10-06, 아키텍처 전수검사 7번).
 //   존·엔티티 층이 정하는 것: GroundItemRemoval·PickupReject(GroundItem.h) · ZoneChangeReject(MapManager.h) · InvAddResult(Inventory.h)
 //   규칙 클래스가 정하는 것: UseItemReject·EquipReject(ItemSystem.h — 10-08 판정이 게임 서버에서 CItemSystem 으로 옮겨 감) ·
 //                          SkillReject(SkillSystem.h)
 //   게임 서버가 정하는 것: PickupFail(와이어 enum 그대로 — 정하는 쪽이 패킷을 아는 층이라 변환이 없다) ·
-//                        InvLoadSkip·ChatCommandReject(계수기만 쓰는 사유라 여기)
+//                        InvLoadSkip·ChatCommandReject·PortalReject(계수기만 쓰는 사유라 여기)
 //   여기(계수기)는 COUNT 로 칸을 잡고 이름표를 두는 자리일 뿐, 사유를 정하지 않는다.
 
 #if USE_DROP
@@ -50,6 +51,49 @@ inline const char* PickupFailName(PickupFail r)
     return "?";
 }
 #endif
+
+// 존 이동 요청 결과의 지표 라벨 — 사유 enum 은 맵 관리자가 정한다(MapManager.h ZoneChangeReject). NONE 칸이 성공이다 —
+//   성공·거절을 한 배열로 세야 「요청 수 = 칸의 합」이 되고, 한 갈래를 빼먹으면 합이 안 맞아 드러난다. 세는 곳은 RecvZoneChange 한 곳.
+inline const char* ZoneChangeResultName(ZoneChangeReject r)
+{
+    static_assert(static_cast<int>(ZoneChangeReject::COUNT) == 4, "ZoneChangeReject 를 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case ZoneChangeReject::NONE:      return "ok";
+    case ZoneChangeReject::NOT_FOUND: return "not_found";
+    case ZoneChangeReject::FULL:      return "full";
+    case ZoneChangeReject::SAME_ZONE: return "same_zone";
+    case ZoneChangeReject::COUNT:     break;
+    }
+    return "?";
+}
+constexpr int ZONE_CHANGE_RESULT_COUNT = static_cast<int>(ZoneChangeReject::COUNT);
+
+// 포털 사용 거절 사유 — 게임 서버(RecvPortalUse)가 정하고 계수기만 쓴다(와이어 값은 S2C_ZONE_CHANGE_FAIL 의 4·5 로 묶인다 —
+//   클라에겐 「없음」과 「다른 맵의 포털」이 같은 답이지만, 세는 쪽에선 갈라 둬야 클라 버그인지 사람 조작인지 읽힌다).
+enum class PortalReject : uint8_t
+{
+    NO_PORTAL,   // 포털 표에 없는 번호
+    WRONG_MAP,   // 지금 맵의 포털이 아님
+    TOO_FAR,     // 반경 밖
+    DEAD,        // 죽은 채 — 답을 안 보낸다(존 이동 요청과 같다)
+    COUNT
+};
+
+inline const char* PortalRejectName(PortalReject r)
+{
+    static_assert(static_cast<int>(PortalReject::COUNT) == 4, "PortalReject 를 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case PortalReject::NO_PORTAL: return "no_portal";
+    case PortalReject::WRONG_MAP: return "wrong_map";
+    case PortalReject::TOO_FAR:   return "too_far";
+    case PortalReject::DEAD:      return "dead";
+    case PortalReject::COUNT:     break;
+    }
+    return "?";
+}
+constexpr int PORTAL_REJECT_COUNT = static_cast<int>(PortalReject::COUNT);
 
 #if USE_INVENTORY
 // 채팅 명령 거절 사유 — 넣기 거절(InvAddResult)과 따로 센다. 명령이 틀린 것과 가방이 찬 것은 다른 사실이다.
@@ -238,6 +282,10 @@ public:
 
         Counter _deathsTotal;               // HP가 0 이하로 떨어진 횟수
         Counter _respawnsTotal;             // 부활 횟수 (deaths와 같거나 1 적은 것이 정상)
+        // 부활 자리 — 둘의 합 = _respawnsTotal(TickRespawn 한 곳이 셋을 같이 센다). 제자리 = 죽은 맵에서 그대로,
+        //   마을로 = 다른 맵(마을)으로 옮겨 감
+        Counter _respawnInPlace;
+        Counter _respawnToTown;
 
         // 피해가 최소 1 로 올려진 타격 — 공격력 − 방어력이 1 미만이었다. ★ 위 값들과 달리 때린 쪽을 안 가른다
         //   (뱀이 방어력 높은 사람을 문 것도 센다). 지금 레벨 표로는 안 닿아 평소 0 이다.
@@ -456,7 +504,11 @@ public:
     // ══════════════════════════════════════════════════════════════
     struct alignas(64) SectorCounters
     {
-        Counter _zoneChangeCount;       // 존 이동 횟수
+        Counter _zoneChangeCount;       // 존 이동 횟수 — 옮기는 한 곳(TransferPlayer)이 센다. 까닭(요청·포털·부활)을 안 가린다
+
+        // 존 이동 요청(C2S_ZONE_CHANGE) 결과 — 칸 = ZoneChangeReject(NONE = 성공). 칸의 합 = 목적지를 고른 요청 수(RecvZoneChange 한 곳).
+        //   그 앞에서 버린 요청(죽은 채 · 세션·존 없음)은 답도 안 가고 여기에도 안 든다
+        Counter _zoneChangeResults[ZONE_CHANGE_RESULT_COUNT];
 
         // 멤버십 변경(섹터 이동·입장·퇴장) CREATE/DELETE 복사 횟수 — _broadcastTargets(계측 대상 복사)와 비교해
         //   비계측 복사의 비중을 가늠한다.
@@ -474,6 +526,16 @@ public:
         //   0 이 아니면 치트 시도이거나 예산 계수(MOVE_BUDGET_SLACK)가 빡빡하다는 신호.
         Counter _moveBudgetRejects;
     } _sector;
+
+    // ══════════════════════════════════════════════════════════════
+    // 포털 — 세는 곳은 RecvPortalUse 한 곳. 칸의 합(_used + Σ _rejected) = 받은 C2S_PORTAL_USE 수.
+    //   토글 없음 — 맵 표처럼 세계 데이터다(PortalTable.h). 포털 표가 비면 늘 0 이다.
+    // ══════════════════════════════════════════════════════════════
+    struct alignas(64) PortalCounters
+    {
+        Counter _used;                              // 포털로 옮겨 감
+        Counter _rejected[PORTAL_REJECT_COUNT];     // 거절, 사유별(PortalReject)
+    } _portal;
 
     // DB 저장 파이프라인 — 정의는 위 DBSaveCounters(DB 워커가 참조로 받는다)
     DBSaveCounters _db;

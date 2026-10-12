@@ -407,6 +407,13 @@ private:
     //   ★ 이 순서가 곧 와이어 순서다 — 클라가 존·나를 알고 나서 숫자와 남을 채운다. 본인 전용 패킷이 늘면 여기 한 곳에.
     void NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind kind);
 
+    // 존에서 존으로 옮기기 한 곳 — 존 이동 요청(RecvZoneChange)이 부른다. 다른 길로 존을 옮길 일이 생기면 이 함수를 탄다.
+    //   퇴장 방송 → 새 존 입장 → 존 이동 수 → 저장 표시 → 동기화 기준 → 도착 알림(kind).
+    //   at == nullptr 이면 그 존의 「자리 없이 들어오는」 규칙(CZone::EnterZone → CalcSpawnPos), 있으면 그 자리(EnterZoneAt).
+    //   들어갈 수 있는지(목적지·정원·같은 존)는 부르는 쪽이 이미 봤다 — 입장은 실패가 없다(CZone::EnterZone 주석).
+    struct SpawnAt { float x; float y; };
+    void TransferPlayer(CPlayer* player, CZone* oldZone, CZone* newZone, ArrivalKind kind, const SpawnAt* at);
+
     // 존 입장/퇴장 브로드캐스트
     //   BroadcastEnterZone — 플레이어 입장: 양방향(주변 → 나를 생성, 나 → 주변을 생성)
     //   BroadcastSpawn     — 세션 없는 것(몬스터)의 등장: 주변에 알리기만. 받는 쪽이 없으니 인바운드가 없다
