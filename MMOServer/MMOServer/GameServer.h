@@ -610,9 +610,9 @@ private:
 
 #if USE_SKILL
     // 스킬 규칙 — 알림은 이 클래스(ISkillEvents)로 돌아온다.
-    //   ★ _combatSystem 뒤에 선언해야 한다 — 그 참조(대상 찾기·맞힌 뒤 처리)를 받는다. 멤버는 선언 순서로 세워지므로
-    //     앞에 두면 아직 안 만들어진 객체의 참조를 넘긴다(위 _combatSystem 주석과 같은 까닭).
-    CSkillSystem _skillSystem{ _gameDataFiles, _gameMonitor, _combatSystem, *this };
+    //   ★ _combatSystem·_buffSystem 뒤에 선언해야 한다 — 그 참조(대상 찾기·맞힌 뒤 처리 · 지속 효과 걸기)를 받는다. 멤버는 선언 순서로
+    //     세워지므로 앞에 두면 아직 안 만들어진 객체의 참조를 넘긴다(위 _combatSystem 주석과 같은 까닭).
+    CSkillSystem _skillSystem{ _gameDataFiles, _gameMonitor, _combatSystem, _buffSystem, *this };
 #endif
 
     // ── 섹터 아웃박스 ── 틱-지연 배칭 상태를 한 덩어리로 응집.

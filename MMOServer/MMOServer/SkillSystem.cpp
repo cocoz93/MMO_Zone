@@ -8,12 +8,14 @@
 #include "GameDataFiles.h"   // 스킬 표
 #include "GameMonitor.h"     // 시전·거절 지표
 #include "CombatSystem.h"    // FindFrontTarget · CollectCandidates · ApplyHit — 일반 공격과 같이 쓴다
+#include "BuffSystem.h"      // Apply — 지속 효과 걸기(효과 축 BUFF_ATTACK_MUL)
 #include "Character.h"       // 종류·생사·체력·쿨타임 필드 — 시전자는 CCharacter 다
 
-CSkillSystem::CSkillSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor, CCombatSystem& combat, ISkillEvents& events)
+CSkillSystem::CSkillSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor, CCombatSystem& combat, CBuffSystem& buff, ISkillEvents& events)
     : _tables(tables)
     , _gameMonitor(gameMonitor)
     , _combat(combat)
+    , _buff(buff)
     , _events(events)
 {
 }
@@ -130,6 +132,11 @@ SkillReject CSkillSystem::SelectTargets(CZone* zone, CCharacter* caster, const S
         break;
     }
 
+    case SkillTarget::SELF:
+        // 자기 자신 — 후보 목록(which)을 안 본다. 살아 있음은 1) 의 DEAD 검사가 봤다. 늘 하나라 NO_TARGET 이 안 난다
+        _targets.push_back(caster);
+        break;
+
     case SkillTarget::COUNT:
         break;   // 표 읽기가 막는다(SkillTable.cpp ⑶) — 여기 오지 않는다
     }
@@ -153,6 +160,16 @@ void CSkillSystem::ApplyEffect(CZone* zone, CCharacter* caster, const SkillDef& 
             _gameMonitor._skill._hits[def.skillId].Inc();   // 맞힌 대상마다 1 — ApplyHit 앞에서 센다(몬스터면 그 안에서 해제된다)
             _combat.ApplyHit(zone, caster, target, attackValue, frame);
         }
+        break;
+    }
+
+    case SkillEffect::BUFF_ATTACK_MUL:
+    {
+        // 대상(지금은 self 뿐 — 표 읽기가 막는다)마다 공격력 배수를 걸거나 되감는다(같은 종류는 나중 것이 값·시간을 덮는다).
+        //   스탯 다시 세우기와 알림(ACTOR_BUFF → MY_STATS)은 CBuffSystem 이 한다. 와이어 = SKILL_CAST → ACTOR_MP → ACTOR_BUFF → MY_STATS.
+        //   _hits 는 안 센다 — 「맞힌 수」는 피해 스킬 것이다. 걸린 수는 mmo_buff_applied_total·refreshed 가 센다.
+        for (CCharacter* target : _targets)
+            _buff.Apply(target, BuffKind::ATTACK_MUL, def.power, def.durationFrames, frame);
         break;
     }
 

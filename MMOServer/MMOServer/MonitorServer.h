@@ -629,7 +629,7 @@ private:
         for (int i = 1; i <= MAX_SKILL_ID; ++i)
             ss << "mmo_skill_cast_total{skill=\"" << i << "\"} " << sk._cast[i] << "\n";
         ss << "\n";
-        ss << "# HELP mmo_skill_hits_total Targets hit by skills (one per target per cast - an area skill can hit several), split by skill id\n";
+        ss << "# HELP mmo_skill_hits_total Targets hit by damage skills (one per target per cast - an area skill can hit several; buffs count in mmo_buff_*), split by skill id\n";
         ss << "# TYPE mmo_skill_hits_total counter\n";
         for (int i = 1; i <= MAX_SKILL_ID; ++i)
             ss << "mmo_skill_hits_total{skill=\"" << i << "\"} " << sk._hits[i] << "\n";

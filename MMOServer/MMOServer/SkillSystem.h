@@ -4,7 +4,8 @@
 // [책임]
 //  - 스킬 한 번: 시전자 검사 → 대상 고르기 → 시전 전 체력 잡기 → 비용(체력·마력) 떼기·쿨타임 → 시전 알림 → 효과
 //  - 그 과정에서 정한 것(시전·거절 사유·맞힌 수)을 지표(CGameMonitor)로 센다 — CCombatSystem·CItemSystem 과 같은 꼴
-//  - 보내기는 하지 않는다 — 시전은 ISkillEvents 로 알리고, 피해·죽음·보상은 CCombatSystem::ApplyHit 가 ICombatEvents 로 알린다.
+//  - 보내기는 하지 않는다 — 시전은 ISkillEvents 로 알리고, 피해·죽음·보상은 CCombatSystem::ApplyHit 가 ICombatEvents 로,
+//    지속 효과(걸림·되감김)는 CBuffSystem::Apply 가 IBuffEvents 로 알린다.
 //    거절은 알림이 아니라 돌려주는 값이다(CItemSystem::UseItem 꼴) — 게임 서버가 와이어 SkillFail 로 바꿔 보낸다
 //
 // [세 칸] 정의 = 스킬 표(CSkillTable — 기획 데이터) · 진행 = 캐릭터마다의 쿨타임·마력(CCharacter::_skillReadyFrame·_mp) · 규칙 = 여기
@@ -19,8 +20,8 @@
 //   게임 로직이 한 스레드라 검사와 떼기 사이에 끼어드는 일이 없다. 재료가 생겨도 같은 자리에서 뗀다.
 //
 // [계층 경계]
-//  CCharacter·CZone(넘겨받아 전투에 건넬 뿐)·스킬 표·CCombatSystem·CGameMonitor 를 안다. 세션·패킷·CGameServer 는 모른다.
-//  객체는 CGameServer 가 멤버로 든다 — CCombatSystem 을 참조로 받으므로 그 뒤에 선언한다(멤버는 선언 순서로 세워진다).
+//  CCharacter·CZone(넘겨받아 전투에 건넬 뿐)·스킬 표·CCombatSystem·CBuffSystem·CGameMonitor 를 안다. 세션·패킷·CGameServer 는 모른다.
+//  객체는 CGameServer 가 멤버로 든다 — CCombatSystem·CBuffSystem 을 참조로 받으므로 그 뒤에 선언한다(멤버는 선언 순서로 세워진다).
 // ==========================================================================
 #pragma once
 
@@ -36,6 +37,7 @@ class CCharacter;
 class CGameDataFiles;
 class CGameMonitor;
 class CCombatSystem;
+class CBuffSystem;
 struct SkillDef;
 
 // 스킬 거절 사유 — 열거 순서가 곧 확인 순서다(여럿이 겹치면 먼저 걸린 하나로 답한다). 통과 = COUNT.
@@ -62,6 +64,7 @@ public:
     // 시전했다 — 비용(체력·마력·쿨타임)을 뗀 뒤, 효과를 적용하기 "전"에 온다.
     //   → S2C_SKILL_CAST(주변) + 체력이 줄었으면 S2C_ACTOR_STATS(주변) + 마력이 줄었으면 S2C_ACTOR_MP(시전자 본인만 — 사람일 때)
     //   ★ 효과(피해·죽음·보상)는 이 뒤에 ICombatEvents 로 따로 온다 — 와이어 순서가 시전 → 시전자 체력 → 시전자 마력 → 피해다.
+    //     지속 효과는 IBuffEvents 로 온다 — 시전 → 시전자 마력 → ACTOR_BUFF → MY_STATS.
     virtual void OnCast(CZone* zone, CCharacter* caster, const SkillDef& def) = 0;
 };
 
@@ -69,7 +72,7 @@ class CSkillSystem
 {
 public:
     // 표는 게임 서버가 든 것을 참조한다 — 기동 때 LoadGameDataFiles 가 채운 뒤에만 부른다.
-    CSkillSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor, CCombatSystem& combat, ISkillEvents& events);
+    CSkillSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor, CCombatSystem& combat, CBuffSystem& buff, ISkillEvents& events);
 
     // 스킬 한 번 — 통과면 COUNT(비용을 떼고 효과까지 냈다), 아니면 거절 사유(아무것도 안 바뀌었다).
     //   skillId 는 와이어에서 온 값 그대로 넣어도 된다(표에 없으면 BAD_SKILL). frame = CGameServer::_frameCount.
@@ -89,6 +92,7 @@ private:
     const CGameDataFiles& _tables;
     CGameMonitor&         _gameMonitor;
     CCombatSystem&        _combat;   // 대상 찾기(FindFrontTarget · CollectCandidates)와 맞힌 뒤 처리(ApplyHit)를 일반 공격과 같이 쓴다
+    CBuffSystem&          _buff;     // 지속 효과 걸기(Apply) — 효과 축 BUFF_* 가 부른다. 스탯 다시 세우기·알림은 그쪽 몫
     ISkillEvents&         _events;
 
     // 대상 버퍼 — 다 고른 뒤 하나씩 적용한다(섹터 목록을 도는 중에 맞히면 죽은 몬스터가 목록에서 빠져 순회가 깨진다).

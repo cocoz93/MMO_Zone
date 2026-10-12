@@ -66,13 +66,15 @@ enum class SkillTarget : uint8_t
 {
     FRONT,   // 앞의 한 명 — 일반 공격과 같은 사거리·정면 판정(CCombatSystem::FindFrontTarget), 단 사람이 쓰면 몬스터만·몬스터가 쓰면 사람만
     SHAPE,   // 칸 목록 — 표의 shape 칸(시전자 기준 앞:옆)에 선 상대 전부(IsInShape). 한 칸에 여럿이면 다 맞는다. 상대 종류는 FRONT 와 같다
+    SELF,    // 자기 자신 — 후보를 안 찾는다(비는 일이 없어 NO_TARGET 이 안 난다). 지속 효과(버프)가 쓴다. 남에게 거는 버프는 대지의기원 때 늘린다
     COUNT
 };
 
 // 효과 종류 — 「맞으면 무슨 일이 일어나나」의 축. 새 종류 = 여기 한 줄 + 표 이름 한 줄 + CSkillSystem::ApplyEffect 의 case 하나.
 enum class SkillEffect : uint8_t
 {
-    DAMAGE,   // 피해 — 공격값 = 시전 전 체력 × power%. 방어력은 맞힌 뒤 처리(CCombatSystem::ApplyHit)가 뺀다
+    DAMAGE,            // 피해 — 공격값 = 시전 전 체력 × power%. 방어력은 맞힌 뒤 처리(CCombatSystem::ApplyHit)가 뺀다
+    BUFF_ATTACK_MUL,   // 지속 효과 — 공격력 × power 를 durationMs 동안(CBuffSystem::Apply, 종류 BuffKind::ATTACK_MUL). 대상은 self 만(표 읽기가 막는다)
     COUNT
 };
 
@@ -85,7 +87,7 @@ enum class SkillEffect : uint8_t
 // [색인] 번호가 곧 색인이다(아이템·몬스터 표와 같은 꼴). 0 = 없음, 구멍은 skillId 0 인 빈 행.
 //        번호는 와이어에도 실린다(C2S_USE_SKILL · S2C_SKILL_CAST) — 웹이 같은 파일에서 이름을 읽는다.
 //
-// [스킬마다 클래스 없음] 스킬마다 다른 것은 숫자(체력·마력 소모·위력·쿨타임)와 범위 스킬의 칸 목록뿐이라 표 한 줄이다.
+// [스킬마다 클래스 없음] 스킬마다 다른 것은 숫자(체력·마력 소모·위력·쿨타임·지속)와 범위 스킬의 칸 목록뿐이라 표 한 줄이다.
 //        코드로 늘어나는 것은 대상 종류(SkillTarget)와 효과 종류(SkillEffect) 두 축이다.
 // ==========================================================================
 struct SkillDef
@@ -96,9 +98,11 @@ struct SkillDef
     SkillEffect effect         = SkillEffect::COUNT;
     int32_t     costHpPct      = 0;   // 시전 때 떼는 현재 체력의 % (0 = 소모 없음)
     int32_t     costMp         = 0;   // 시전 때 떼는 마력 — 고정값(0 = 소모 없음). 모자라면 LOW_MP
-    int32_t     power          = 0;   // DAMAGE = 시전 전 체력의 %
+    int32_t     power          = 0;   // DAMAGE = 시전 전 체력의 % · BUFF_ATTACK_MUL = 배수(2 = 이중공격)
     int32_t     cooldownMs     = 0;   // 파일에 적힌 값 그대로 — 로그용
     uint64_t    cooldownFrames = 0;   // 쿨타임(틱) — ms 를 올림해서 담는다(짧아지지 않게)
+    int32_t     durationMs     = 0;   // 지속(ms) — 지속 효과(BUFF_*)만. 그 밖은 0 이어야 한다(표 읽기가 막는다) — 로그용
+    uint64_t    durationFrames = 0;   // 지속(틱) — 올림(쿨타임과 같은 까닭). 30000 → 750
     std::vector<ShapeCell> shape;     // SHAPE 의 칸 목록(다른 대상 종류는 빈 목록)
     float       shapeReach     = 0.0f;   // ShapeReach(shape) — 대상 찾기가 훑을 반경. 표 읽기가 한 번 센다
 };
@@ -107,7 +111,8 @@ class CSkillTable
 {
 public:
     static constexpr int32_t MAX_POWER       = 1000;      // % — 체력 × power 를 int64 로 세지만 오타 하나가 값을 터뜨리지 않게
-    static constexpr int32_t MAX_COOLDOWN_MS = 3600000;   // 1시간 — 그 위는 오타로 본다
+    static constexpr int32_t MAX_COOLDOWN_MS = 3600000;   // 1시간 — 그 위는 오타로 본다(지속 시간 상한도 같다)
+    static constexpr int32_t MAX_BUFF_MUL    = 10;        // 배수 상한 — 1 은 아무 일도 안 하고(표 읽기가 막는다) 그 위는 오타. 원본 오중공격이 5
 
     // 파일을 읽어 표를 세운다. 실패하면 false 이고 까닭을 로그로 남긴다 — main 이 서버를 안 띄운다.
     //   levels = 먼저 읽은 레벨 표 — costMp 가 닿을 수 있는 최대 마력을 넘는지 대조한다(드랍 표가 아이템 표를 받는 꼴).
