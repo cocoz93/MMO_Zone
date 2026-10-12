@@ -98,14 +98,14 @@ const BUBBLE_LIFE = 7;                       // 말풍선 표시 시간(초) —
 const HIT_LIFE = 0.5;                        // 피격 점멸 + 데미지 숫자
 const SWING_LIFE = 0.18;                     // 휘두르는 호
 const SKILL_HIT_LIFE = 0.5;                  // 스킬에 맞은 상대 발밑 표시(피격 점멸과 같은 길이)
-const CAST_LIFE = 0.3;                       // 범위 스킬(target=shape) 칸 깔기 — 맞는 칸을 잠깐 붉게
+const CAST_LIFE = 0.3;                       // 범위 스킬(target=shape) 칸 깔기 — 맞는 칸을 잠깐 붉게 · 자신(target=self) 시전은 발밑 푸른 고리
 const SPAWN_LIFE = 0.6;                      // 부활 섬광
 const FADE_LIFE = 0.5;                       // 죽은 채로 지워진 상대가 흐려지며 사라지는 시간(초)
 const LEVELUP_LIFE = 1.6;                    // 레벨업 문구 표시 시간(초)
 // 경험치·레벨 (USE_EXP) — 본인 것만 서버가 보낸다. self 에 안 넣는 이유는 self 가
 //   존을 넘을 때 통째로 새로 만들어져서 레벨이 같이 날아가기 때문이다(서버가 다시 보내 주긴 한다).
 //   level===null = "아직 한 장도 못 받음" → HUD 에 레벨 줄을 안 그린다.
-//   공격력·방어력(attack·defense)도 여기 — 서버가 보낸 최종값(S2C_MY_STATS, 레벨 표 + 착용 장비)을 그대로 쓴다.
+//   공격력·방어력(attack·defense)도 여기 — 서버가 보낸 최종값(S2C_MY_STATS, 레벨 표 + 착용 장비 → 지속 효과 배수)을 그대로 쓴다. 효과(버프)는 내 액터(self.buffs)에.
 //     클라는 합을 셈하지 않는다(판정은 서버). null = 아직 한 장도 못 받음 → 상태창에 「—」.
 const me = { level:null, exp:0, base:0, next:0, levelUpT:0, attack:null, defense:null };
 // 가방 (USE_INVENTORY) — 본인 것만 온다. self 밖에 두는 이유는 me 와 같다(존을 넘을 때 self 가 새로 만들어진다).
@@ -124,7 +124,9 @@ const SKILLS = new Map();                                               // skill
 // 내 스킬 쿨타임 — 서버는 쿨타임을 안 보낸다. 자기 SKILL_CAST 를 받은 순간부터 표의 cooldownMs 를 센다. skillId -> 끝나는 시각(ms)
 const skillReadyAt = new Map();
 const skillState = { casts:0, lastFail:null };                          // 헤드리스 검증용 셈
-function skillChanged(){ document.documentElement.setAttribute('data-skill', JSON.stringify({ skills:SKILLS.size, casts:skillState.casts, lastFail:skillState.lastFail })); }
+// buffs = 내 지속 효과 [종류, 배수, 남은 ms] — S2C_ACTOR_BUFF 가 바꾼다(self.buffs). 값은 서버가 보낸 그대로(remainMs 를 받은 시각부터 깎는다)
+function skillChanged(){ document.documentElement.setAttribute('data-skill', JSON.stringify({ skills:SKILLS.size, casts:skillState.casts, lastFail:skillState.lastFail,
+  buffs: self && self.buffs ? [...self.buffs].map(([k,b])=>[k, b.value, Math.max(0, Math.round(b.until-performance.now()))]) : [] })); }
 // 스킬 거절 사유(P.SKILL_FAIL 이름) → 채팅 칸 [System] 문구. 거절이면 체력·마력·쿨타임이 그대로다(서버는 모든 검사 뒤에만 뗀다)
 const SKILL_FAIL_TEXT = {
   BAD_SKILL:'없는 스킬입니다', DEAD:'쓰러진 동안에는 쓸 수 없습니다', COOLDOWN:'아직 쓸 수 없습니다 — 잠시 뒤에 다시',
@@ -178,7 +180,9 @@ const PICKUP_FAIL_TEXT = {
 };
 // 전투 필드 기본값 — CREATE 와 부활 양쪽에서 같은 모양으로 만들려고 한 곳에 둔다
 //   mp·maxMp(USE_SKILL) — S2C_ACTOR_MP 가 채운다. 본인 것만 오므로 남의 액터는 null 그대로다(남의 마력은 안 그린다). null = 아직 한 장도 못 받음
-const COMBAT_INIT = () => ({ hp:null, maxHp:null, mp:null, maxMp:null, hitT:0, hitDmg:0, swingT:0, spawnT:0, castSkill:0, skillHitT:0, castT:0, castCells:null, dead:false });
+//   buffs(USE_COMBAT) — S2C_ACTOR_BUFF 가 채우는 Map(종류 → {value, until}). 본인 것만 오므로 남의 액터는 null 그대로다(남의 효과는 안 그린다)
+//   castSelf — 자신(target=self) 시전 표시(발밑 고리 · castT 동안). castCells(칸 깔기)와 둘 중 하나만 켜진다
+const COMBAT_INIT = () => ({ hp:null, maxHp:null, mp:null, maxMp:null, hitT:0, hitDmg:0, swingT:0, spawnT:0, castSkill:0, skillHitT:0, castT:0, castCells:null, castSelf:false, buffs:null, dead:false });
 // 죽은 채로 지워진 상대 — 그리기만 한다. id -> others 에 있던 그 객체 + fadeT.
 //   서버는 몬스터가 죽는 순간 지우고 DEATH 바로 뒤에 DELETE 를 보낸다(10-09) — 시체는 이 연출뿐이다.
 //   DELETE 에 사유 칸이 없어 「죽어 있었나(dead)」로 가른다. 살아 있던 상대(시야 밖으로 나감·퇴장)는 바로 지운다.
@@ -299,6 +303,16 @@ function onPacket(p){
       // 마력 갱신(접속·존 이동·레벨업·스킬 소모·마력 물약) — 본인 것만 온다. 체력과 같은 한 줄(번호로 찾는다 — 내 액터를 따로 다루지 않는다)
       const a=actorOf(p.actorId); if(a){ a.mp=p.mp; a.maxMp=p.maxMp; if(a===self) statsChanged(); }
       break; }
+    case P.MSG.S2C_ACTOR_BUFF: {
+      // 지속 효과(걸림·되감김·만료·죽음·존 이동) — 본인 것만 온다. remainMs 0 = 풀림(칸을 지운다). 종류마다 칸 하나 — 되감김은 같은 칸을 덮는다.
+      //   공격력 숫자는 뒤따르는 S2C_MY_STATS 가 준다 — 여기서 곱하지 않는다(클라는 셈하지 않는다 — 마력·체력과 같은 규칙).
+      const a=actorOf(p.actorId);
+      if(a){
+        if(!a.buffs) a.buffs=new Map();
+        if(p.remainMs>0) a.buffs.set(p.kindName, { value:p.value, until:performance.now()+p.remainMs }); else a.buffs.delete(p.kindName);
+        if(a===self) skillChanged();
+      }
+      break; }
     case P.MSG.S2C_ATTACK: {
       const a=actorOf(p.attackerId);
       // castSkill 을 지운다 — 뒤따르는 DAMAGE 는 일반 공격 결과다(서버가 ATTACK 을 먼저 보낸다: OnSwing → FindFrontTarget → ApplyHit)
@@ -327,12 +341,16 @@ function onPacket(p){
     //   칸 깔기는 대상 종류로 갈린다 —
     //     front: 서버가 고른다(1.5칸 안 앞쪽 반원에서 가장 가까운 하나). 화면이 칸을 짐작해 칠하면 판정과 어긋나 안 깐다(맞은 상대 고리만).
     //     shape: 서버와 같은 표의 칸 목록이라 짐작이 아니다 — 시전자 기준(앞, 옆)으로 칸을 깐다(어검술 역삼각형 4칸). 맞은 상대 고리는 그대로.
+    //     self: 맞는 상대가 없다(자기 자신) — 시전자 발밑에 푸른 고리를 잠깐. castSkill 은 안 건다(뒤따르는 DAMAGE 가 없다 — 효과는 ACTOR_BUFF 로 온다).
     case P.MSG.S2C_SKILL_CAST: {
       const a=actorOf(p.casterId);
       const s=SKILLS.get(p.skillId);
       if(a){
-        a.dir=p.direction; a.castSkill=p.skillId;
+        const selfCast = !!(s && s.target==='self');
+        a.dir=p.direction; a.castSkill=selfCast ? 0 : p.skillId;
+        a.castCells=null; a.castSelf=false;
         if(s && s.target==='shape' && s.shape.length){ a.castT=CAST_LIFE; a.castCells=s.shape; }
+        else if(selfCast){ a.castT=CAST_LIFE; a.castSelf=true; }
       }
       if(self && p.casterId===self.id){
         skillReadyAt.set(p.skillId, performance.now()+(s?s.cooldownMs:0));
@@ -646,9 +664,22 @@ function drawSkillCast(o){
   }
   ctx.restore();
 }
+// 자신(target=self) 시전 — 시전자 발밑에 푸른 고리를 잠깐(땅 층 — 맞은 상대 고리와 같은 납작한 타원, 색만 다르다). 효과가 걸렸다는 신호일 뿐
+//   남은 시간은 막대 칸(drawSkillBar 의 띠)이 맡는다.
+function drawSelfCast(o){
+  const k=o.castT/CAST_LIFE;                       // 1 → 0
+  const px=sx(o.rx), py=sy(o.ry);
+  const r=(0.6+0.3*(1-k))*ZOOM;                    // 0.6칸 → 0.9칸으로 퍼진다
+  ctx.save();
+  ctx.beginPath(); ctx.ellipse(px,py,r,r*0.45,0,0,7);
+  ctx.fillStyle='rgba(80,160,255,'+(0.45*k)+')'; ctx.fill();
+  ctx.strokeStyle='rgba(140,200,255,'+k+')'; ctx.lineWidth=2.5; ctx.stroke();
+  ctx.restore();
+}
+function drawSkillCastAny(o){ if(o.castCells) drawSkillCast(o); else if(o.castSelf) drawSelfCast(o); }
 function drawSkillCasts(near){
-  others.forEach(o=>{ if(o.castT>0 && o.castCells && near(o)) drawSkillCast(o); });
-  if(self && self.castT>0 && self.castCells) drawSkillCast(self);
+  others.forEach(o=>{ if(o.castT>0 && (o.castCells||o.castSelf) && near(o)) drawSkillCastAny(o); });
+  if(self && self.castT>0 && (self.castCells||self.castSelf)) drawSkillCastAny(self);
 }
 // 스킬에 맞은 상대 — 발밑에 붉은 고리를 깐다(땅에 깔려 나무·캐릭터 아래). 맞는 순간부터 조금씩 퍼지며 흐려진다.
 //   맞은 상대는 서버 결과(DAMAGE)로만 안다 — 예전에는 시전자 앞 한 칸을 칠했는데, 서버는 1.5칸 안 앞쪽 반원에서
@@ -867,8 +898,10 @@ function drawHUD(){
   if(bag.open) drawBag();   // 맨 마지막 — 창이 낮아 레이더 자리까지 내려와도 가방이 위에 그려진다
 }
 
-// ---- 스킬 막대 (USE_SKILL) — 게임 화면 아래 가운데. 표에 있는 스킬마다 한 칸: 키 번호 · 이름 · 쿨타임 덮개 ----
+// ---- 스킬 막대 (USE_SKILL) — 게임 화면 아래 가운데. 표에 있는 스킬마다 한 칸: 키 번호 · 이름 · 쿨타임 덮개 · (지속 효과 스킬) 남은 시간 띠 ----
 //   덮개 = 남은 쿨타임만큼 위에서부터 어둡게 + 남은 초. 쿨타임은 내 SKILL_CAST 를 받은 순간부터 센다(skillReadyAt).
+//   띠 = 효과가 buff_<종류> 인 칸에, 그 종류가 내게 걸려 있으면 칸 아래쪽에 초록 띠(남은 시간 ÷ 표의 durationMs) + 남은 초. 값은 S2C_ACTOR_BUFF 가 준 remainMs 를
+//   받은 시각부터 깎은 것(self.buffs). 덮개(위)와 자리가 달라 쿨타임 60초·지속 30초가 같이 보인다.
 //   마력 막대는 스킬 칸들 왼쪽 — 둘을 한 덩어리로 가운데 맞춘다. 내 체력은 머리 위 막대가 있어 따로 두지 않는다.
 const SKILL_CELL_W=68, SKILL_CELL_H=50, SKILL_GAP=8, MP_BAR_W=132;
 // 자리 계산 한 곳 — 그리기와 헤드리스 시험이 같이 쓴다(bagLayout · statusLayout 과 같은 꼴).
@@ -908,6 +941,20 @@ function drawSkillBar(){
       ctx.fillStyle='rgba(0,0,0,.6)'; ctx.fillRect(x,y0,SKILL_CELL_W,SKILL_CELL_H*r);
       ctx.restore();
       ctx.textAlign='right'; ctx.fillStyle='#ffffff'; ctx.font='700 11px '+MONO; ctx.fillText((left/1000).toFixed(1), x+SKILL_CELL_W-7, y0+17);
+    }
+    // 지속 효과 띠 — 이 칸의 효과 종류(buff_<종류>)가 내게 걸려 있을 때만. 덮개 뒤에 그려 쿨타임이 돌아도 보인다
+    if(s.effect && s.effect.startsWith('buff_') && self && self.buffs){
+      const b=self.buffs.get(s.effect.slice(5));
+      const bl=b ? b.until-now : 0;
+      if(b && bl>0){
+        const r=s.durationMs>0 ? Math.min(1, bl/s.durationMs) : 1;
+        const bh=8, by=y0+SKILL_CELL_H-bh;
+        ctx.save(); rr(x,y0,SKILL_CELL_W,SKILL_CELL_H,10); ctx.clip();
+        ctx.fillStyle='rgba(0,0,0,.45)'; ctx.fillRect(x,by,SKILL_CELL_W,bh);
+        ctx.fillStyle='rgba(95,211,138,.95)'; ctx.fillRect(x,by,Math.round(SKILL_CELL_W*r),bh);
+        ctx.restore();
+        ctx.textAlign='center'; ctx.fillStyle='#ffffff'; ctx.font='700 9px '+MONO; ctx.fillText('×'+b.value+' '+(bl/1000).toFixed(1)+'s', x+SKILL_CELL_W/2, by+7);
+      }
     }
   });
   ctx.textAlign='left';
@@ -1226,9 +1273,10 @@ function loadSkills(){
     .catch(e=>console.warn('[skill] 스킬 표를 못 받았다 — 스킬 막대를 안 그린다:', e))
     .then(skillChanged);
 }
-// 칸 위치로 읽는다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp,shape (서버 SkillTable.cpp 와 같은 순서).
+// 칸 위치로 읽는다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp,shape,durationMs (서버 SkillTable.cpp 와 같은 순서).
 //   걸러내는 규칙은 아이템 표와 같다(빈 줄 · '#' 주석 · 첫 칸이 숫자가 아닌 헤더). 값 검사는 서버가 기동 때 이미 했다.
-//   shape(아홉째)는 「앞:옆」 을 ';' 로 이은 칸 목록 — front 줄은 비어 있거나 칸 자체가 없다(빈 목록).
+//   shape(아홉째)는 「앞:옆」 을 ';' 로 이은 칸 목록 — front·self 줄은 비어 있거나 칸 자체가 없다(빈 목록).
+//   durationMs(열째)는 지속 효과(buff_*) 줄만 — 막대 띠의 분모. 피해 줄은 비어 있거나 칸이 없다(0).
 function parseSkillTable(text){
   for(const raw of text.split(/\r?\n/)){
     const line=raw.replace(/^﻿/,'').trim();
@@ -1236,7 +1284,7 @@ function parseSkillTable(text){
     const c=line.split(',').map(s=>s.trim());
     if(c.length<7) continue;
     const shape=(c[8]||'').split(';').filter(Boolean).map(cell=>cell.split(':').map(Number));
-    SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]), costMp:Number(c[7]||0), shape });
+    SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]), costMp:Number(c[7]||0), shape, durationMs:Number(c[9]||0) });
   }
 }
 async function boot(){
