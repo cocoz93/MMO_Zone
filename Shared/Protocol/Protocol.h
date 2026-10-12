@@ -137,7 +137,12 @@ enum class MsgType : uint16_t
     //--------------------------------------------------
     // 지속 효과 (USE_COMBAT — 효과 칸은 전투 토글 소유. 거는 쪽은 지금 스킬뿐이고 아이템도 걸 수 있는 틀이다)
     //--------------------------------------------------
-    S2C_ACTOR_BUFF          // 서버 → 클라이언트: 효과 통보 (본인에게만 — 걸림·되감김·만료·죽음·존 이동. remainMs 0 = 풀림)
+    S2C_ACTOR_BUFF,         // 서버 → 클라이언트: 효과 통보 (본인에게만 — 걸림·되감김·만료·죽음·존 이동. remainMs 0 = 풀림)
+
+    //--------------------------------------------------
+    // 포털 (토글 없음 — 맵 표처럼 세계 데이터다. 성공은 존 이동과 같은 와이어, 실패는 S2C_ZONE_CHANGE_FAIL 사유 4·5)
+    //--------------------------------------------------
+    C2S_PORTAL_USE          // 클라이언트 → 서버: 이 포털로 들어간다 (포털 위에서 상호작용 키 — 같은 맵·반경 안인지는 서버가 본다)
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -494,12 +499,13 @@ struct MSG_S2C_ZONE_CHANGE_OK
     MSG_S2C_ZONE_CHANGE_OK() : header{ sizeof(*this), TYPE }, mapId(0), channelIndex(0), playerId(0), displayChar('A'), colorIndex(0), direction(0), x(0), y(0) {}
 };
 
-// S2C: 맵 이동 실패
+// S2C: 맵 이동 실패 — 존 이동 요청(C2S_ZONE_CHANGE)과 포털 사용(C2S_PORTAL_USE)이 같이 쓴다
 struct MSG_S2C_ZONE_CHANGE_FAIL
 {
     static constexpr MsgType TYPE = MsgType::S2C_ZONE_CHANGE_FAIL;
     MsgHeader header;
-    uint8_t reason;  // 0: 존재하지 않는 맵/채널, 1: 모든 채널 가득 참, 2: 이미 해당 채널
+    uint8_t reason;  // 0: 존재하지 않는 맵/채널, 1: 모든 채널 가득 참, 2: 이미 해당 채널, 3: 다른 맵 지정은 운영자만,
+                     // 4: 포털에서 멂(반경 밖), 5: 포털 없음(없는 번호 · 지금 맵의 포털이 아님)
 
     MSG_S2C_ZONE_CHANGE_FAIL() : header{ sizeof(*this), TYPE }, reason(0) {}
 };
@@ -1073,5 +1079,20 @@ struct MSG_S2C_ACTOR_BUFF
 
 static_assert(sizeof(MSG_S2C_ACTOR_BUFF) == 17, "ACTOR_BUFF 는 17B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_ACTOR_BUFF) == 1046, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+
+// C2S: 포털 사용 — 포털 위에서 상호작용 키를 눌렀을 때 한 번. 어디로 가는지는 서버 포털 표(PortalTable.csv)가 정한다 — 클라는 번호만 보낸다.
+//   서버가 보는 것 = 살아 있나 · 지금 맵의 포털인가 · 반경 안인가. 성공하면 존 이동과 같은 와이어(ZONE_INFO → ZONE_CHANGE_OK → …),
+//   실패하면 S2C_ZONE_CHANGE_FAIL(4 포털에서 멂 · 5 포털 없음). 죽은 채 보내면 답이 없다(존 이동 요청과 같다).
+struct MSG_C2S_PORTAL_USE
+{
+    static constexpr MsgType TYPE = MsgType::C2S_PORTAL_USE;
+    MsgHeader header;
+    int32_t portalId;   // PortalTable.csv 의 portalId
+
+    MSG_C2S_PORTAL_USE() : header{ sizeof(*this), TYPE }, portalId(0) {}
+};
+
+static_assert(sizeof(MSG_C2S_PORTAL_USE) == 8, "PORTAL_USE 는 8B (proto.js 와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::C2S_PORTAL_USE) == 1047, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 #pragma pack(pop)

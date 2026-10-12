@@ -313,6 +313,9 @@ void CGameInstance::ProcessNetworkEvents()
             case 0:  reason = L"Not found";            break;
             case 1:  reason = L"All channels full";    break;
             case 2:  reason = L"Already in this channel"; break;
+            case 3:  reason = L"Admin only (other map)"; break;   // 다른 맵 지정은 운영자만 — /admin 뒤에 다시
+            case 4:  reason = L"Too far from portal";  break;     // 포털 사용(웹)과 같은 실패 패킷 — 콘솔은 포털 키가 없다
+            case 5:  reason = L"No such portal";       break;
             default: reason = L"Unknown";              break;
             }
             wchar_t buf[128];

@@ -34,7 +34,9 @@
     // 마력 (USE_SKILL) — 본인에게만 온다. 대상 번호를 싣는다(ACTOR_STATS 와 같은 꼴)
     S2C_ACTOR_MP:1045,
     // 지속 효과 (USE_COMBAT) — 본인에게만 온다. 걸림·되감김·만료·죽음·존 이동, remainMs 0 = 풀림. 공격력 숫자는 MY_STATS 가 뒤따른다
-    S2C_ACTOR_BUFF:1046
+    S2C_ACTOR_BUFF:1046,
+    // 포털 (토글 없음) — 포털 위에서 상호작용 키. 성공은 존 이동과 같은 와이어(ZONE_INFO → ZONE_CHANGE_OK), 실패는 ZONE_CHANGE_FAIL 사유 4·5
+    C2S_PORTAL_USE:1047
   };
   // 아이템 쓰기 거절 사유 — Protocol.h UseItemFail 순서 그대로(값이 와이어에 실린다). 서버가 이 순서로 보고 먼저 걸린 하나를 보낸다
   const USE_FAIL = ['BAD_SLOT','EMPTY','NOT_USABLE','DEAD','COOLDOWN','FULL_HP','FULL_MP'];
@@ -53,6 +55,8 @@
   const SKILL_FAIL = ['BAD_SKILL','DEAD','COOLDOWN','LOW_HP','NO_TARGET','LOW_MP'];
   // 지속 효과 종류 — Protocol.h BuffKind 순서 그대로(값이 와이어에 실린다). 스킬 표의 effect 「buff_<종류>」 와 이름이 같다
   const BUFF_KIND = ['attack_mul'];
+  // 맵 이동 실패 사유 — Protocol.h MSG_S2C_ZONE_CHANGE_FAIL 의 reason 주석 순서 그대로(존 이동 요청 · 포털 공통)
+  const ZONE_FAIL = ['NOT_FOUND','FULL','SAME_ZONE','NOT_ALLOWED','TOO_FAR','NO_PORTAL'];
   const NAME =Object.fromEntries(Object.entries(MSG).map(([k,v])=>[v,k]));
   const DIR = { NONE:0, UP:1, DOWN:2, LEFT:3, RIGHT:4 };  // Player.h
   const MOVE = { IDLE:0, MOVING:1 };
@@ -81,6 +85,15 @@
         p.mapId=dv.getInt32(o,true); p.channelIndex=dv.getInt32(o+4,true);
         p.mapWidth=dv.getInt32(o+8,true); p.mapHeight=dv.getInt32(o+12,true); p.sectorSize=dv.getInt32(o+16,true);
         break;
+      // ZONE_CHANGE_OK 23B = mapId i32 · channelIndex i32 · playerId i32 · displayChar u8 · colorIndex u8 · direction u8 · x f32 · y f32
+      //   존을 옮긴 내 자리 — 체력은 안 싣는다(존을 옮겨도 그대로다)
+      case MSG.S2C_ZONE_CHANGE_OK:
+        p.mapId=dv.getInt32(o,true); p.channelIndex=dv.getInt32(o+4,true); p.playerId=dv.getInt32(o+8,true);
+        p.displayChar=dv.getUint8(o+12); p.colorIndex=dv.getUint8(o+13); p.direction=dv.getUint8(o+14);
+        p.x=dv.getFloat32(o+15,true); p.y=dv.getFloat32(o+19,true); break;
+      //   ZONE_CHANGE_FAIL 1B = reason u8 (ZONE_FAIL)
+      case MSG.S2C_ZONE_CHANGE_FAIL:
+        p.reason=dv.getUint8(o); p.reasonName=ZONE_FAIL[p.reason] || ('?'+p.reason); break;
       case MSG.S2C_CREATE_MY_PLAYER:
         p.playerId=dv.getInt32(o,true); p.direction=dv.getUint8(o+4);
         p.displayChar=dv.getUint8(o+5); p.colorIndex=dv.getUint8(o+6);
@@ -212,7 +225,7 @@
       case MSG.S2C_ACTOR_BUFF:
         p.actorId=dv.getInt32(o,true); p.kind=dv.getUint8(o+4); p.kindName=BUFF_KIND[p.kind] || ('?'+p.kind);
         p.value=dv.getInt32(o+5,true); p.remainMs=dv.getUint32(o+9,true); break;
-      default: break; // ZONE_CHANGE_OK/FAIL, ADMIN_* etc. — not needed for the view
+      default: break; // ADMIN_* etc. — not needed for the view
     }
     return p;
   }
@@ -260,6 +273,8 @@
     unequip(slot){ const {b,d}=hdr(6,MSG.C2S_UNEQUIP); d.setUint16(4, slot, true); return b; },
     // C2S_USE_SKILL: header(4) + skillId u8 = 5B — 방향·대상은 서버가 정한다(지금 바라보는 쪽)
     useSkill(skillId){ const {b,d}=hdr(5,MSG.C2S_USE_SKILL); d.setUint8(4, skillId); return b; },
+    // C2S_PORTAL_USE: header(4) + portalId i32 = 8B — 어디로 가는지는 서버 포털 표가 정한다(클라는 번호만)
+    portalUse(portalId){ const {b,d}=hdr(8,MSG.C2S_PORTAL_USE); d.setInt32(4, portalId, true); return b; },
     moveStart(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_START); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     moveStop(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_STOP); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     // C2S_CHAT: header + wchar_t[] UTF-16LE, 널 종단 포함, (len+1)*2 바이트만 전송 (서버가 header.size로 역산)
@@ -273,7 +288,7 @@
     }
   };
 
-  const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, EQUIP_SLOT, USE_FAIL, EQUIP_FAIL, SKILL_FAIL, BUFF_KIND, GROUND_APPEAR, GROUND_GONE, PICKUP_FAIL, decodePacket, Reassembler, enc };
+  const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, EQUIP_SLOT, USE_FAIL, EQUIP_FAIL, SKILL_FAIL, BUFF_KIND, ZONE_FAIL, GROUND_APPEAR, GROUND_GONE, PICKUP_FAIL, decodePacket, Reassembler, enc };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else global.Proto = API;
 })(typeof window !== 'undefined' ? window : globalThis);
