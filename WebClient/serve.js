@@ -23,6 +23,8 @@ const MIME = {
 const DATA = new Map([
   ['/data/ItemTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'ItemTable.csv')],
   ['/data/SkillTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'SkillTable.csv')],
+  ['/data/MapTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'MapTable.csv')],         // 땅 모양(마을 = 흙)
+  ['/data/PortalTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'PortalTable.csv')],   // 포털 그리기·안내·F 키 번호
 ]);
 
 http.createServer((req, res) => {

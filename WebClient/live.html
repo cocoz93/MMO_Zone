@@ -50,7 +50,7 @@ const ACCOUNT = (q.get('account') || '0').replace(/[^0-9]/g, '') || '0';
 const IMG = {};
 
 // ---- world / camera ----
-let ZONE = { mapWidth:120, mapHeight:120, sectorSize:20 };
+let ZONE = { mapId:-1, channel:0, mapWidth:120, mapHeight:120, sectorSize:20 };   // S2C_ZONE_INFO 가 덮는다(접속·존 이동·마을 부활마다)
 let ZOOM = 20;                              // px per world unit
 // 게임 화면 = 캔버스 가운데의 정사각형, 한 변 VIEW_ROWS 칸(기본 30) — 창 크기·브라우저 확대와 상관없이 같은 넓이를 본다.
 //   서버의 유효범위(내 섹터 ±1)는 정사각형이고, 섹터 끝에 서 있으면 그쪽으로는 섹터 한 칸(기본 20)만 받는다.
@@ -133,6 +133,31 @@ const SKILL_FAIL_TEXT = {
   LOW_HP:'체력이 모자랍니다 — 스킬로는 쓰러지지 않습니다', NO_TARGET:'앞에 맞을 몬스터가 없습니다',
   LOW_MP:'마력이 부족합니다',
 };
+// 맵 표·포털 표 — 서버와 같은 파일(Run/bin/MapTable.csv · PortalTable.csv)을 serve.js 의 /data 로 받는다(아이템·스킬 표와 같은 꼴).
+//   맵 표는 땅 모양(마을 = 흙)만, 포털 표는 그리기·안내·F 키의 번호 고르기에 쓴다. 어디로 가는지는 서버 표가 정한다(클라는 번호만 보낸다).
+//   못 받으면 땅은 풀 · 포털이 안 보이고 F 키도 안 보낸다(번호를 모른다). 없다는 사실은 콘솔 경고와 data-portal 에 남는다.
+const MAPS = new Map();                                                 // mapId -> {kind:'town'|'dungeon'}
+const PORTALS = [];                                                     // {id, mapId, x, y, radius, targetMapId, name}
+const portalState = { sent:0, lastFail:null };                          // 헤드리스 검증용 셈
+// 맵 이동 실패 사유(P.ZONE_FAIL 이름) → 채팅 칸 [System] 문구. 존 이동 요청·포털 공통(S2C_ZONE_CHANGE_FAIL)
+const ZONE_FAIL_TEXT = {
+  NOT_FOUND:'갈 곳이 없습니다', FULL:'채널이 가득 찼습니다', SAME_ZONE:'이미 그 채널에 있습니다',
+  NOT_ALLOWED:'다른 맵으로는 포털로만 갈 수 있습니다', TOO_FAR:'포털에 더 가까이 가세요', NO_PORTAL:'이 맵의 포털이 아닙니다',
+};
+// 지금 맵의 포털 중 손이 닿는 가장 가까운 것 — 서버 PortalDef::InReach 와 같은 식(거리 ≤ 반경). 맞는지는 서버가 다시 본다
+function portalInReach(){
+  if(!self) return null;
+  let best=null, bestD=1e9;
+  for(const pt of PORTALS){
+    if(pt.mapId!==ZONE.mapId) continue;
+    const d=Math.hypot(self.x-pt.x, self.y-pt.y);
+    if(d<=pt.radius && d<bestD){ best=pt; bestD=d; }
+  }
+  return best;
+}
+function portalChanged(){ const r=portalInReach(); document.documentElement.setAttribute('data-portal', JSON.stringify({ map:ZONE.mapId, ch:ZONE.channel,
+  kind:(MAPS.get(ZONE.mapId)||{}).kind||null, maps:MAPS.size, portals:PORTALS.length, here:PORTALS.filter(p=>p.mapId===ZONE.mapId).length,
+  inReach:r?r.id:null, sent:portalState.sent, lastFail:portalState.lastFail })); }
 // ?admin=키 — 입장 뒤 운영자 로그인을 한 번 보낸다(드랍이 생기기 전까지 가방을 채우는 /item 명령용).
 const ADMIN_KEY = q.get('admin') || '';
 let adminSent = false;
@@ -261,7 +286,21 @@ function onPacket(p){
   bump(p.name);                             // 패킷 이름별 개수(묶음 1개는 1로 셈)
   // 진입/이탈은 낱개·묶음 두 경로로 오므로 따로 센다 — 묶음은 안에 든 인원수만큼 더한다.
   switch(p.type){
-    case P.MSG.S2C_ZONE_INFO: ZONE={mapWidth:p.mapWidth,mapHeight:p.mapHeight,sectorSize:p.sectorSize}; break;
+    // 존 정보 — 접속·존 이동(요청·포털)·마을 부활마다 맨 먼저 온다. 올 때마다 옛 존의 남·땅 아이템을 비운다:
+    //   옮기는 쪽은 옛 이웃의 DELETE 를 안 받는다(서버 BroadcastLeaveZone 은 남에게만 보낸다). 새 존의 것은 곧 CREATE 로 온다.
+    //   「맵이 바뀌면」으로 걸면 같은 맵 채널 이동을 못 잡는다 · 첫 접속엔 비어 있어 무해하다. 내 캐릭터(self)는 안 비운다 —
+    //   존 이동은 ZONE_CHANGE_OK 가 자리만 옮기고, 접속은 CREATE_MY 가 새로 만든다.
+    case P.MSG.S2C_ZONE_INFO:
+      clearZoneWorld();
+      ZONE={mapId:p.mapId,channel:p.channelIndex,mapWidth:p.mapWidth,mapHeight:p.mapHeight,sectorSize:p.sectorSize}; portalChanged(); break;
+    // 존을 옮긴 내 자리 — 체력·스탯은 안 싣는다(그대로다). 마을 부활이면 곧 RESPAWN 이 와 체력을 채우고 쓰러짐을 푼다.
+    case P.MSG.S2C_ZONE_CHANGE_OK:
+      if(self){ self.x=self.rx=p.x; self.y=self.ry=p.y; self.dir=p.direction; self.moveState=0; }   // rx·ry 도 — 미끄러져 가지 않고 바로(카메라는 다음 프레임이 따라온다)
+      // 누른 채 넘어가도 서버와 안 어긋나게 — 서버는 새 존에 멈춰 세운 채 넣는다(CZone::EnterZoneAt). 채팅창 열 때와 같은 정리
+      moving=false; keys.clear(); portalChanged(); break;
+    case P.MSG.S2C_ZONE_CHANGE_FAIL:
+      portalState.lastFail=p.reasonName;
+      sysMsg(ZONE_FAIL_TEXT[p.reasonName] || ('이동하지 못했습니다 ('+p.reasonName+')')); portalChanged(); break;
     case P.MSG.S2C_CREATE_MY_PLAYER:
       self={id:p.playerId,x:p.x,y:p.y,dir:p.direction,moveState:0,disp:p.displayChar,color:p.colorIndex,speed:p.speed,rx:p.x,ry:p.y,...COMBAT_INIT(),hp:p.hp,maxHp:p.maxHp};
       // 운영자 로그인은 내 캐릭터가 생긴 "뒤"에 — 서버는 플레이어가 없는 세션의 패킷을 버린다.
@@ -442,6 +481,14 @@ function sendSkill(id){
   if(!self || !ws || ws.readyState!==1) return;
   ws.send(P.enc.useSkill(id));
 }
+// 포털 — 손이 닿는 지금 맵 포털 하나(가장 가까운 것)의 번호를 보낸다. 맞는지(같은 맵·반경)는 서버가 다시 본다 —
+//   어긋나면 FAIL 4·5 가 [System] 한 줄로 온다. 닿는 포털이 없으면 안 보낸다(고를 번호가 없다 — 안내가 안 뜬 자리다).
+//   쓰러져 있으면 안 보낸다 — 서버가 답 없이 버린다(존 이동 요청과 같다). 마을 부활이 곧 옮겨 준다.
+function usePortal(){
+  if(!self || !ws || ws.readyState!==1 || self.dead) return;
+  const pt=portalInReach(); if(!pt) return;
+  ws.send(P.enc.portalUse(pt.id)); portalState.sent++; portalChanged();
+}
 // 줍기 — 쓰러져 있어도 보낸다(서버가 DEAD 로 답해 [System] 한 줄이 뜬다 — 왜 안 되는지 보이게)
 function sendPickup(){
   if(!self || !ws || ws.readyState!==1) return;
@@ -457,6 +504,8 @@ if(!SNAP){
     if(e.code==='KeyC' && !e.repeat){ stw.open=!stw.open; stw.hover=false; statsChanged(); e.preventDefault(); return; }
     // Z = 줍기 — 고르는 건 서버(2칸 안에서 주울 수 있는 가장 가까운 것 하나). 누르고 있어도 한 번(e.repeat 무시)
     if(e.code==='KeyZ'){ if(!e.repeat) sendPickup(); e.preventDefault(); return; }
+    // F = 포털(상호작용) — 손이 닿는 포털이 있을 때만 보낸다. I·C 와 같은 까닭으로 e.code — 누르고 있어도 한 번
+    if(e.code==='KeyF'){ if(!e.repeat) usePortal(); e.preventDefault(); return; }
     // 1~8 = 스킬(키 번호 = 스킬 번호). I·C 와 같은 까닭으로 e.code — 누르고 있어도 한 번
     const dg=/^Digit([1-8])$/.exec(e.code);
     if(dg){ if(!e.repeat) sendSkill(Number(dg[1])); e.preventDefault(); return; }
@@ -513,7 +562,9 @@ function shadow(x,y,r,fade=1){ ctx.save(); ctx.globalAlpha=.26*fade; ctx.fillSty
 
 function drawGround(){
   ctx.imageSmoothingEnabled=false;
-  const g=IMG.grass; if(!g) return;
+  // 마을(맵 표 kind = town)은 흙, 그 밖(던전·표를 못 받음)은 풀 — 두 시트가 같은 꼴(96×192, 아래 칸이 채움 무늬)이라 칸 자리를 같이 쓴다
+  const town=(MAPS.get(ZONE.mapId)||{}).kind==='town';
+  const g=(town && IMG.dirt) ? IMG.dirt : IMG.grass; if(!g) return;
   const step=2; // world units per grass cell
   const u0=Math.floor((cam.x - VW/2/ZOOM)/step)*step - step, u1=cam.x + VW/2/ZOOM + step;
   const v0=Math.floor((cam.y - VH/2/ZOOM)/step)*step - step, v1=cam.y + VH/2/ZOOM + step;
@@ -783,7 +834,9 @@ function drawHUD(){
   panel(14,14,220, hasLv?84:58);
   ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font='600 15px '+SANS; ctx.fillText('주우진', 26, 36);
   ctx.fillStyle='rgba(180,210,180,.8)'; ctx.font='11px '+SANS;
-  ctx.fillText('내 캐릭터 '+(self?('· '+String.fromCharCode(self.disp)+' #'+self.id):''), 26, 54);
+  // 어느 맵인가 — 맵 표의 kind(마을·던전)와 채널. 표를 못 받았으면 번호만
+  const mk=(MAPS.get(ZONE.mapId)||{}).kind, mapTxt = ZONE.mapId<0 ? '' : ' · '+(mk==='town'?'마을':mk==='dungeon'?'던전':'맵 '+ZONE.mapId)+(ZONE.channel?' ch'+ZONE.channel:'');
+  ctx.fillText('내 캐릭터 '+(self?('· '+String.fromCharCode(self.disp)+' #'+self.id):'')+mapTxt, 26, 54);
   ctx.textAlign='right'; ctx.fillStyle='#8fd6a0'; ctx.font='600 13px '+SANS;
   ctx.fillText('시야 '+others.size+'명', 220, 36);
   ctx.fillStyle='rgba(180,210,180,.7)'; ctx.font='11px '+SANS; ctx.fillText('AOI 실시간', 220, 54); ctx.textAlign='left';
@@ -1144,6 +1197,8 @@ function step(dt,t){
     cam.y = ZONE.mapHeight > hh*2 ? Math.max(hh, Math.min(ZONE.mapHeight-hh, self.ry)) : ZONE.mapHeight/2;
   }
   if(self){ decayCombat(self,dt); if(self.chat){ self.chatT-=dt; if(self.chatT<=0)self.chat=null; } }
+  // 손이 닿는 포털이 바뀌면(걸어 들어가거나 나옴) 검증용 속성만 다시 쓴다 — 매 프레임 쓰지 않는다
+  { const r=portalInReach(), id=r?r.id:null; if(id!==step.portalId){ step.portalId=id; portalChanged(); } }
   others.forEach(o=>{ advance(o,dt,Math.min(1,dt*9)); decayCombat(o,dt); if(o.chat){o.chatT-=dt; if(o.chatT<=0)o.chat=null;} });
   // 흐려지는 상대 — 다 흐려지면 뺀다. 그리던 자리로 마저 미끄러지고 막타 숫자도 마저 떠오른다
   fading.forEach((o,id)=>{ advance(o,dt,Math.min(1,dt*9)); decayCombat(o,dt); o.fadeT-=dt; if(o.fadeT<=0) fading.delete(id); });
@@ -1151,6 +1206,43 @@ function step(dt,t){
   ground.forEach(g=>{ if(g.dropT>0) g.dropT=Math.max(0,g.dropT-dt); });   // 떨어지는 그림
 }
 // 땅의 아이템 — 캐릭터보다 먼저 그린다(발밑). 그림은 가방 칸과 같은 drawItemIcon, 개수가 1 보다 크면 오른쪽 아래 숫자
+// 포털 — 지금 맵의 포털마다 바닥 고리(반경 크기) + 이름. 손이 닿으면 고리가 밝아지고 「F 키로 이동」이 붙는다.
+//   포털 그림 에셋이 없어 첫판은 고리다(플랜 town-map ⑪ — 에셋은 화면 확인 때 정한다).
+//   두 번에 나눠 그린다 — 고리는 땅에(땅 아이템 아래), 글자는 캐릭터 뒤에 고리 아래쪽으로(포털에 선 캐릭터 몸에 이름이 가리지 않게).
+function portalsInView(){
+  const hw=VW/2/ZOOM+4, hh=VH/2/ZOOM+4;
+  return PORTALS.filter(pt=>pt.mapId===ZONE.mapId && Math.abs(pt.x-cam.x)<=hw && Math.abs(pt.y-cam.y)<=hh);
+}
+function drawPortals(t){
+  const reach=portalInReach();
+  for(const pt of portalsInView()){
+    const X=sx(pt.x), Y=sy(pt.y), R=pt.radius*ZOOM, on=(reach===pt);
+    const pulse=0.5+0.5*Math.sin(t*3);
+    ctx.save();
+    ctx.beginPath(); ctx.ellipse(X,Y,R,R*0.5,0,0,Math.PI*2);
+    ctx.fillStyle='rgba(120,90,255,'+(on?0.30:0.16+0.06*pulse)+')'; ctx.fill();
+    ctx.strokeStyle='rgba(190,170,255,'+(on?1:0.55+0.25*pulse)+')'; ctx.lineWidth=on?3:2; ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(X,Y,R*0.55,R*0.275,0,0,Math.PI*2);
+    ctx.strokeStyle='rgba(220,210,255,'+(on?0.9:0.4)+')'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.restore();
+  }
+}
+function drawPortalLabels(){
+  const reach=portalInReach();
+  for(const pt of portalsInView()){
+    const X=sx(pt.x), Y=sy(pt.y), R=pt.radius*ZOOM, on=(reach===pt);
+    const y1=Y+R*0.5+16;
+    ctx.save(); ctx.textAlign='center'; ctx.font='600 12px '+SANS;
+    ctx.fillStyle='rgba(0,0,0,.6)'; ctx.fillText(pt.name, X+1, y1+1);
+    ctx.fillStyle='#e6dcff'; ctx.fillText(pt.name, X, y1);
+    if(on){
+      ctx.font='700 12px '+SANS;
+      ctx.fillStyle='rgba(0,0,0,.6)'; ctx.fillText('F 키로 이동', X+1, y1+17);
+      ctx.fillStyle='#fff4b0'; ctx.fillText('F 키로 이동', X, y1+16);
+    }
+    ctx.restore();
+  }
+}
 function drawGroundItems(){
   const hw=VW/2/ZOOM+2, hh=VH/2/ZOOM+2;
   const box=Math.round(ZOOM*1.1);             // 캐릭터(3칸)보다 작게 — 한 칸 남짓
@@ -1184,6 +1276,7 @@ function render(t){
   ctx.save(); ctx.beginPath(); ctx.rect(VX,VY,VW,VH); ctx.clip();
   drawGround();
   drawSectorGrid(t);
+  drawPortals(t);      // 포털 고리 — 땅에 깔린다(땅의 아이템 아래)
   drawGroundItems();   // 땅의 아이템 — 나무·캐릭터보다 먼저(발밑에 깔린다)
   // depth-sorted props + players
   //   유효범위(60)가 화면(30)보다 넓어서 받은 캐릭터의 대부분은 화면 밖에 있다 — 화면 밖 5칸까지만 그린다
@@ -1199,6 +1292,7 @@ function render(t){
   if(self) view.push({y:self.ry,kind:'char',o:self,isMe:true,fade:1});
   view.sort((a,b)=>a.y-b.y);
   for(const it of view){ if(it.kind==='prop') drawProp(it.pr); else drawChar(it.o,it.isMe,t,it.fade); }
+  drawPortalLabels();   // 포털 이름·안내 — 캐릭터 뒤(몸에 안 가리게), 말풍선 앞
   others.forEach(o=>{ if(o.chat && near(o)) drawBubble(o); });
   if(self && self.chat) drawBubble(self);
   // AOI vignette
@@ -1214,9 +1308,14 @@ function render(t){
 // ---- networking (live) ----
 let ws=null;
 function setConn(ok,txt){ stat.connected=ok; connEl.textContent=txt; connEl.className='conn '+(ok?'ok':'bad'); }
+// 존에 딸린 것 비우기 — 남(사람·몬스터)·흐려지던 것·땅의 아이템. 존 정보(S2C_ZONE_INFO)가 올 때마다와 재접속 때 부른다.
+//   새 존의 것은 입장 직후 CREATE(사람·몬스터 · 땅은 SEEN)로 다시 온다. 내 캐릭터·가방은 존에 딸린 게 아니라 여기서 안 비운다
+function clearZoneWorld(){
+  others.clear(); fading.clear();
+  ground.clear(); groundChanged();
+}
 function connect(){
-  others.clear(); fading.clear(); self=null;   // 재접속 시 유령 엔티티 제거
-  ground.clear(); groundChanged();   // 땅의 아이템도 — 입장 때 주변 것이 CREATE(SEEN) 으로 다시 온다(웹은 존 이동 수단이 없어 여기서만 비운다)
+  clearZoneWorld(); self=null;   // 재접속 시 유령 엔티티 제거
   bag.slots.clear(); adminSent=false; bagChanged();   // 가방은 입장 때 전체 목록이 다시 온다 · 운영자 로그인도 새 접속마다
   const re=new P.Reassembler(onPacket);
   ws=new WebSocket(WS_URL); ws.binaryType='arraybuffer';
@@ -1287,8 +1386,35 @@ function parseSkillTable(text){
     SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]), costMp:Number(c[7]||0), shape, durationMs:Number(c[9]||0) });
   }
 }
+// 맵 표·포털 표(serve.js 의 /data/MapTable.csv · PortalTable.csv) — 못 받아도 멈추지 않는다(땅은 풀 · 포털이 안 보인다).
+//   걸러내는 규칙은 아이템 표와 같다(빈 줄 · '#' 주석 · 첫 칸이 숫자가 아닌 헤더). 값 검사는 서버가 기동 때 이미 했다.
+function loadWorldTables(){
+  const map = fetch('/data/MapTable.csv', {cache:'no-store'})
+    .then(r=>r.ok ? r.text() : Promise.reject('HTTP '+r.status)).then(parseMapTable)
+    .catch(e=>console.warn('[map] 맵 표를 못 받았다 — 땅을 풀로 그린다:', e));
+  const portal = fetch('/data/PortalTable.csv', {cache:'no-store'})
+    .then(r=>r.ok ? r.text() : Promise.reject('HTTP '+r.status)).then(parsePortalTable)
+    .catch(e=>console.warn('[portal] 포털 표를 못 받았다 — 포털을 안 그리고 F 키도 안 보낸다:', e));
+  return Promise.all([map, portal]).then(portalChanged);
+}
+function csvRows(text){
+  const rows=[];
+  for(const raw of text.split(/\r?\n/)){
+    const line=raw.replace(/^﻿/,'').trim();
+    if(!line || line[0]==='#' || !/^\d/.test(line)) continue;
+    rows.push(line.split(',').map(s=>s.trim()));
+  }
+  return rows;
+}
+// 칸 위치로 읽는다 — mapId,width,height,kind,… (서버 MapTable.cpp 와 같은 순서). 땅 모양에는 kind 만 쓴다
+function parseMapTable(text){ for(const c of csvRows(text)) if(c.length>=4) MAPS.set(Number(c[0]), { kind:c[3] }); }
+// 칸 위치로 읽는다 — portalId,mapId,x,y,radius,targetMapId,targetX,targetY,name (서버 PortalTable.cpp 와 같은 순서)
+function parsePortalTable(text){
+  for(const c of csvRows(text)) if(c.length>=9)
+    PORTALS.push({ id:Number(c[0]), mapId:Number(c[1]), x:Number(c[2]), y:Number(c[3]), radius:Number(c[4]), targetMapId:Number(c[5]), name:c[8] });
+}
 async function boot(){
-  resize(); await loadAssets(); checkLayers(); await loadItems(); await loadSkills();
+  resize(); await loadAssets(); checkLayers(); await loadItems(); await loadSkills(); await loadWorldTables();
   if(SNAP){
     // headless verification: load a real snapshot, render one frame, expose PNG
     // 전투 확인용 스냅샷을 따로 두려고 파일명을 열어 둔다 (?snap&file=snapshot-combat.json)
