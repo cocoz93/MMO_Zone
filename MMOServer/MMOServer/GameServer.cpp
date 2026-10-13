@@ -1012,7 +1012,8 @@ void CGameServer::PackCooldownsAndBuffs(const CPlayer* player, DBSaveJob& job) c
 // 칸이 마지막 저장 때 사본(_dbSaved)과 다른가 — 틱 값끼리 견준다.
 //   묶은 바이트(실제 시각)로 견주지 않는 까닭 — 같은 칸이어도 저장할 때마다 환산값이 흔들린다(명목 40ms × 남은 틱 vs 실제로 흐른 시간).
 //   실측 틱이 명목보다 조금 길면 60초 사이 끝 시각이 1초 넘게 밀려, 쿨타임이 남은 사람은 매 주기 헛저장된다.
-//   끝난 칸은 틱 값이 안 바뀌어 저장을 부르지 않는다 — DB 에 지난 항목이 남아도 들어올 때 버려진다(RestoreCooldownsAndBuffs).
+//   끝난 쿨타임 칸은 틱 값이 안 바뀌어 저장을 부르지 않는다(버프 칸은 만료 때 CBuffSystem::Tick 이 비워 한 번 실린다)
+//   — DB 에 지난 항목이 남아도 들어올 때 버려진다(RestoreCooldownsAndBuffs).
 bool CGameServer::CooldownsAndBuffsChanged(const CPlayer* player)
 {
 #if USE_SKILL
