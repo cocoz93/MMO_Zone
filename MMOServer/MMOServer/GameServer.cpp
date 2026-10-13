@@ -2846,6 +2846,13 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
             // 늘고 가득 찬 마력도 본인에게만(RecalcStats 가 레벨업 때 채운다)
             SendActorMp(killer);
 #endif
+
+#if USE_DB_WORKER
+            // 레벨업은 바로 저장한다 — 주기(60초) 전에 서버가 죽어도 오른 레벨이 되돌아가지 않게.
+            //   한 행 통째(자리·맵·레벨·경험치·체력·마력)라 그 순간 값이 전부 남는다.
+            if (_dbWorker)
+                EnqueuePlayerSave(killer);
+#endif
         }
     }
 #endif

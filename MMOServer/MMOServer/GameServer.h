@@ -342,7 +342,7 @@ private:
     bool ShouldSave(const CPlayer* player) const;        // 저장 대상 판정(MOVING||dirty||레벨·경험치·체력·마력이 _dbSaved 와 다름) — 주기 저장
     DBSaveJob MakeSaveJob(const CPlayer* player) const;  // 위치·레벨·경험치·체력·마력 스냅샷 생성 (단건·배치 공용)
     static void MarkSaveQueued(CPlayer* player, const DBSaveJob& job);   // 큐에 들어간 잡 기록 — dirty clear + _dbSaved 갱신 (세 저장 길 공통)
-    void EnqueuePlayerSave(CPlayer* player);   // 단건: 스냅샷 enqueue + dirty clear (로그아웃)
+    void EnqueuePlayerSave(CPlayer* player);   // 단건: 스냅샷 enqueue + dirty clear (나갈 때·레벨업)
     void TickPeriodicSave();                   // 주기: 저장 대상 배치를 1회 핸드오프
     void SaveAllPlayers();                     // 종료: 전원 최종 저장(안전망, dirty 무관)
 
