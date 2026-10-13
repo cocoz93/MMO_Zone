@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS characters (
     exp        BIGINT      NOT NULL DEFAULT 0,
     hp         INT         NOT NULL DEFAULT -1,
     mp         INT         NOT NULL DEFAULT -1,
+    skill_cooldowns VARBINARY(255) NOT NULL DEFAULT '',
+    buffs           VARBINARY(255) NOT NULL DEFAULT '',
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
                            ON UPDATE CURRENT_TIMESTAMP(3)
 ) ENGINE=InnoDB;
@@ -36,13 +38,22 @@ CREATE TABLE IF NOT EXISTS characters (
 --        (outside the town -> town start area, full HP), so nobody logs in dead.
 --   Saved with position/level/exp (every 60 s if changed, on logout, on shutdown),
 --   not on every hit - losing up to one period of HP on a crash is acceptable.
+-- skill_cooldowns / buffs = packed bytes, one format per column (CooldownBuffBlob.h,
+--   version byte first). A character owns several of each, but they are short-lived and
+--   always read and written whole with the row, never searched -> one column each, not a table.
+--   Empty = nothing running. Times inside are UTC milliseconds, so they keep running while
+--   the player is offline. A bad or unknown value is dropped on enter (that cooldown or buff
+--   just ends) - it never blocks the login.
+--   Saved with the rest of the row (every 60 s if changed, on logout, on shutdown, on level-up).
 
 -- ==========================================================================
 -- Upgrades for a database created before the column existed.
 --   MySQL 8.0 has no "ADD COLUMN IF NOT EXISTS", so each block checks
 --   information_schema first. Re-running the whole file is safe.
 --   level/exp are one value per character -> extra columns, not a new table.
---   (A new table is only for "one character owns many rows", e.g. inventory.)
+--   (A new table is only for "one character owns many rows", e.g. inventory.
+--    Exception: short-lived state always read and written whole -> packed bytes in one
+--    column, e.g. skill_cooldowns/buffs above.)
 -- ==========================================================================
 SET @add_level := (SELECT IF(COUNT(*) = 0,
     'ALTER TABLE characters ADD COLUMN level INT NOT NULL DEFAULT 1 AFTER map_id',
@@ -72,6 +83,21 @@ SET @add_mp := (SELECT IF(COUNT(*) = 0,
     FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = 'gamedb' AND TABLE_NAME = 'characters' AND COLUMN_NAME = 'mp');
 PREPARE s FROM @add_mp; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- skill_cooldowns/buffs default '' (= nothing running) - existing rows start with no cooldown.
+SET @add_skill_cooldowns := (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE characters ADD COLUMN skill_cooldowns VARBINARY(255) NOT NULL DEFAULT '''' AFTER mp',
+    'DO 0')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = 'gamedb' AND TABLE_NAME = 'characters' AND COLUMN_NAME = 'skill_cooldowns');
+PREPARE s FROM @add_skill_cooldowns; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @add_buffs := (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE characters ADD COLUMN buffs VARBINARY(255) NOT NULL DEFAULT '''' AFTER skill_cooldowns',
+    'DO 0')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = 'gamedb' AND TABLE_NAME = 'characters' AND COLUMN_NAME = 'buffs');
+PREPARE s FROM @add_buffs; EXECUTE s; DEALLOCATE PREPARE s;
 
 -- ==========================================================================
 -- Inventory (USE_INVENTORY) - one row per bag slot.
