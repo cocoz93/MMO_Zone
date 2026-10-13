@@ -1051,7 +1051,8 @@ void CGameServer::RecordSavedCooldownsAndBuffs(CPlayer* player)
 // 입장 — 불러온 묶음을 풀어 칸을 채운다(SpawnPlayer, 스탯 세우기 「앞」 — 버프 배수가 한 번의 RecalcStats 에 들어가게).
 //   검사 셋: 형식(버전·길이 — CooldownBuffBlob) · 내용(표에 있는 스킬인가 · 버프 종류·값) · 시각(이미 지났나 · 상한).
 //   어느 검사에 걸려도 입장은 막지 않는다 — 그 칸이 풀릴 뿐이다. 세는 곳은 여기 한 곳(GameMonitor.h EnterCounters).
-//   불량·건너뜀이 있었으면 다음 주기에 한 번 다시 써 행을 정리한다(_dbDirty) — 안 쓰면 칸이 바뀌기 전까지 입장마다 같은 경고가 찍힌다.
+//   불량·건너뜀이 있었으면 다음 주기에 한 번 다시 써 행을 정리한다(_dbDirty) — 안 쓰면 칸이 바뀌기 전까지 입장마다 같은 불량을 다시 만난다
+//   (형식 불량은 경고 로그 · 건너뜀은 지표만).
 void CGameServer::RestoreCooldownsAndBuffs(CPlayer* player, const EnterPlacement& place)
 {
 #if USE_SKILL || USE_COMBAT
