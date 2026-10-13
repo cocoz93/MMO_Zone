@@ -266,6 +266,8 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     case MsgType::S2C_ACTOR_MP:           return sizeof(MSG_S2C_ACTOR_MP);
     // USE_COMBAT: 지속 효과 — 본인에게만 가고 더미는 스킬을 안 써서 올 일이 없지만, 전례대로 크기만 등록한다.
     case MsgType::S2C_ACTOR_BUFF:         return sizeof(MSG_S2C_ACTOR_BUFF);
+    // USE_SKILL: 남은 쿨타임 — 본인에게만, 쿨타임이 남은 채 들어오거나 존을 넘을 때만 온다. 더미는 스킬을 안 써서 올 일이 없지만 위와 같은 전례대로 크기만 등록한다.
+    case MsgType::S2C_SKILL_COOLDOWN_REMAIN: return sizeof(MSG_S2C_SKILL_COOLDOWN_REMAIN);
     default: return 0;
     }
 }

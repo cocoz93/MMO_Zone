@@ -406,10 +406,12 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
     //   옆에서 사람이 시전할 때마다 SKILL_CAST 가 오므로, 빠뜨리면 모르는 타입 로그가 찍힌다.
     //   내 마력(ACTOR_MP)은 입장·존 이동 때 반드시 한 장 오므로, 빠뜨리면 그때마다 모르는 타입 로그가 찍힌다.
     //   지속 효과(ACTOR_BUFF, 서버 USE_COMBAT)는 본인에게만 오고 콘솔 클라는 스킬을 안 써서 올 일이 없지만, 전례대로 알고 넘긴다.
+    //   남은 쿨타임(SKILL_COOLDOWN_REMAIN)도 본인에게만, 쿨타임이 남은 채 들어오거나 존을 넘을 때만 와서 올 일이 없다 — 같은 까닭으로 알고 넘긴다.
     case MsgType::S2C_SKILL_CAST:
     case MsgType::S2C_SKILL_FAIL:
     case MsgType::S2C_ACTOR_MP:
     case MsgType::S2C_ACTOR_BUFF:
+    case MsgType::S2C_SKILL_COOLDOWN_REMAIN:
         break;
 
     default:

@@ -36,7 +36,9 @@
     // 지속 효과 (USE_COMBAT) — 본인에게만 온다. 걸림·되감김·만료·죽음·존 이동, remainMs 0 = 풀림. 공격력 숫자는 MY_STATS 가 뒤따른다
     S2C_ACTOR_BUFF:1046,
     // 포털 (토글 없음) — 포털 위에서 상호작용 키. 성공은 존 이동과 같은 와이어(ZONE_INFO → ZONE_CHANGE_OK), 실패는 ZONE_CHANGE_FAIL 사유 4·5
-    C2S_PORTAL_USE:1047
+    C2S_PORTAL_USE:1047,
+    // 스킬 쿨타임 상태 (USE_SKILL) — 본인에게만 온다. 입장·존 이동 때 아직 돌고 있는 칸마다 한 장(남은 ms). 시전 순간의 쿨타임은 지금처럼 SKILL_CAST 로 센다
+    S2C_SKILL_COOLDOWN_REMAIN:1048
   };
   // 아이템 쓰기 거절 사유 — Protocol.h UseItemFail 순서 그대로(값이 와이어에 실린다). 서버가 이 순서로 보고 먼저 걸린 하나를 보낸다
   const USE_FAIL = ['BAD_SLOT','EMPTY','NOT_USABLE','DEAD','COOLDOWN','FULL_HP','FULL_MP'];
@@ -225,6 +227,9 @@
       case MSG.S2C_ACTOR_BUFF:
         p.actorId=dv.getInt32(o,true); p.kind=dv.getUint8(o+4); p.kindName=BUFF_KIND[p.kind] || ('?'+p.kind);
         p.value=dv.getInt32(o+5,true); p.remainMs=dv.getUint32(o+9,true); break;
+      //   SKILL_COOLDOWN_REMAIN 13B = actorId i32 · skillId u8 · remainMs u32 — 본인에게만(입장·존 이동). remainMs 는 늘 1 이상
+      case MSG.S2C_SKILL_COOLDOWN_REMAIN:
+        p.actorId=dv.getInt32(o,true); p.skillId=dv.getUint8(o+4); p.remainMs=dv.getUint32(o+5,true); break;
       default: break; // ADMIN_* etc. — not needed for the view
     }
     return p;

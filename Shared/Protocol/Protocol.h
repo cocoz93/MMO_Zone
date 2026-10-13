@@ -142,7 +142,12 @@ enum class MsgType : uint16_t
     //--------------------------------------------------
     // 포털 (토글 없음 — 맵 표처럼 세계 데이터다. 성공은 존 이동과 같은 와이어, 실패는 S2C_ZONE_CHANGE_FAIL 사유 4·5)
     //--------------------------------------------------
-    C2S_PORTAL_USE          // 클라이언트 → 서버: 이 포털로 들어간다 (포털 위에서 상호작용 키 — 같은 맵·반경 안인지는 서버가 본다)
+    C2S_PORTAL_USE,         // 클라이언트 → 서버: 이 포털로 들어간다 (포털 위에서 상호작용 키 — 같은 맵·반경 안인지는 서버가 본다)
+
+    //--------------------------------------------------
+    // 스킬 쿨타임 상태 (USE_SKILL — 쿨타임 칸은 스킬 토글 소유. 저장값을 되살린 입장·존 이동 때)
+    //--------------------------------------------------
+    S2C_SKILL_COOLDOWN_REMAIN   // 서버 → 클라이언트: 아직 돌고 있는 쿨타임의 남은 시간 (본인에게만 — 칸마다 한 장, 없으면 0장)
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -1094,5 +1099,26 @@ struct MSG_C2S_PORTAL_USE
 
 static_assert(sizeof(MSG_C2S_PORTAL_USE) == 8, "PORTAL_USE 는 8B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::C2S_PORTAL_USE) == 1047, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+
+// S2C: 남은 스킬 쿨타임 — 접속·존 이동 때, 아직 돌고 있는 쿨타임 칸마다 한 장(없으면 0장).
+//   쿨타임이 「시작됐다」는 사건이 아니라 「이만큼 남았다」는 상태다. 시전 순간의 쿨타임은 지금처럼 클라가
+//   S2C_SKILL_CAST 를 받은 순간부터 표의 cooldownMs 로 센다 — 이 장은 그 셈을 이어받을 수 없을 때
+//   (다시 접속해 서버가 저장값으로 되살렸을 때 · 존을 넘을 때) 클라의 셈을 서버 값으로 맞춘다.
+//   ★ 받는 사람 = 본인만 — 방송 함수로 보내지 말 것(S2C_ACTOR_MP 와 같은 함정).
+//   ★ CCharacter 에 있는 값은 대상 번호를 싣는다(S2C_ACTOR_MP 주석의 원칙).
+//   부하 더미에겐 올 일이 없다(본인만, 더미는 스킬을 안 쓴다) — 크기 등록은 전례대로 해 둔다.
+struct MSG_S2C_SKILL_COOLDOWN_REMAIN
+{
+    static constexpr MsgType TYPE = MsgType::S2C_SKILL_COOLDOWN_REMAIN;
+    MsgHeader header;
+    int32_t  actorId;
+    uint8_t  skillId;    // 스킬 표 번호(1~)
+    uint32_t remainMs;   // 남은 시간(ms) — 늘 1 이상(끝난 쿨타임은 안 보낸다)
+
+    MSG_S2C_SKILL_COOLDOWN_REMAIN() : header{ sizeof(*this), TYPE }, actorId(0), skillId(0), remainMs(0) {}
+};
+
+static_assert(sizeof(MSG_S2C_SKILL_COOLDOWN_REMAIN) == 13, "SKILL_COOLDOWN_REMAIN 은 13B (proto.js 와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::S2C_SKILL_COOLDOWN_REMAIN) == 1048, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 #pragma pack(pop)
