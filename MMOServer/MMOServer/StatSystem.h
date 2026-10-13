@@ -3,9 +3,10 @@
 //
 // [책임]
 //  - 최대 체력·공격력·방어력·최대 마력 세우기 — 바탕(플레이어 = 레벨 표 + 착용 장비 · 몬스터 = 몬스터 표) 뒤에 지속 효과 배수(CCharacter::_buffs)
+//  - 입장 때 저장된 체력·마력 넣기 — 세운 최대치로 깎는다(RestoreHpMp)
 //  - 경험치 더하기와 레벨 올리기 · 표 밖 레벨 보정(플레이어만 — 레벨은 사람만 쌓는다)
 //  - 그 과정에서 정한 것(레벨업·보정)을 지표(CGameMonitor)로 센다 — 무엇을 정했는지는 여기서만 안다(CCombatSystem 과 같은 꼴)
-//  - 보내기·저장 표시·보상은 하지 않는다 — 부르는 쪽(CGameServer)이 SendExp·SendMyStats·SendActorMp(마력 — USE_SKILL)·_dbDirty 로 한다
+//  - 보내기·저장·보상은 하지 않는다 — 부르는 쪽(CGameServer)이 SendExp·SendMyStats·SendActorMp(마력 — USE_SKILL)로 보내고, 저장은 마지막 저장값과 견주어 정한다(ShouldSave)
 //
 // [왜 떼어냈나]
 //  규칙의 입력이 CPlayer 필드와 기획 표뿐인데 CGameServer 멤버였다. 그러면 게임 서버가 부르는 쪽(존·몬스터 관리자)은
@@ -41,8 +42,14 @@ public:
     //   그 뒤 공통으로 지속 효과 배수(CCharacter::_buffs)를 곱한다 — 바탕 + 장비 "뒤"라서 장비를 바꿔도 효과가 안 날아간다.
     //   ★ USE_EXP 밖에 두는 이유 — 장착(USE_EQUIP)은 경험치를 꺼도 돌고, 그때도 공격력은 여기서 세워야 한다.
     //     USE_COMBAT 안인 이유 — 스탯을 읽는 곳이 전투뿐이고, 경험치·가방·장착이 전부 USE_COMBAT 을 요구한다.
-    //   refill = 체력·마력을 가득 채우나(레벨업·스폰). false 면 둘 다 최대치를 넘은 몫만 깎는다. 몬스터는 false 로만 부른다.
+    //   refill = 체력·마력을 가득 채우나(레벨업). false 면 둘 다 최대치를 넘은 몫만 깎는다. 몬스터는 false 로만 부른다.
+    //     입장도 false 다 — 최대치만 세우고 저장된 체력·마력은 RestoreHpMp 가 넣는다.
     void RecalcStats(CCharacter* character, bool refill);
+
+    // 입장 — DB 에서 불러온 체력·마력을 넣는다. ★ RecalcStats 뒤에 부를 것 — 최대치(레벨 표·장비)가 서 있어야 넘은 몫을 깎는다.
+    //   체력 0 이하·마력 음수 = 가득. 음수는 「저장된 적 없음」(DB_HP_MP_UNSAVED)이고, 죽은 채 저장된 체력 0 은
+    //   부르는 쪽(CGameServer::OnCharacterLoaded)이 부활 규칙대로 이미 바꿔 넘긴다. 마력 0 은 그대로다(다 쓰고 나간 값).
+    void RestoreHpMp(CCharacter* character, int32_t hp, int32_t mp);
 
 #if USE_EXP
     // 경험치를 더하고, 올라갈 만큼 올린다. 레벨이 올랐으면 true(스탯도 다시 세우고 레벨업 수를 센다).

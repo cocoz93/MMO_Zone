@@ -852,10 +852,17 @@ bool CGameServer::InitDB(const DBConfig& dbConfig, int savePeriodSec, int worker
 
 bool CGameServer::ShouldSave(const CPlayer* player) const
 {
-    // 저장 대상 판정(주기·종료 공통):
+    // 저장 대상 판정(주기 저장만 — 나갈 때·종료는 이 판정 없이 쓴다):
     //   MOVING   = 위치가 계속 변하는 중 → 저장 후 dirty가 리셋돼도 매 주기 재저장 필요
     //   _dbDirty = 정지/접속/존변경/클램프로 생긴 미저장 변경(일회성, 저장 후 리셋)
-    return player->_moveState == MoveState::MOVING || player->_dbDirty;
+    //   값 비교  = 레벨·경험치·체력·마력이 마지막으로 실은 값(_dbSaved)과 다름 — 바뀌는 자리마다 켜지 않고 여기서 본다(Player.h)
+    if (player->_moveState == MoveState::MOVING || player->_dbDirty)
+        return true;
+
+    // 저장할 값과 같은 식으로 견준다(MakeSaveJob) — 토글을 끈 빌드의 「모름(-1)」도 똑같이 나와 헛저장이 없다.
+    const DBSaveJob now = MakeSaveJob(player);
+    const CPlayer::DbSavedValues& saved = player->_dbSaved;
+    return now.level != saved.level || now.exp != saved.exp || now.hp != saved.hp || now.mp != saved.mp;
 }
 
 DBSaveJob CGameServer::MakeSaveJob(const CPlayer* player) const
@@ -867,14 +874,37 @@ DBSaveJob CGameServer::MakeSaveJob(const CPlayer* player) const
     job.mapId     = CMapManager::GetMapIdFromZoneId(player->_zoneId);
     job.level     = player->_level;
     job.exp       = player->_exp;
+    // 체력·마력 — 값을 세우는 코드가 없는 빌드에선 「모름」을 싣는다. 0 을 실으면 다음 입장이 죽은 채 저장된 행으로 읽는다.
+#if USE_COMBAT
+    job.hp        = player->_hp;
+#else
+    job.hp        = DB_HP_MP_UNSAVED;
+#endif
+#if USE_SKILL
+    job.mp        = player->_mp;
+#else
+    job.mp        = DB_HP_MP_UNSAVED;
+#endif
     return job;
+}
+
+void CGameServer::MarkSaveQueued(CPlayer* player, const DBSaveJob& job)
+{
+    // 큐에 들어간 잡을 기록한다 — 다음 주기 판정(ShouldSave)이 이 값과 견준다.
+    //   백프레셔로 버려지면 부르는 쪽이 _dbDirty 를 되살린다(TickPeriodicSave) — dirty 가 서 있으면 값 비교와 무관하게 다시 실린다.
+    player->_dbDirty         = false;
+    player->_dbSaved.level   = job.level;
+    player->_dbSaved.exp     = job.exp;
+    player->_dbSaved.hp      = job.hp;
+    player->_dbSaved.mp      = job.mp;
 }
 
 void CGameServer::EnqueuePlayerSave(CPlayer* player)
 {
     // 수용된 경우에만 dirty 해제 — 백프레셔로 드롭됐는데 지워버리면 그 변경은 복원 통로가 없다.
-    if (_dbWorker->Enqueue(MakeSaveJob(player)))
-        player->_dbDirty = false;
+    const DBSaveJob job = MakeSaveJob(player);
+    if (_dbWorker->Enqueue(job))
+        MarkSaveQueued(player, job);
 }
 
 void CGameServer::TickPeriodicSave()
@@ -899,7 +929,7 @@ void CGameServer::TickPeriodicSave()
         {
             batch.push_back(MakeSaveJob(player));
             owners.push_back(player);
-            player->_dbDirty = false;   // 저장 요청 후 리셋 (드롭되면 아래에서 되돌림)
+            MarkSaveQueued(player, batch.back());   // 저장 요청 후 리셋 (드롭되면 아래에서 되돌림)
         }
     }
     _dbWorker->EnqueueBatch(batch, &dropped);   // lock 1회 + notify 1회
@@ -923,7 +953,7 @@ void CGameServer::SaveAllPlayers()
         if (player == nullptr)
             continue;
         batch.push_back(MakeSaveJob(player));
-        player->_dbDirty = false;
+        MarkSaveQueued(player, batch.back());
     }
     _dbWorker->EnqueueBatch(batch);   // 배치 1회 핸드오프
 }
@@ -1089,6 +1119,7 @@ void CGameServer::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
     //   들여보내지 않을 갈래(주인 없음·실패)에서는 부르면 안 된다.
     CZone* zone = nullptr;
     EnterPlacement place;   // 기본값 = 그 맵의 들어오는 자리(시작 구역 · 없으면 무작위) · 다음 주기에 저장
+    bool toTown = false;    // 찾음 갈래 — 마을 밖에서 죽은 채 저장된 행이라 저장된 맵·자리를 버린다(부활 규칙, 아래 USE_COMBAT)
 
     static_assert(static_cast<int>(DBResultCode::COUNT) == 3, "DBResultCode 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
     switch (result.code)
@@ -1101,13 +1132,38 @@ void CGameServer::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
         //   ★ 표 범위 검사와 레벨 정산은 여기가 아니라 SpawnPlayer 가 한다 — 새 캐릭터·못 읽음 갈래도 거기를 지난다.
         place.level = result.level;
         place.exp   = result.exp;
+        place.hp    = result.hp;   // 최대치로 깎기는 SpawnPlayer 가 한다(최대치가 장비·레벨 정산 뒤에 선다)
+        place.mp    = result.mp;
 #if USE_INVENTORY
         place.loaded = &result;   // 가방 줄 — 검사와 적재는 SpawnPlayer 가 한다(이 함수 안에서 동기로 불리므로 가리켜도 안전)
 #endif
 
+#if USE_COMBAT
+        // 죽은 채 저장된 행(체력 0) — 죽은 상태로 들여보내지 않고 부활 규칙(RespawnsToTown)을 여기서 적용한다.
+        //   이 행이 생기는 길 셋 — 부활 전(3초)에 나가기 · 그 사이 주기 저장 뒤 서버 다운 · 죽은 채 정상 종료.
+        //   나가는 쪽에서 막으면 둘째 길(주기 저장)이 남는다 — 그래서 들어오는 쪽 한 곳에서 본다.
+        //   마력은 그대로 둔다(부활해도 그대로다 — Combat::Respawn 은 체력만 채운다).
+        //   0 이하로 보지 않는 이유 — 음수(DB_HP_MP_UNSAVED)는 「저장된 적 없음」이다. 피해는 0 아래로 안 내려간다(Combat::ApplyDamage).
+        if (result.hp == 0)
+        {
+            enter._deadRespawn.Inc();
+            place.hp = DB_HP_MP_UNSAVED;   // 가득 — 마을이면 제자리(아래 저장된 자리 갈래)에서
+            toTown   = RespawnsToTown(result.mapId);
+        }
+#endif
+
         // 존 먼저, 좌표는 그 존의 크기로 본다. 저장된 맵이 없으면 zone 이 nullptr 로 남아 아래에서 기본 맵을 구한다.
-        zone = _mapManager.FindOrCreateChannel(result.mapId);
-        if (zone != nullptr && zone->IsInsideMap(result.x, result.y))
+        if (!toTown)
+            zone = _mapManager.FindOrCreateChannel(result.mapId);
+
+        if (toTown)
+        {
+            // 마을 밖에서 죽은 채 저장됨 → 저장된 맵·자리를 버린다. zone 이 nullptr 로 남아 아래에서 기본 맵(마을)의
+            //   들어오는 자리(시작 구역)로 간다 — 접속 중에 죽어 3초 뒤 부활로 옮겨지는 자리와 같다. 자리가 DB 와 다르므로 dbDirty 는 기본값(true) 그대로.
+            SLOG_INFO("[DB] saved dead -> town start area (account={}, map={}, x={}, y={})",
+                      result.accountId, result.mapId, result.x, result.y);
+        }
+        else if (zone != nullptr && zone->IsInsideMap(result.x, result.y))
         {
             place.hasPos  = true;
             place.x       = result.x;
@@ -1448,6 +1504,11 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
     player->_accountId = accountId;
     // 새 캐릭터·들어오는 자리면 true(첫 주기에 저장 → 신규 행 INSERT 유도), DB 에서 불러온 자리 그대로면 false
     player->_dbDirty   = place.dbDirty;
+    // DB 가 들고 있는 값 — 아래 레벨 정산·체력 깎기가 바꾼 몫은 다음 주기 판정(ShouldSave)이 이 값과 견주어 싣는다.
+    player->_dbSaved.level = place.level;
+    player->_dbSaved.exp   = place.exp;
+    player->_dbSaved.hp    = place.hp;
+    player->_dbSaved.mp    = place.mp;
 #else
     (void)accountId;
 #endif
@@ -1469,26 +1530,24 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
     //   갈래 둘 — ⑴ 레벨이 표 밖(표를 줄인 패치) ⑵ 경험치가 이미 다음 레벨 몫을 넘음
     //     (표의 필요치를 낮춘 패치, 또는 만렙 상한에 걸려 안 오른 채 저장된 행).
     //     둘 다 "행은 멀쩡한데 표가 바뀐" 경우라 평소엔 한 번도 안 도는 갈래다.
-    //   규칙과 보정·레벨업 지표는 CStatSystem — 여기는 결과로 저장 표시만 켠다.
-    const bool clamped = _statSystem.ClampLevelToTable(player);
+    //   규칙과 보정·레벨업 지표는 CStatSystem. 바로잡은 값은 DB 와 다르다 — 다음 주기 판정(ShouldSave)이
+    //     위 _dbSaved 와 견주어 싣는다(예전엔 여기서 _dbDirty 를 켰다 — 안 켜면 영영 틀린 채로 남았다).
+    _statSystem.ClampLevelToTable(player);
 
     // 0 을 줘서 레벨만 정산한다 — 경험치는 한 톨도 안 늘고, 올릴 수 있으면 올린다.
-    const bool settled = _statSystem.GainExp(player, 0);
-
-#if USE_DB_WORKER
-    // 바로잡은 값은 DB 와 다르다 — 안 켜면 다음 주기 저장이 건너뛰어 영영 틀린 채로 남는다.
-    if (clamped || settled)
-        player->_dbDirty = true;
-#endif
+    _statSystem.GainExp(player, 0);
 #endif
 
 #if USE_COMBAT
     // ── 스탯 세우기 — 레벨 정산 뒤 ──
     //   GainExp 는 레벨이 올랐을 때만 스탯을 세운다. 안 올랐으면 생성자 기본값 그대로라 여기서 세운다.
-    //   지금은 스폰이 늘 만피라 refill=true — 죽은 채로 들어오는 경로가 생기면 그때 가른다. 마력도 가득(저장하지 않는다).
+    //   refill=false — 최대치만 세우고, 체력·마력은 다음 줄이 저장값으로 넣는다(최대를 넘으면 깎고, 모름(-1)이면 가득).
+    //     레벨 정산이 올렸어도(표를 낮춘 패치) 저장값을 넣는다 — 사냥으로 번 레벨업이 아니라 표 보정이다.
+    //     죽은 채 저장된 행은 판정하는 쪽(OnCharacterLoaded)이 부활 규칙대로 「가득」으로 바꿔 넘겼다 — 죽은 채 들어오는 길은 없다.
     //   ★ NotifyArrival 보다 앞이다(위 레벨 정산 주석과 같은 이유 — CREATE 가 최대 체력을, ACTOR_MP 가 마력을 싣는다).
     //   USE_EXP 밖인 이유는 RecalcStats 선언 주석(StatSystem.h).
-    _statSystem.RecalcStats(player, true);
+    _statSystem.RecalcStats(player, false);
+    _statSystem.RestoreHpMp(player, place.hp, place.mp);
 #endif
 
     // 본인에게 존·내 캐릭터·숫자·가방·스탯 → 주변과 서로 생성 (순서와 「접속만 보내는 것」은 NotifyArrival 한 곳)
@@ -2770,11 +2829,7 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
 
             SendExp(killer);
 
-            // ★ 경험치가 늘었으면 저장 대상이다 — 안 켜면 레벨업이 주기 저장에 안 실린다.
-            //   불러온 캐릭터는 dirty 가 아닌 채로 들어오므로(값이 DB 와 같다) 여기서 안 켜면 영영 안 써진다.
-#if USE_DB_WORKER
-            killer->_dbDirty = true;
-#endif
+            // 저장 표시는 켜지 않는다 — 늘어난 경험치·레벨은 다음 주기 판정(ShouldSave)이 마지막 저장값(_dbSaved)과 견주어 싣는다.
         }
 
         if (leveled)
@@ -2968,7 +3023,7 @@ void CGameServer::TickRespawn()
         CZone* zone = _mapManager.GetZone(dead->_zoneId);
         CPlayer* player = As<CPlayer>(dead);
         CZone* town = nullptr;
-        if (zone != nullptr && player != nullptr && zone->GetMapId() != _defaultMapId)
+        if (zone != nullptr && player != nullptr && RespawnsToTown(zone->GetMapId()))
             town = _mapManager.FindOrCreateChannel(_defaultMapId, player->_isAdmin);
 
         if (town != nullptr)

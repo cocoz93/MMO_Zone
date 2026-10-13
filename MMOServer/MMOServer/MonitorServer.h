@@ -731,6 +731,9 @@ private:
         WriteCounter(ss, "mmo_enter_fallback_total",
                      "Found rows whose map or position was unusable - spawned at the map entry spot, start area or random (subset of found)",
                      e._fallback);
+        WriteCounter(ss, "mmo_enter_dead_respawn_total",
+                     "Found rows saved while dead (hp 0) - entered alive by the respawn rule, town start area if outside the town (subset of found)",
+                     e._deadRespawn);
         WriteCounter(ss, "mmo_enter_duplicate_total",
                      "Old sessions kicked because the same account entered again",
                      e._duplicate);

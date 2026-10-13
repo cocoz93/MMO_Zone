@@ -37,6 +37,12 @@ struct DBConfig
     int         rwTimeoutSec      = 0;   // 읽기/쓰기 소켓 타임아웃(초) — DB 무응답 시 쿼리 무한대기 방지
 };
 
+// characters 의 hp·mp 열에서 「저장된 적 없음」 — 들어올 때 가득 채운다(CStatSystem::RestoreHpMp 는 음수를 이렇게 읽는다).
+//   열을 붙이기 전 행의 기본값이고(schema.sql), 새 캐릭터·전투나 스킬을 끈 빌드도 이 값을 싣는다.
+//   0 이 아닌 이유 — 체력 0 은 「죽은 채 저장됨」이라 부활 규칙을 탄다(CGameServer::OnCharacterLoaded).
+//   (USE_DB_WORKER 밖에 두는 이유 — 입장 판정 구조체(EnterPlacement)의 기본값이라 토글을 끈 빌드도 쓴다)
+constexpr int32_t DB_HP_MP_UNSAVED = -1;
+
 #if USE_DB_WORKER
 
 #include <thread>
@@ -50,7 +56,7 @@ struct DBConfig
 class CMonitorManager;
 
 // 저장 잡 = 값 스냅샷 (포인터 없음 → 플레이어가 사라져도 안전)
-//   ※ level·exp 는 USE_EXP 로 안 가른다 — 열은 테이블에 늘 있고, 숫자 둘을 싣는 값이
+//   ※ level·exp 는 USE_EXP 로, hp·mp 는 USE_COMBAT·USE_SKILL 로 안 가른다 — 열은 테이블에 늘 있고, 숫자 넷을 싣는 값이
 //     "토글마다 문장이 갈리는" 값보다 훨씬 싸다. 토글이 가르는 것은 "값이 바뀌는 코드" 쪽이다.
 //   ※ DB 열과의 대응은 DBWorker.cpp 의 열 표(kCharColumns) 한 곳에만 있다 — 열을 늘리면
 //     여기와 DBResult 에 같은 이름의 멤버를 넣고 표에 한 줄. SQL·바인딩·복사는 표에서 나온다.
@@ -62,6 +68,8 @@ struct DBSaveJob
     int32_t mapId;
     int32_t level;
     int64_t exp;
+    int32_t hp;      // 현재 체력 — 최대치는 저장하지 않는다(들어올 때 레벨 표·장비로 다시 세운다). DB_HP_MP_UNSAVED = 모름
+    int32_t mp;      // 현재 마력 — 같은 규칙
 };
 
 // 불러오기 잡 — 계정 번호로 캐릭터 행을 읽는다. 저장과 달리 결과가 회신 큐로 돌아온다.
@@ -168,6 +176,8 @@ struct DBResult
     int32_t      mapId;
     int32_t      level;
     int64_t      exp;
+    int32_t      hp;          // DB_HP_MP_UNSAVED = 저장된 적 없음 · 0 = 죽은 채 저장됨(OnCharacterLoaded 가 부활 규칙으로 바꾼다)
+    int32_t      mp;
 #if USE_INVENTORY
     // ↓ FOUND·NOT_FOUND 둘 다 유효 — 캐릭터 행이 없어도 가방은 읽는다(가방은 바뀌자마자 쓰고 캐릭터 행은
     //   주기·로그아웃에 쓰므로, 첫 저장 전에 서버가 죽으면 가방 행만 있는 계정이 생긴다).

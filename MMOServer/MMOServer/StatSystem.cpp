@@ -81,19 +81,37 @@ void CStatSystem::RecalcStats(CCharacter* character, bool refill)
     }
 
     // ── 3) 체력·마력 맞추기 ──
-    // 레벨이 올랐을 때만 채운다. 입장 때는 DB 가 들고 있던 체력이 아직 없으므로(스탯만 맞춘다)
-    //   호출부가 정한다 — 지금은 스폰도 만피라 둘 다 true 로 들어온다. 효과 걸림·풀림은 false(최대치만 맞춘다 — 효과가 최대 체력을 안 바꿔 지금은 아무 일 없다).
+    // 레벨이 올랐을 때만 채운다. 입장은 false 로 최대치만 세우고, DB 가 들고 있던 체력·마력은 RestoreHpMp 가 넣는다.
+    //   효과 걸림·풀림도 false(최대치만 맞춘다 — 효과가 최대 체력을 안 바꿔 지금은 아무 일 없다).
     if (refill)
         character->_hp = character->_maxHp;
     else if (character->_hp > character->_maxHp)
         character->_hp = character->_maxHp;   // 표를 낮춘 패치 뒤엔 들고 있던 체력이 최대를 넘을 수 있다
 
 #if USE_SKILL
-    // 마력도 같은 줄 — 마력은 저장하지 않아 입장 때 가득이고(refill=true), 끼우기·빼기는 최대치만 맞춘다. 몬스터는 둘 다 0 이라 아무 일 없다
+    // 마력도 같은 줄 — 레벨업만 채우고, 입장·끼우기·빼기는 최대치만 맞춘다(입장 값은 RestoreHpMp). 몬스터는 둘 다 0 이라 아무 일 없다
     if (refill)
         character->_mp = character->_maxMp;
     else if (character->_mp > character->_maxMp)
         character->_mp = character->_maxMp;
+#endif
+}
+
+// ==========================================================================
+// 입장 — 저장된 체력·마력 넣기
+//   최대치는 저장하지 않는다 — 레벨 표·장비로 다시 세우는 값이라, 표를 낮춘 패치·장비 변화 뒤엔 저장값이 최대를 넘을 수 있다.
+//   그래서 RecalcStats 가 최대치를 세운 "뒤"에 불러 넘은 몫을 깎는다(GameServer.cpp SpawnPlayer 의 순서).
+// ==========================================================================
+void CStatSystem::RestoreHpMp(CCharacter* character, int32_t hp, int32_t mp)
+{
+    // 체력 — 0 이하는 가득. 음수는 「저장된 적 없음」, 0(죽은 채 저장)은 부르는 쪽이 부활 규칙으로 이미 바꿨다(헤더 주석).
+    character->_hp = (hp <= 0 || hp > character->_maxHp) ? character->_maxHp : hp;
+
+#if USE_SKILL
+    // 마력 — 음수만 가득. 0 은 다 쓰고 나간 값이라 그대로 둔다(체력과 다르다 — 마력 0 은 살아 있다).
+    character->_mp = (mp < 0 || mp > character->_maxMp) ? character->_maxMp : mp;
+#else
+    (void)mp;
 #endif
 }
 

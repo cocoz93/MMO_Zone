@@ -395,6 +395,8 @@ static constexpr DbColumn kCharColumns[] = {
     DB_COL(DBSaveJob, DBResult, map_id, mapId, false),
     DB_COL(DBSaveJob, DBResult, level,  level, false),
     DB_COL(DBSaveJob, DBResult, exp,    exp,   false),
+    DB_COL(DBSaveJob, DBResult, hp,     hp,    false),
+    DB_COL(DBSaveJob, DBResult, mp,     mp,    false),
 };
 static constexpr int kCharColCount = static_cast<int>(sizeof(kCharColumns) / sizeof(kCharColumns[0]));
 
@@ -887,6 +889,8 @@ void CDBWorker::ExecLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out
     out.mapId     = 0;
     out.level     = 1;   // 못 읽었을 때의 값 — 새 캐릭터와 같다. FOUND 일 때만 행의 값으로 덮인다
     out.exp       = 0;
+    out.hp        = DB_HP_MP_UNSAVED;   // 새 캐릭터 = 가득(0 이면 죽은 채로 읽힌다)
+    out.mp        = DB_HP_MP_UNSAVED;
 #if USE_INVENTORY
     out.invCount    = 0;   // 가방 줄 — RunInventoryLoad 가 채운다(실패면 code 가 FAILED 라 안 쓰인다)
     out.invOverflow = 0;
