@@ -24,9 +24,18 @@ CREATE TABLE IF NOT EXISTS characters (
     map_id     INT         NOT NULL DEFAULT 0,
     level      INT         NOT NULL DEFAULT 1,
     exp        BIGINT      NOT NULL DEFAULT 0,
+    hp         INT         NOT NULL DEFAULT -1,
+    mp         INT         NOT NULL DEFAULT -1,
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
                            ON UPDATE CURRENT_TIMESTAMP(3)
 ) ENGINE=InnoDB;
+-- hp/mp = current HP/MP. Max HP/MP are not stored - the server rebuilds them from the
+--   level table and equipment on enter, then cuts the saved value down to the max.
+--   -1 = never saved (rows from before these columns) -> full on enter.
+--    0 = saved while dead (hp only) -> the server applies its respawn rule on enter
+--        (outside the town -> town start area, full HP), so nobody logs in dead.
+--   Saved with position/level/exp (every 60 s if changed, on logout, on shutdown),
+--   not on every hit - losing up to one period of HP on a crash is acceptable.
 
 -- ==========================================================================
 -- Upgrades for a database created before the column existed.
@@ -48,6 +57,21 @@ SET @add_exp := (SELECT IF(COUNT(*) = 0,
     FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = 'gamedb' AND TABLE_NAME = 'characters' AND COLUMN_NAME = 'exp');
 PREPARE s FROM @add_exp; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- hp/mp default -1 (= never saved -> full), NOT 0: existing rows would read as "died".
+SET @add_hp := (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE characters ADD COLUMN hp INT NOT NULL DEFAULT -1 AFTER exp',
+    'DO 0')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = 'gamedb' AND TABLE_NAME = 'characters' AND COLUMN_NAME = 'hp');
+PREPARE s FROM @add_hp; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @add_mp := (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE characters ADD COLUMN mp INT NOT NULL DEFAULT -1 AFTER hp',
+    'DO 0')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = 'gamedb' AND TABLE_NAME = 'characters' AND COLUMN_NAME = 'mp');
+PREPARE s FROM @add_mp; EXECUTE s; DEALLOCATE PREPARE s;
 
 -- ==========================================================================
 -- Inventory (USE_INVENTORY) - one row per bag slot.
