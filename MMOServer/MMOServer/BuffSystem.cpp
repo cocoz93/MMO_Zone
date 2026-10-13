@@ -138,6 +138,23 @@ void CBuffSystem::ClearAll(CCharacter* target)
     }
 }
 
+bool CBuffSystem::Restore(CCharacter* target, BuffKind kind, int32_t value, uint64_t remainFrames, uint64_t frame)
+{
+    assert(remainFrames > 0 && "남은 틱 0 은 비어 있는 칸과 구별이 안 된다 — 호출부가 지난 항목을 거른다");
+    BuffSlot& slot = target->_buffs[static_cast<int>(kind)];
+    if (slot.IsActive())
+        return false;
+
+    if (!HasAnyActive(target))   // 첫 칸이 켜진다 — 목록에 들어온다(칸을 채우기 전에 봐야 한다 — Apply 와 같은 순서)
+        _buffed.push_back(target);
+    _gameMonitor._buff._restored[static_cast<int>(kind)].Inc();
+    _gameMonitor._buff._active.Inc();
+
+    slot.value       = value;
+    slot.expireFrame = frame + remainFrames;
+    return true;   // 스탯·알림은 호출부 몫(헤더 주석 ⑴)
+}
+
 void CBuffSystem::Forget(CCharacter* target)
 {
     for (int k = 0; k < BUFF_KIND_COUNT; ++k)

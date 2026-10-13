@@ -69,7 +69,8 @@ public:
 #if USE_COMBAT
     // 지속 효과 칸 — 종류마다 하나(Buff.h BuffSlot · 색인 = BuffKind). 비우는 자리는 CBuffSystem(만료·죽음·퇴장)뿐 — 여기서 직접 손대지 않는다.
     //   공격력 최종값은 위 주석대로 RecalcStats 가 이 칸을 읽어 곱한다. 몬스터도 같은 칸이다(보스 버프 — 거는 AI 는 아직 없다).
-    //   전투 토글 소유다 — 거는 쪽이 스킬만이 아니라서(아이템도 걸 수 있는 틀). 저장하지 않는다.
+    //   전투 토글 소유다 — 거는 쪽이 스킬만이 아니라서(아이템도 걸 수 있는 틀).
+    //   사람 것은 DB 에 저장한다(characters.buffs — 실제 시각으로 묶어 접속하지 않은 동안에도 흐른다 · CGameServer::PackCooldownsAndBuffs).
     BuffSlot _buffs[BUFF_KIND_COUNT];
 #endif
 
@@ -79,7 +80,8 @@ public:
 
 #if USE_SKILL
     // 스킬마다 다시 쓸 수 있는 프레임 — 색인 = 스킬 번호(1~MAX_SKILL_ID, [0] 칸은 안 쓴다). 0 = 바로 쓸 수 있다.
-    //   성공했을 때만 앞으로 민다(CSkillSystem::UseSkill — 거절은 쿨타임을 안 건다). 저장하지 않는다(접속을 끊으면 풀린다).
+    //   성공했을 때만 앞으로 민다(CSkillSystem::UseSkill — 거절은 쿨타임을 안 건다).
+    //   사람 것은 DB 에 저장한다(characters.skill_cooldowns — 접속을 끊어도 실제 시각으로 계속 돈다 · CGameServer::PackCooldownsAndBuffs).
     //   일반 공격 쿨타임(_lastAttackFrame)과 따로 센다 — 스킬을 써도 일반 공격은 안 막힌다(10-10 기본값).
     //   여기 있는 까닭 — 몬스터·보스도 스킬을 쓴다(10-11). 시전자는 CCharacter 다(SkillSystem.h).
     uint64_t _skillReadyFrame[MAX_SKILL_ID + 1] = {};

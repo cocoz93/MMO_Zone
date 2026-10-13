@@ -298,8 +298,9 @@ public:
 
 #if USE_COMBAT
     // ══════════════════════════════════════════════════════════════
-    // 지속 효과 (USE_COMBAT) — 세는 곳은 CBuffSystem 안이다(걸림·되감김 = Apply, 끝남 = Tick·ClearAll·Forget).
-    //   ★ 등식(조용해진 뒤): Σ _applied = Σ _ended + _active — 끝나는 자리가 셋이라 사유마다 한 칸이다(드랍 등식과 같은 꼴).
+    // 지속 효과 (USE_COMBAT) — 세는 곳은 CBuffSystem 안이다(걸림·되감김 = Apply, 되살림 = Restore, 끝남 = Tick·ClearAll·Forget).
+    //   ★ 등식(조용해진 뒤): Σ _applied + Σ _restored = Σ _ended + _active — 끝나는 자리가 셋이라 사유마다 한 칸이다(드랍 등식과 같은 꼴).
+    //     켜지는 자리도 둘이다(스킬로 걸림 · 입장 때 DB 저장값으로 되살림) — 되살림을 안 세면 그 효과가 끝날 때 오른쪽만 늘어 등식이 깨진다.
     //     한 자리라도 안 세면 등식이 영영 안 맞는다. _refreshed 는 등식 밖이다(칸이 이미 켜져 있어 _active 가 안 변한다).
     //   토글 안에 두는 까닭 — 칸 수(BuffKind·BuffEnd)가 Buff.h 의 토글 안에 있다(스킬 계수기와 같은 꼴).
     // ══════════════════════════════════════════════════════════════
@@ -307,6 +308,7 @@ public:
     {
         Counter _applied[BUFF_KIND_COUNT];                      // 새로 걸림(빈 칸이 켜짐), 종류별
         Counter _refreshed[BUFF_KIND_COUNT];                    // 켜진 칸을 덮음(되감기 — 값·시간 다시), 종류별
+        Counter _restored[BUFF_KIND_COUNT];                     // 입장 때 DB 저장값으로 빈 칸을 채움(CBuffSystem::Restore), 종류별 — 걸림과 따로 센다
         Counter _ended[static_cast<int>(BuffEnd::COUNT)];      // 끝남, 사유별(만료·죽음·퇴장)
         Counter _active;                                        // [게이지] 지금 켜져 있는 칸 수(전원 합계) — 켤 때 +1, 끝낼 때 −1
 
@@ -432,6 +434,9 @@ public:
         // S2C_ACTOR_MP 보낸 수 — SendActorMp 한 곳에서만 센다(_combat._myStatsSent 와 같은 꼴). 입장·존 이동·레벨업·마력 소모·마력 물약마다 1.
         //   마력은 스킬 토글 소유라 여기 둔다.
         Counter _actorMpSent;
+
+        // S2C_SKILL_COOLDOWN_REMAIN 보낸 수 — SendActiveSkillCooldowns 한 곳에서만 센다. 입장·존 이동 때 돌고 있는 쿨타임 칸마다 1.
+        Counter _cooldownRemainSent;
     } _skill;
 #endif
 
@@ -475,6 +480,14 @@ public:
         Counter _inGame;         // [게이지] 지금 게임 중인 플레이어 수 (존 정원 카운터의 합, 약 0.5초마다 갱신)
                                  //   조용해지면 동접(mmo_session_count) = _inGame + _pending + _waiting 이어야 한다.
                                  //   세션은 없는데 플레이어만 남은 것(나간 세션의 결과로 스폰된 유령)은 이 등식으로만 보인다.
+
+        // [쿨타임·버프 되살리기] 칸 단위 — 위 등식과 무관하다(행 하나에 칸이 여럿). 세는 곳은 CGameServer::RestoreCooldownsAndBuffs 한 곳.
+        //   버프를 되살린 수는 여기가 아니라 _buff._restored 다 — 버프 등식(켜짐 = 끝남 + 지금)의 한 항이라 거기서 센다.
+        //   죽은 채 저장된 행의 버프는 풀지 않고 버린다 — 칸 단위로 안 세고 행 단위 _deadRespawn 이 센다.
+        Counter _cooldownRestored;   // 되살린 쿨타임 칸
+        Counter _timerExpired;       // 저장값이 이미 지나 버린 칸(쿨타임·버프) — 접속하지 않은 동안 끝났다(정상)
+        Counter _timerSkipped;       // 내용이 틀려 건너뛴 칸 — 표에 없는 스킬 번호 · 범위 밖 버프 종류·값 · 같은 칸이 둘 · 버프 남은 시간이 상한 초과
+        Counter _timerBad;           // 형식이 틀려 통째로 버린 열(쿨타임 열·버프 열 따로 1씩) — 버전 모름 · 길이 불일치 · 버퍼보다 긴 값(잘림)
 
         // 요청 → 결과 수령 지연. 평균은 튄 값을 못 보므로 구간별 개수로 담는다(비누적, 노출 때 누적 변환).
         //   개수 합 = 꺼낸 결과 전부 = found + newCharacter + failed + orphaned (등식의 둘째 대조군).

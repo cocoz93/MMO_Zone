@@ -167,6 +167,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/DropTable.cpp
     ${SRV_DIR}/SkillTable.cpp
     ${SRV_DIR}/DB/DBWorker.cpp
+    ${SRV_DIR}/CooldownBuffBlob.cpp
 )
 
 if(WIN32)

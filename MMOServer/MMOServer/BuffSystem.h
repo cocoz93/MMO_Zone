@@ -2,7 +2,7 @@
 // BuffSystem — 지속 효과(버프) 규칙 (USE_COMBAT)
 //
 // [책임]
-//  - 걸기(비어 있으면 새로, 차 있으면 값·시간 덮기 = 되감기) · 만료 틱 · 죽음(풀림) · 퇴장(목록에서만 뺌)
+//  - 걸기(비어 있으면 새로, 차 있으면 값·시간 덮기 = 되감기) · 만료 틱 · 죽음(풀림) · 퇴장(목록에서만 뺌) · 되살리기(입장 — DB 저장값)
 //  - 바뀌면 스탯을 다시 세운다(CStatSystem::RecalcStats — 바탕 + 장비 뒤에 배수) → 알림(IBuffEvents)
 //  - 그 과정에서 정한 것(걸림·되감김·끝난 사유·살아 있는 칸 수)을 지표(CGameMonitor)로 센다 — CCombatSystem 과 같은 꼴
 //  - 보내기는 하지 않는다 — 게임 서버가 알림을 받아 S2C_ACTOR_BUFF(본인)·S2C_MY_STATS 로 보낸다
@@ -61,6 +61,15 @@ public:
     // 퇴장 — 칸을 비우고 목록에서만 뺀다. 알림·재계산 없음(곧 해제된다 · 세션이 없다). 두 번 불러도 무해.
     void Forget(CCharacter* target);
 
+    // 되살리기 — 입장 때 DB 저장값으로 빈 칸을 채운다(CGameServer::RestoreCooldownsAndBuffs). 반환 false = 칸이 이미 켜져 있어 안 채움
+    //   (입장 직후라 늘 비어 있다 — 한 묶음에 같은 종류가 둘인 불량 행이면 첫 것만 쓴다).
+    //   Apply 와 다른 둘 —
+    //   ⑴ 스탯을 다시 세우지 않고 알리지도 않는다. 호출부가 곧 RecalcStats 로 배수까지 한 번에 세우고,
+    //      NotifyArrival 의 SendActiveBuffs 가 CREATE_MY_PLAYER 뒤에 보낸다(이 자리는 클라가 내 액터를 알기 전이다).
+    //   ⑵ 「걸림(_applied)」이 아니라 「되살림(_restored)」으로 센다 — 등식은 Σ applied + Σ restored = Σ ended + active.
+    //   remainFrames 는 1 이상(호출부가 지난 항목을 거른다) — 0 이면 칸이 「비어 있다」와 구별이 안 된다(Apply 와 같은 까닭).
+    bool Restore(CCharacter* target, BuffKind kind, int32_t value, uint64_t remainFrames, uint64_t frame);
+
 private:
     static bool HasAnyActive(const CCharacter* c);
     void RemoveFromList(CCharacter* c);
@@ -70,7 +79,7 @@ private:
     IBuffEvents&  _events;
 
     // 살아 있는 칸이 하나라도 있는 캐릭터 — 틱이 이것만 훑는다(전원을 매 틱 돌면 동접만큼 게임 루프에 얹힌다).
-    //   들어오는 자리 = Apply(첫 칸이 켜질 때) · 나가는 자리 = Tick(마지막 칸이 꺼질 때) · ClearAll · Forget
+    //   들어오는 자리 = Apply · Restore(첫 칸이 켜질 때) · 나가는 자리 = Tick(마지막 칸이 꺼질 때) · ClearAll · Forget
     std::vector<CCharacter*> _buffed;
 };
 

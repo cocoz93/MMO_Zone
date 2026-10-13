@@ -161,6 +161,12 @@ private:
         //   회신 큐의 원소를 가리킨다 — OnCharacterLoaded 가 SpawnPlayer 를 동기로 부르는 동안만 살아 있다.
         const DBResult* loaded = nullptr;
 #endif
+#if USE_DB_WORKER
+        // 불러온 쿨타임·버프 묶음(characters.skill_cooldowns · buffs)이 든 결과 — 찾음 갈래에서만 채운다. nullptr = 되살릴 것 없음(새 캐릭터).
+        //   loaded 와 같은 수명이다. 풀기·검사·칸 채우기는 SpawnPlayer 의 RestoreCooldownsAndBuffs 가 한다.
+        const DBResult* cooldownsAndBuffs = nullptr;
+        bool            dropBuffs         = false;   // 죽은 채 저장된 행 — 버프는 버린다(죽으면 버프가 지워지는 규칙). 쿨타임은 되살린다(죽어도 남는 규칙)
+#endif
     };
 
     // 플레이어를 만들어 존에 넣고 본인·주변에 알린다 (OnConnected 의 몸이 옮겨 온 것).
@@ -213,7 +219,7 @@ private:
     //   ★ 본인 전용이다 — BroadcastAroundSector 로 보내지 말 것(Protocol.h MSG_S2C_ACTOR_BUFF).
     void SendActorBuff(CPlayer* player, BuffKind kind);
 
-    // 켜져 있는 효과를 전부 본인에게 — 입장·존 이동(NotifyArrival). 첫 입장엔 칸이 비어 0장(효과는 저장하지 않는다).
+    // 켜져 있는 효과를 전부 본인에게 — 입장·존 이동(NotifyArrival). 입장 때는 DB 저장값으로 되살린 효과만 간다(없으면 0장 — RestoreCooldownsAndBuffs).
     void SendActiveBuffs(CPlayer* player);
 
     // 공격 알림 셋 (ICombatEvents) — 뜻과 순서는 CombatSystem.h. 셋 다 공격자 주변 9섹터에 방송한다.
@@ -273,6 +279,10 @@ private:
     // 본인에게 마력(S2C_ACTOR_MP) — 입장·존 이동·레벨업·스킬 마력 소모·마력 물약. 세는 곳도 여기 한 곳.
     //   ★ 본인 전용이다 — BroadcastAroundSector 로 보내지 말 것(Protocol.h MSG_S2C_ACTOR_MP).
     void SendActorMp(CPlayer* player);
+
+    // 아직 돌고 있는 스킬 쿨타임을 전부 본인에게(S2C_SKILL_COOLDOWN_REMAIN) — 입장·존 이동(NotifyArrival, SendActiveBuffs 옆). 칸마다 한 장, 없으면 0장.
+    //   ★ 본인 전용이다 — BroadcastAroundSector 로 보내지 말 것(Protocol.h MSG_S2C_SKILL_COOLDOWN_REMAIN). 세는 곳도 여기 한 곳.
+    void SendActiveSkillCooldowns(CPlayer* player);
 #endif
 
 #if USE_MONSTER
@@ -339,12 +349,18 @@ private:
 
 #if USE_DB_WORKER
     // DB 저장 파이프라인 (dirty flag 기반 비동기 위치 저장)
-    bool ShouldSave(const CPlayer* player) const;        // 저장 대상 판정(MOVING||dirty||레벨·경험치·체력·마력이 _dbSaved 와 다름) — 주기 저장
-    DBSaveJob MakeSaveJob(const CPlayer* player) const;  // 위치·레벨·경험치·체력·마력 스냅샷 생성 (단건·배치 공용)
+    bool ShouldSave(const CPlayer* player) const;        // 저장 대상 판정(MOVING||dirty||레벨·경험치·체력·마력·쿨타임·버프 칸이 _dbSaved 와 다름) — 주기 저장
+    DBSaveJob MakeSaveJob(const CPlayer* player) const;  // 위치·레벨·경험치·체력·마력·쿨타임·버프 스냅샷 생성 (단건·배치 공용)
     static void MarkSaveQueued(CPlayer* player, const DBSaveJob& job);   // 큐에 들어간 잡 기록 — dirty clear + _dbSaved 갱신 (세 저장 길 공통)
     void EnqueuePlayerSave(CPlayer* player);   // 단건: 스냅샷 enqueue + dirty clear (나갈 때·레벨업)
     void TickPeriodicSave();                   // 주기: 저장 대상 배치를 1회 핸드오프
     void SaveAllPlayers();                     // 종료: 전원 최종 저장(안전망, dirty 무관)
+
+    // 쿨타임·버프 ↔ DB 묶음(characters.skill_cooldowns · buffs, 형식은 CooldownBuffBlob.h). 게임 안의 시간은 틱이고 DB 는 실제 시각이다.
+    void PackCooldownsAndBuffs(const CPlayer* player, DBSaveJob& job) const;      // 저장 — 돌고 있는 칸을 틱 → 실제 시각으로 묶는다(MakeSaveJob)
+    static bool CooldownsAndBuffsChanged(const CPlayer* player);                  // 주기 판정 — 칸이 마지막 저장 때 사본(_dbSaved)과 다른가(틱끼리)
+    static void RecordSavedCooldownsAndBuffs(CPlayer* player);                    // 지금 칸을 _dbSaved 사본으로(MarkSaveQueued · 입장)
+    void RestoreCooldownsAndBuffs(CPlayer* player, const EnterPlacement& place);  // 입장 — 묶음을 풀어 실제 시각 → 틱으로 칸을 채운다(SpawnPlayer)
 
     // DB 왕복 — 캐릭터 불러오기 (요청은 워커 큐로, 결과는 회신 큐로 돌아와 다음 틱에 꺼낸다)
     bool RequestCharacterLoad(int64_t sessionId, int64_t accountId);   // 조회 1건 투입 + 계수. false = 거절됨(결과가 안 온다)

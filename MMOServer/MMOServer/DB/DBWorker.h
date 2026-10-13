@@ -55,9 +55,26 @@ constexpr int32_t DB_HP_MP_UNSAVED = -1;
 
 class CMonitorManager;
 
+// 바이트 열 하나 — 길이가 바뀌는 VARBINARY 를 고정 크기 버퍼로 나른다. 값 타입이라 큐 복사·union 에 그대로 든다.
+//   내용(형식)은 모른다 — 묶고 푸는 쪽은 게임 스레드(CooldownBuffBlob.h). len 0 = 빈 값.
+//   len 이 unsigned long 인 이유 — MYSQL_BIND::length 가 이 타입을 가리킨다(바인딩이 이 자리를 그대로 준다).
+//   ★ 불러온 값이 N 보다 길면 len 은 원래 길이(N 초과)로 오고 data 엔 앞 N 바이트만 든다 — 읽는 쪽이 len > N 을 불량으로 본다.
+template <size_t N>
+struct DBBytes
+{
+    unsigned long len;
+    uint8_t       data[N];
+};
+
+// 쿨타임·버프 열의 버퍼 크기 — 형식(CooldownBuffBlob.h)의 최대 길이와 같다(스킬 8칸 = 2 + 8×9 · 버프 1종 = 2 + 1×13).
+//   스킬·버프 종류를 늘려 형식이 커지면 GameServer.cpp 의 static_assert 가 여기를 올리라고 막는다. 열 자체는 VARBINARY(255).
+constexpr size_t DB_SKILL_COOLDOWNS_BYTES = 74;
+constexpr size_t DB_BUFFS_BYTES           = 15;
+
 // 저장 잡 = 값 스냅샷 (포인터 없음 → 플레이어가 사라져도 안전)
 //   ※ level·exp 는 USE_EXP 로, hp·mp 는 USE_COMBAT·USE_SKILL 로 안 가른다 — 열은 테이블에 늘 있고, 숫자 넷을 싣는 값이
 //     "토글마다 문장이 갈리는" 값보다 훨씬 싸다. 토글이 가르는 것은 "값이 바뀌는 코드" 쪽이다.
+//     쿨타임·버프 묶음(USE_SKILL·USE_COMBAT)도 같다 — 토글을 끈 빌드는 빈 값을 싣는다.
 //   ※ DB 열과의 대응은 DBWorker.cpp 의 열 표(kCharColumns) 한 곳에만 있다 — 열을 늘리면
 //     여기와 DBResult 에 같은 이름의 멤버를 넣고 표에 한 줄. SQL·바인딩·복사는 표에서 나온다.
 struct DBSaveJob
@@ -70,6 +87,8 @@ struct DBSaveJob
     int64_t exp;
     int32_t hp;      // 현재 체력 — 최대치는 저장하지 않는다(들어올 때 레벨 표·장비로 다시 세운다). DB_HP_MP_UNSAVED = 모름
     int32_t mp;      // 현재 마력 — 같은 규칙
+    DBBytes<DB_SKILL_COOLDOWNS_BYTES> skillCooldowns;   // 돌고 있는 스킬 쿨타임 묶음 — 빈 값 = 없음(스킬을 끈 빌드도 빈 값)
+    DBBytes<DB_BUFFS_BYTES>           buffs;            // 걸려 있는 버프 묶음 — 같은 규칙(전투를 끈 빌드도 빈 값)
 };
 
 // 불러오기 잡 — 계정 번호로 캐릭터 행을 읽는다. 저장과 달리 결과가 회신 큐로 돌아온다.
@@ -178,6 +197,8 @@ struct DBResult
     int64_t      exp;
     int32_t      hp;          // DB_HP_MP_UNSAVED = 저장된 적 없음 · 0 = 죽은 채 저장됨(OnCharacterLoaded 가 부활 규칙으로 바꾼다)
     int32_t      mp;
+    DBBytes<DB_SKILL_COOLDOWNS_BYTES> skillCooldowns;   // 바이트 그대로 — 검사·풀기는 게임 스레드(SpawnPlayer). len > 버퍼 = 잘림(불량)
+    DBBytes<DB_BUFFS_BYTES>           buffs;
 #if USE_INVENTORY
     // ↓ FOUND·NOT_FOUND 둘 다 유효 — 캐릭터 행이 없어도 가방은 읽는다(가방은 바뀌자마자 쓰고 캐릭터 행은
     //   주기·로그아웃에 쓰므로, 첫 저장 전에 서버가 죽으면 가방 행만 있는 계정이 생긴다).

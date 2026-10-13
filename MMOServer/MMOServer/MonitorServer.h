@@ -480,7 +480,7 @@ private:
                      _gameMonitor._combat._myStatsSent);
 
 #if USE_COMBAT
-        // 지속 효과(버프). 등식(조용해진 뒤) = Σ applied = Σ ended + mmo_buff_active (GameMonitor.h) — 다 표를 돈다(늘어도 노출에서 안 빠진다).
+        // 지속 효과(버프). 등식(조용해진 뒤) = Σ applied + Σ restored = Σ ended + mmo_buff_active (GameMonitor.h) — 다 표를 돈다(늘어도 노출에서 안 빠진다).
         const auto& bf = _gameMonitor._buff;
         ss << "# HELP mmo_buff_applied_total Buffs newly applied (an empty slot turned on), split by kind\n";
         ss << "# TYPE mmo_buff_applied_total counter\n";
@@ -491,6 +491,11 @@ private:
         ss << "# TYPE mmo_buff_refreshed_total counter\n";
         for (int i = 0; i < BUFF_KIND_COUNT; ++i)
             ss << "mmo_buff_refreshed_total{kind=\"" << BuffKindName(static_cast<BuffKind>(i)) << "\"} " << bf._refreshed[i] << "\n";
+        ss << "\n";
+        ss << "# HELP mmo_buff_restored_total Buff slots filled on enter from the saved DB value (characters.buffs), split by kind\n";
+        ss << "# TYPE mmo_buff_restored_total counter\n";
+        for (int i = 0; i < BUFF_KIND_COUNT; ++i)
+            ss << "mmo_buff_restored_total{kind=\"" << BuffKindName(static_cast<BuffKind>(i)) << "\"} " << bf._restored[i] << "\n";
         ss << "\n";
         ss << "# HELP mmo_buff_ended_total Buff slots turned off, split by reason (expired, death, leave)\n";
         ss << "# TYPE mmo_buff_ended_total counter\n";
@@ -666,6 +671,9 @@ private:
         WriteCounter(ss, "mmo_actor_mp_sent_total",
                      "S2C_ACTOR_MP packets sent (only SendActorMp sends them, to the owner only; one per enter, zone change, level-up, mana cast and mana potion)",
                      sk._actorMpSent);
+        WriteCounter(ss, "mmo_skill_cooldown_remain_sent_total",
+                     "S2C_SKILL_COOLDOWN_REMAIN packets sent (only SendActiveSkillCooldowns sends them, to the owner only; one per running cooldown on enter and zone change)",
+                     sk._cooldownRemainSent);
 #endif
 
 #if USE_DROP
@@ -737,6 +745,20 @@ private:
         WriteCounter(ss, "mmo_enter_duplicate_total",
                      "Old sessions kicked because the same account entered again",
                      e._duplicate);
+
+        // 쿨타임·버프 되살리기 — 칸 단위(위 등식 밖). 버프를 되살린 수는 mmo_buff_restored_total(버프 등식 쪽)
+        WriteCounter(ss, "mmo_enter_cooldown_restored_total",
+                     "Skill cooldown slots restored on enter from characters.skill_cooldowns",
+                     e._cooldownRestored);
+        WriteCounter(ss, "mmo_enter_timer_expired_total",
+                     "Saved cooldown or buff entries already over on enter (ran out while offline) - dropped",
+                     e._timerExpired);
+        WriteCounter(ss, "mmo_enter_timer_skipped_total",
+                     "Saved cooldown or buff entries skipped for bad content (unknown skill, buff kind or value out of range, duplicate slot, buff time over the cap)",
+                     e._timerSkipped);
+        WriteCounter(ss, "mmo_enter_timer_bad_total",
+                     "Saved cooldown or buff columns dropped whole for a bad format (unknown version, length mismatch, longer than the buffer)",
+                     e._timerBad);
 
         // 게이지 — 조용해지면 0 이어야 한다(안 내려가면 대기표가 샌 것)
         ss << "# HELP mmo_enter_pending Sessions currently waiting for their character load\n";

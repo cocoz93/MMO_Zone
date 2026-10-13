@@ -357,14 +357,24 @@ struct JobKindDesc
 //   열을 늘리면 저장 구조체·결과 구조체에 같은 이름의 멤버를 넣고 표에 한 줄 + schema.sql 한 줄이 전부다.
 //   SQL 의 ? 순서와 바인딩 배열 색인이 같은 배열을 같은 루프로 돌아 나오므로 둘이 어긋날 길이 없다
 //   (전에는 SQL 글자·b[4]·r[3]·복사 줄을 손으로 맞췄다 — 개수가 같고 순서만 틀리면 아무도 못 잡았다).
-//   MySQL 버퍼 타입은 손으로 안 적는다 — 멤버의 C++ 타입에서 MysqlTypeOf 가 정한다
-//   (float→FLOAT, int32→LONG, int64→LONGLONG. 다른 타입의 멤버를 표에 올리면 컴파일이 막는다).
+//   MySQL 버퍼 타입은 손으로 안 적는다 — 멤버의 C++ 타입에서 MysqlType 이 정한다
+//   (float→FLOAT, int32→LONG, int64→LONGLONG, DBBytes<N>→BLOB. 다른 타입의 멤버를 표에 올리면 컴파일이 막는다).
+//   바이트 열(DBBytes)만 길이가 따로 있다 — BindColumn 이 buffer 를 data 에, length 를 len 에 대고 buffer_length 에 N 을 준다.
 //   ※ account_id 는 표 밖이다 — 저장에선 VALUES 의 첫 ?, 불러오기에선 WHERE 의 ? 로 자리가 다르다.
 //   ※ key = 기본 키의 일부인 열(가방의 slot) — ON DUPLICATE KEY UPDATE 쪽 ? 에서 뺀다.
-template <class T> constexpr enum_field_types MysqlTypeOf();
-template <> constexpr enum_field_types MysqlTypeOf<float>()   { return MYSQL_TYPE_FLOAT; }
-template <> constexpr enum_field_types MysqlTypeOf<int32_t>() { return MYSQL_TYPE_LONG; }
-template <> constexpr enum_field_types MysqlTypeOf<int64_t>() { return MYSQL_TYPE_LONGLONG; }
+template <class T> struct MysqlType;   // 정의 없음 — 표에 못 올리는 타입이면 여기서 막힌다
+template <> struct MysqlType<float>   { static constexpr enum_field_types value = MYSQL_TYPE_FLOAT; };
+template <> struct MysqlType<int32_t> { static constexpr enum_field_types value = MYSQL_TYPE_LONG; };
+template <> struct MysqlType<int64_t> { static constexpr enum_field_types value = MYSQL_TYPE_LONGLONG; };
+template <size_t N> struct MysqlType<DBBytes<N>> { static constexpr enum_field_types value = MYSQL_TYPE_BLOB; };
+
+// 바이트 열이면 버퍼 크기 N, 고정폭 숫자면 0 — BindColumn 이 이 값으로 길이 자리를 붙일지 가른다.
+template <class T> struct BytesCap { static constexpr unsigned long value = 0; };
+template <size_t N> struct BytesCap<DBBytes<N>> { static constexpr unsigned long value = static_cast<unsigned long>(N); };
+
+// DBBytes 의 data·len 자리는 N 과 무관하다(len 뒤에 바이트 배열) — BindColumn 이 DBBytes<1> 로 자리를 잰다.
+static_assert(offsetof(DBBytes<1>, data) == offsetof(DBBytes<DB_SKILL_COOLDOWNS_BYTES>, data) &&
+              offsetof(DBBytes<1>, data) == offsetof(DBBytes<DB_BUFFS_BYTES>, data), "DBBytes 의 data 자리가 N 에 따라 바뀌었다");
 
 // 저장 구조체와 결과 구조체의 같은 이름 멤버는 타입이 같아야 한다 — 다르면 여기서 컴파일이 막힌다
 template <class Save, class Load> constexpr size_t SameTypeSize()
@@ -381,12 +391,14 @@ struct DbColumn
     size_t           loadOff;   // 결과 구조체 안의 자리 — 불러온 값을 게임 루프에 돌려줄 자리
     size_t           size;
     bool             key;       // true = 기본 키의 일부 — ON DUPLICATE KEY UPDATE 쪽 ? 에서 뺀다
+    unsigned long    bytesCap;  // 0 = 고정폭 숫자 · N = 바이트 열(DBBytes<N>) — 길이 자리를 붙인다(BindColumn)
 };
 
 #define DB_COL(SaveT, LoadT, sqlName, member, isKey)                                           \
-    { #sqlName, MysqlTypeOf<decltype(SaveT::member)>(),                                        \
+    { #sqlName, MysqlType<decltype(SaveT::member)>::value,                                     \
       offsetof(SaveT, member), offsetof(LoadT, member),                                        \
-      SameTypeSize<decltype(SaveT::member), decltype(LoadT::member)>(), isKey }
+      SameTypeSize<decltype(SaveT::member), decltype(LoadT::member)>(), isKey,                 \
+      BytesCap<decltype(SaveT::member)>::value }
 
 // characters 행 — 저장 DBSaveJob · 결과 DBResult
 static constexpr DbColumn kCharColumns[] = {
@@ -397,6 +409,8 @@ static constexpr DbColumn kCharColumns[] = {
     DB_COL(DBSaveJob, DBResult, exp,    exp,   false),
     DB_COL(DBSaveJob, DBResult, hp,     hp,    false),
     DB_COL(DBSaveJob, DBResult, mp,     mp,    false),
+    DB_COL(DBSaveJob, DBResult, skill_cooldowns, skillCooldowns, false),   // 바이트 열 — 형식은 CooldownBuffBlob.h
+    DB_COL(DBSaveJob, DBResult, buffs,           buffs,          false),
 };
 static constexpr int kCharColCount = static_cast<int>(sizeof(kCharColumns) / sizeof(kCharColumns[0]));
 
@@ -411,7 +425,7 @@ static constexpr int kInvColCount = static_cast<int>(sizeof(kInvColumns) / sizeo
 #endif
 #undef DB_COL
 
-static constexpr int kMaxCols = 8;   // 바인딩 배열 크기 — 표가 이보다 길어지면 아래 static_assert 가 막는다
+static constexpr int kMaxCols = 9;   // 바인딩 배열 크기 — 표가 이보다 길어지면 아래 static_assert 가 막는다
 static_assert(kCharColCount <= kMaxCols, "kCharColumns 가 kMaxCols 를 넘었다");
 #if USE_INVENTORY
 static_assert(kInvColCount <= kMaxCols, "kInvColumns 가 kMaxCols 를 넘었다");
@@ -454,8 +468,25 @@ static const std::string kItemSaveSql = BuildUpsertSql("inventory", kInvColumns,
 static const std::string kLoadInvSql  = BuildSelectSql("inventory", kInvColumns, kInvColCount, " AND item_id<>0 ORDER BY slot");
 #endif
 
+// 열 하나를 바인딩 칸에 댄다 — 저장 파라미터와 불러오기 결과가 같은 꼴이다(base = 저장 구조체 꼴의 슬롯 버퍼).
+//   숫자 열은 멤버 자리 하나, 바이트 열은 data(buffer)·len(length)·N(buffer_length) 셋.
+//   저장 때 MySQL 은 *length 만큼 보내고, 불러올 때는 *length 에 원래 길이를 적는다(N 보다 길면 잘림 — RunLoadOnce 주석).
+static void BindColumn(MYSQL_BIND& b, void* base, const DbColumn& col)
+{
+    char* p = static_cast<char*>(base) + col.saveOff;
+    b.buffer_type = col.type;
+    if (col.bytesCap == 0)
+    {
+        b.buffer = p;
+        return;
+    }
+    b.buffer        = p + offsetof(DBBytes<1>, data);
+    b.buffer_length = col.bytesCap;
+    b.length        = reinterpret_cast<unsigned long*>(p + offsetof(DBBytes<1>, len));
+}
+
 // 저장 파라미터 — ? 는 account_id 1개 + VALUES 의 열 n개 + UPDATE 의 열(key 제외). UPDATE 쪽은 VALUES 쪽과 같은 버퍼를
-//   참조한다(값을 한 번만 복사하면 된다). saveBuf 는 저장 구조체 꼴의 슬롯 버퍼.
+//   참조한다(값을 한 번만 복사하면 된다 — 바이트 열의 길이 자리도 같은 것을 가리킨다). saveBuf 는 저장 구조체 꼴의 슬롯 버퍼.
 static bool BindUpsertParams(MYSQL_STMT* st, void* saveBuf, int64_t* accountIdBuf, const DbColumn* cols, int n)
 {
     MYSQL_BIND b[1 + 2 * kMaxCols] = {};
@@ -463,8 +494,7 @@ static bool BindUpsertParams(MYSQL_STMT* st, void* saveBuf, int64_t* accountIdBu
     int k = 1 + n;   // UPDATE 쪽 ? 가 시작하는 자리
     for (int i = 0; i < n; ++i)
     {
-        b[1 + i].buffer_type = cols[i].type;
-        b[1 + i].buffer      = static_cast<char*>(saveBuf) + cols[i].saveOff;
+        BindColumn(b[1 + i], saveBuf, cols[i]);
         if (!cols[i].key)
             b[k++] = b[1 + i];
     }
@@ -472,8 +502,9 @@ static bool BindUpsertParams(MYSQL_STMT* st, void* saveBuf, int64_t* accountIdBu
 }
 
 // 불러오기 — 파라미터는 account_id 1개, 결과는 표 순서 그대로 loadBuf(저장 구조체 꼴)의 멤버에 fetch 가 바로 채운다.
-//   열 전부 NOT NULL 고정폭이고 열 타입과 버퍼 타입이 같아(FLOAT→float, INT→int32, BIGINT→int64) 변환·잘림이 없다.
-//   is_null·length·error 는 비워 두면 라이브러리가 내부 값으로 채운다.
+//   숫자 열은 NOT NULL 고정폭이고 열 타입과 버퍼 타입이 같아(FLOAT→float, INT→int32, BIGINT→int64) 변환·잘림이 없다.
+//   바이트 열만 길이가 바뀐다 — 길이는 len 에 오고, 버퍼보다 길면 잘린다(RunLoadOnce 가 가른다).
+//   is_null·error(와 숫자 열의 length)는 비워 두면 라이브러리가 내부 값으로 채운다.
 static bool BindSelect(MYSQL_STMT* st, void* loadBuf, int64_t* accountIdBuf, const DbColumn* cols, int n)
 {
     MYSQL_BIND p[1] = {};
@@ -483,10 +514,7 @@ static bool BindSelect(MYSQL_STMT* st, void* loadBuf, int64_t* accountIdBuf, con
 
     MYSQL_BIND r[kMaxCols] = {};
     for (int i = 0; i < n; ++i)
-    {
-        r[i].buffer_type = cols[i].type;
-        r[i].buffer      = static_cast<char*>(loadBuf) + cols[i].saveOff;
-    }
+        BindColumn(r[i], loadBuf, cols[i]);
     return mysql_stmt_bind_result(st, r) == 0;
 }
 
@@ -500,7 +528,7 @@ static void CopyColumns(void* dst, const void* loadBuf, const DbColumn* cols, in
 // ── 위치 저장 ─────────────────────────────────────────────────────────────
 static bool BindPositionParams(MYSQL_STMT* st, DBWorkerSlot& slot)
 {
-    // ? 11개 = account_id + 다섯 열 + UPDATE 다섯 열
+    // ? = account_id + 열 n개 + UPDATE 열 n개 (key 열이 없는 표 — 지금 아홉 열이라 19개)
     return BindUpsertParams(st, &slot.bSave, &slot.bSave.accountId, kCharColumns, kCharColCount);
 }
 
@@ -711,6 +739,10 @@ CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJo
     switch (rc)
     {
     case 0:
+    case MYSQL_DATA_TRUNCATED:
+        // 잘림은 바이트 열(쿨타임·버프)에서만 난다 — 숫자 열은 열 타입과 버퍼 타입이 같아 잘릴 수 없다(BindSelect 주석).
+        //   바이트 열이 버퍼보다 길면 len 에 원래 길이가 남아 게임 스레드가 불량으로 버린다(SpawnPlayer) — 쿨타임·버프가 풀릴 뿐
+        //   입장까지 막을 일이 아니다. 실패로 돌리면 그 계정은 행을 고치기 전까지 영영 못 들어온다.
         CopyColumns(&out, &slot.bLoad, kCharColumns, kCharColCount);   // 표의 열을 slot.bLoad 에서 out 으로
         outcome = LoadOutcome::FOUND;
         break;
@@ -719,7 +751,7 @@ CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJo
         outcome = LoadOutcome::NOT_FOUND;
         break;
 
-    default:   // 1(오류) · MYSQL_DATA_TRUNCATED — 어느 쪽이든 버퍼 값을 믿을 수 없다
+    default:   // 1(오류) — 버퍼 값을 믿을 수 없다
         outcome = classifyError("fetch");
         break;
     }
@@ -891,6 +923,8 @@ void CDBWorker::ExecLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out
     out.exp       = 0;
     out.hp        = DB_HP_MP_UNSAVED;   // 새 캐릭터 = 가득(0 이면 죽은 채로 읽힌다)
     out.mp        = DB_HP_MP_UNSAVED;
+    out.skillCooldowns.len = 0;   // 새 캐릭터·못 읽음 = 돌고 있는 것 없음
+    out.buffs.len          = 0;
 #if USE_INVENTORY
     out.invCount    = 0;   // 가방 줄 — RunInventoryLoad 가 채운다(실패면 code 가 FAILED 라 안 쓰인다)
     out.invOverflow = 0;
