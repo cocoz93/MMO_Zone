@@ -23,7 +23,7 @@ public:
     ~CPlayer() override;
 
     // As<CPlayer> 판정 — Character.h As
-    static bool Matches(const CCharacter& c) { return c._kind == CharacterKind::PLAYER; }
+    static bool IsA(const CCharacter& c) { return c._kind == CharacterKind::PLAYER; }
 
     bool _isAdmin;        // 운영자 여부
 

@@ -19,7 +19,7 @@
 //        보내는 코드는 컴파일이 안 된다. 섹터 목록(CCharacter*)에서 받는 쪽을 고를 때는
 //        As<CPlayer>(아래 As) 로 확인 후 내려 바꾼다. 코드 전체에서 내려 바꾸는 자리는 그 한 곳뿐이다.
 //
-// [종류] _kind 로 종류를 가른다 — 정원 카운터(_playerCount), As(각 타입의 Matches), 섹터 목록 고르기(CSectorManager::AddCharacter).
+// [종류] _kind 로 종류를 가른다 — 정원 카운터(_playerCount), As(각 타입의 IsA), 섹터 목록 고르기(CSectorManager::AddCharacter).
 //        파생 생성자가 자기 것을 잡는다 — 여기 기본값은 PLAYER 이고 CMonster 가 MONSTER 로 덮는다.
 //        생성자 뒤에는 안 바뀐다 — As 와 섹터 목록 선택(넣을 때·뺄 때 같은 목록)이 이 전제에 기댄다.
 //
@@ -96,9 +96,9 @@ public:
 };
 
 // 내려 바꾸는 자리는 코드 전체에서 이 함수 하나뿐이다 — 다른 곳의 static_cast<CPlayer*>·<CMonster*> 는 잘못이다.
-//   종류 판정은 각 타입의 Matches 가 한다. 상속이 한 단계 늘면(보스 : CMonster) 그 Matches 만 범위로 바꾼다.
+//   종류 판정은 각 타입의 IsA 가 한다. 상속이 한 단계 늘면(보스 : CMonster) 그 IsA 만 범위로 바꾼다.
 template <class T>
 T* As(CCharacter* c)
 {
-    return T::Matches(*c) ? static_cast<T*>(c) : nullptr;
+    return T::IsA(*c) ? static_cast<T*>(c) : nullptr;
 }

@@ -48,7 +48,7 @@ public:
     ~CMonster() override;
 
     // As<CMonster> 판정 — Character.h As
-    static bool Matches(const CCharacter& c) { return c._kind == CharacterKind::MONSTER; }
+    static bool IsA(const CCharacter& c) { return c._kind == CharacterKind::MONSTER; }
 
     // 무슨 몬스터냐 — 몬스터 표의 한 행 (CCharacter::_kind 는 "몬스터냐"다).
     //   번호(드랍 표 찾기)·경험치(잡은 사람)·겉모습(와이어)은 여기서 읽는다. 표는 기동 뒤 안 바뀌어 가리킨 행이 안 흔들린다.
