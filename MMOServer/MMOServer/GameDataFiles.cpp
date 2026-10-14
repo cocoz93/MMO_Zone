@@ -37,6 +37,11 @@ bool CGameDataFiles::LoadAll(const std::string& dir)
     if (!_skill.Load(dir + "SkillTable.csv", _level))
         return false;
 #endif
+#if USE_MONSTER && USE_SKILL
+    // ★ 몬스터 표·스킬 표 "뒤" — 규칙의 몬스터 번호·스킬 번호·스킬의 쓰는 쪽(user)·비용·닿는 거리를 두 표와 대조한다
+    if (!_monsterSkill.Load(dir + "MonsterSkill.csv", _monster, _skill))
+        return false;
+#endif
 
     SLOG_INFO("[GameData] 기획 데이터 파일을 모두 읽었습니다 ({})", dir);
     return true;

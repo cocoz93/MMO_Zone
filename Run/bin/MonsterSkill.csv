@@ -1,0 +1,13 @@
+# Monster skill rules - design data, read once at startup (CMonsterSkillTable). Which skill a monster casts and WHEN.
+#   What a skill is (shape, damage, cooldown) lives in SkillTable.csv (a row whose user cell is monster); this file only says when the monster uses it.
+#   One row = "this monster casts this skill when the target is within maxDist tiles and its own hp is at or below hpBelowPct".
+#   Rows of one monster are checked from the TOP; the first row that passes is cast (one skill per think). Order is priority.
+#   monsterId  : MonsterTable.csv. skillId : SkillTable.csv, and that row must have user = monster.
+#   maxDist    : tiles, > 0 and <= 6 (the monster sight). A front skill needs <= 1.5 (the normal attack range);
+#                a shape skill needs <= the distance its cells reach (the server prints it when a value is too big);
+#                a self skill (buff) just means "only while a target is within maxDist".
+#   hpBelowPct : 1..100 - the caster hp percentage at or below which the row is allowed (100 = always).
+#   A monster skill row in SkillTable.csv must have costMp 0 and costHpPct 0 (monsters have no mana and must not pay hp).
+#   The same (monsterId, skillId) twice is refused. At most 8 rows per monster.
+#   Zero data rows is fine - no monster casts skills yet. The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
+monsterId,skillId,maxDist,hpBelowPct

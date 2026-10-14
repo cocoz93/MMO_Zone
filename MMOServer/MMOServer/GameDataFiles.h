@@ -11,6 +11,7 @@
 #include "SpawnRegionTable.h"
 #include "DropTable.h"
 #include "SkillTable.h"
+#include "MonsterSkillTable.h"
 
 // 담는 자리는 늘 있다 — 맵 표는 토글이 없다(MapTable.h [토글 없음]). 나머지 표는 표마다 토글이 따로다
 //   (레벨 표 USE_COMBAT · USE_INVENTORY · USE_MONSTER · USE_DROP · USE_SKILL).
@@ -67,6 +68,9 @@ public:
 #if USE_SKILL
     const CSkillTable& Skill() const { return _skill; }
 #endif
+#if USE_MONSTER && USE_SKILL
+    const CMonsterSkillTable& MonsterSkills() const { return _monsterSkill; }
+#endif
 
 private:
     CMapTable _map;   // 맨 먼저 읽는다 — 스폰 표가 맵 번호·크기를 이 표와 대조한다(LoadAll 순서)
@@ -86,5 +90,8 @@ private:
 #endif
 #if USE_SKILL
     CSkillTable _skill;   // 레벨 표를 먼저 읽고 마력 비용을 최대 마력과 대조한다(LoadAll 순서). 대상·효과 종류는 코드의 이름표와 대조한다(SkillTable.cpp)
+#endif
+#if USE_MONSTER && USE_SKILL
+    CMonsterSkillTable _monsterSkill;   // 몬스터 표·스킬 표를 먼저 읽고 그 결과로 대조한다(LoadAll 순서) — 몬스터가 어떤 스킬을 언제 쓰나
 #endif
 };
