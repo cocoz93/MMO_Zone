@@ -121,13 +121,17 @@ const ITEMS = new Map();                                                // itemI
 let ITEM_SHEET = null;                                                  // assets/items.js 의 그림 시트 — 없으면 null(번호로 그린다)
 // 스킬 표 (USE_SKILL) — 서버와 같은 파일(Run/bin/SkillTable.csv)을 serve.js 의 /data/SkillTable.csv 로 받는다(아이템 표와 같은 꼴).
 //   못 받으면 SKILLS 가 비고 스킬 막대가 안 그려진다 — 숫자 키는 그래도 보낸다(판정은 서버).
-const SKILLS = new Map();                                               // skillId -> {name, target, effect, costHpPct, power, cooldownMs, costMp, shape:[[앞,옆],…]}
+const SKILLS = new Map();                                               // skillId -> {name, target, effect, costHpPct, power, cooldownMs, costMp, shape:[[앞,옆],…], durationMs, user}
+// 표에는 사람이 쓰는 줄(user=player)과 몬스터(보스)가 쓰는 줄(user=monster)이 같이 있다. 몬스터 줄은 **몬스터 시전의 칸·고리 그림**(S2C_SKILL_CAST)을 그리는 데만 쓰고
+//   스킬 막대·숫자 키에는 안 낸다 — 사람이 부르면 서버가 BAD_SKILL 로 거절한다(NOT_FOR_CASTER). user 칸이 없는 옛 줄은 player.
+const isMonsterSkill = id => { const s=SKILLS.get(id); return !!s && s.user==='monster'; };
+const playerSkillIds = () => [...SKILLS.keys()].filter(id=>!isMonsterSkill(id)).sort((a,b)=>a-b);
 // 내 스킬 쿨타임 — 자기 SKILL_CAST 를 받은 순간부터 표의 cooldownMs 를 센다. skillId -> 끝나는 시각(ms)
 //   입장·존 이동 때는 서버가 아직 돌고 있는 쿨타임을 S2C_SKILL_COOLDOWN_REMAIN 으로 준다(다시 접속하면 DB 에서 되살린 값) — 그걸로 덮는다.
 const skillReadyAt = new Map();
 const skillState = { casts:0, lastFail:null };                          // 헤드리스 검증용 셈
 // buffs = 내 지속 효과 [종류, 배수, 남은 ms] — S2C_ACTOR_BUFF 가 바꾼다(self.buffs). 값은 서버가 보낸 그대로(remainMs 를 받은 시각부터 깎는다)
-function skillChanged(){ document.documentElement.setAttribute('data-skill', JSON.stringify({ skills:SKILLS.size, casts:skillState.casts, lastFail:skillState.lastFail,
+function skillChanged(){ document.documentElement.setAttribute('data-skill', JSON.stringify({ skills:playerSkillIds().length, monsterSkills:SKILLS.size-playerSkillIds().length, casts:skillState.casts, lastFail:skillState.lastFail,
   buffs: self && self.buffs ? [...self.buffs].map(([k,b])=>[k, b.value, Math.max(0, Math.round(b.until-performance.now()))]) : [],
   cooldowns: [...skillReadyAt].map(([id,t])=>[id, Math.max(0, Math.round(t-performance.now()))]).filter(c=>c[1]>0) })); }   // [스킬 번호, 남은 ms]
 // 스킬 거절 사유(P.SKILL_FAIL 이름) → 채팅 칸 [System] 문구. 거절이면 체력·마력·쿨타임이 그대로다(서버는 모든 검사 뒤에만 뗀다)
@@ -516,7 +520,7 @@ if(!SNAP){
     if(e.code==='KeyF'){ if(!e.repeat) usePortal(); e.preventDefault(); return; }
     // 1~8 = 스킬(키 번호 = 스킬 번호). I·C 와 같은 까닭으로 e.code — 누르고 있어도 한 번
     const dg=/^Digit([1-8])$/.exec(e.code);
-    if(dg){ if(!e.repeat) sendSkill(Number(dg[1])); e.preventDefault(); return; }
+    if(dg){ if(!e.repeat && !isMonsterSkill(Number(dg[1]))) sendSkill(Number(dg[1])); e.preventDefault(); return; }   // 몬스터 몫 번호는 안 보낸다(보내면 서버가 BAD_SKILL 로 거절)
     if(k==='escape' && (bag.open || stw.open)){ bag.open=false; bag.hover=null; stw.open=false; stw.hover=false; bagChanged(); return; }   // 창 둘 다 닫는다
     if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k)){ if(!keys.has(k)){keys.add(k); sendMove();} e.preventDefault(); }});
   addEventListener('keyup',e=>{ if(typing())return; const k=e.key.toLowerCase(); if(keys.delete(k)) sendMove(); });
@@ -1010,7 +1014,7 @@ const SKILL_CELL_W=68, SKILL_CELL_H=50, SKILL_GAP=8, MP_BAR_W=132;
 // 자리 계산 한 곳 — 그리기와 헤드리스 시험이 같이 쓴다(bagLayout · statusLayout 과 같은 꼴).
 //   마력을 한 장도 못 받았으면(스킬을 끈 서버 · 입장 직후) 마력 막대를 안 그리고 스킬 칸만 가운데 맞춘다.
 function skillBarLayout(){
-  const ids=[...SKILLS.keys()].sort((a,b)=>a-b);
+  const ids=playerSkillIds();   // 사람이 쓰는 줄만 — 몬스터 줄(user=monster)은 막대에 안 낸다
   const showMp=!!self && self.maxMp>0;
   const cellsW=ids.length ? ids.length*SKILL_CELL_W+(ids.length-1)*SKILL_GAP : 0;
   const w=(showMp?MP_BAR_W:0)+(showMp && ids.length?SKILL_GAP:0)+cellsW;
@@ -1433,6 +1437,7 @@ function loadSkills(){
 //   걸러내는 규칙은 아이템 표와 같다(빈 줄 · '#' 주석 · 첫 칸이 숫자가 아닌 헤더). 값 검사는 서버가 기동 때 이미 했다.
 //   shape(아홉째)는 「앞:옆」 을 ';' 로 이은 칸 목록 — front·self 줄은 비어 있거나 칸 자체가 없다(빈 목록).
 //   durationMs(열째)는 지속 효과(buff_*) 줄만 — 막대 띠의 분모. 피해 줄은 비어 있거나 칸이 없다(0).
+//   user(열한째)는 player | monster — 비거나 칸이 없으면 player. monster 줄은 표에 남겨 몬스터 시전의 칸 그림에 쓰되 막대·숫자 키에서는 뺀다(playerSkillIds).
 function parseSkillTable(text){
   for(const raw of text.split(/\r?\n/)){
     const line=raw.replace(/^﻿/,'').trim();
@@ -1440,7 +1445,7 @@ function parseSkillTable(text){
     const c=line.split(',').map(s=>s.trim());
     if(c.length<7) continue;
     const shape=(c[8]||'').split(';').filter(Boolean).map(cell=>cell.split(':').map(Number));
-    SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]), costMp:Number(c[7]||0), shape, durationMs:Number(c[9]||0) });
+    SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]), costMp:Number(c[7]||0), shape, durationMs:Number(c[9]||0), user:(c[10]||'player').toLowerCase() });
   }
 }
 // 맵 표·포털 표(serve.js 의 /data/MapTable.csv · PortalTable.csv) — 못 받아도 멈추지 않는다(땅은 풀 · 포털이 안 보인다).
