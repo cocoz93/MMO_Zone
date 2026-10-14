@@ -1,15 +1,17 @@
 # Skill table - design data, read once at startup (CSkillTable). The web client reads the same file.
 #   UTF-8 without BOM (names are Korean). No commas inside a cell.
-#   One row = one skill. Every player has every skill (no classes yet).
+#   One row = one skill. Every player has every player skill (no classes yet). A row whose user cell is monster is for monsters only (see user below).
 #   skillId    : 1..8 (MAX_SKILL_ID). The number is the array index and goes on the wire - keep ids small.
 #   target     : front = the nearest monster in front, same range and facing as a normal attack. Players are never hit.
 #                shape = every monster standing on a cell listed in the shape column - several can be hit, and two on one cell are both hit.
 #                self  = the caster (no target search, so never NO_TARGET) - what buffs use.
 #   effect     : damage = hit the targets (target front or shape). buff_attack_mul = attack x power for durationMs (target must be self).
+#                damage_attack = hit the targets with the CASTER's attack x power % (hp does not enter the formula - monsters use it; target front or shape).
 #   costHpPct  : % of the CURRENT hp paid on cast, rounded down, at least 1 when above 0. 0..99.
 #                Refused (LOW_HP) when it would leave hp below 1 - your own skill never kills you.
 #   power      : damage = % of the hp BEFORE the cost. damage needs power >= costHpPct (the hit is never smaller than the cost).
 #                buff_attack_mul = the multiplier, 2..10 (1 would do nothing). Applied after level table + weapon, so changing weapons keeps the buff.
+#                damage_attack = % of the caster's attack (100 = the same value as a normal attack), 1..1000. The target's defense is subtracted afterwards (at least 1).
 #   cooldownMs : rounded UP to server ticks (40ms) - 480 = 12 ticks, the same as a normal attack.
 #   The cost (hp, mana, cooldown) is paid only after every check passes, target included - a refused cast changes nothing.
 #   Values are Baram classic (warrior) as-is - not tuned to the current monsters (snake hp 30). Lv1 Baekhocham: pay 400, hit 800.
@@ -22,8 +24,12 @@
 #   durationMs : 10th cell, buffs only - damage rows must leave it 0 or out. Rounded UP to ticks (30000 = 750). One slot per buff kind:
 #                casting the same kind again overwrites value and time. A buff ends on expiry or death, follows the player across zones,
 #                is not saved (gone on logout). Dual Attack (Lv1 attack 10): attack 20 for 30s, cooldown 60s, mana 10, no hp cost.
+#   user       : 11th cell - player (or empty) | monster. Players may cast only player rows; monsters only monster rows (a wrong caster is
+#                refused as NOT_FOR_CASTER and shows to the player as BAD_SKILL). Which monster casts what is in MonsterSkill.csv.
+#                A monster row needs costHpPct 0 and costMp 0 (monsters have no mana and must not pay hp) - MonsterSkill.csv checks it.
+#                The web must not show monster rows in the skill bar. A row with a monster user ends with ",,monster" after the shape/duration cells.
 #   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
-skillId,name,target,effect,costHpPct,power,cooldownMs,costMp,shape,durationMs
+skillId,name,target,effect,costHpPct,power,cooldownMs,costMp,shape,durationMs,user
 1,백호참,front,damage,50,100,480,10
 2,어검술,shape,damage,50,50,20000,10,1:0;2:-1;2:0;2:1
 3,이중공격,self,buff_attack_mul,0,2,60000,10,,30000

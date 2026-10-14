@@ -75,6 +75,18 @@ enum class SkillEffect : uint8_t
 {
     DAMAGE,            // 피해 — 공격값 = 시전 전 체력 × power%. 방어력은 맞힌 뒤 처리(CCombatSystem::ApplyHit)가 뺀다
     BUFF_ATTACK_MUL,   // 지속 효과 — 공격력 × power 를 durationMs 동안(CBuffSystem::Apply, 종류 BuffKind::ATTACK_MUL). 대상은 self 만(표 읽기가 막는다)
+    DAMAGE_ATK,        // 피해 — 공격값 = 시전자 공격력(최종값) × power%. 방어력은 DAMAGE 와 같이 맞힌 뒤에 뺀다.
+                       //   DAMAGE 는 시전자의 현재 체력이 식에 들어가(체력을 떼고 그 체력으로 치는 스킬) 체력이 줄수록 약해진다 — 몬스터(보스)가 쓰면 안 맞아서 따로 둔다(10-13)
+    COUNT
+};
+
+// 누가 쓰는 스킬인가 — 이 표는 사람과 몬스터가 한 장을 같이 쓴다(번호 한 줄·쿨타임 칸 하나·와이어 의미 하나).
+//   사람은 PLAYER 줄만, 몬스터는 MONSTER 줄만 쓴다(CSkillSystem::CheckCaster 가 NOT_FOR_CASTER 로 막는다 — 몬스터 스킬 표 읽기가 한 번 더 막는다).
+//   칸이 비면 PLAYER 다(옛 줄이 그대로 사람 스킬). 새 종류 = 여기 한 줄 + 표 이름 한 줄(SkillTable.cpp USER_NAMES).
+enum class SkillUser : uint8_t
+{
+    PLAYER,
+    MONSTER,
     COUNT
 };
 
@@ -96,9 +108,10 @@ struct SkillDef
     std::string name;                 // UTF-8. 서버는 로그에만 쓴다
     SkillTarget target         = SkillTarget::COUNT;
     SkillEffect effect         = SkillEffect::COUNT;
+    SkillUser   user           = SkillUser::PLAYER;   // 누가 쓰나 — 표의 11번째 칸(빈 칸 = PLAYER)
     int32_t     costHpPct      = 0;   // 시전 때 떼는 현재 체력의 % (0 = 소모 없음)
     int32_t     costMp         = 0;   // 시전 때 떼는 마력 — 고정값(0 = 소모 없음). 모자라면 LOW_MP
-    int32_t     power          = 0;   // DAMAGE = 시전 전 체력의 % · BUFF_ATTACK_MUL = 배수(2 = 이중공격)
+    int32_t     power          = 0;   // DAMAGE = 시전 전 체력의 % · DAMAGE_ATK = 시전자 공격력의 % · BUFF_ATTACK_MUL = 배수(2 = 이중공격)
     int32_t     cooldownMs     = 0;   // 파일에 적힌 값 그대로 — 로그용
     uint64_t    cooldownFrames = 0;   // 쿨타임(틱) — ms 를 올림해서 담는다(짧아지지 않게)
     int32_t     durationMs     = 0;   // 지속(ms) — 지속 효과(BUFF_*)만. 그 밖은 0 이어야 한다(표 읽기가 막는다) — 로그용

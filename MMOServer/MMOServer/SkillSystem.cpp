@@ -65,6 +65,16 @@ SkillReject CSkillSystem::CheckCaster(const CCharacter* caster, int32_t skillId,
     if (outDef == nullptr)
         return SkillReject::BAD_SKILL;
 
+    // 이 시전자 종류의 스킬인가 — 표는 사람과 몬스터가 한 장을 같이 쓴다(SkillUser). 사람은 PLAYER 줄만, 몬스터는 MONSTER 줄만.
+    //   종류를 가리는 방식은 SelectTargets 와 같다(몬스터 갈래는 USE_MONSTER 안).
+#if USE_MONSTER
+    const SkillUser who = (caster->_kind == CharacterKind::MONSTER) ? SkillUser::MONSTER : SkillUser::PLAYER;
+#else
+    constexpr SkillUser who = SkillUser::PLAYER;
+#endif
+    if (outDef->user != who)
+        return SkillReject::NOT_FOR_CASTER;
+
     if (caster->_isDead)
         return SkillReject::DEAD;
 
@@ -149,19 +159,15 @@ void CSkillSystem::ApplyEffect(CZone* zone, CCharacter* caster, const SkillDef& 
     switch (def.effect)
     {
     case SkillEffect::DAMAGE:
-    {
         // 공격값 = 시전 전 체력 × power% (내림). 방어력은 ApplyHit 가 뺀다(일반 공격과 같은 식)
-        const int32_t attackValue = static_cast<int32_t>(static_cast<int64_t>(hpBefore) * def.power / 100);
-
-        // ★ 다 고른 뒤 하나씩 — 몬스터가 죽으면 ApplyHit 안(OnDeath)에서 해제되고 섹터 목록에서 빠진다.
-        //   버퍼의 그 칸은 이 뒤로 안 읽는다(한 대상은 한 번만 맞는다).
-        for (CCharacter* target : _targets)
-        {
-            _gameMonitor._skill._hits[def.skillId].Inc();   // 맞힌 대상마다 1 — ApplyHit 앞에서 센다(몬스터면 그 안에서 해제된다)
-            _combat.ApplyHit(zone, caster, target, attackValue, frame);
-        }
+        HitTargets(zone, caster, def, static_cast<int32_t>(static_cast<int64_t>(hpBefore) * def.power / 100), frame);
         break;
-    }
+
+    case SkillEffect::DAMAGE_ATK:
+        // 공격값 = 시전자 공격력(최종값) × power% (내림) — 체력이 식에 안 들어간다(몬스터·보스가 체력이 줄어도 같은 힘으로 친다).
+        //   공격력 최종값은 RecalcStats 가 세운 칸이라 효과(이중공격)가 걸려 있으면 그 값이다. 방어력은 ApplyHit 가 뺀다
+        HitTargets(zone, caster, def, static_cast<int32_t>(static_cast<int64_t>(caster->_attackPower) * def.power / 100), frame);
+        break;
 
     case SkillEffect::BUFF_ATTACK_MUL:
     {
@@ -178,6 +184,17 @@ void CSkillSystem::ApplyEffect(CZone* zone, CCharacter* caster, const SkillDef& 
     }
 
     _targets.clear();   // 해제된 몬스터를 가리키는 칸을 남기지 않는다
+}
+
+void CSkillSystem::HitTargets(CZone* zone, CCharacter* caster, const SkillDef& def, int32_t attackValue, uint64_t frame)
+{
+    // ★ 다 고른 뒤 하나씩 — 몬스터가 죽으면 ApplyHit 안(OnDeath)에서 해제되고 섹터 목록에서 빠진다.
+    //   버퍼의 그 칸은 이 뒤로 안 읽는다(한 대상은 한 번만 맞는다).
+    for (CCharacter* target : _targets)
+    {
+        _gameMonitor._skill._hits[def.skillId].Inc();   // 맞힌 대상마다 1 — ApplyHit 앞에서 센다(몬스터면 그 안에서 해제된다)
+        _combat.ApplyHit(zone, caster, target, attackValue, frame);
+    }
 }
 
 #endif // USE_SKILL

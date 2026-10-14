@@ -18,11 +18,14 @@ namespace
 {
     // 파일 글자 — SkillTarget · SkillEffect 순서 그대로. 줄 수가 모자라면 아래 단언이 컴파일을 막는다.
     constexpr const char* TARGET_NAMES[] = { "front", "shape", "self" };
-    constexpr const char* EFFECT_NAMES[] = { "damage", "buff_attack_mul" };   // buff_<종류> — 종류 글자는 GameMonitor.h BuffKindName 과 같다
+    constexpr const char* EFFECT_NAMES[] = { "damage", "buff_attack_mul", "damage_attack" };   // buff_<종류> — 종류 글자는 GameMonitor.h BuffKindName 과 같다
+    constexpr const char* USER_NAMES[]   = { "player", "monster" };
     static_assert(sizeof(TARGET_NAMES) / sizeof(TARGET_NAMES[0]) == static_cast<size_t>(SkillTarget::COUNT),
                   "TARGET_NAMES 는 SkillTarget 마다 한 줄이어야 한다");
     static_assert(sizeof(EFFECT_NAMES) / sizeof(EFFECT_NAMES[0]) == static_cast<size_t>(SkillEffect::COUNT),
                   "EFFECT_NAMES 는 SkillEffect 마다 한 줄이어야 한다");
+    static_assert(sizeof(USER_NAMES) / sizeof(USER_NAMES[0]) == static_cast<size_t>(SkillUser::COUNT),
+                  "USER_NAMES 는 SkillUser 마다 한 줄이어야 한다");
 
     // 글자 → 종류. 모르는 글자면 COUNT
     template <class E, size_t N>
@@ -113,14 +116,15 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
         SplitCsv(dl.text, cell);
         if (cell.size() < 8)
         {
-            SLOG_ERROR("[SkillTable] {}줄: 칸이 {}개입니다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp 여덟(+ shape, durationMs)이 필요합니다",
+            SLOG_ERROR("[SkillTable] {}줄: 칸이 {}개입니다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp 여덟(+ shape, durationMs, user)이 필요합니다",
                        dl.fileLine, cell.size());
             return false;
         }
-        // 아홉째 shape 칸은 shape 대상만, 열째 durationMs 칸은 지속 효과만 쓴다. 끝의 빈 칸은 SplitCsv 가 안 담으므로
-        //   front 줄은 여덟, 어검술 줄은 아홉, 이중공격 줄은 열 칸으로 온다(여덟만 요구하고 나머지는 비면 빈 것으로 본다)
+        // 아홉째 shape 칸은 shape 대상만, 열째 durationMs 칸은 지속 효과만, 열한째 user 칸은 몬스터 스킬만 쓴다. 끝의 빈 칸은 SplitCsv 가 안 담으므로
+        //   front 줄은 여덟, 어검술 줄은 아홉, 이중공격 줄은 열, 몬스터 스킬 줄은 열한 칸으로 온다(여덟만 요구하고 나머지는 비면 빈 것으로 본다)
         const std::string shapeText    = (cell.size() > 8) ? cell[8] : std::string();
         const std::string durationText = (cell.size() > 9) ? cell[9] : std::string();
+        const std::string userText     = (cell.size() > 10) ? cell[10] : std::string();
 
         int64_t skillId = 0, costHpPct = 0, power = 0, cooldownMs = 0, costMp = 0, durationMs = 0;
         if (!ParseInt(cell[0], skillId) || !ParseInt(cell[4], costHpPct) || !ParseInt(cell[5], power) || !ParseInt(cell[6], cooldownMs) ||
@@ -159,8 +163,20 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
         const SkillEffect effect = ParseName<SkillEffect>(cell[3], EFFECT_NAMES);
         if (effect == SkillEffect::COUNT)
         {
-            SLOG_ERROR("[SkillTable] {}줄: 모르는 effect \"{}\" — damage · buff_attack_mul 중 하나여야 합니다 (스킬 {})", dl.fileLine, cell[3], skillId);
+            SLOG_ERROR("[SkillTable] {}줄: 모르는 effect \"{}\" — damage · buff_attack_mul · damage_attack 중 하나여야 합니다 (스킬 {})", dl.fileLine, cell[3], skillId);
             return false;
+        }
+
+        // ⑶-2 쓰는 쪽 — 빈 칸은 사람(옛 줄이 그대로 사람 스킬). 모르는 글자면 누가 쓰는지가 안 정해진다
+        SkillUser user = SkillUser::PLAYER;
+        if (!userText.empty())
+        {
+            user = ParseName<SkillUser>(userText, USER_NAMES);
+            if (user == SkillUser::COUNT)
+            {
+                SLOG_ERROR("[SkillTable] {}줄: 모르는 user \"{}\" — player · monster 중 하나이거나 비워야 합니다 (스킬 {})", dl.fileLine, userText, skillId);
+                return false;
+            }
         }
 
         // ⑷ 체력 비용 — 0~99. 100 이면 떼고 나서 늘 0 이라 영영 못 쓰는 스킬이 된다(LOW_HP — 자기 스킬로는 안 죽는다)
@@ -190,6 +206,26 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
             if (target == SkillTarget::SELF)
             {
                 SLOG_ERROR("[SkillTable] {}줄: damage 는 target self 와 짝지을 수 없습니다 (스킬 {})", dl.fileLine, skillId);
+                return false;
+            }
+            break;
+
+        case SkillEffect::DAMAGE_ATK:
+            // 위력 = 시전자 공격력의 % — 1~MAX_POWER(100 = 일반 공격과 같은 공격값). DAMAGE 와 달리 체력 비용과 위력을 견주지 않는다
+            //   (공격값이 체력에서 안 나오므로 「소모보다 약하게 때림」이 생기지 않는다 — 비용이 있는 DAMAGE_ATK 는 사람 스킬이 쓰는 날을 위해 막지 않는다)
+            if (power < 1 || power > MAX_POWER)
+            {
+                SLOG_ERROR("[SkillTable] {}줄: damage_attack 의 power {} 는 1~{} 여야 합니다 (스킬 {})", dl.fileLine, power, MAX_POWER, skillId);
+                return false;
+            }
+            if (durationMs != 0)
+            {
+                SLOG_ERROR("[SkillTable] {}줄: damage_attack 은 durationMs 를 비워야 합니다 — {} (스킬 {})", dl.fileLine, durationMs, skillId);
+                return false;
+            }
+            if (target == SkillTarget::SELF)
+            {
+                SLOG_ERROR("[SkillTable] {}줄: damage_attack 은 target self 와 짝지을 수 없습니다 (스킬 {})", dl.fileLine, skillId);
                 return false;
             }
             break;
@@ -270,6 +306,7 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
         d.name           = cell[1];
         d.target         = target;
         d.effect         = effect;
+        d.user           = user;
         d.costHpPct      = static_cast<int32_t>(costHpPct);
         d.costMp         = static_cast<int32_t>(costMp);
         d.power          = static_cast<int32_t>(power);

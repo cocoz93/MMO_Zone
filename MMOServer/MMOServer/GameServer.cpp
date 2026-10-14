@@ -528,6 +528,7 @@ namespace
         switch (reject)
         {
         case SkillReject::BAD_SKILL: return SkillFail::BAD_SKILL;
+        case SkillReject::NOT_FOR_CASTER: return SkillFail::BAD_SKILL;   // 와이어 값을 늘리지 않는다 — 사람 눈에는 「없는 스킬」(몬스터 스킬은 사람 막대에도 안 나온다)
         case SkillReject::DEAD:      return SkillFail::DEAD;
         case SkillReject::COOLDOWN:  return SkillFail::COOLDOWN;
         case SkillReject::LOW_HP:    return SkillFail::LOW_HP;

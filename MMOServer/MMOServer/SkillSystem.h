@@ -47,6 +47,7 @@ struct SkillDef;
 enum class SkillReject : uint8_t
 {
     BAD_SKILL,   // 표에 없는 번호(0 · 상한 밖 포함)
+    NOT_FOR_CASTER,   // 표에는 있지만 이 시전자 종류의 스킬이 아니다(사람이 몬스터 스킬을 · 몬스터가 사람 스킬을 — SkillDef::user). 와이어로는 BAD_SKILL 값(사람 눈에는 없는 스킬)
     DEAD,        // 죽어 있다
     COOLDOWN,    // 아직 쿨타임이다
     LOW_HP,      // 체력을 떼고 나면 1 미만이 된다 — 자기 스킬로는 안 죽는다
@@ -89,6 +90,9 @@ private:
 
     // 6) 효과 축 — _targets 에 효과를 내고 버퍼를 비운다. hpBefore = 비용을 떼기 전 체력(피해 식의 바탕).
     void ApplyEffect(CZone* zone, CCharacter* caster, const SkillDef& def, int32_t hpBefore, uint64_t frame);
+
+    // 피해 효과 둘(DAMAGE · DAMAGE_ATK)이 같이 쓰는 몸 — 공격값만 효과마다 다르고 맞히는 방식은 같다(맞힌 수를 세고 ApplyHit).
+    void HitTargets(CZone* zone, CCharacter* caster, const SkillDef& def, int32_t attackValue, uint64_t frame);
 
     const CGameDataFiles& _tables;
     CGameMonitor&         _gameMonitor;

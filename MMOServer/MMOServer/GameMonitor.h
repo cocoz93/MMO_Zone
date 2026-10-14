@@ -225,10 +225,11 @@ inline const char* BuffEndName(BuffEnd e)
 //   ★ 위 USE_INVENTORY 블록 밖이어야 한다 — 스킬은 가방과 따로 켜고 끈다(가방을 끈 빌드에서 이름표가 사라졌던 판, 10-10 토글 빌드).
 inline const char* SkillRejectName(SkillReject r)
 {
-    static_assert(static_cast<int>(SkillReject::COUNT) == 6, "SkillReject 를 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(SkillReject::COUNT) == 7, "SkillReject 를 늘렸으면 이름도 붙일 것");
     switch (r)
     {
     case SkillReject::BAD_SKILL: return "bad_skill";
+    case SkillReject::NOT_FOR_CASTER: return "not_for_caster";
     case SkillReject::DEAD:      return "dead";
     case SkillReject::COOLDOWN:  return "cooldown";
     case SkillReject::LOW_HP:    return "low_hp";
