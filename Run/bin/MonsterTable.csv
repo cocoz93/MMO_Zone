@@ -5,8 +5,10 @@
 #   speed   : tiles/second, 1..15. Above 15 the server refuses to start - the AI think interval assumes it (MonsterAI.h MAX_SPEED).
 #   exp     : given to the player who lands the last hit.
 #   display : displayChar sent on the wire; clients pick the sprite by it. 1..15 (0x01..0x0F) = monster (Protocol.h).
+#   bodyRadius : body radius in tiles, 0..4 (optional - a blank or missing cell is 0 = a point). Attack range is measured between body edges.
+#                The web sprite size (MON_META.scale in WebClient/assets/monsters.js) is a separate value - set the two together.
 #   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
 #   snake: maxHp 30 = 3 hits of a level-1 player (attack 10) / speed 5 = slower than players so they can run / exp 10 = level 2 needs 100, ten snakes.
 #   (snake values come from the plan monster-snake.md decision 9; speed was 15 in code and 5 via MMOServerConfig.ini [Game] until 10-08 - 5 is what ran)
-monsterId,name,maxHp,attack,defense,speed,exp,display
+monsterId,name,maxHp,attack,defense,speed,exp,display,bodyRadius
 1,뱀,30,5,0,5,10,1

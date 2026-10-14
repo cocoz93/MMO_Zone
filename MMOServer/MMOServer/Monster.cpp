@@ -20,6 +20,7 @@ CMonster::CMonster(const MonsterDef& def)
     _maxHp       = def.maxHp;
     _attackPower = def.attack;
     _defense     = def.defense;
+    _bodyRadius  = def.bodyRadius;
 
     // 속도는 CActor 가 0 으로 두고 파생이 정한다(CPlayer 와 같은 규칙)
     _speed = def.speed;

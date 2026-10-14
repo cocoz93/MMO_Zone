@@ -26,4 +26,7 @@ namespace GameDataCsv
 
     // 문자열이 통째로 정수인가 (뒤에 쓰레기가 붙은 "12abc" 를 12 로 받지 않게)
     bool ParseInt(const std::string& s, int64_t& out);
+
+    // 문자열이 통째로 실수인가 ("1.5" · "2" — 뒤에 쓰레기가 붙은 "1.5x"·"nan"·"inf" 는 아니다)
+    bool ParseFloat(const std::string& s, double& out);
 }

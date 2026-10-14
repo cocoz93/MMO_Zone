@@ -1,6 +1,7 @@
 ﻿#include "GameDataCsv.h"
 
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -59,6 +60,18 @@ namespace GameDataCsv
         if (end != s.c_str() + s.size())
             return false;
         out = static_cast<int64_t>(v);
+        return true;
+    }
+
+    bool ParseFloat(const std::string& s, double& out)
+    {
+        if (s.empty())
+            return false;
+        char* end = nullptr;
+        const double v = std::strtod(s.c_str(), &end);
+        if (end != s.c_str() + s.size() || !std::isfinite(v))
+            return false;
+        out = v;
         return true;
     }
 }

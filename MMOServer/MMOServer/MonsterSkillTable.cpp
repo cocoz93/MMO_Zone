@@ -3,7 +3,6 @@
 #if USE_MONSTER && USE_SKILL
 
 #include <cmath>
-#include <cstdlib>
 
 #include <Common/ErrorLog.h>
 
@@ -17,27 +16,12 @@ using GameDataCsv::DataLine;
 using GameDataCsv::ReadDataLines;
 using GameDataCsv::SplitCsv;
 using GameDataCsv::ParseInt;
+using GameDataCsv::ParseFloat;
 
 const std::vector<MonsterSkillRule> CMonsterSkillTable::EMPTY;
 
 // 규칙이 볼 수 있는 가장 먼 거리는 AI 가 대상을 보는 시야다 — 시야 밖의 대상은 AI 가 아예 안 보므로 그보다 먼 maxDist 는 뜻이 없다
 static_assert(CMonsterSkillTable::MAX_DIST <= MonsterAI::SIGHT_RANGE, "MonsterSkill 의 maxDist 상한이 몬스터 시야를 넘으면 안 된다");
-
-namespace
-{
-    // 문자열이 통째로 실수인가 ("1.5" · "2" — 뒤에 쓰레기가 붙은 "1.5x" 는 아니다). GameDataCsv 에는 정수 판독만 있어 여기 둔다.
-    bool ParseFloat(const std::string& s, double& out)
-    {
-        if (s.empty())
-            return false;
-        char* end = nullptr;
-        const double v = std::strtod(s.c_str(), &end);
-        if (end != s.c_str() + s.size() || !std::isfinite(v))
-            return false;
-        out = v;
-        return true;
-    }
-}
 
 bool CMonsterSkillTable::Load(const std::string& path, const CMonsterTable& monsters, const CSkillTable& skills)
 {

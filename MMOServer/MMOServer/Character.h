@@ -66,6 +66,10 @@ public:
     int32_t _attackPower = 0;   // 공격력 (최종값)
     int32_t _defense     = 0;   // 방어력 (최종값) — 맞을 때 공격력에서 뺀다
 
+    // 몸 반지름(타일) — 사거리를 잴 때 중심 거리에서 몸 크기만큼 뺀다. 0 = 점(사람·작은 몬스터).
+    //   몬스터는 생성자가 몬스터 표의 bodyRadius 를 복사하고, 사람은 0 으로 둔다. 웹의 그림 크기(MON_META.scale)와는 따로 사는 값이다.
+    float _bodyRadius = 0.0f;
+
 #if USE_COMBAT
     // 지속 효과 칸 — 종류마다 하나(Buff.h BuffSlot · 색인 = BuffKind). 비우는 자리는 CBuffSystem(만료·죽음·퇴장)뿐 — 여기서 직접 손대지 않는다.
     //   공격력 최종값은 위 주석대로 RecalcStats 가 이 칸을 읽어 곱한다. 몬스터도 같은 칸이다(보스가 스킬로 자기에게 거는 버프 — MonsterAI 가 고르고 CMonsterManager 가 CSkillSystem 을 부른다).

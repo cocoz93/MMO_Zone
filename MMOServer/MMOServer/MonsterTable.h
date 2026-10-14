@@ -34,6 +34,7 @@ struct MonsterDef
     int32_t     speed     = 0;   // 칸/초
     int32_t     exp       = 0;   // 잡은 사람에게 주는 경험치
     uint8_t     display   = 0;   // 와이어 표시 문자 — Protocol.h DISPLAY_MONSTER_BASE 구간
+    float       bodyRadius = 0.0f;   // 몸 반지름(칸) — 0 이면 점. 사거리 판정이 중심 거리에서 이만큼 뺀다. 표의 아홉째 칸(옛 줄은 없어도 0)
     int32_t     fileLine  = 0;   // 대조(CheckSpeed)에서 틀렸을 때 가리킬 줄
 };
 

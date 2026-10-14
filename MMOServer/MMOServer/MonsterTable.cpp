@@ -5,12 +5,14 @@
 #include <Common/ErrorLog.h>
 #include <Protocol/Protocol.h>   // DISPLAY_MONSTER_BASE — 겉모습 값의 구간
 
+#include "Combat.h"          // MAX_BODY_RADIUS — 몸 반지름 상한 (USE_COMBAT 밖 상수)
 #include "GameDataCsv.h"
 
 using GameDataCsv::DataLine;
 using GameDataCsv::ReadDataLines;
 using GameDataCsv::SplitCsv;
 using GameDataCsv::ParseInt;
+using GameDataCsv::ParseFloat;
 
 namespace
 {
@@ -42,14 +44,18 @@ bool CMonsterTable::Load(const std::string& path)
         SplitCsv(dl.text, cell);
         if (cell.size() < 8)
         {
-            SLOG_ERROR("[MonsterTable] {}줄: 칸이 {}개입니다 — monsterId,name,maxHp,attack,defense,speed,exp,display 여덟이 필요합니다",
+            SLOG_ERROR("[MonsterTable] {}줄: 칸이 {}개입니다 — monsterId,name,maxHp,attack,defense,speed,exp,display 여덟(+ bodyRadius)이 필요합니다",
                        dl.fileLine, cell.size());
             return false;
         }
 
+        // 아홉째 bodyRadius 칸은 옛 줄에 없어도 된다(없거나 비면 0 = 점). 끝의 빈 칸은 SplitCsv 가 안 담는다
+        const std::string radiusText = (cell.size() > 8) ? cell[8] : std::string();
         int64_t monsterId = 0, maxHp = 0, attack = 0, defense = 0, speed = 0, exp = 0, display = 0;
+        double  bodyRadius = 0.0;
         if (!ParseInt(cell[0], monsterId) || !ParseInt(cell[2], maxHp) || !ParseInt(cell[3], attack) ||
-            !ParseInt(cell[4], defense) || !ParseInt(cell[5], speed) || !ParseInt(cell[6], exp) || !ParseInt(cell[7], display))
+            !ParseInt(cell[4], defense) || !ParseInt(cell[5], speed) || !ParseInt(cell[6], exp) || !ParseInt(cell[7], display) ||
+            (!radiusText.empty() && !ParseFloat(radiusText, bodyRadius)))
         {
             SLOG_ERROR("[MonsterTable] {}줄: 숫자여야 하는 칸이 숫자가 아닙니다 — \"{}\"", dl.fileLine, dl.text);
             return false;
@@ -104,6 +110,14 @@ bool CMonsterTable::Load(const std::string& path)
             return false;
         }
 
+        // ⑺ 몸 반지름 — 0 이상 상한 이하. 음수는 사거리를 줄이고, 상한을 넘으면 후보 반경(Combat::MAX_BODY_RADIUS)에서 놓치는 몬스터가 생긴다
+        if (!(bodyRadius >= 0.0) || bodyRadius > static_cast<double>(Combat::MAX_BODY_RADIUS))
+        {
+            SLOG_ERROR("[MonsterTable] {}줄: bodyRadius {} 는 0~{} 여야 합니다 (몬스터 {})",
+                       dl.fileLine, radiusText, Combat::MAX_BODY_RADIUS, monsterId);
+            return false;
+        }
+
         if (static_cast<int64_t>(_rows.size()) <= monsterId)
             _rows.resize(static_cast<size_t>(monsterId) + 1);
 
@@ -116,6 +130,7 @@ bool CMonsterTable::Load(const std::string& path)
         d.speed     = static_cast<int32_t>(speed);
         d.exp       = static_cast<int32_t>(exp);
         d.display   = static_cast<uint8_t>(display);
+        d.bodyRadius = static_cast<float>(bodyRadius);
         d.fileLine  = dl.fileLine;
         ++_count;
     }

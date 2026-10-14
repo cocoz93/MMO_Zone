@@ -29,6 +29,11 @@ namespace Combat
     constexpr float ATTACK_RANGE     = 1.5f;                        // 타일
     constexpr float ATTACK_RANGE_SQ  = ATTACK_RANGE * ATTACK_RANGE;
 
+    // 몸 반지름 상한(타일) — 몬스터 표의 bodyRadius 가 넘으면 읽기가 거부한다(오타 거르기).
+    //   사거리를 훑는 후보 반경이 「맞는 쪽 반지름을 모르는 채」 이 값만큼 넓어지는 상한이기도 하다(CCombatSystem::FindFrontTarget) —
+    //   그래서 표가 이 값을 넘는 몬스터를 못 만들어야 후보를 놓치지 않는다.
+    constexpr float MAX_BODY_RADIUS  = 4.0f;
+
 #if USE_COMBAT
 
     // 틱은 40ms (BuildConfig.h FRAME_INTERVAL_MS)
