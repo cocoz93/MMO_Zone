@@ -31,11 +31,27 @@ constexpr int32_t MAX_SHAPE_CELLS = 16;   // 한 스킬의 칸 수 상한
 //   dx, dy = 대상 − 시전자 좌표. 앞 = (dx,dy)·DirectionStep(facing), 옆 = (dx,dy)·(−앞.y, 앞.x) 를 각각 반올림해 칸 번호로 —
 //   칸 k 는 [k−0.5, k+0.5) 다. 기준은 시전자의 실제 좌표다(타일에 붙이지 않는다 — 일반 공격의 사거리 판정과 같은 float 기준).
 //   facing 이 NONE 이면 앞 성분이 늘 0 이라 어떤 칸(앞 ≥ 1)에도 안 든다.
-inline bool IsInShape(Direction facing, float dx, float dy, const std::vector<ShapeCell>& cells)
+//
+//   몸 반지름(casterRadius · targetRadius, 둘 다 0 이면 위 점 판정 그대로)이 있으면 칸은 **두 몸의 가장자리 사이**로 잰다:
+//     앞 = (앞 성분) − 시전자 반지름 − 대상 반지름 · 옆 = |옆 성분| 을 대상 반지름만큼 중심선 쪽으로 당긴 값(0 을 넘지 않는다).
+//     대상 몸이 시전자 중심보다 앞쪽에 걸쳐 있는데(앞 성분 + 대상 반지름 > 0) 앞이 0.5 미만이면 — 몸이 닿았거나 겹쳤다 — 첫 칸(0.5)으로 친다.
+//     안 그러면 큰 몸 시전자의 몸통에 붙어 선 대상은 아무 칸에도 안 들어 범위 스킬을 안 맞는 자리가 된다(10-14 「첫 칸 취급」).
+//   대상 몸을 「가까운 가장자리 한 점」으로 보는 근사다 — 원과 칸의 정확한 겹침 계산은 안 한다.
+inline bool IsInShape(Direction facing, float dx, float dy, const std::vector<ShapeCell>& cells,
+                      float casterRadius = 0.0f, float targetRadius = 0.0f)
 {
     const DirectionVec f = DirectionStep(facing);
-    const float along = dx * f.x + dy * f.y;      // 앞 성분
-    const float right = dx * -f.y + dy * f.x;     // 옆 성분 — 오른쪽 = (−앞.y, 앞.x)
+    float along = dx * f.x + dy * f.y;            // 앞 성분
+    float right = dx * -f.y + dy * f.x;           // 옆 성분 — 오른쪽 = (−앞.y, 앞.x)
+    if (casterRadius > 0.0f || targetRadius > 0.0f)
+    {
+        const bool bodyAhead = (along + targetRadius > 0.0f);
+        along -= casterRadius + targetRadius;
+        if (bodyAhead && along < 0.5f)
+            along = 0.5f;
+        const float side = std::fabs(right) - targetRadius;
+        right = (side > 0.0f) ? std::copysign(side, right) : 0.0f;
+    }
     const int32_t cellForward = static_cast<int32_t>(std::floor(along + 0.5f));
     const int32_t cellSide    = static_cast<int32_t>(std::floor(right + 0.5f));
     for (const ShapeCell& c : cells)
@@ -59,6 +75,16 @@ inline float ShapeReach(const std::vector<ShapeCell>& cells)
         reach = (d > reach) ? d : reach;   // std::max 는 윈도 헤더의 max 매크로에 먹힌다
     }
     return reach;
+}
+
+// 범위 스킬이 후보를 훑는 반경(시전자 중심에서) — 칸 목록이 닿는 거리에 몸 크기를 더한다.
+//   맞을 수 있는 대상의 중심은 칸 바깥 모서리 (a, b) 에서 앞으로 (시전자 반지름 + 대상 반지름) · 옆으로 대상 반지름만큼 더 나간 곳까지라
+//   길이가 shapeReach + √((시전자 + 대상)² + 대상²) 를 넘지 않는다(삼각 부등식). 대상 반지름은 후보를 보기 전엔 모르므로 부르는 쪽이 상한을 넘긴다.
+//   두 반지름이 0 이면 shapeReach 그대로다.
+inline float ShapeScanRadius(float shapeReach, float casterRadius, float targetRadiusMax)
+{
+    const float forwardExtra = casterRadius + targetRadiusMax;
+    return shapeReach + std::sqrt(forwardExtra * forwardExtra + targetRadiusMax * targetRadiusMax);
 }
 
 // 대상 종류 — 「누가 맞나」를 고르는 축. 새 종류 = 여기 한 줄 + 표 이름 한 줄 + CSkillSystem::SelectTargets 의 case 하나.
@@ -117,7 +143,7 @@ struct SkillDef
     int32_t     durationMs     = 0;   // 지속(ms) — 지속 효과(BUFF_*)만. 그 밖은 0 이어야 한다(표 읽기가 막는다) — 로그용
     uint64_t    durationFrames = 0;   // 지속(틱) — 올림(쿨타임과 같은 까닭). 30000 → 750
     std::vector<ShapeCell> shape;     // SHAPE 의 칸 목록(다른 대상 종류는 빈 목록)
-    float       shapeReach     = 0.0f;   // ShapeReach(shape) — 대상 찾기가 훑을 반경. 표 읽기가 한 번 센다
+    float       shapeReach     = 0.0f;   // ShapeReach(shape) — 대상 찾기가 훑을 반경(몸 크기는 ShapeScanRadius 가 더한다). 표 읽기가 한 번 센다
 };
 
 class CSkillTable

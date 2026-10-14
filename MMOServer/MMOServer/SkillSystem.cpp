@@ -7,6 +7,7 @@
 #include "SkillTable.h"      // SkillDef · 대상·효과 종류 · IsInShape
 #include "GameDataFiles.h"   // 스킬 표
 #include "GameMonitor.h"     // 시전·거절 지표
+#include "Combat.h"          // MAX_BODY_RADIUS — 범위 스킬 후보 반경에 쓰는 맞는 쪽 반지름 상한
 #include "CombatSystem.h"    // FindFrontTarget · CollectCandidates · ApplyHit — 일반 공격과 같이 쓴다
 #include "BuffSystem.h"      // Apply — 지속 효과 걸기(효과 축 BUFF_ATTACK_MUL)
 #include "Character.h"       // 종류·생사·체력·쿨타임 필드 — 시전자는 CCharacter 다
@@ -138,13 +139,18 @@ SkillReject CSkillSystem::SelectTargets(CZone* zone, CCharacter* caster, const S
     {
         // 칸 목록이 닿는 반경(shapeReach)의 후보를 다 모은 뒤 모양 밖을 버린다 — 맞히기는 ApplyEffect(다 고른 뒤)다.
         //   기준은 시전자의 실제 좌표와 바라보는 쪽(IsInShape). 한 칸에 여럿이면 다 남는다(맞는 수 상한 없음, 10-11).
-        _combat.CollectCandidates(zone, caster->_x, caster->_y, def.shapeReach, which, caster, _targets);
+        //   몸이 큰 시전자·대상은 칸을 두 몸의 가장자리 사이로 잰다(IsInShape) — 훑는 반경도 몸 크기만큼 넓힌다. 맞는 쪽 반지름은 후보를 보기 전엔
+        //   모르므로 상한으로 넓히되, PLAYERS 목록은 사람뿐이라 반지름이 0 이다(사람은 0 고정 — CCharacter::_bodyRadius)
+        const float targetRadiusMax = (which == CCombatSystem::CandidateList::PLAYERS) ? 0.0f : Combat::MAX_BODY_RADIUS;
+        _combat.CollectCandidates(zone, caster->_x, caster->_y, ShapeScanRadius(def.shapeReach, caster->_bodyRadius, targetRadiusMax),
+                                  which, caster, _targets);
         const float     casterX = caster->_x;
         const float     casterY = caster->_y;
         const Direction facing  = caster->_direction;
+        const float     casterRadius = caster->_bodyRadius;
         _targets.erase(std::remove_if(_targets.begin(), _targets.end(), [&](const CCharacter* t)
         {
-            return !IsInShape(facing, t->_x - casterX, t->_y - casterY, def.shape);
+            return !IsInShape(facing, t->_x - casterX, t->_y - casterY, def.shape, casterRadius, t->_bodyRadius);
         }), _targets.end());
         break;
     }
