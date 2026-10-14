@@ -668,6 +668,25 @@ private:
                << "\"} " << sk._rejected[i] << "\n";
         }
         ss << "\n";
+        // 위 셋의 몬스터(보스) 몫 — 사람 지표와 이름이 겹치지 않게 따로 낸다(합치면 sum(mmo_skill_cast_total) 에 보스가 섞인다)
+        ss << "# HELP mmo_monster_skill_cast_total Skill casts by monsters that passed every check, split by skill id (players' casts are mmo_skill_cast_total)\n";
+        ss << "# TYPE mmo_monster_skill_cast_total counter\n";
+        for (int i = 1; i <= MAX_SKILL_ID; ++i)
+            ss << "mmo_monster_skill_cast_total{skill=\"" << i << "\"} " << sk._monsterCast[i] << "\n";
+        ss << "\n";
+        ss << "# HELP mmo_monster_skill_hits_total Targets hit by monsters' damage skills, split by skill id\n";
+        ss << "# TYPE mmo_monster_skill_hits_total counter\n";
+        for (int i = 1; i <= MAX_SKILL_ID; ++i)
+            ss << "mmo_monster_skill_hits_total{skill=\"" << i << "\"} " << sk._monsterHits[i] << "\n";
+        ss << "\n";
+        ss << "# HELP mmo_monster_skill_rejected_total Skill casts by monsters that were refused (nothing paid), split by reason\n";
+        ss << "# TYPE mmo_monster_skill_rejected_total counter\n";
+        for (int i = 0; i < static_cast<int>(SkillReject::COUNT); ++i)
+        {
+            ss << "mmo_monster_skill_rejected_total{reason=\"" << SkillRejectName(static_cast<SkillReject>(i))
+               << "\"} " << sk._monsterRejected[i] << "\n";
+        }
+        ss << "\n";
         WriteCounter(ss, "mmo_actor_mp_sent_total",
                      "S2C_ACTOR_MP packets sent (only SendActorMp sends them, to the owner only; one per enter, zone change, level-up, mana cast and mana potion)",
                      sk._actorMpSent);

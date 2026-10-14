@@ -44,6 +44,9 @@ class CGameDataFiles;      // 기획 데이터 — 참조로 쥔다(표를 읽�
 #if USE_COMBAT
 class CCombatSystem;
 #endif
+#if USE_SKILL
+class CSkillSystem;
+#endif
 
 // 몬스터 쪽이 게임 서버에 부탁하는 것 — CGameServer 가 구현한다(세션·송신·번호 계수기가 거기 있다).
 //   1단계 ICombatEvents 와 같은 꼴: "패킷을 보내라"가 아니라 "무슨 일이 있었다"로 알리고, 패킷 조립은 받는 쪽이 한다.
@@ -71,6 +74,9 @@ struct MonsterContext
     CGameMonitor&            monitor;
 #if USE_COMBAT
     CCombatSystem&           combat;           // 공격 흐름 — 플레이어와 같은 것을 쓴다
+#endif
+#if USE_SKILL
+    CSkillSystem&            skill;            // 스킬 쓰기 — 플레이어와 같은 것을 쓴다(시전자는 CCharacter). 고르는 건 MonsterAI, 부르는 건 여기(Think)
 #endif
 };
 

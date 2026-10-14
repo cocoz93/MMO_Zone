@@ -11,6 +11,9 @@
 #if USE_COMBAT
 #include "CombatSystem.h"    // 공격 흐름 — 몬스터가 물 때 플레이어와 같은 것을 부른다
 #endif
+#if USE_SKILL
+#include "SkillSystem.h"     // 스킬 쓰기 — 몬스터가 스킬을 쓸 때 플레이어와 같은 것을 부른다(규칙 목록은 몬스터 스킬 표 · GameDataFiles.h)
+#endif
 #include <Common/ErrorLog.h> // 스폰 로그 한 줄
 #include <algorithm>         // find_if — Despawn
 #include <cassert>
@@ -96,7 +99,12 @@ void CMonsterManager::Think(const MonsterContext& ctx, CMonster* monster, uint64
     ctx.monitor._monster._thinkCalls.Inc();
 
     CCharacter* target = FindAITarget(monster);
+#if USE_SKILL
+    // 이 몬스터가 쓰는 스킬 규칙 — 몬스터 번호로 꺼내 AI 에 넘긴다(AI 는 표를 모른다). 규칙 없는 몬스터(뱀)는 빈 목록이다
+    const MonsterAI::Decision d = MonsterAI::Think(*monster, target, frame, _gameData.MonsterSkills().RulesOf(monster->_def.monsterId));
+#else
     const MonsterAI::Decision d = MonsterAI::Think(*monster, target, frame);
+#endif
 
     // 상태·대상·다음 판단 시점은 그대로 적는다 (와이어에 안 나가는 서버 내부 값)
     if (d.nextState != monster->_aiState)
@@ -129,8 +137,17 @@ void CMonsterManager::Think(const MonsterContext& ctx, CMonster* monster, uint64
     //     전투를 끄면 몬스터는 배회·추적까지만 하고 물지 않는다. 그게 맞는 동작이고,
     //     이 가드를 빼면 USE_COMBAT=0 + USE_MONSTER=1 조합이 컴파일되지 않는다.
 #if USE_COMBAT
+#if USE_SKILL
+    // ── 스킬 ── 한 번의 판단에 행동 하나 — 스킬을 골랐으면 그것이 이번 판단의 행동이고(평타를 대신한다), 아니면 평타.
+    //   거절돼도(대상이 방금 비켰다 등) 아무것도 안 바뀐다(UseSkill 의 약속) — 결과는 지표(몬스터 몫 거절)가 센다.
+    if (d.skillId != 0)
+        ctx.skill.UseSkill(&_zone, monster, d.skillId, frame);
+    else if (d.attack)
+        ctx.combat.PerformAttack(&_zone, monster, frame);
+#else
     if (d.attack)
         ctx.combat.PerformAttack(&_zone, monster, frame);
+#endif
 #endif
 }
 

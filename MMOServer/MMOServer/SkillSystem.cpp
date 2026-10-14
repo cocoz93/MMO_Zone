@@ -11,6 +11,20 @@
 #include "BuffSystem.h"      // Apply — 지속 효과 걸기(효과 축 BUFF_ATTACK_MUL)
 #include "Character.h"       // 종류·생사·체력·쿨타임 필드 — 시전자는 CCharacter 다
 
+namespace
+{
+    // 시전자가 몬스터인가 — 쓰는 쪽 검사(user)·대상 후보·지표 몫이 전부 이 한 판정으로 갈린다. USE_MONSTER 가 꺼진 빌드엔 몬스터가 없다.
+    inline bool IsMonsterCaster(const CCharacter* c)
+    {
+#if USE_MONSTER
+        return c->_kind == CharacterKind::MONSTER;
+#else
+        (void)c;
+        return false;
+#endif
+    }
+}
+
 CSkillSystem::CSkillSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor, CCombatSystem& combat, CBuffSystem& buff, ISkillEvents& events)
     : _tables(tables)
     , _gameMonitor(gameMonitor)
@@ -22,8 +36,10 @@ CSkillSystem::CSkillSystem(const CGameDataFiles& tables, CGameMonitor& gameMonit
 
 SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skillId, uint64_t frame)
 {
-    // 지표(_skill)는 지금 사람 몫뿐이다 — 몬스터가 스킬을 부르는 곳이 아직 없다.
-    //   보스 단계에서 몬스터가 부르게 되면 일반 공격(PerformAttack)처럼 종류로 갈라 센다 — 안 가르면 사람 지표에 섞인다.
+    // 지표는 시전자 종류로 갈라 센다 — 사람 몫(_cast·_rejected·_hits)과 몬스터 몫(_monster*)이 따로다(일반 공격이 종류로 갈라 세는 것과 같은 꼴).
+    //   안 가르면 몬스터(보스)의 시전이 사람 시전 수에 섞인다. 몬스터가 스킬을 부르는 곳은 CMonsterManager::Think 다.
+    const bool byMonster = IsMonsterCaster(caster);
+    auto& counters = _gameMonitor._skill;
 
     // ── 1) 시전자 검사 — 번호·생사·쿨타임·체력·마력. 뗄 체력은 여기서 세고 4) 가 그대로 뗀다 ──
     const SkillDef* def = nullptr;
@@ -36,7 +52,7 @@ SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skil
 
     if (reject != SkillReject::COUNT)
     {
-        _gameMonitor._skill._rejected[static_cast<int>(reject)].Inc();
+        (byMonster ? counters._monsterRejected : counters._rejected)[static_cast<int>(reject)].Inc();
         return reject;
     }
 
@@ -47,7 +63,7 @@ SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skil
     caster->_hp -= hpCost;
     caster->_mp -= def->costMp;   // 모자라지 않음은 1) 의 LOW_MP 검사가 이미 봤다
     caster->_skillReadyFrame[def->skillId] = frame + def->cooldownFrames;   // 성공했을 때만 — 거절은 쿨타임을 안 건다
-    _gameMonitor._skill._cast[def->skillId].Inc();
+    (byMonster ? counters._monsterCast : counters._cast)[def->skillId].Inc();
 
     // ── 5) 시전 알림 — 방송과 시전자 체력·마력 알림은 받는 쪽(게임 서버) ──
     _events.OnCast(zone, caster, *def);
@@ -66,12 +82,7 @@ SkillReject CSkillSystem::CheckCaster(const CCharacter* caster, int32_t skillId,
         return SkillReject::BAD_SKILL;
 
     // 이 시전자 종류의 스킬인가 — 표는 사람과 몬스터가 한 장을 같이 쓴다(SkillUser). 사람은 PLAYER 줄만, 몬스터는 MONSTER 줄만.
-    //   종류를 가리는 방식은 SelectTargets 와 같다(몬스터 갈래는 USE_MONSTER 안).
-#if USE_MONSTER
-    const SkillUser who = (caster->_kind == CharacterKind::MONSTER) ? SkillUser::MONSTER : SkillUser::PLAYER;
-#else
-    constexpr SkillUser who = SkillUser::PLAYER;
-#endif
+    const SkillUser who = IsMonsterCaster(caster) ? SkillUser::MONSTER : SkillUser::PLAYER;
     if (outDef->user != who)
         return SkillReject::NOT_FOR_CASTER;
 
@@ -107,12 +118,8 @@ SkillReject CSkillSystem::SelectTargets(CZone* zone, CCharacter* caster, const S
     // 후보는 시전자 종류로 고른다 — 일반 공격(CombatSystem.cpp PerformAttack 의 3) 대상 고르기)과 같은 식.
     //   사람이 쓰면 나머지 목록(지금은 몬스터뿐 — 사람은 사람의 스킬에 안 맞는다),
     //   몬스터가 쓰면 플레이어 목록(몬스터는 몬스터를 못 때린다 — 빠뜨리면 일반 공격에서 실제로 났던 뱀→뱀 결함이 스킬로 다시 난다).
-    //   ★ 몬스터 쪽(PLAYERS)은 아직 아무도 안 탄다 — 몬스터가 스킬을 부르는 곳이 보스 단계에서 생긴다.
-#if USE_MONSTER
-    const bool byMonster = (caster->_kind == CharacterKind::MONSTER);
-#else
-    constexpr bool byMonster = false;
-#endif
+    //   몬스터 쪽(PLAYERS)은 CMonsterManager::Think 가 부르는 보스 스킬이 탄다(10-13).
+    const bool byMonster = IsMonsterCaster(caster);
     const CCombatSystem::CandidateList which = byMonster ? CCombatSystem::CandidateList::PLAYERS : CCombatSystem::CandidateList::OTHERS;
 
     switch (def.target)
@@ -190,9 +197,11 @@ void CSkillSystem::HitTargets(CZone* zone, CCharacter* caster, const SkillDef& d
 {
     // ★ 다 고른 뒤 하나씩 — 몬스터가 죽으면 ApplyHit 안(OnDeath)에서 해제되고 섹터 목록에서 빠진다.
     //   버퍼의 그 칸은 이 뒤로 안 읽는다(한 대상은 한 번만 맞는다).
+    //   맞힌 수는 시전자 종류로 갈라 센다(UseSkill 의 시전·거절과 같은 몫)
+    Counter* hits = IsMonsterCaster(caster) ? _gameMonitor._skill._monsterHits : _gameMonitor._skill._hits;
     for (CCharacter* target : _targets)
     {
-        _gameMonitor._skill._hits[def.skillId].Inc();   // 맞힌 대상마다 1 — ApplyHit 앞에서 센다(몬스터면 그 안에서 해제된다)
+        hits[def.skillId].Inc();   // 맞힌 대상마다 1 — ApplyHit 앞에서 센다(몬스터면 그 안에서 해제된다)
         _combat.ApplyHit(zone, caster, target, attackValue, frame);
     }
 }

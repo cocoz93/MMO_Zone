@@ -12,7 +12,7 @@
 //   (효과 칸의 규칙은 CBuffSystem — 여기는 걸기만 부른다)
 //
 // [시전자] CCharacter 다 — 사람도 몬스터(보스)도 같은 규칙으로 쓴다(10-11). 일반 공격(CCombatSystem::PerformAttack)과 같은 꼴.
-//   종류로 갈리는 것은 대상 후보 하나뿐이다(SelectTargets). 몬스터가 스킬을 부르는 곳은 아직 없다(보스 단계).
+//   종류로 갈리는 것은 대상 후보 하나뿐이다(SelectTargets). 몬스터가 스킬을 부르는 곳은 CMonsterManager::Think 다(MonsterAI 가 규칙 표에서 고른 번호 — 10-13).
 //
 // [두 축] 스킬마다 다른 것은 숫자뿐이라 클래스를 스킬마다 두지 않는다. 코드로 늘어나는 것은 둘이다 —
 //   대상 종류(SkillTarget → SelectTargets) · 효과 종류(SkillEffect → ApplyEffect). 새 종류 = 그 축의 case 하나.
@@ -51,7 +51,7 @@ enum class SkillReject : uint8_t
     DEAD,        // 죽어 있다
     COOLDOWN,    // 아직 쿨타임이다
     LOW_HP,      // 체력을 떼고 나면 1 미만이 된다 — 자기 스킬로는 안 죽는다
-    LOW_MP,      // 마력이 비용보다 적다(몬스터는 마력이 0 이라 마력 드는 스킬이면 늘 여기 — 몬스터 마력은 보스 단계)
+    LOW_MP,      // 마력이 비용보다 적다(몬스터는 마력이 0 이라 마력 드는 스킬이면 늘 여기 — 그래서 몬스터 스킬 표 읽기가 costMp 0 만 받는다)
     NO_TARGET,   // 맞을 상대가 없다(사람이 쓰면 몬스터만, 몬스터가 쓰면 사람만 맞는다)
     COUNT
 };

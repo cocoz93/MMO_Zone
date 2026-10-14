@@ -68,7 +68,7 @@ public:
 
 #if USE_COMBAT
     // 지속 효과 칸 — 종류마다 하나(Buff.h BuffSlot · 색인 = BuffKind). 비우는 자리는 CBuffSystem(만료·죽음·퇴장)뿐 — 여기서 직접 손대지 않는다.
-    //   공격력 최종값은 위 주석대로 RecalcStats 가 이 칸을 읽어 곱한다. 몬스터도 같은 칸이다(보스 버프 — 거는 AI 는 아직 없다).
+    //   공격력 최종값은 위 주석대로 RecalcStats 가 이 칸을 읽어 곱한다. 몬스터도 같은 칸이다(보스가 스킬로 자기에게 거는 버프 — MonsterAI 가 고르고 CMonsterManager 가 CSkillSystem 을 부른다).
     //   전투 토글 소유다 — 거는 쪽이 스킬만이 아니라서(아이템도 걸 수 있는 틀).
     //   사람 것은 DB 에 저장한다(characters.buffs — 실제 시각으로 묶어 접속하지 않은 동안에도 흐른다 · CGameServer::PackCooldownsAndBuffs).
     BuffSlot _buffs[BUFF_KIND_COUNT];
@@ -87,7 +87,7 @@ public:
     uint64_t _skillReadyFrame[MAX_SKILL_ID + 1] = {};
 
     // 마력 — 스킬 비용(SkillDef::costMp)으로 쓰고 마력 물약으로만 찬다(자연 회복 없음 — 체력과 같다, 10-01).
-    //   플레이어는 CStatSystem::RecalcStats 가 레벨 표 maxMp 로 세운다. 몬스터는 0 이다(몬스터 표 칸은 보스 단계).
+    //   플레이어는 CStatSystem::RecalcStats 가 레벨 표 maxMp 로 세운다. 몬스터는 0 이다(몬스터 스킬은 비용 0 만 허용 — 마력 칸은 몬스터 표에 없다).
     //   부활해도 그대로다(Combat::Respawn 은 체력만 채운다). 체력과 같이 DB 에 저장한다(characters.mp — 들어올 때 CStatSystem::RestoreHpMp).
     //   스킬 토글 소유다 — 마력을 쓰는 곳이 스킬뿐이라서. 여기 있는 까닭은 위 쿨타임 배열과 같다.
     int32_t _mp    = 0;   // 현재 마력

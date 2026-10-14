@@ -3204,7 +3204,7 @@ void CGameServer::OnCast(CZone* zone, CCharacter* caster, const SkillDef& def)
         BroadcastAroundSector(zone, caster, MakeActorStats(caster->_actorId, caster->_hp, caster->_maxHp), false);
 
     // 마력을 뗐으면 시전자 본인에게만 — 남의 마력은 화면에 안 그린다(주변 방송 금지, Protocol.h MSG_S2C_ACTOR_MP).
-    //   시전자가 사람일 때만이다 — 몬스터는 받을 세션이 없다(몬스터 시전은 보스 단계).
+    //   시전자가 사람일 때만이다 — 몬스터는 받을 세션이 없다(몬스터 시전도 이 함수를 지나지만 몬스터 스킬은 마력이 0 이라 여기 안 온다).
     if (def.costMp > 0)
     {
         if (CPlayer* player = As<CPlayer>(caster))
@@ -3250,7 +3250,7 @@ void CGameServer::SendMyStats(CPlayer* player)
 // ==========================================================================
 
 // 효과가 바뀌었다(걸림·되감김·만료·죽음) — 스탯은 이미 다시 선 뒤라 MY_STATS 가 새 공격력이다. 와이어 = ACTOR_BUFF → MY_STATS.
-//   몬스터면 보낼 세션이 없어 둘 다 안 한다(스탯은 CBuffSystem 이 이미 세웠다 — 보스 버프는 거는 AI 가 생길 때 돈다).
+//   몬스터면 보낼 세션이 없어 둘 다 안 한다(스탯은 CBuffSystem 이 이미 세웠다 — 보스가 자기에게 건 버프가 이 길을 탄다. 다른 사람 화면엔 시전 방송의 고리만 순간 보이고 지속 표시는 아직 없다).
 void CGameServer::OnBuffChanged(CCharacter* target, BuffKind kind)
 {
     if (CPlayer* player = As<CPlayer>(target))
@@ -3401,6 +3401,9 @@ MonsterContext CGameServer::MakeMonsterContext()
     return MonsterContext{ *this, *this, _gameMonitor
 #if USE_COMBAT
                          , _combatSystem
+#endif
+#if USE_SKILL
+                         , _skillSystem
 #endif
     };
 }

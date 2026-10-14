@@ -4,6 +4,8 @@
 // [책임]
 //  - "지금 상태와 대상 하나"를 주면 "다음 상태·방향·행동"을 돌려준다
 //  - 존·섹터·송신·대상 찾기를 하지 않는다 — 대상 찾기·적용은 CMonsterManager, 송신은 CGameServer가 한다
+//  - 스킬은 **고르기만** 한다 — 규칙 목록(MonsterSkillRule, 줄 순서 = 우선순위)을 입력으로 받아 쓸 번호 하나를 Decision::skillId 에 적는다.
+//    부르는 것(CSkillSystem::UseSkill)은 CMonsterManager 다 — 평타(attack)와 같은 모양이라 이 모듈은 스킬 시스템·표를 모른다(10-13)
 //
 // [Combat 과 같은 자리다]
 //  Combat 이 "때릴 수 있나"를 판정하듯 여기는 "무엇을 할까"를 판정한다.
@@ -27,6 +29,11 @@
 #if USE_MONSTER
 
 #include "Monster.h"
+
+#if USE_SKILL
+#include <vector>
+#include "MonsterSkillTable.h"   // MonsterSkillRule — 몬스터의 스킬 규칙 목록을 입력으로만 받는다(표 객체·스킬 시스템은 모른다)
+#endif
 
 namespace MonsterAI
 {
@@ -78,6 +85,10 @@ namespace MonsterAI
         bool      attack;           // 이번 판단에 휘두를 것인가 (쿨타임까지 보고 정한다)
         uint64_t  nextThinkFrame;   // 다음 판단 시점 — "얼마나 자주 주변을 보나"
         uint64_t  stateEndFrame;    // 배회를 끝낼 시점 — "얼마나 오래 배회하나" (위와 따로다)
+#if USE_SKILL
+        int32_t   skillId = 0;      // 이번 판단에 쓸 스킬 번호 (0 = 안 쓴다). 쓰면 평타(attack)를 대신한다 — 한 번의 판단에 행동 하나.
+                                    //   고르는 것은 여기(규칙 목록을 훑는다), 부르는 것은 CMonsterManager(CSkillSystem::UseSkill) — 평타와 같은 모양
+#endif
     };
 
     // 대상이 시야 안인가 (거리만 본다 — 방향은 안 본다. 뒤에서 다가와도 알아챈다)
@@ -93,7 +104,14 @@ namespace MonsterAI
     // 다음에 무엇을 할까.
     //   target == nullptr 이면 "시야 안에 아무도 없다"는 뜻이다(대상을 놓친 경우 포함).
     //   frame 은 CGameServer::_frameCount — 쿨타임 판정에 쓴다.
+#if USE_SKILL
+    //   rules = 이 몬스터가 쓰는 스킬 규칙(줄 순서 = 우선순위 — MonsterSkillTable.h). 없는 몬스터(뱀)는 빈 목록이고 그러면 스킬을 안 고른다.
+    //   쫓는 중(CHASE)·사거리 안(ATTACK) 둘에서만 본다 — 대상이 있고 시야 안일 때다.
+    using SkillRules = std::vector<MonsterSkillRule>;
+    Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame, const SkillRules& rules);
+#else
     Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame);
+#endif
 }
 
 #endif // USE_MONSTER

@@ -432,6 +432,12 @@ public:
         Counter _rejected[static_cast<int>(SkillReject::COUNT)];    // 거절, 사유별
         Counter _hits[MAX_SKILL_ID + 1];                            // 스킬로 맞힌 대상 수, 스킬 번호별 — 범위 스킬은 한 시전에 여럿([0] 칸은 안 쓴다). 피해 스킬만(지속 효과는 _buff 가 센다)
 
+        // 몬스터(보스)가 쓴 몫 — 위 셋과 같은 칸 모양이다. 위 셋은 **사람 몫** 그대로 두고(이름·뜻 불변 — 대시보드 호환) 몬스터 것은 따로 센다.
+        //   안 가르면 보스의 시전이 사람 시전 수에 섞인다(SkillSystem.cpp UseSkill 의 약속, 10-13). 가르는 곳은 CSkillSystem 한 곳(시전자 종류).
+        Counter _monsterCast[MAX_SKILL_ID + 1];
+        Counter _monsterRejected[static_cast<int>(SkillReject::COUNT)];
+        Counter _monsterHits[MAX_SKILL_ID + 1];
+
         // S2C_ACTOR_MP 보낸 수 — SendActorMp 한 곳에서만 센다(_combat._myStatsSent 와 같은 꼴). 입장·존 이동·레벨업·마력 소모·마력 물약마다 1.
         //   마력은 스킬 토글 소유라 여기 둔다.
         Counter _actorMpSent;

@@ -63,6 +63,35 @@ namespace
         const float distSq = dx * dx + dy * dy;
         return distSq > 0.0f && distSq <= Combat::ATTACK_RANGE_SQ;
     }
+
+#if USE_SKILL
+    // 쓸 스킬 하나 — 규칙을 위에서부터 보며 **첫 통과**의 번호(없으면 0). 규칙이 없는 몬스터는 곧바로 0 이다.
+    //   ⑴ 쿨타임이 찼나 — 안 보면 쿨타임 중인 스킬이 매번 뽑혀 관리자가 거절(COOLDOWN)만 받고, 그 판단의 평타도 스킬에 먹혀 몬스터가 아예 안 때린다
+    //   ⑵ 내 체력이 조건 이하인가 — 정수 곱으로 견준다(hp × 100 ≤ maxHp × %). 나눗셈의 반올림이 경계를 흔들지 않게
+    //   ⑶ 대상이 거리 안인가 — 제곱끼리 견준다(루트 안 씀)
+    //   쿨타임 칸은 캐릭터 것이다(CCharacter::_skillReadyFrame — 사람과 같은 칸). 비용·대상·효과는 여기서 안 본다 — 그건 CSkillSystem 의 일이다.
+    int32_t PickSkill(const CMonster& monster, const CCharacter& target, uint64_t frame, const SkillRules& rules)
+    {
+        if (rules.empty())
+            return 0;
+
+        const float dx = target._x - monster._x;
+        const float dy = target._y - monster._y;
+        const float distSq = dx * dx + dy * dy;
+
+        for (const MonsterSkillRule& r : rules)
+        {
+            if (frame < monster._skillReadyFrame[r.skillId])
+                continue;
+            if (static_cast<int64_t>(monster._hp) * 100 > static_cast<int64_t>(monster._maxHp) * r.hpBelowPct)
+                continue;
+            if (distSq > r.maxDist * r.maxDist)
+                continue;
+            return r.skillId;
+        }
+        return 0;
+    }
+#endif
 }
 
 bool IsInSight(const CMonster& monster, const CCharacter& target, float& outDistSq)
@@ -91,7 +120,11 @@ Direction FaceTo(const CActor& from, const CActor& to)
     return DirectionFromDelta(dx, dy);
 }
 
-Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame)
+Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame
+#if USE_SKILL
+             , const SkillRules& rules
+#endif
+)
 {
     // 기본값 = 지금 상태를 그대로 두고 다음 판단만 예약
     Decision d;
@@ -209,6 +242,11 @@ Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame
         d.direction      = FaceTo(monster, *target);   // ★ 먼저 보게 한다 — 정면이어야 때릴 수 있다
         d.nextThinkFrame = frame + CHASE_THINK_INTERVAL_FRAMES;   // 쫓는 동안은 자주 본다
 
+#if USE_SKILL
+        // 쫓는 중에도 스킬이 닿는 거리면 쓴다 — 멈추지 않는다(이동은 아래가 정한다). 방향은 위에서 대상 쪽으로 세웠고 관리자가 그 방향을 적용한 뒤 시전한다(모양이 앞쪽이다)
+        d.skillId = PickSkill(monster, *target, frame, rules);
+#endif
+
         if (InReach(monster, *target))   // 새 방향 기준 (옛 방향으로 물으면 한 걸음 더 간다 — InReach 주석)
         {
             // 사거리 안 — 멈춰서 때린다
@@ -242,6 +280,17 @@ Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame
             d.nextThinkFrame = frame + CHASE_THINK_INTERVAL_FRAMES;
             break;
         }
+
+#if USE_SKILL
+        // 스킬이 닿으면 이번 판단은 스킬이다 — 평타(d.attack)를 대신한다(한 번의 판단에 행동 하나). 다음 틱에 다시 본다:
+        //   스킬은 쿨타임이 차면 다시 쓸 수 있고 평타는 따로 센다(10-10 — 스킬이 평타를 안 막는다)라 다음 판단은 평타를 칠 수 있다
+        d.skillId = PickSkill(monster, *target, frame, rules);
+        if (d.skillId != 0)
+        {
+            d.nextThinkFrame = frame + 1;
+            break;
+        }
+#endif
 
 #if USE_COMBAT
         // ★ 쿨타임을 여기서 먼저 묻는다.

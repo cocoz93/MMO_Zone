@@ -60,8 +60,8 @@ void CStatSystem::RecalcStats(CCharacter* character, bool refill)
     case CharacterKind::MONSTER:
     {
 #if USE_MONSTER
-        // 몬스터 표 행 — 생성자가 넣은 것과 같은 값(Monster.cpp 생성자와 서로 가리킨다). 마력은 안 건드린다(몬스터 마력은 보스 단계 — 0).
-        //   ★ 아직 아무도 안 탄다 — 몬스터에 효과를 거는 길(보스 스킬 AI)이 없다. 보스 단계에서 시험한다.
+        // 몬스터 표 행 — 생성자가 넣은 것과 같은 값(Monster.cpp 생성자와 서로 가리킨다). 마력은 안 건드린다(몬스터는 마력 0 — 몬스터 스킬은 비용 0 만 허용한다, MonsterSkillTable.h).
+        //   보스의 자기 버프(격노)가 이 갈래를 탄다 — 효과가 걸리면 이 바탕에서 다시 세우고 배수를 곱한다(공격력 10 → 20 → 풀리면 10, 10-14 실서버로 확인).
         const MonsterDef& def = As<CMonster>(character)->_def;
         character->_maxHp       = def.maxHp;
         character->_attackPower = def.attack;
