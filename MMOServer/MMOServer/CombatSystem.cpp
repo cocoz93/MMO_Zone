@@ -175,7 +175,11 @@ CCharacter* CCombatSystem::FindFrontTarget(CZone* zone, CCharacter* attacker, Ca
     };
 
     // 사거리가 걸치는 섹터의, which 가 고른 목록만 훑는다(섹터·목록 고르기는 ForEachCandidate 한 곳)
-    ForEachCandidate(sectors, attacker->_x, attacker->_y, Combat::ATTACK_RANGE, which, consider);
+    //   후보 반경 = ATTACK_RANGE + 내 반지름 + 맞는 쪽 반지름. 맞는 쪽은 후보를 보기 전엔 모르므로 상한(MAX_BODY_RADIUS)으로 넓힌다.
+    //   단 PLAYERS 목록은 사람뿐이라 반지름이 0 이다(사람은 0 고정 — CCharacter::_bodyRadius) — 몬스터가 때리는 길은 더하지 않는다
+    const float targetRadiusMax = (which == CandidateList::PLAYERS) ? 0.0f : Combat::MAX_BODY_RADIUS;
+    ForEachCandidate(sectors, attacker->_x, attacker->_y,
+                     Combat::ATTACK_RANGE + attacker->_bodyRadius + targetRadiusMax, which, consider);
 
     return target;
 }

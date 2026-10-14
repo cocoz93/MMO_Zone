@@ -35,7 +35,8 @@ class CSkillTable;
 struct MonsterSkillRule
 {
     int32_t skillId    = 0;       // 스킬 표 번호(user=monster)
-    float   maxDist    = 0.0f;    // 대상까지 이 거리(타일) 이내일 때만 — 0 초과 MAX_DIST 이하
+    float   maxDist    = 0.0f;    // 대상까지 이 거리(타일) 이내일 때만 — 0 초과 MAX_DIST 이하. 두 몸의 **가장자리 사이** 거리다
+                                  //   (AI 가 중심 사이로는 시전자·대상 반지름을 더해 본다 — MonsterAI.cpp PickSkill. 몸 반지름 0 이면 중심 사이와 같다)
     int32_t hpBelowPct = 100;     // 시전자 체력이 이 % 이하일 때만 — 1..100 (100 = 늘)
     int32_t fileLine   = 0;       // 틀렸을 때 가리킬 줄
 };

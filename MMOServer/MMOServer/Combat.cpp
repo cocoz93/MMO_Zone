@@ -26,7 +26,8 @@ bool IsInAttackRange(const CCharacter& attacker, const CCharacter& target, float
     const float dy = target._y - attacker._y;
     const float distSq = dx * dx + dy * dy;
 
-    if (distSq > ATTACK_RANGE_SQ)
+    const float reach = AttackReach(attacker, target);
+    if (distSq > reach * reach)
         return false;
 
     // 바라보는 쪽 단위벡터 — 부호는 DirectionStep(Actor.h) 한 곳. NONE 은 (0, 0) 이라 아래 내적이 0 → 아무도 못 때린다.

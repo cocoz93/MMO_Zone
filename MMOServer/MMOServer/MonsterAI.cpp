@@ -4,7 +4,7 @@
 
 #include <random>
 
-#include "Combat.h"   // CanAttack · ATTACK_RANGE_SQ · 쿨타임 — 공격 판정은 플레이어와 같은 값을 쓴다
+#include "Combat.h"   // CanAttack · AttackReach · 쿨타임 — 공격 판정은 플레이어와 같은 값을 쓴다
 
 namespace MonsterAI
 {
@@ -56,19 +56,22 @@ namespace
     //   비켜선 순간 "사거리 밖"으로 읽혀 한 걸음(0.6타일) 더 걸어가 대상 위에 올라탄다.
     //   새 방향은 FaceTo 가 대상 쪽 축으로 고르므로 거리만 보면 정면 조건(내적>0)도 저절로 선다.
     //   완전히 겹친 경우(거리 0)만 빼는데, 그땐 내적이 0 이라 공격 본체도 못 때리기 때문이다.
+    //   닿는 거리는 두 몸 반지름을 더한 Combat::AttackReach — 몸이 큰 보스는 그만큼 먼 데서 멈춘다.
     bool InReach(const CMonster& monster, const CCharacter& target)
     {
         const float dx = target._x - monster._x;
         const float dy = target._y - monster._y;
         const float distSq = dx * dx + dy * dy;
-        return distSq > 0.0f && distSq <= Combat::ATTACK_RANGE_SQ;
+        const float reach = Combat::AttackReach(monster, target);
+        return distSq > 0.0f && distSq <= reach * reach;
     }
 
 #if USE_SKILL
     // 쓸 스킬 하나 — 규칙을 위에서부터 보며 **첫 통과**의 번호(없으면 0). 규칙이 없는 몬스터는 곧바로 0 이다.
     //   ⑴ 쿨타임이 찼나 — 안 보면 쿨타임 중인 스킬이 매번 뽑혀 관리자가 거절(COOLDOWN)만 받고, 그 판단의 평타도 스킬에 먹혀 몬스터가 아예 안 때린다
     //   ⑵ 내 체력이 조건 이하인가 — 정수 곱으로 견준다(hp × 100 ≤ maxHp × %). 나눗셈의 반올림이 경계를 흔들지 않게
-    //   ⑶ 대상이 거리 안인가 — 제곱끼리 견준다(루트 안 씀)
+    //   ⑶ 대상이 거리 안인가 — 제곱끼리 견준다(루트 안 씀). 규칙의 maxDist 는 두 몸의 가장자리 사이 거리라 중심 사이로는 두 반지름을 더해 본다
+    //      (표 읽기의 FRONT·SHAPE 상한이 가장자리 사이 거리로 대조되므로 닿지 않는 거리를 뽑지 않는다 — MonsterSkillTable.h maxDist)
     //   쿨타임 칸은 캐릭터 것이다(CCharacter::_skillReadyFrame — 사람과 같은 칸). 비용·대상·효과는 여기서 안 본다 — 그건 CSkillSystem 의 일이다.
     int32_t PickSkill(const CMonster& monster, const CCharacter& target, uint64_t frame, const SkillRules& rules)
     {
@@ -85,7 +88,8 @@ namespace
                 continue;
             if (static_cast<int64_t>(monster._hp) * 100 > static_cast<int64_t>(monster._maxHp) * r.hpBelowPct)
                 continue;
-            if (distSq > r.maxDist * r.maxDist)
+            const float reach = r.maxDist + monster._bodyRadius + target._bodyRadius;
+            if (distSq > reach * reach)
                 continue;
             return r.skillId;
         }

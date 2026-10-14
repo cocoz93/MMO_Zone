@@ -26,13 +26,19 @@ namespace Combat
     //   거리와 바라보는 방향으로 대신 잡는다.
     //   ★ 사거리만 USE_COMBAT 밖에 둔다 — 몬스터 AI 가 "쫓아가서 어디서 멈추나"를 이 값으로 정한다(MonsterAI.cpp InReach).
     //     전투를 꺼도 몬스터는 쫓아와 곁에 선다(물지만 않는다). 가드 안에 넣으면 멈출 거리를 잃는다.
-    constexpr float ATTACK_RANGE     = 1.5f;                        // 타일
-    constexpr float ATTACK_RANGE_SQ  = ATTACK_RANGE * ATTACK_RANGE;
+    constexpr float ATTACK_RANGE     = 1.5f;                        // 타일 — 두 몸의 가장자리 사이 거리. 중심 사이는 AttackReach
 
     // 몸 반지름 상한(타일) — 몬스터 표의 bodyRadius 가 넘으면 읽기가 거부한다(오타 거르기).
     //   사거리를 훑는 후보 반경이 「맞는 쪽 반지름을 모르는 채」 이 값만큼 넓어지는 상한이기도 하다(CCombatSystem::FindFrontTarget) —
     //   그래서 표가 이 값을 넘는 몬스터를 못 만들어야 후보를 놓치지 않는다.
     constexpr float MAX_BODY_RADIUS  = 4.0f;
+
+    // 닿는 거리 — 중심 사이 거리가 이 값 이하면 사거리 안이다. 때리는 쪽·맞는 쪽 반지름을 둘 다 더해 한 식이 양방향이다(사람→보스 · 보스→사람).
+    //   반지름이 0 이면 ATTACK_RANGE 그대로(점끼리). 몬스터 AI 의 쫓다 멈출 거리도 같은 식이다(MonsterAI.cpp InReach).
+    inline float AttackReach(const CCharacter& attacker, const CCharacter& target)
+    {
+        return ATTACK_RANGE + attacker._bodyRadius + target._bodyRadius;
+    }
 
 #if USE_COMBAT
 
@@ -55,7 +61,8 @@ namespace Combat
     //   그래서 돌아올 수 있는 값은 NONE·COOLDOWN·DEAD_SELF 셋뿐이다.
     AttackReject CanAttack(const CCharacter& attacker, uint64_t frame);
 
-    // target이 attacker의 사거리 안이면서 정면에 있나. 맞으면 outDistSq에 거리제곱을 담는다.
+    // target이 attacker의 사거리(AttackReach — 몸 반지름 포함) 안이면서 정면에 있나. 맞으면 outDistSq에 거리제곱을 담는다.
+    //   정면 조건은 몸 크기와 무관하게 두 중심의 방향이다.
     //   생사는 보지 않는다 — 시체를 걸러내는 건 호출자 몫이다(거부 사유를
     //   no_target / dead_target 으로 갈라야 해서, 여기서 조용히 빼면 그 구분이 사라진다).
     bool IsInAttackRange(const CCharacter& attacker, const CCharacter& target, float& outDistSq);
