@@ -262,7 +262,7 @@ function rowOf(dir){ return dir===1?0 : dir===3?1 : dir===4?3 : 2; }  // UP/LEFT
 //   (Protocol.h DISPLAY_MONSTER_BASE). 사람은 'A'~'Z','a'~'z','0'~'9' 만 받으므로 0x20 미만이면 몬스터다.
 //   시트 규격이 사람(LPC 9열)과 달라(뱀 7열) 조합 캐시와 따로 굽는다 — 종류×방향이라 몇 장뿐이다.
 const MONIMG = {};                                   // kind -> Image (MON 전역에서 적재)
-const DISPLAY_KIND = { 0x01:'snake' };               // Protocol.h DISPLAY_SNAKE
+const DISPLAY_KIND = { 0x01:'snake', 0x02:'guryungi' };   // 0x01 = Protocol.h DISPLAY_SNAKE · 0x02 = 구렁이(보스) — 값은 몬스터 표 display 칸(Protocol.h 에는 이름 없음)
 const MONSHEET = new Map();                          // 'kind:행' -> 구운 캔버스(cols*64 x 64) — 상한 불필요(종류×4장)
 function monMeta(o){
   if(!(o.disp>0 && o.disp<0x20)) return null;
@@ -652,13 +652,14 @@ function drawChar(o,isMe,t,fade=1){
   const row=rowOf(o.dir);
   const sheet=sheetFor(o, row); if(!sheet) return;
   const px=sx(o.rx), py=sy(o.ry);
-  const H0=3.0*ZOOM, dw=H0, dh=H0;   // 몬스터도 같은 크기 — 시트 여백이 이미 뱀을 사람의 0.69배로 만든다
   const mon=monMeta(o);
+  const sc=(mon && mon.scale) || 1;   // 보스는 그림만 키운다 — 발 위치(py)는 그대로, 판정은 서버의 점
+  const H0=3.0*ZOOM*sc, dw=H0, dh=H0;   // 몬스터도 같은 크기 — 시트 여백이 이미 뱀을 사람의 0.69배로 만든다
   // 걷기 프레임: 사람은 LPC 9열 중 1~8, 몬스터는 메타의 walk 목록을 돈다(뱀 0~3)
   const frame = mon
     ? (o.moveState===1 ? mon.walk[Math.floor(t*8+(o.id||0))%mon.walk.length] : mon.walk[0])
     : ((o.moveState===1)?(1+Math.floor(t*8+(o.id||0))%8):0);
-  shadow(px,py,0.75*ZOOM,fade);
+  shadow(px,py,0.75*ZOOM*sc,fade);
   ctx.imageSmoothingEnabled=false;
 
   if(o.swingT>0) drawSwing(o,px,py);      // 휘두른 호는 캐릭터 뒤에 (앞에 두면 몸을 가린다)
