@@ -155,18 +155,45 @@ bool CBuffSystem::Restore(CCharacter* target, BuffKind kind, int32_t value, uint
     return true;   // 스탯·알림은 호출부 몫(헤더 주석 ⑴)
 }
 
-void CBuffSystem::Forget(CCharacter* target)
+void CBuffSystem::EndSlotsAsLeave(CCharacter* c)
 {
     for (int k = 0; k < BUFF_KIND_COUNT; ++k)
     {
-        BuffSlot& slot = target->_buffs[k];
+        BuffSlot& slot = c->_buffs[k];
         if (!slot.IsActive())
             continue;
         slot = BuffSlot{};
         _gameMonitor._buff._ended[static_cast<int>(BuffEnd::LEAVE)].Inc();
         _gameMonitor._buff._active.Add(-1);
     }
+}
+
+void CBuffSystem::Forget(CCharacter* target)
+{
+    EndSlotsAsLeave(target);
     RemoveFromList(target);   // 알림·재계산 없음 — 곧 해제되고 받을 세션도 없다
+}
+
+void CBuffSystem::ForgetZone(int32_t zoneId)
+{
+    // 뒤엣것과 바꿔치기로 O(1) 제거 — 바꿔 온 것을 아직 안 봤으니 i 를 안 올린다(Tick 과 같은 꼴). 목록이 비어 있으면(보통) 바로 끝난다.
+    for (size_t i = 0; i < _buffed.size(); )
+    {
+        CCharacter* c = _buffed[i];
+        if (c->_zoneId != zoneId)
+        {
+            ++i;
+            continue;
+        }
+        EndSlotsAsLeave(c);
+        _buffed[i] = _buffed.back();
+        _buffed.pop_back();
+    }
+
+#ifndef NDEBUG
+    for (const CCharacter* c : _buffed)
+        assert(c->_zoneId != zoneId && "존을 지운 뒤 효과 목록에 그 존의 캐릭터가 남았다 — 다음 틱이 해제된 메모리를 밟는다");
+#endif
 }
 
 #endif // USE_COMBAT

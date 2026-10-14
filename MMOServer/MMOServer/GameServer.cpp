@@ -1667,11 +1667,21 @@ void CGameServer::GameLoopThread()
             //   이동 묶음은 틱 끝 송신이 비웠다. 섹터 이동 대기열은 존 안이라
             //   존과 같이 사라진다. 누가 정리를 틱 앞쪽으로 옮기면 여기서 걸린다.
             assert(_sectorOutbox.dirtyMovers.empty());
+            // 지우기 직전 콜백 — 존 밖에서 이 존의 것을 든 곳을 정리하는 마지막 기회다. 둘 다 토글이 따로라 한 콜백에 합친다
+            //   (땅 아이템만 USE_DROP 안에 묶어 두었더니 USE_DROP 0 이면 콜백이 아예 없어 버프 목록 정리도 같이 빠졌을 것이다).
 #if USE_DROP
             const GroundItemContext groundCtx = MakeGroundItemContext();
-            _mapManager.CleanupEmptyChannels([&groundCtx](CZone* zone)
+#endif
+#if USE_DROP || USE_COMBAT
+            _mapManager.CleanupEmptyChannels([&](CZone* zone)
             {
+#if USE_DROP
                 zone->GetGroundItemManager().ForgetAll(groundCtx);   // 땅의 아이템은 세기만 — 목록은 존과 함께 사라진다(알릴 사람이 없다)
+#endif
+#if USE_COMBAT
+                // 효과 목록은 틱 너머로 주소를 든다 — 이 존의 몬스터가 같이 해제되니 목록에서 먼저 뺀다(BuffSystem.h 「셋째 길」). 사람은 이미 퇴장으로 빠졌다
+                _buffSystem.ForgetZone(zone->GetZoneId());
+#endif
             });
 #else
             _mapManager.CleanupEmptyChannels(nullptr);

@@ -11,8 +11,12 @@
 //  세우기(CStatSystem)와 「시간이 지나 풀림」은 다른 일이고, 거는 쪽이 스킬·아이템 둘이라 어느 한쪽 것이 아니다(10-12).
 //  목록은 게임 서버에 하나 — 존마다 두면 존을 옮길 때 옮겨 담아야 한다(효과는 존을 따라간다). 부활 대기열(_deadActors)과 같은 꼴.
 //
-// [목록은 틱 너머로 주소를 든다] 캐릭터가 사라지는 두 길이 반드시 뺀다 — 퇴장 CGameServer::ReleasePlayer(Forget) ·
-//  죽음 CGameServer::OnDeath(ClearAll — 몬스터는 그 끝의 Despawn 해제 "앞"). 하나라도 빠지면 다음 틱이 해제된 메모리를 밟는다.
+// [목록은 틱 너머로 주소를 든다] 캐릭터가 사라지는 **세** 길이 반드시 뺀다 — 퇴장 CGameServer::ReleasePlayer(Forget) ·
+//  죽음 CGameServer::OnDeath(ClearAll — 몬스터는 그 끝의 Despawn 해제 "앞") · 존 삭제 빈 채널 정리 콜백(ForgetZone — 존이 지워지면 그 존의
+//  몬스터도 같이 해제된다). 하나라도 빠지면 다음 틱이 해제된 메모리를 밟는다.
+//  셋째 길은 몬스터에 버프가 걸리는 날(보스 격노, 10-14) 처음 생겼다 — 그 전엔 몬스터가 목록에 들어올 일이 없어 잠복해 있었다.
+//  수정 전 실서버로 본 것: 버프 걸린 보스가 있는 동적 채널이 지워진 뒤 mmo_buff_active 가 1 로 남았다(서버는 안 죽었다).
+//  Tick 이 이 목록의 주소를 매 틱 읽으므로(코드) 그 주소는 해제된 메모리다 — 정의되지 않은 동작이라 안 죽은 것은 우연이다.
 //  BroadcastLeaveZone 에서는 빼지 않는다 — 존 이동도 그 길을 지나는데 효과는 존을 따라가야 한다.
 //
 // [계층 경계]
@@ -61,6 +65,11 @@ public:
     // 퇴장 — 칸을 비우고 목록에서만 뺀다. 알림·재계산 없음(곧 해제된다 · 세션이 없다). 두 번 불러도 무해.
     void Forget(CCharacter* target);
 
+    // 존 삭제 — 이 존 번호의 캐릭터를 목록에서 전부 뺀다(Forget 과 같은 규칙: 칸 비움 · 끝난 사유 LEAVE · 알림·재계산 없음).
+    //   빈 채널을 지우기 직전에 부른다 — 사람은 이미 다 나가 Forget 으로 빠졌으니 남은 것은 존이 든 몬스터뿐이다. 목록을 밖에 내주지 않고
+    //   여기서 훑는다(MonsterManager.h 「목록을 밖에 내주는 함수는 두지 않는다」와 같은 까닭). 없으면 아무 일 없음.
+    void ForgetZone(int32_t zoneId);
+
     // 되살리기 — 입장 때 DB 저장값으로 빈 칸을 채운다(CGameServer::RestoreCooldownsAndBuffs). 반환 false = 칸이 이미 켜져 있어 안 채움
     //   (입장 직후라 늘 비어 있다 — 한 묶음에 같은 종류가 둘인 불량 행이면 첫 것만 쓴다).
     //   Apply 와 다른 둘 —
@@ -73,6 +82,8 @@ public:
 private:
     static bool HasAnyActive(const CCharacter* c);
     void RemoveFromList(CCharacter* c);
+    // 살아 있는 칸을 전부 비우고 「끝남(LEAVE)」으로 센다 — Forget · ForgetZone 이 같이 쓴다(끝나는 자리를 한 곳에서 세야 등식이 안 어긋난다)
+    void EndSlotsAsLeave(CCharacter* c);
 
     CGameMonitor& _gameMonitor;
     CStatSystem&  _statSystem;
