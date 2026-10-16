@@ -364,6 +364,11 @@ function onPacket(p){
       //   시전 순간의 쿨타임은 지금처럼 SKILL_CAST 로 센다 — 이 장은 그 셈을 서버 값으로 맞출 뿐이다(remainMs 는 늘 1 이상).
       if(self && p.actorId===self.id){ skillReadyAt.set(p.skillId, performance.now()+p.remainMs); skillChanged(); }
       break; }
+    case P.MSG.S2C_ACTOR_SPEED: {
+      // 속도가 바뀌었다(지금은 운영자 /gm 켬·끔뿐) — 본인 것도 남의 것도 온다. 서버 틱 사이를 이 속도로 앞질러 그린다(advance).
+      //   안 바꾸면 옛 속도로 그리다 서버 좌표에 끌려간다. 등장 순간의 속도는 CREATE 가 싣는다.
+      const a=actorOf(p.actorId); if(a) a.speed=p.speed;
+      break; }
     case P.MSG.S2C_ATTACK: {
       const a=actorOf(p.attackerId);
       // castSkill 을 지운다 — 뒤따르는 DAMAGE 는 일반 공격 결과다(서버가 ATTACK 을 먼저 보낸다: OnSwing → FindFrontTarget → ApplyHit)
