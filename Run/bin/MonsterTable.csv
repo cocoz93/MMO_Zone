@@ -10,5 +10,9 @@
 #   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
 #   snake: maxHp 30 = 3 hits of a level-1 player (attack 10) / speed 5 = slower than players so they can run / exp 10 = level 2 needs 100, ten snakes.
 #   (snake values come from the plan monster-snake.md decision 9; speed was 15 in code and 5 via MMOServerConfig.ini [Game] until 10-08 - 5 is what ran)
+#   guryungi (boss, 2026-10-15): ROUGH values - maxHp 30000 / attack 30 / bodyRadius 2.0, to be re-set from a kill-time measurement.
+#     exp 1000 = about one level at Lv10 (LevelTable.csv). display 2 = the web sprite "guryungi" - its web radius (MON_META.radius) is a separate value too.
+#     Born only in map 2 (SpawnRegion.csv). Skills: MonsterSkill.csv. Drops: DropTable.csv.
 monsterId,name,maxHp,attack,defense,speed,exp,display,bodyRadius
 1,뱀,30,5,0,5,10,1
+2,구렁이,30000,30,0,5,1000,2,2.0
