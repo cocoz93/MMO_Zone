@@ -754,19 +754,34 @@ function drawSwing(o,px,py){
   ctx.beginPath(); ctx.arc(px+v.x*0.5*ZOOM, cy+v.y*0.5*ZOOM, 1.0*ZOOM, a0-0.75, a0+0.75); ctx.stroke();
   ctx.restore();
 }
+// 칸 하나가 덮는 자리 — 시전자 중심 기준 앞 [a0, a1) × 옆 [s0, s1). 서버 IsInShape(SkillTable.h)를 그림 좌표로 옮긴 것이다(10-15).
+//   rc = 시전자 몸 반지름(castRadius). 0 이면 칸 k 는 앞 [k−0.5, k+0.5) 그대로다.
+//   rc > 0 이면 서버가 앞 성분에서 rc 를 빼고 재므로 칸 k 는 [rc+k−0.5, rc+k+0.5) — 칸이 몸 가장자리부터 시작한다.
+//   첫 칸(앞 1)은 몸 가장자리(rc)까지 당긴다 — 서버가 몸에 닿은 대상(뺀 앞이 0.5 미만)을 첫 칸으로 친다(IsInShape 「첫 칸 취급」).
+//   그보다 안쪽(몸통 안)도 첫 칸으로 맞지만 시전자 그림 밑이라 안 깐다. 사람(반지름 0) 기준 그림이다 — 몸 큰 대상은 서버가 더 너그럽다.
+function castCellSpan(f, side, rc){
+  return { a0: (rc>0 && f===1) ? rc : rc+f-0.5, a1: rc+f+0.5, s0: side-0.5, s1: side+0.5 };
+}
+// 시전자 몸 반지름 — 몬스터만(MON_META.radius = 서버 MonsterTable.csv bodyRadius 와 같은 값. 반지름은 패킷에 없어 웹이 따로 안다). 사람은 0
+function castRadius(o){ const m=monMeta(o); return (m && m.radius>0) ? m.radius : 0; }
 // 범위 스킬(target=shape) 시전 칸 — 표의 칸 목록을 시전자 기준으로 잠깐 붉게 깐다(땅 층 — 맞은 상대 고리 아래).
 //   칸은 [앞, 옆] — 옆은 바라보는 쪽 기준 오른쪽이 +, 오른쪽 = (−앞.y, 앞.x). 서버 칸 판정(SkillTable.h IsInShape)과 같은 기준이다.
 //   시전자의 실제 좌표 기준이라 땅 타일 격자와는 반 칸 어긋날 수 있다(서버도 타일에 붙이지 않는다).
 //   백호참(front)은 안 깐다 — S2C_SKILL_CAST 주석. 1단계의 앞 한 칸 깔기(25a473f)와 같은 그림을 칸 목록으로 넓힌 것이다.
+//   몸이 큰 시전자(구렁이)는 칸이 몸 가장자리부터다 — 위 castCellSpan.
 function drawSkillCast(o){
   const k=o.castT/CAST_LIFE;                       // 1 → 0
   const v=dvec(o.dir); if(v.x===0 && v.y===0) return;
+  const rc=castRadius(o);
   ctx.save();
   for(const [f,side] of o.castCells){
-    const cx=o.rx+v.x*f-v.y*side, cy=o.ry+v.y*f+v.x*side;   // 오른쪽 = (−앞.y, 앞.x)
-    const x=sx(cx)-ZOOM/2, y=sy(cy)-ZOOM/2;
-    ctx.fillStyle='rgba(255,90,40,'+(0.6*k)+')'; ctx.fillRect(x,y,ZOOM,ZOOM);   // 0.38 은 초록 바닥과 섞여 베이지로 흐려졌다(1단계)
-    ctx.strokeStyle='rgba(255,150,80,'+k+')'; ctx.lineWidth=2.5; ctx.strokeRect(x+1.25,y+1.25,ZOOM-2.5,ZOOM-2.5);
+    const c=castCellSpan(f,side,rc);
+    // 네 귀퉁이를 땅 좌표로 — 앞 a 는 v 쪽, 옆 s 는 오른쪽 = (−앞.y, 앞.x). 방향이 넷뿐이라 땅 좌표에서도 축에 맞는 사각형이다
+    const xs=[c.a0,c.a1].flatMap(a=>[c.s0,c.s1].map(s=>o.rx+v.x*a-v.y*s));
+    const ys=[c.a0,c.a1].flatMap(a=>[c.s0,c.s1].map(s=>o.ry+v.y*a+v.x*s));
+    const x=sx(Math.min(...xs)), y=sy(Math.min(...ys)), w=sx(Math.max(...xs))-x, h=sy(Math.max(...ys))-y;
+    ctx.fillStyle='rgba(255,90,40,'+(0.6*k)+')'; ctx.fillRect(x,y,w,h);   // 0.38 은 초록 바닥과 섞여 베이지로 흐려졌다(1단계)
+    ctx.strokeStyle='rgba(255,150,80,'+k+')'; ctx.lineWidth=2.5; ctx.strokeRect(x+1.25,y+1.25,w-2.5,h-2.5);
   }
   ctx.restore();
 }
