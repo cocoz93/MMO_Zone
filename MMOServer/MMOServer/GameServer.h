@@ -231,8 +231,10 @@ private:
 #if USE_INVENTORY
     // ── 인벤토리 (USE_INVENTORY) ──
     // '/' 로 시작하는 채팅 — 방송하지 않고 명령으로 처리한다. 답은 본인에게 S2C_ERROR 한 줄.
-    //   지금 명령은 /item 하나(운영자 전용 — 드랍이 생기기 전까지 가방을 채우는 유일한 길).
+    //   명령은 이름 → 처리 함수 표(GameServer.cpp HandleChatCommand). 지금 둘 다 운영자 전용이다.
     void HandleChatCommand(CPlayer* player, const ChatChar* msg, uint16_t len);
+    void RunItemCommand(CPlayer* player, const std::vector<std::string>& words);   // /item <아이템번호> [개수] — 가방에 바로 넣기
+    void RunGmCommand(CPlayer* player, const std::vector<std::string>& words);     // /gm — GM 모드 켜고 끄기(Player.h GM 칸)
 
     // 바뀐 칸을 내보낸다 — 칸 패킷 하나씩(+ 4단계에서 DB 저장 하나씩). 세는 것도 여기 한 곳이다.
     //   ★ 칸을 바꾼 자리는 반드시 부른다. 넣기·쓰기·드랍 어느 길이든 내보내는 길은 이것 하나다.

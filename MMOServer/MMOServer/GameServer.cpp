@@ -2448,6 +2448,19 @@ namespace
         if (!cur.empty())
             out.push_back(cur);
     }
+
+    // 속도 — 본인 + 주변(BroadcastAroundSector, excludeSelf=false — Protocol.h MSG_S2C_ACTOR_SPEED).
+    //   부르는 곳이 /gm 하나라 명령 구역에 둔다. 속도를 바꾸는 둘째 길(효과 등)이 생기면 위의 Make 묶음으로 옮긴다.
+    CSerialBuffer* MakeActorSpeed(int32_t actorId, int32_t speed)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_ACTOR_SPEED::TYPE);
+        *buf << static_cast<int>(actorId);
+        *buf << static_cast<int>(speed);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_ACTOR_SPEED));
+        return buf;
+    }
 }
 
 void CGameServer::HandleChatCommand(CPlayer* player, const ChatChar* msg, uint16_t len)
@@ -2459,8 +2472,31 @@ void CGameServer::HandleChatCommand(CPlayer* player, const ChatChar* msg, uint16
     SplitCommandWords(msg, len, words);
     const std::string cmd = words.empty() ? std::string("/") : words[0];   // 첫 글자가 '/' 라 비지 않는다
 
-    // 명령이 하나뿐이라 갈래가 하나다. 둘째 명령이 생기면 "이름 → 처리 함수" 표로 바꾼다(if 사슬 금지).
-    if (cmd != "/item")
+    // 명령 표 — 이름 → 처리 함수(if 사슬 금지 — 명령이 늘면 한 줄 더한다).
+    //   지금 명령은 전부 운영자 전용이라 권한은 표에서 찾은 뒤 한 번 본다. 누구나 쓰는 명령이 생기면 칸을 더한다.
+    using Runner = void (CGameServer::*)(CPlayer*, const std::vector<std::string>&);
+    struct Command
+    {
+        const char* name;
+        Runner      run;
+    };
+    static constexpr Command COMMANDS[] =
+    {
+        { "/item", &CGameServer::RunItemCommand },   // /item <아이템번호> [개수]
+        { "/gm",   &CGameServer::RunGmCommand   },   // /gm — GM 모드 켜고 끄기
+    };
+
+    const Command* found = nullptr;
+    for (const Command& c : COMMANDS)
+    {
+        if (cmd == c.name)
+        {
+            found = &c;
+            break;
+        }
+    }
+
+    if (found == nullptr)
     {
         counters._commandRejected[static_cast<int>(ChatCommandReject::UNKNOWN_COMMAND)].Inc();
         SendSystemMessage(player, "모르는 명령입니다: " + cmd);
@@ -2470,9 +2506,74 @@ void CGameServer::HandleChatCommand(CPlayer* player, const ChatChar* msg, uint16
     if (!player->_isAdmin)
     {
         counters._commandRejected[static_cast<int>(ChatCommandReject::NOT_ADMIN)].Inc();
-        SendSystemMessage(player, "운영자만 쓸 수 있는 명령입니다: /item");
+        SendSystemMessage(player, "운영자만 쓸 수 있는 명령입니다: " + cmd);
         return;
     }
+
+    (this->*(found->run))(player, words);
+}
+
+// /gm — GM 모드 켜고 끄기(토글). 값과 저장하지 않는 까닭은 Player.h 의 GM 칸.
+//   켜면 속도·최대 체력·공격력을 GM 값으로 바꾸고 체력·마력을 가득 채운다. 끄면 속도를 되돌리고 스탯을 레벨 표로 다시 세운다
+//   (체력·마력은 넘는 몫만 깎는다 — RecalcStats refill=false).
+//   알림은 레벨업과 같은 셋(체력 본인+주변 · 공격력 본인 · 마력 본인)에 속도(본인+주변)를 더한다 — 남의 화면도 그 속도로 앞질러 그린다.
+void CGameServer::RunGmCommand(CPlayer* player, const std::vector<std::string>& words)
+{
+    CGameMonitor::InventoryCounters& counters = _gameMonitor._inventory;
+
+    if (words.size() != 1)
+    {
+        counters._commandRejected[static_cast<int>(ChatCommandReject::BAD_ARGS)].Inc();
+        SendSystemMessage(player, "쓰는 법: /gm (켜고 끈다 — 인자 없음)");
+        return;
+    }
+
+    // 쓰러진 채 켜면 아래 「가득 채움」이 부활 절차(마을로 보내기 · 부활 방송) 없이 되살린다 — 거절한다.
+    //   끄기도 같이 막는다(쓰러진 채로는 상태를 안 바꾼다는 한 줄 규칙 — 부활하면 그때 끄면 된다).
+    if (player->_isDead)
+    {
+        counters._commandRejected[static_cast<int>(ChatCommandReject::DEAD)].Inc();
+        SendSystemMessage(player, "쓰러진 채로는 GM 모드를 바꿀 수 없습니다");
+        return;
+    }
+
+    player->_gmMode = !player->_gmMode;
+    if (player->_gmMode)
+    {
+        player->_speedBeforeGm = player->_speed;
+        player->_speed         = CPlayer::GM_SPEED;
+    }
+    else
+    {
+        player->_speed = player->_speedBeforeGm;
+    }
+    _statSystem.RecalcStats(player, player->_gmMode);   // 켤 때만 가득 채운다
+    counters._gmToggled[player->_gmMode ? 1 : 0].Inc();
+
+    CZone* zone = _mapManager.GetZone(player->_zoneId);
+    if (zone != nullptr)
+    {
+        BroadcastAroundSector(zone, player, MakeActorStats(player->_actorId, player->_hp, player->_maxHp), false);
+        BroadcastAroundSector(zone, player, MakeActorSpeed(player->_actorId, player->_speed), false);
+    }
+    SendMyStats(player);
+#if USE_SKILL
+    SendActorMp(player);   // 켤 때 가득 채운 마력 — 끌 때는 안 바뀌지만 같은 한 벌로 보낸다
+#endif
+
+    SLOG_INFO("[GM] /gm (account={}, player={}) -> {} (speed {}, maxHp {}, attack {})",
+              player->_accountId, player->_actorId, player->_gmMode ? "on" : "off",
+              player->_speed, player->_maxHp, player->_attackPower);
+    // 웹 채팅창 한 줄(400px)에 값이 다 들어가는 길이로 — 길면 끝이 「…」로 잘려 공격력이 안 보인다(10-16 헤드리스 사진)
+    SendSystemMessage(player, std::string(player->_gmMode ? "GM 켬" : "GM 끔")
+        + " — 속도 " + std::to_string(player->_speed) + " · 체력 " + std::to_string(player->_maxHp)
+        + " · 공격력 " + std::to_string(player->_attackPower));
+}
+
+// /item <아이템번호> [개수] — 개수를 안 적으면 1. 가방에 바로 넣는다(드랍이 생기기 전까지 가방을 채우던 길).
+void CGameServer::RunItemCommand(CPlayer* player, const std::vector<std::string>& words)
+{
+    CGameMonitor::InventoryCounters& counters = _gameMonitor._inventory;
 
     // /item <아이템번호> [개수]  — 개수를 안 적으면 1
     int64_t itemId = 0;

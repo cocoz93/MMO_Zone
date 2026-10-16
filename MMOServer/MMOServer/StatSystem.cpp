@@ -38,6 +38,13 @@ void CStatSystem::RecalcStats(CCharacter* character, bool refill)
         player->_maxHp       = table.MaxHp(player->_level);
         player->_attackPower = table.AttackPower(player->_level);
         player->_defense     = table.Defense(player->_level);
+        // GM 모드(운영자 /gm) — 최대 체력·공격력의 바탕만 GM 값으로 바꾼다. 방어력·마력은 레벨 표 그대로,
+        //   장비 몫·효과 배수는 아래에서 그 위에 그대로 얹는다(끼우거나 효과가 걸려도 GM 이 안 풀린다).
+        if (player->_gmMode)
+        {
+            player->_maxHp       = CPlayer::GM_MAX_HP;
+            player->_attackPower = CPlayer::GM_ATTACK;
+        }
 #if USE_SKILL
         player->_maxMp       = table.MaxMp(player->_level);   // 장비 몫은 없다 — 마력을 올리는 아이템이 아직 없다
 #endif

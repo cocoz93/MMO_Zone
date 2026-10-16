@@ -103,17 +103,19 @@ enum class ChatCommandReject : uint8_t
     NOT_ADMIN,         // 운영자가 아니다
     UNKNOWN_COMMAND,   // 모르는 명령
     BAD_ARGS,          // 명령은 맞는데 인자가 틀렸다
+    DEAD,              // 쓰러진 채다 — /gm 이 체력을 가득 채우면 부활 절차 없이 되살아난다
     COUNT
 };
 
 inline const char* ChatCommandRejectName(ChatCommandReject r)
 {
-    static_assert(static_cast<int>(ChatCommandReject::COUNT) == 3, "사유를 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(ChatCommandReject::COUNT) == 4, "사유를 늘렸으면 이름도 붙일 것");
     switch (r)
     {
     case ChatCommandReject::NOT_ADMIN:       return "not_admin";
     case ChatCommandReject::UNKNOWN_COMMAND: return "unknown_command";
     case ChatCommandReject::BAD_ARGS:        return "bad_args";
+    case ChatCommandReject::DEAD:            return "dead";
     case ChatCommandReject::COUNT:           break;
     }
     return "?";
@@ -374,6 +376,7 @@ public:
         Counter _itemsAdded;                                                  // 넣은 아이템 개수(칸 수가 아니라 개수)
         Counter _addRejected[static_cast<int>(InvAddResult::COUNT)];          // 넣기 거절, 사유별 ([OK] 칸은 안 쓴다)
         Counter _commandRejected[static_cast<int>(ChatCommandReject::COUNT)]; // 채팅 명령 거절, 사유별
+        Counter _gmToggled[2];                                                // /gm 으로 바꾼 수 — [0] 끔 · [1] 켬(바뀐 뒤 상태로 센다)
         Counter _slotUpdatesSent;                                             // 칸 패킷(S2C_INVENTORY_SLOT) 보낸 수
         Counter _snapshotsSent;                                               // 전체 목록(S2C_INVENTORY) 보낸 수 — 입장마다 1
         Counter _itemsUsed;                                                   // 쓴 아이템 개수(성공)

@@ -576,6 +576,12 @@ private:
         }
         ss << "\n";
 
+        ss << "# HELP mmo_chat_gm_toggles_total GM mode switched by /gm, split by the state after the switch\n";
+        ss << "# TYPE mmo_chat_gm_toggles_total counter\n";
+        ss << "mmo_chat_gm_toggles_total{state=\"off\"} " << inv._gmToggled[0] << "\n";
+        ss << "mmo_chat_gm_toggles_total{state=\"on\"} "  << inv._gmToggled[1] << "\n";
+        ss << "\n";
+
         WriteCounter(ss, "mmo_inv_slot_updates_sent_total",
                      "S2C_INVENTORY_SLOT packets sent (only FlushInventory sends them)",
                      inv._slotUpdatesSent);

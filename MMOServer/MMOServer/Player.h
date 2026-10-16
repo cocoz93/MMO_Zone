@@ -27,6 +27,16 @@ public:
 
     bool _isAdmin;        // 운영자 여부
 
+    // ── GM 모드 — 운영자가 채팅 /gm 으로 켜고 끈다(CGameServer::RunGmCommand) ──
+    //   켜면 속도·최대 체력·공격력을 아래 값으로 — 체력·공격력은 스탯을 세우는 한 곳(CStatSystem::RecalcStats)이 레벨 표 대신 쓴다.
+    //   저장하지 않는다 — 접속마다 꺼진 채 시작한다. 존을 넘어도(포털·마을 부활) 같은 CPlayer 라 그대로 켜져 있다.
+    //   값은 운영 도구 값이라 기획 표가 아니라 여기 둔다.
+    static constexpr int32_t GM_SPEED     = 21;        // 칸/초 — 게임 기본 7([Game] PlayerSpeed)의 3배
+    static constexpr int32_t GM_MAX_HP    = 1000000;   // 보스 평타(30)로는 닳지 않는 크기
+    static constexpr int32_t GM_ATTACK    = 3000;      // 구렁이(체력 30000 · 방어 0)를 열 대 — 체력 반에서 거는 격노를 볼 틈이 남는다
+    bool    _gmMode        = false;
+    int32_t _speedBeforeGm = 0;   // 켜기 직전 속도 — 끌 때 되돌린다(속도는 레벨 표 값이 아니라 입장 때 정해진 값이라 다시 셈할 곳이 없다)
+
     // USE_DB_WORKER: 계정 식별자 (1단계는 스폰 시 서버가 임시 부여, 2단계는 접속 핸드셰이크로 수신)
     int64_t _accountId = 0;
     // USE_DB_WORKER: 마지막 저장 이후 위치가 바뀌었는지 (주기 저장 대상 선별, 저장 후 리셋)
