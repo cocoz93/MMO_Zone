@@ -147,7 +147,12 @@ enum class MsgType : uint16_t
     //--------------------------------------------------
     // 스킬 쿨타임 상태 (USE_SKILL — 쿨타임 칸은 스킬 토글 소유. 저장값을 되살린 입장·존 이동 때)
     //--------------------------------------------------
-    S2C_SKILL_COOLDOWN_REMAIN   // 서버 → 클라이언트: 아직 돌고 있는 쿨타임의 남은 시간 (본인에게만 — 칸마다 한 장, 없으면 0장)
+    S2C_SKILL_COOLDOWN_REMAIN,  // 서버 → 클라이언트: 아직 돌고 있는 쿨타임의 남은 시간 (본인에게만 — 칸마다 한 장, 없으면 0장)
+
+    //--------------------------------------------------
+    // 이동 속도 (토글 없음 — 등장 순간의 속도는 CREATE 가 싣는다. 지금 바꾸는 길은 운영자 /gm 하나)
+    //--------------------------------------------------
+    S2C_ACTOR_SPEED             // 서버 → 클라이언트: 속도 통보 (본인 + 주변 — 남의 화면도 그 속도로 앞질러 그린다)
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -1120,5 +1125,23 @@ struct MSG_S2C_SKILL_COOLDOWN_REMAIN
 
 static_assert(sizeof(MSG_S2C_SKILL_COOLDOWN_REMAIN) == 13, "SKILL_COOLDOWN_REMAIN 은 13B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_SKILL_COOLDOWN_REMAIN) == 1048, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+
+// S2C: 이동 속도 — 캐릭터의 속도가 바뀌었을 때(지금은 운영자 /gm 켬·끔뿐).
+//   등장 순간의 속도는 CREATE 가 싣는다(CREATE_MY_PLAYER · CREATE_OTHER 의 speed). 이 장은 그 뒤에 바뀐 값을 알린다 —
+//   클라는 받은 속도로 서버 틱 사이를 앞질러 그리므로(웹 live.html advance), 안 알리면 옛 속도로 그리다 서버 좌표에 끌려간다.
+//   받는 사람 = 본인 + 주변(BroadcastAroundSector, excludeSelf=false — S2C_ACTOR_STATS 와 같은 꼴).
+//   ★ 부하 더미도 주변이면 받는다 — 크기 등록을 빠뜨리면 그 더미가 끊긴다(S2C_SKILL_CAST 와 같은 함정).
+struct MSG_S2C_ACTOR_SPEED
+{
+    static constexpr MsgType TYPE = MsgType::S2C_ACTOR_SPEED;
+    MsgHeader header;
+    int32_t actorId;
+    int32_t speed;     // 칸/초 — CREATE 의 speed 와 같은 단위
+
+    MSG_S2C_ACTOR_SPEED() : header{ sizeof(*this), TYPE }, actorId(0), speed(0) {}
+};
+
+static_assert(sizeof(MSG_S2C_ACTOR_SPEED) == 12, "ACTOR_SPEED 는 12B (proto.js 와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::S2C_ACTOR_SPEED) == 1049, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 #pragma pack(pop)

@@ -414,6 +414,11 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
     case MsgType::S2C_SKILL_COOLDOWN_REMAIN:
         break;
 
+    // 이동 속도(ACTOR_SPEED) — 운영자가 곁에서 /gm 을 켜고 끌 때 온다. 콘솔 클라는 속도를 CREATE 때 받은 값으로만 쓰고
+    //   바뀐 속도는 반영하지 않는다 — 다음 CREATE(존 이동·재접속)까지 옛 속도로 앞질러 그리고 서버 좌표로 맞춘다. 모르는 타입 로그만 막는다.
+    case MsgType::S2C_ACTOR_SPEED:
+        break;
+
     default:
         LOG_ERROR_STREAM("Unknown message type: " << static_cast<int>(header->type));
         break;

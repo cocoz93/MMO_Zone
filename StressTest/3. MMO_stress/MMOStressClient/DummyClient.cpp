@@ -268,6 +268,9 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     case MsgType::S2C_ACTOR_BUFF:         return sizeof(MSG_S2C_ACTOR_BUFF);
     // USE_SKILL: 남은 쿨타임 — 본인에게만, 쿨타임이 남은 채 들어오거나 존을 넘을 때만 온다. 더미는 스킬을 안 써서 올 일이 없지만 위와 같은 전례대로 크기만 등록한다.
     case MsgType::S2C_SKILL_COOLDOWN_REMAIN: return sizeof(MSG_S2C_SKILL_COOLDOWN_REMAIN);
+    // 이동 속도 — 주변 방송이라 운영자가 곁에서 /gm 을 켜고 끄면 더미도 받는다.
+    //   ★ 빠뜨리면 그 순간 근처 더미가 전부 떨어진다(SKILL_CAST 와 같은 함정).
+    case MsgType::S2C_ACTOR_SPEED:        return sizeof(MSG_S2C_ACTOR_SPEED);
     default: return 0;
     }
 }
