@@ -143,7 +143,7 @@ const SKILL_FAIL_TEXT = {
 // 맵 표·포털 표 — 서버와 같은 파일(Run/bin/MapTable.csv · PortalTable.csv)을 serve.js 의 /data 로 받는다(아이템·스킬 표와 같은 꼴).
 //   맵 표는 땅 모양(마을 = 흙)만, 포털 표는 그리기·안내·F 키의 번호 고르기에 쓴다. 어디로 가는지는 서버 표가 정한다(클라는 번호만 보낸다).
 //   못 받으면 땅은 풀 · 포털이 안 보이고 F 키도 안 보낸다(번호를 모른다). 없다는 사실은 콘솔 경고와 data-portal 에 남는다.
-const MAPS = new Map();                                                 // mapId -> {kind:'town'|'dungeon'}
+const MAPS = new Map();                                                 // mapId -> {kind:'town'|'dungeon'|'instance'} — instance = 파티 전용 방 맵(땅은 던전처럼 풀)
 const PORTALS = [];                                                     // {id, mapId, x, y, radius, targetMapId, name}
 const portalState = { sent:0, lastFail:null };                          // 헤드리스 검증용 셈
 // 맵 이동 실패 사유(P.ZONE_FAIL 이름) → 채팅 칸 [System] 문구. 존 이동 요청·포털 공통(S2C_ZONE_CHANGE_FAIL)
@@ -243,6 +243,11 @@ function partyNoticeText(code, actorId){
     case 'KICKED':        return mine ? '파티에서 내보내졌습니다' : '파티원을 내보냈습니다: '+w;
     case 'LEADER':        return mine ? '파티장이 됐습니다' : '파티장이 바뀌었습니다: '+w;
     case 'DISBANDED':     return '파티가 해산됐습니다';
+    // 방(파티 전용 — 파티장이 방 맵 포털을 쓸 때) 거절 — w = 막는 파티원. 아무도 안 옮겨졌다.
+    //   짧게 — 채팅 칸이 긴 줄 끝을 「…」로 자르는데 막는 사람(w)이 끝에 있다
+    case 'ROOM_NOT_GATHERED': return '같은 채널에 없는 파티원이 있습니다: '+w;
+    case 'ROOM_DEAD':         return '쓰러진 파티원이 있습니다: '+w;
+    case 'ROOM_LOCKED':       return '아직 다시 못 들어가는 파티원이 있습니다: '+w;
   }
   return '파티 알림 ('+code+')';
 }
@@ -1419,7 +1424,7 @@ function partyClick(h){
   }
 }
 function personName(pp){ return String.fromCharCode(pp.displayChar||63); }
-function mapName(id){ const k=(MAPS.get(id)||{}).kind; return k==='town' ? '마을' : k==='dungeon' ? '던전 '+id : '맵 '+id; }
+function mapName(id){ const k=(MAPS.get(id)||{}).kind; return k==='town' ? '마을' : k==='dungeon' ? '던전 '+id : k==='instance' ? '파티 방 '+id : '맵 '+id; }
 function smallBtn(r, label, on, danger){
   ctx.fillStyle = on ? (danger?'rgba(226,87,74,.35)':'rgba(143,214,160,.30)') : 'rgba(255,255,255,.07)'; rr(r.x,r.y,r.w,r.h,5); ctx.fill();
   ctx.strokeStyle = danger ? 'rgba(226,120,100,.5)' : 'rgba(143,214,160,.45)'; ctx.lineWidth=1; ctx.stroke();
