@@ -150,6 +150,9 @@ CCharacter* CCombatSystem::FindFrontTarget(CZone* zone, CCharacter* attacker, Ca
     CCharacter* target = nullptr;
     float bestDistSq = 0.0f;
     outSawDeadInRange = false;
+#if USE_PARTY
+    const int32_t myParty = PartyIdOf(attacker);   // 0 = 파티 없음(몬스터 포함) — 그러면 아래 거르기를 안 탄다
+#endif
 
     // 후보 하나를 재 본다 — 어느 목록에서 온 후보든 같은 판정이다(ForEachCandidate 가 목록마다 부른다)
     auto consider = [&](CCharacter* candidate)
@@ -160,6 +163,16 @@ CCharacter* CCombatSystem::FindFrontTarget(CZone* zone, CCharacter* attacker, Ca
         float distSq = 0.0f;
         if (!Combat::IsInAttackRange(*attacker, *candidate, distSq))
             return;
+
+#if USE_PARTY
+        // 같은 파티는 대상이 아니다(10-17 사용자 결정 — 평타·공격 스킬 둘 다) — 건너뛰면 그 뒤의 다음 가까운 것(보스)이 맞는다.
+        //   사거리 안의 파티원만 센다(시체여도 — 시체 대상 사유로 안 세고 여기서 센다). 범위 스킬 쪽은 CollectCandidates 가 같은 판정으로 거른다.
+        if (myParty != 0 && PartyIdOf(candidate) == myParty)
+        {
+            _gameMonitor._party._mateSkippedFront.Inc();
+            return;
+        }
+#endif
 
         if (candidate->_isDead)
         {
@@ -189,10 +202,21 @@ CCharacter* CCombatSystem::FindFrontTarget(CZone* zone, CCharacter* attacker, Ca
 void CCombatSystem::CollectCandidates(CZone* zone, float x, float y, float range, CandidateList which, const CCharacter* exclude,
                                       std::vector<CCharacter*>& out) const
 {
+#if USE_PARTY
+    const int32_t myParty = (exclude != nullptr) ? PartyIdOf(exclude) : 0;   // exclude = 시전자 본인 — 그 파티원도 뺀다
+#endif
     ForEachCandidate(zone->GetSectorManager(), x, y, range, which, [&](CCharacter* candidate)
     {
         if (candidate == exclude || candidate->_isDead)
             return;   // 본인 · 시체는 안 맞는다
+#if USE_PARTY
+        // 같은 파티는 대상이 아니다 — FindFrontTarget 과 같은 판정. 모양 판정 전이라 훑은 반경 안의 파티원을 센다(지금 사람 스킬은 몬스터 목록만 봐서 늘 0 — 그래도 둔다, MyDocs/claude-plans/party-plan.md ③).
+        if (myParty != 0 && PartyIdOf(candidate) == myParty)
+        {
+            _gameMonitor._party._mateSkippedArea.Inc();
+            return;
+        }
+#endif
         out.push_back(candidate);
     });
 }

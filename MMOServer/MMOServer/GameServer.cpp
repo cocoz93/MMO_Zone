@@ -591,6 +591,103 @@ namespace
     }
 #endif
 
+#if USE_PARTY
+    // 파티 사람 조각(Protocol.h PartyPerson 10B) — p 가 nullptr 이면 0 으로 채운다(ASK 의 about 이 없을 때).
+    void WritePartyPerson(CSerialBuffer* buf, const CPlayer* p)
+    {
+        *buf << static_cast<int>(p != nullptr ? p->_actorId : 0);
+        *buf << static_cast<uint8_t>(p != nullptr ? p->_displayChar : 0);
+        *buf << static_cast<uint8_t>(p != nullptr ? p->_colorIndex : 0);
+        *buf << static_cast<int>(p != nullptr ? p->_level : 0);
+    }
+
+    // 파티원 한 줄(Protocol.h PartyMemberEntry 22B) — INFO 의 줄이자 MEMBER 의 몸통. 줄을 늘리면 여기 한 곳 · proto.js readPartyMember.
+    //   체력은 등장 조각(WriteSnapshot)과 같은 규칙 — 전투가 꺼진 빌드는 0. 맵은 존 번호를 풀어 싣는다(채널은 안 싣는다).
+    void WritePartyMember(CSerialBuffer* buf, const CPlayer* p)
+    {
+        WritePartyPerson(buf, p);
+#if USE_COMBAT
+        *buf << static_cast<int>(p->_hp);
+        *buf << static_cast<int>(p->_maxHp);
+#else
+        *buf << static_cast<int>(0);
+        *buf << static_cast<int>(0);
+#endif
+        *buf << static_cast<int>(CMapManager::GetMapIdFromZoneId(p->_zoneId));
+    }
+
+    CSerialBuffer* MakePartyAsk(uint32_t requestId, PartyAskKind kind, const CPlayer* from, const CPlayer* about, uint32_t remainMs)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_PARTY_ASK::TYPE);
+        *buf << static_cast<uint32_t>(requestId);
+        *buf << static_cast<uint8_t>(kind);
+        WritePartyPerson(buf, from);
+        WritePartyPerson(buf, about);
+        *buf << static_cast<uint32_t>(remainMs);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_PARTY_ASK));
+        return buf;
+    }
+
+    CSerialBuffer* MakePartyAskEnd(uint32_t requestId, PartyNotice why)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_PARTY_ASK_END::TYPE);
+        *buf << static_cast<uint32_t>(requestId);
+        *buf << static_cast<uint8_t>(why);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_PARTY_ASK_END));
+        return buf;
+    }
+
+    CSerialBuffer* MakePartyNotice(PartyNotice code, int32_t actorId)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_PARTY_NOTICE::TYPE);
+        *buf << static_cast<uint8_t>(code);
+        *buf << static_cast<int>(actorId);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_PARTY_NOTICE));
+        return buf;
+    }
+
+    // 파티 전체는 한 장으로 간다 — 꽉 찬 파티(8명)도 한 패킷에 들어가야 한다(가방 전체와 같은 단언, 위 MakeInventory 앞).
+    static_assert(sizeof(MSG_S2C_PARTY_INFO) <= MAX_PACKET_SIZE,
+                  "꽉 찬 파티 전체가 한 패킷(MAX_PACKET_SIZE)에 안 들어간다 — 나눠 보내는 길을 만들 것");
+
+    // 파티 전체 — 가변 길이(가입 순서 줄만). party 가 nullptr 이면 파티 없음(번호·파티장 0 · 인원 0 — 머리 13B 뿐).
+    CSerialBuffer* MakePartyInfo(const Party* party)
+    {
+        const int count = (party != nullptr) ? static_cast<int>(party->members.size()) : 0;
+
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_PARTY_INFO::TYPE);
+        *buf << static_cast<int>(party != nullptr ? party->id : 0);
+        *buf << static_cast<int>(party != nullptr ? party->leader->_actorId : 0);
+        *buf << static_cast<uint8_t>(count);
+        if (party != nullptr)
+        {
+            for (const Party::Member& m : party->members)
+                WritePartyMember(buf, m.player);
+        }
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() ==
+            offsetof(MSG_S2C_PARTY_INFO, entries) + static_cast<size_t>(count) * sizeof(PartyMemberEntry));
+        return buf;
+    }
+
+    CSerialBuffer* MakePartyMember(const CPlayer* member)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_PARTY_MEMBER::TYPE);
+        WritePartyMember(buf, member);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_PARTY_MEMBER));
+        return buf;
+    }
+#endif
+
 #if USE_DROP
     CSerialBuffer* MakeGroundItemCreate(const CGroundItem& g, GroundItemAppear reason)
     {
@@ -1582,6 +1679,12 @@ void CGameServer::GameLoopThread()
         _buffSystem.Tick(_frameCount);
 #endif
 
+#if USE_PARTY
+        // 3-2c) 파티 — 요청 시간 지남 · 파티원 상태 비교(약 0.5초마다). 파티·요청이 없으면 바로 끝난다(부하 시험엔 파티가 없다).
+        //   존마다 돌지 않는다 — 파티는 존을 넘는다(목록이 게임 서버에 하나, PartySystem.h [왜 따로인가]).
+        _partySystem.Tick(_frameCount);
+#endif
+
 #if USE_DROP
         // 3-3) 땅의 아이템 사라지기 — 섹터 변경 대기열을 비운 뒤라 "같은 틱 이동자" 보정이 필요 없다
         TickGroundItems();
@@ -2069,6 +2172,12 @@ void CGameServer::ReleasePlayer(CPlayer* player)
     _buffSystem.Forget(player);
 #endif
 
+#if USE_PARTY
+    // 파티원·요청 표도 같은 까닭으로 여기서 뺀다 — 남은 파티원·요청 상대에게는 알림이 간다(이 사람에게는 안 간다 — 세션이 없다).
+    //   끊기면 바로 파티에서 빠지는 규칙(10-16 사용자 결정)이 이 한 줄이다. 존 이동·죽음은 이 길을 안 지난다(파티는 존을 넘는다).
+    _partySystem.Forget(player);
+#endif
+
     // 슬롯 비우기 — 주인이 슬롯이라 여기서 해제된다(맨 끝이어야 한다)
     std::unique_ptr<CPlayer>& slot = _sessionSlots[CSession::ExtractIndex(player->_sessionId)];
     assert(slot.get() == player);
@@ -2181,6 +2290,32 @@ void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
         break;
 #endif
 
+#if USE_PARTY
+    case MsgType::C2S_PARTY_REQUEST:
+        RecvPartyRequest(player, pMsg);
+        break;
+
+    case MsgType::C2S_PARTY_ANSWER:
+        RecvPartyAnswer(player, pMsg);
+        break;
+
+    case MsgType::C2S_PARTY_LEAVE:
+        RecvPartyLeave(player);
+        break;
+
+    case MsgType::C2S_PARTY_KICK:
+        RecvPartyKick(player, pMsg);
+        break;
+
+    case MsgType::C2S_PARTY_LEADER:
+        RecvPartyLeader(player, pMsg);
+        break;
+
+    case MsgType::C2S_PARTY_DISBAND:
+        RecvPartyDisband(player);
+        break;
+#endif
+
     default:
         // C2S_HEARTBEAT 등 — 게임 로직 처리 불필요 (타임아웃 갱신은 IOCPServer 수신 시점에서 처리)
         break;
@@ -2225,6 +2360,15 @@ uint16_t CGameServer::GetExpectedSize(MsgType type)
 #if USE_SKILL
     // 이 줄이 없으면 스킬 요청이 조용히 버려진다(위 물약과 같은 함정 — 거절 패킷도 안 간다)
     case MsgType::C2S_USE_SKILL:    return sizeof(MSG_C2S_USE_SKILL);
+#endif
+#if USE_PARTY
+    // 이 여섯 줄이 없으면 파티 요청이 조용히 버려진다(위 물약과 같은 함정 — 답도 로그도 없다)
+    case MsgType::C2S_PARTY_REQUEST: return sizeof(MSG_C2S_PARTY_REQUEST);
+    case MsgType::C2S_PARTY_ANSWER:  return sizeof(MSG_C2S_PARTY_ANSWER);
+    case MsgType::C2S_PARTY_LEAVE:   return sizeof(MSG_C2S_PARTY_LEAVE);     // 몸 없음 — 헤더뿐
+    case MsgType::C2S_PARTY_KICK:    return sizeof(MSG_C2S_PARTY_KICK);
+    case MsgType::C2S_PARTY_LEADER:  return sizeof(MSG_C2S_PARTY_LEADER);
+    case MsgType::C2S_PARTY_DISBAND: return sizeof(MSG_C2S_PARTY_DISBAND);   // 몸 없음 — 헤더뿐
 #endif
     default:                        return 0;
     }
@@ -3500,6 +3644,103 @@ void CGameServer::RemoveFromDeadActors(CCharacter* player)
         _deadActors.end());
 }
 #endif // USE_COMBAT
+
+#if USE_PARTY
+// ==========================================================================
+// 파티 — 규칙은 CPartySystem(PartySystem.cpp), 여기는 받기와 알림을 패킷으로 바꿔 보내기만
+// ==========================================================================
+
+// 화면에서 누른 캐릭터 — 내 주변 9섹터에서 찾아 넘긴다(없으면 nullptr → 규칙이 NO_TARGET 으로 답한다)
+void CGameServer::RecvPartyRequest(CPlayer* player, CSerialBuffer* pMsg)
+{
+    MSG_C2S_PARTY_REQUEST recvMsg{};
+    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
+    _partySystem.Request(player, FindPlayerAround(player, recvMsg.targetId), _frameCount);
+}
+
+void CGameServer::RecvPartyAnswer(CPlayer* player, CSerialBuffer* pMsg)
+{
+    MSG_C2S_PARTY_ANSWER recvMsg{};
+    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
+    _partySystem.Answer(player, recvMsg.requestId, recvMsg.accept != 0, _frameCount);
+}
+
+void CGameServer::RecvPartyLeave(CPlayer* player)
+{
+    _partySystem.Leave(player);
+}
+
+// 내보내기·넘기기 — 대상은 우리 파티원 중에서 찾는다(맵이 달라도 된다 — 화면에서 누르지 않고 파티 창에서 고른다)
+void CGameServer::RecvPartyKick(CPlayer* player, CSerialBuffer* pMsg)
+{
+    MSG_C2S_PARTY_KICK recvMsg{};
+    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
+    _partySystem.Kick(player, recvMsg.targetId);
+}
+
+void CGameServer::RecvPartyLeader(CPlayer* player, CSerialBuffer* pMsg)
+{
+    MSG_C2S_PARTY_LEADER recvMsg{};
+    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
+    _partySystem.SetLeader(player, recvMsg.targetId);
+}
+
+void CGameServer::RecvPartyDisband(CPlayer* player)
+{
+    _partySystem.Disband(player);
+}
+
+CPlayer* CGameServer::FindPlayerAround(CPlayer* player, int32_t actorId)
+{
+    CZone* zone = _mapManager.GetZone(player->_zoneId);
+    if (zone == nullptr)
+        return nullptr;
+
+    // 어느 9칸인가(시야 규칙)는 섹터 관리자가 정한다(GetAroundSectorList) — 사람 목록만 본다(몬스터를 눌러도 NO_TARGET)
+    const CSectorManager& sectors = zone->GetSectorManager();
+    CSectorManager::SectorPos around[CSectorManager::MAX_AROUND_SECTORS];
+    int32_t aroundCount = 0;
+    sectors.GetAroundSectorList(player->_sectorX, player->_sectorY, around, aroundCount);
+    for (int32_t i = 0; i < aroundCount; ++i)
+    {
+        for (CPlayer* other : sectors.GetSectorPlayers(around[i].x, around[i].y))
+        {
+            if (other->_actorId == actorId)
+                return other;
+        }
+    }
+    return nullptr;
+}
+
+void CGameServer::OnPartyAsk(CPlayer* to, uint32_t requestId, PartyAskKind kind, const CPlayer* from, const CPlayer* about, uint32_t remainMs)
+{
+    SendPacket(to, MakePartyAsk(requestId, kind, from, about, remainMs));
+    _gameMonitor._party._askSent.Inc();
+}
+
+void CGameServer::OnPartyAskEnd(CPlayer* to, uint32_t requestId, PartyNotice why)
+{
+    SendPacket(to, MakePartyAskEnd(requestId, why));
+    _gameMonitor._party._askEndSent.Inc();
+}
+
+void CGameServer::OnPartyNotice(CPlayer* to, PartyNotice code, int32_t actorId)
+{
+    SendPacket(to, MakePartyNotice(code, actorId));   // 세기는 규칙 쪽(CPartySystem::Notice — 번호별)
+}
+
+void CGameServer::OnPartyInfo(CPlayer* to, const Party* party)
+{
+    SendPacket(to, MakePartyInfo(party));
+    _gameMonitor._party._infoSent.Inc();
+}
+
+void CGameServer::OnPartyMember(CPlayer* to, const CPlayer* member)
+{
+    SendPacket(to, MakePartyMember(member));
+    _gameMonitor._party._memberSent.Inc();
+}
+#endif // USE_PARTY
 
 #if USE_MONSTER
 // ==========================================================================

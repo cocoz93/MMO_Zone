@@ -69,12 +69,12 @@ public:
     };
 
     // 앞 한 칸에서 대상 하나 — 사거리·정면 안에서 살아 있는 것 중 가장 가까운 것. 없으면 nullptr.
-    //   본인은 후보에서 뺀다. outSawDeadInRange = 사거리 안에 있긴 했는데 시체였다("아무도 없었다"와 가르는 값).
+    //   본인과 같은 파티원(USE_PARTY)은 후보에서 뺀다. outSawDeadInRange = 사거리 안에 있긴 했는데 시체였다("아무도 없었다"와 가르는 값).
     //   세지도 알리지도 않는다 — 없을 때 무슨 사유로 셀지는 부른 쪽(일반 공격·스킬)마다 다르다.
     CCharacter* FindFrontTarget(CZone* zone, CCharacter* attacker, CandidateList which, bool& outSawDeadInRange) const;
 
     // 반경 안의 후보를 다 모은다 — 범위 스킬이 쓴다. 모양 판정은 안 한다(어느 칸이 맞나는 부른 쪽 몫 — 스킬의 칸 목록).
-    //   (x, y) 둘레 range 가 걸치는 섹터의, which 가 고른 목록에서 살아 있는 것만. exclude(시전자 본인)는 뺀다.
+    //   (x, y) 둘레 range 가 걸치는 섹터의, which 가 고른 목록에서 살아 있는 것만. exclude(시전자 본인)와 그 파티원(USE_PARTY)은 뺀다.
     //   out 은 비우지 않고 뒤에 붙인다. 한 캐릭터는 한 섹터 목록에만 있어 같은 후보가 두 번 들지 않는다.
     //   ★ 모으기만 한다 — 맞히기(ApplyHit)는 다 모은 뒤에(죽은 몬스터가 섹터 목록에서 빠진다).
     void CollectCandidates(CZone* zone, float x, float y, float range, CandidateList which, const CCharacter* exclude,

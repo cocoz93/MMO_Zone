@@ -106,3 +106,10 @@ T* As(CCharacter* c)
 {
     return T::IsA(*c) ? static_cast<T*>(c) : nullptr;
 }
+
+// 읽기만 하는 자리용 — 같은 판정의 const 겹함수(10-17 파티 번호 읽기 PartyIdOf 가 처음 씀). 내려 바꾸는 함수는 여전히 이 이름 하나다.
+template <class T>
+const T* As(const CCharacter* c)
+{
+    return T::IsA(*c) ? static_cast<const T*>(c) : nullptr;
+}

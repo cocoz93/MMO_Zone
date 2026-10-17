@@ -25,6 +25,7 @@
 #include "Buff.h"             // USE_COMBAT — 지속 효과 종류(BuffKind)·끝난 사유(BuffEnd) 수만큼 칸을 잡는다
 #include "SkillTable.h"       // USE_SKILL — 스킬 번호 수(MAX_SKILL_ID)만큼 시전 칸을 잡는다
 #include "MapManager.h"       // 존 이동 요청 결과(ZoneChangeReject — 맵 관리자의 어휘) 수만큼 칸을 잡는다
+#include "PartySystem.h"      // USE_PARTY — 빠진 까닭(PartyLeave)·요청이 끝난 까닭(PartyRequestEnd) 수만큼 칸을 잡는다
 
 // [사유 enum 의 집 — 규칙 하나] 사유는 그것을 정하는 층의 헤더에 산다(10-06, 아키텍처 전수검사 7번).
 //   존·엔티티 층이 정하는 것: GroundItemRemoval·PickupReject(GroundItem.h) · ZoneChangeReject(MapManager.h) · InvAddResult(Inventory.h)
@@ -95,6 +96,83 @@ inline const char* PortalRejectName(PortalReject r)
     return "?";
 }
 constexpr int PORTAL_REJECT_COUNT = static_cast<int>(PortalReject::COUNT);
+
+#if USE_PARTY
+// 파티 지표 라벨 — 넷 다 파티가 정하는 어휘다. 빠진 까닭·요청이 끝난 까닭은 규칙 클래스(PartySystem.h)가,
+//   요청 종류·알림 번호는 와이어 enum(Protocol.h — 규칙 클래스가 그대로 쓴다, PartySystem.h [와이어 enum 을 그대로 쓴다])이 정한다.
+inline const char* PartyLeaveName(PartyLeave r)
+{
+    static_assert(static_cast<int>(PartyLeave::COUNT) == 4, "PartyLeave 를 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case PartyLeave::LEAVE:        return "leave";
+    case PartyLeave::KICKED:       return "kicked";
+    case PartyLeave::DISCONNECTED: return "disconnected";
+    case PartyLeave::DISBANDED:    return "disbanded";
+    case PartyLeave::COUNT:        break;
+    }
+    return "?";
+}
+
+inline const char* PartyRequestEndName(PartyRequestEnd r)
+{
+    static_assert(static_cast<int>(PartyRequestEnd::COUNT) == 4, "PartyRequestEnd 를 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case PartyRequestEnd::ACCEPTED:  return "accepted";
+    case PartyRequestEnd::DECLINED:  return "declined";
+    case PartyRequestEnd::EXPIRED:   return "expired";
+    case PartyRequestEnd::CANCELLED: return "cancelled";
+    case PartyRequestEnd::COUNT:     break;
+    }
+    return "?";
+}
+
+inline const char* PartyAskKindName(PartyAskKind r)
+{
+    static_assert(static_cast<int>(PartyAskKind::COUNT) == 3, "PartyAskKind 를 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case PartyAskKind::INVITE:  return "invite";
+    case PartyAskKind::APPLY:   return "apply";
+    case PartyAskKind::SUGGEST: return "suggest";
+    case PartyAskKind::COUNT:   break;
+    }
+    return "?";
+}
+
+inline const char* PartyNoticeName(PartyNotice r)
+{
+    static_assert(static_cast<int>(PartyNotice::COUNT) == 22, "PartyNotice 를 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case PartyNotice::SENT_INVITE:   return "sent_invite";
+    case PartyNotice::SENT_APPLY:    return "sent_apply";
+    case PartyNotice::SENT_SUGGEST:  return "sent_suggest";
+    case PartyNotice::NO_TARGET:     return "no_target";
+    case PartyNotice::SELF:          return "self";
+    case PartyNotice::SAME_PARTY:    return "same_party";
+    case PartyNotice::BOTH_IN_PARTY: return "both_in_party";
+    case PartyNotice::FULL:          return "full";
+    case PartyNotice::NOT_LEADER:    return "not_leader";
+    case PartyNotice::NOT_IN_PARTY:  return "not_in_party";
+    case PartyNotice::NOT_MEMBER:    return "not_member";
+    case PartyNotice::TARGET_BUSY:   return "target_busy";
+    case PartyNotice::SELF_BUSY:     return "self_busy";
+    case PartyNotice::NO_REQUEST:    return "no_request";
+    case PartyNotice::DECLINED:      return "declined";
+    case PartyNotice::EXPIRED:       return "expired";
+    case PartyNotice::CANCELLED:     return "cancelled";
+    case PartyNotice::JOINED:        return "joined";
+    case PartyNotice::LEFT:          return "left";
+    case PartyNotice::KICKED:        return "kicked";
+    case PartyNotice::LEADER:        return "leader";
+    case PartyNotice::DISBANDED:     return "disbanded";
+    case PartyNotice::COUNT:         break;
+    }
+    return "?";
+}
+#endif
 
 #if USE_INVENTORY
 // 채팅 명령 거절 사유 — 넣기 거절(InvAddResult)과 따로 센다. 명령이 틀린 것과 가방이 찬 것은 다른 사실이다.
@@ -561,6 +639,35 @@ public:
         Counter _used;                              // 포털로 옮겨 감
         Counter _rejected[PORTAL_REJECT_COUNT];     // 거절, 사유별(PortalReject)
     } _portal;
+
+#if USE_PARTY
+    // ══════════════════════════════════════════════════════════════
+    // 파티 (USE_PARTY) — 세는 곳은 CPartySystem 안(보내기 몫 넷만 게임 서버의 보내는 함수 한 곳씩).
+    //   ★ 등식 셋(조용해진 뒤) — 바꾸는 자리가 여럿이라 한 곳만 안 세도 영영 안 맞는다:
+    //     _created = _ended + _active · _memberAdded = Σ _memberRemoved + _members · Σ _requests = Σ _requestsEnded + _pending
+    // ══════════════════════════════════════════════════════════════
+    struct alignas(64) PartyCounters
+    {
+        Counter _active;                                                          // [게이지] 지금 파티 수
+        Counter _members;                                                         // [게이지] 지금 파티원 수(전 파티 합)
+        Counter _created;                                                         // 새 파티(초대가 수락돼 둘이 됨)
+        Counter _ended;                                                           // 사라진 파티(해산 · 한 명만 남음)
+        Counter _memberAdded;                                                     // 들어온 수 — 새 파티의 둘 포함
+        Counter _memberRemoved[static_cast<int>(PartyLeave::COUNT)];              // 빠진 수, 까닭별
+        Counter _requests[static_cast<int>(PartyAskKind::COUNT)];                 // 요청 표에 넣은 수, 종류별 — 추천이 승인돼 이어진 초대도 하나
+        Counter _requestsEnded[static_cast<int>(PartyRequestEnd::COUNT)];         // 요청이 끝난 수, 까닭별
+        Counter _pending;                                                         // [게이지] 지금 요청 표 크기
+        Counter _notices[static_cast<int>(PartyNotice::COUNT)];                   // 보낸 알림, 번호별 — 거절 사유(NO_TARGET~NO_REQUEST)도 여기
+        Counter _infoSent;                                                        // S2C_PARTY_INFO 보낸 수(게임 서버 한 곳)
+        Counter _memberSent;                                                      // S2C_PARTY_MEMBER 보낸 수(게임 서버 한 곳)
+        Counter _askSent;                                                         // S2C_PARTY_ASK 보낸 수(게임 서버 한 곳) — Σ _requests 와 같아야 한다
+        Counter _askEndSent;                                                      // S2C_PARTY_ASK_END 보낸 수(게임 서버 한 곳)
+        // 공격 후보에서 같은 파티라 건너뛴 수 — 후보 함수가 둘이라 둘(세는 자리도 갈래다).
+        //   Front = FindFrontTarget(평타·백호참 — 사거리 안의 파티원) · Area = CollectCandidates(범위 스킬 — 모양 판정 전, 훑은 반경 안의 파티원)
+        Counter _mateSkippedFront;
+        Counter _mateSkippedArea;
+    } _party;
+#endif
 
     // DB 저장 파이프라인 — 정의는 위 DBSaveCounters(DB 워커가 참조로 받는다)
     DBSaveCounters _db;

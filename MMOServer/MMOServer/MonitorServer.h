@@ -510,6 +510,41 @@ private:
                      bf._actorBuffSent);
 #endif
 
+#if USE_PARTY
+        // 파티. 등식 셋(조용해진 뒤 — GameMonitor.h): created = ended + active · member_added = Σ member_removed + members ·
+        //   Σ requests = Σ requests_ended + pending_requests. 사유 칸은 다 표를 돈다(늘어도 노출에서 안 빠진다).
+        {
+            const auto& pt = _gameMonitor._party;
+            ss << "# HELP mmo_party_active Parties alive right now\n# TYPE mmo_party_active gauge\nmmo_party_active " << pt._active << "\n";
+            ss << "# HELP mmo_party_members Party members right now across every party\n# TYPE mmo_party_members gauge\nmmo_party_members " << pt._members << "\n";
+            ss << "# HELP mmo_party_pending_requests Party requests waiting for an answer right now\n# TYPE mmo_party_pending_requests gauge\nmmo_party_pending_requests " << pt._pending << "\n\n";
+            WriteCounter(ss, "mmo_party_created_total", "Parties created (an invite accepted by someone without a party)", pt._created);
+            WriteCounter(ss, "mmo_party_ended_total", "Parties gone (disbanded by the leader or down to one member)", pt._ended);
+            WriteCounter(ss, "mmo_party_member_added_total", "Members added, counting both founders of a new party", pt._memberAdded);
+            ss << "# HELP mmo_party_member_removed_total Members removed, split by why\n# TYPE mmo_party_member_removed_total counter\n";
+            for (int i = 0; i < static_cast<int>(PartyLeave::COUNT); ++i)
+                ss << "mmo_party_member_removed_total{why=\"" << PartyLeaveName(static_cast<PartyLeave>(i)) << "\"} " << pt._memberRemoved[i] << "\n";
+            ss << "\n# HELP mmo_party_requests_total Party requests put in the table, split by kind (a suggestion approved by the leader adds one invite)\n# TYPE mmo_party_requests_total counter\n";
+            for (int i = 0; i < static_cast<int>(PartyAskKind::COUNT); ++i)
+                ss << "mmo_party_requests_total{kind=\"" << PartyAskKindName(static_cast<PartyAskKind>(i)) << "\"} " << pt._requests[i] << "\n";
+            ss << "\n# HELP mmo_party_requests_ended_total Party requests that left the table, split by why\n# TYPE mmo_party_requests_ended_total counter\n";
+            for (int i = 0; i < static_cast<int>(PartyRequestEnd::COUNT); ++i)
+                ss << "mmo_party_requests_ended_total{why=\"" << PartyRequestEndName(static_cast<PartyRequestEnd>(i)) << "\"} " << pt._requestsEnded[i] << "\n";
+            ss << "\n# HELP mmo_party_notices_total S2C_PARTY_NOTICE sent, split by code (rejection reasons included)\n# TYPE mmo_party_notices_total counter\n";
+            for (int i = 0; i < static_cast<int>(PartyNotice::COUNT); ++i)
+                ss << "mmo_party_notices_total{code=\"" << PartyNoticeName(static_cast<PartyNotice>(i)) << "\"} " << pt._notices[i] << "\n";
+            ss << "\n";
+            WriteCounter(ss, "mmo_party_info_sent_total", "S2C_PARTY_INFO packets sent", pt._infoSent);
+            WriteCounter(ss, "mmo_party_member_sent_total", "S2C_PARTY_MEMBER packets sent (a member's hp, level or map changed)", pt._memberSent);
+            WriteCounter(ss, "mmo_party_ask_sent_total", "S2C_PARTY_ASK packets sent (should equal the sum of mmo_party_requests_total)", pt._askSent);
+            WriteCounter(ss, "mmo_party_ask_end_sent_total", "S2C_PARTY_ASK_END packets sent (expired or cancelled requests)", pt._askEndSent);
+            ss << "# HELP mmo_party_mate_skipped_total Attack candidates skipped because they are in the attacker's party, split by the candidate function (front = one target in reach, area = scan radius before the shape test)\n";
+            ss << "# TYPE mmo_party_mate_skipped_total counter\n";
+            ss << "mmo_party_mate_skipped_total{where=\"front\"} " << pt._mateSkippedFront << "\n";
+            ss << "mmo_party_mate_skipped_total{where=\"area\"} " << pt._mateSkippedArea << "\n\n";
+        }
+#endif
+
 #if USE_MONSTER
         // 위 값들은 "플레이어만" 센다 — 몬스터를 섞으면 기존 A/B 실측의 기준선이 오염된다.
         //   공격은 때린 쪽, 죽음·부활은 당한 쪽 기준으로 갈린다(GameMonitor.h 참조).

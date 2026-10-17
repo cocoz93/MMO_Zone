@@ -40,6 +40,7 @@
 #include "SkillSystem.h"   // 스킬 규칙 — 멤버로 들고 부르고, 그 알림(ISkillEvents)을 구현한다
 #include "MonsterManager.h" // 몬스터 — 여기서는 그 알림(IMonsterEvents)을 구현한다
 #include "GroundItemManager.h" // 땅 아이템 — 여기서는 그 알림(IGroundItemEvents)을 구현한다
+#include "PartySystem.h"   // 파티 규칙 — 멤버로 들고 부르고, 그 알림(IPartyEvents)을 구현한다
 #include "MonitorManager.h"
 #include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
 #include "Common.h"
@@ -48,7 +49,7 @@
 
 class CSerialBuffer;
 
-// 알림 통로 여섯 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
+// 알림 통로 일곱 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
 //   IZoneEvents       = 존(존 틱·몬스터 관리자)의 걷기·멈춤 알림 둘 — 토글 없이 늘 있다
 //   ICombatEvents     = 공격 흐름(CCombatSystem)의 알림 셋 — 스킬의 피해·죽음도 이 셋으로 온다(ApplyHit)
 //   IBuffEvents       = 지속 효과 규칙(CBuffSystem)의 알림 하나(효과가 바뀜 — 걸림·되감김·만료·죽음) · 전투 토글 소유
@@ -56,6 +57,7 @@ class CSerialBuffer;
 //   IGroundItemEvents = 땅 아이템 관리자(CGroundItemManager)의 알림 둘과 번호 부탁 하나
 //                       (USE_DROP 은 가방(→ 전투)과 몬스터가 다 켜져야 켜진다 — BuildConfig.h #error)
 //   ISkillEvents      = 스킬 규칙(CSkillSystem)의 알림 하나(시전)
+//   IPartyEvents      = 파티 규칙(CPartySystem)의 알림 다섯(요청·요청 끝·알림 한 줄·파티 전체·파티원 한 줄)
 class CGameServer
     : private IZoneEvents
 #if USE_COMBAT
@@ -70,6 +72,9 @@ class CGameServer
 #endif
 #if USE_SKILL
     , private ISkillEvents
+#endif
+#if USE_PARTY
+    , private IPartyEvents
 #endif
 {
 public:
@@ -285,6 +290,29 @@ private:
     // 아직 돌고 있는 스킬 쿨타임을 전부 본인에게(S2C_SKILL_COOLDOWN_REMAIN) — 입장·존 이동(NotifyArrival, SendActiveBuffs 옆). 칸마다 한 장, 없으면 0장.
     //   ★ 본인 전용이다 — BroadcastAroundSector 로 보내지 말 것(Protocol.h MSG_S2C_SKILL_COOLDOWN_REMAIN). 세는 곳도 여기 한 곳.
     void SendActiveSkillCooldowns(CPlayer* player);
+#endif
+
+#if USE_PARTY
+    // ── 파티 (USE_PARTY) ──
+    // 규칙(누가 무엇을 할 수 있나 · 요청 표 · 시간 지남 · 파티원 상태 비교)은 CPartySystem(_partySystem) — 여기는 받기와, 알림을 패킷으로 바꿔 보내기만.
+    //   받기 여섯 — 요청은 누른 사람을 주변 9섹터에서 찾아(FindPlayerAround) 넘기고, 나머지는 번호를 그대로 넘긴다.
+    void RecvPartyRequest(CPlayer* player, CSerialBuffer* pMsg);
+    void RecvPartyAnswer(CPlayer* player, CSerialBuffer* pMsg);
+    void RecvPartyLeave(CPlayer* player);
+    void RecvPartyKick(CPlayer* player, CSerialBuffer* pMsg);
+    void RecvPartyLeader(CPlayer* player, CSerialBuffer* pMsg);
+    void RecvPartyDisband(CPlayer* player);
+
+    // 내 주변 9섹터(시야 — 내 화면에 그려질 수 있는 곳)의 사람 중 이 번호 — 없으면 nullptr. 몬스터는 안 본다(플레이어 목록만).
+    //   서버에 번호 → 사람 표가 없어서(세션 번호로만 찾는다 — FindPlayer) 화면에서 누른 사람을 여기서 찾는다. 「화면에 보이는 사람」 검사를 겸한다.
+    CPlayer* FindPlayerAround(CPlayer* player, int32_t actorId);
+
+    // 파티 알림 (IPartyEvents) — 뜻은 PartySystem.h. 보내는 수는 여기서 센다(_gameMonitor._party 의 …Sent).
+    void OnPartyAsk(CPlayer* to, uint32_t requestId, PartyAskKind kind, const CPlayer* from, const CPlayer* about, uint32_t remainMs) override;
+    void OnPartyAskEnd(CPlayer* to, uint32_t requestId, PartyNotice why) override;
+    void OnPartyNotice(CPlayer* to, PartyNotice code, int32_t actorId) override;
+    void OnPartyInfo(CPlayer* to, const Party* party) override;
+    void OnPartyMember(CPlayer* to, const CPlayer* member) override;
 #endif
 
 #if USE_MONSTER
@@ -651,6 +679,12 @@ private:
     //   ★ _combatSystem·_buffSystem 뒤에 선언해야 한다 — 그 참조(대상 찾기·맞힌 뒤 처리 · 지속 효과 걸기)를 받는다. 멤버는 선언 순서로
     //     세워지므로 앞에 두면 아직 안 만들어진 객체의 참조를 넘긴다(위 _combatSystem 주석과 같은 까닭).
     CSkillSystem _skillSystem{ _gameDataFiles, _gameMonitor, _combatSystem, _buffSystem, *this };
+#endif
+
+#if USE_PARTY
+    // 파티 규칙 — 알림은 이 클래스(IPartyEvents)로 돌아온다. 파티원·요청의 주소를 틱 너머로 들므로 ReleasePlayer 가 Forget 을 부른다.
+    //   ★ _gameMonitor 보다 뒤에 선언해야 한다(위 _combatSystem 주석과 같은 까닭).
+    CPartySystem _partySystem{ _gameMonitor, *this };
 #endif
 
     // ── 섹터 아웃박스 ── 틱-지연 배칭 상태를 한 덩어리로 응집.

@@ -71,6 +71,12 @@ public:
     int32_t _level = 1;
     int64_t _exp   = 0;
 
+#if USE_PARTY
+    // ── 파티 ── 0 = 파티 없음. 쓰는 곳은 CPartySystem 뿐이다(가입·빠짐·해산). 저장하지 않는다(접속마다 0 — 끊기면 파티에서 빠진다).
+    //   파티원 목록의 진실은 CPartySystem 이고 이것은 사본이다 — 공격 후보 거르기(CombatSystem.cpp)가 매번 파티 목록을 안 뒤지게 하려는 것.
+    int32_t _partyId = 0;
+#endif
+
     // C2S_MOVE_START 좌표 수용의 초당 이동량 예산 (치트 방지).
     //   수용은 IDLE 전이 때마다 일어나므로 STOP/START 연타로 무제한 순간이동이 가능했다.
     //   경과 시간만큼 자기 속도에 비례해 적립하고, 수용한 거리만큼 차감한다.
@@ -102,3 +108,13 @@ private:
     //   EnterZone → 세션 부여 순이라 EnterZone 시점엔 잠시 -1 이다. SendPacket 이 이 값을 검사한다.
     int64_t _sessionId = -1;
 };
+
+#if USE_PARTY
+// 캐릭터의 파티 번호 — 사람이면 _partyId, 몬스터면 0(파티가 없다). 공격 후보 거르기(CombatSystem.cpp 후보 함수 둘)가
+//   「때린 쪽과 같은 파티인가」를 볼 때 쓴다 — 0 은 「파티 없음」이라 0 끼리는 같은 파티가 아니다(부르는 쪽이 때린 쪽 0 을 먼저 거른다).
+inline int32_t PartyIdOf(const CCharacter* c)
+{
+    const CPlayer* p = As<CPlayer>(c);
+    return (p != nullptr) ? p->_partyId : 0;
+}
+#endif
