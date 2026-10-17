@@ -195,6 +195,57 @@ const EQUIP_FAIL_TEXT = {
   BAD_SLOT:'없는 칸입니다', EMPTY:'빈 칸입니다', NOT_EQUIPPABLE:'장비가 아닙니다',
   DEAD:'쓰러진 동안에는 바꿀 수 없습니다', COOLDOWN:'아직 바꿀 수 없습니다 — 잠시 뒤에 다시', TAB_FULL:'장비 가방이 가득 차 벗을 수 없습니다',
 };
+// 파티 (USE_PARTY) — 서버가 보낸 것만 담는다. 누가 무엇을 할 수 있나(초대·신청·추천 가르기, 파티장만, 인원)는 서버가 정한다.
+//   info = S2C_PARTY_INFO 그대로(파티 없으면 null) — {partyId, leaderId, members:[{actorId, displayChar, colorIndex, level, hp, maxHp, mapId}]}(가입 순서)
+//   ask  = 받은 요청(서버가 한 번에 하나만 보낸다) — {requestId, kind, from, about, until}. 끝은 서버가 정한다(ASK_END) — 남은 초는 그리기만
+//   menu = 화면에서 캐릭터를 눌러 연 메뉴 — {id, x, y}(화면 px). 캐릭터에 이름이 없어 고르기는 누르기뿐이다(Protocol.h 파티 절)
+//   open = P 키로 연 관리 창(파티원 줄 옆 넘기기·내보내기, 아래 나가기·해산). 닫혀 있어도 파티에 들면 작은 목록이 늘 뜬다
+//   self 밖에 두는 이유는 me·bag 과 같다 — 존을 넘을 때 self 가 새로 만들어지는데 파티는 존을 넘는다.
+const party = { info:null, ask:null, menu:null, open:false, hover:null, lastNotice:null, sent:0 };
+// 헤드리스 검증용 — 파티 요약(data-bag 과 같은 자리)
+function partyChanged(){
+  document.documentElement.setAttribute('data-party', JSON.stringify({ open:party.open,
+    partyId: party.info ? party.info.partyId : 0, leader: party.info ? party.info.leaderId : 0,
+    members: party.info ? party.info.members.map(m=>[m.actorId, m.level, m.hp, m.maxHp, m.mapId]) : [],
+    ask: party.ask ? { id:party.ask.requestId, kind:party.ask.kind, from:party.ask.from.actorId, about:party.ask.about.actorId } : null,
+    menu: party.menu ? party.menu.id : 0, lastNotice:party.lastNotice, sent:party.sent }));
+}
+// 사람 이름 대신 — 머리 위 글자(이름이 없다). 파티 줄·주변 목록에서 찾고, 못 찾으면 번호
+function whoName(id){
+  if(self && id===self.id) return '나';
+  const m=party.info && party.info.members.find(x=>x.actorId===id); if(m) return String.fromCharCode(m.displayChar);
+  const o=others.get(id); if(o && o.disp>=0x20) return String.fromCharCode(o.disp);
+  return '#'+id;
+}
+// 알림 번호(P.PARTY_NOTICE 이름) → 채팅 칸 [System] 문구. w = 관련 사람(이름이 한 글자라 조사를 붙이지 않고 「: 」 뒤에 둔다)
+function partyNoticeText(code, actorId){
+  const w=whoName(actorId), mine = self && actorId===self.id;
+  switch(code){
+    case 'SENT_INVITE':   return '파티 초대를 보냈습니다: '+w;
+    case 'SENT_APPLY':    return '파티장에게 가입 신청을 보냈습니다: '+w;
+    case 'SENT_SUGGEST':  return '파티장에게 초대 요청을 보냈습니다: '+w;
+    case 'NO_TARGET':     return '그 사람이 화면에 없습니다';
+    case 'SELF':          return '자기 자신입니다';
+    case 'SAME_PARTY':    return '이미 같은 파티입니다';
+    case 'BOTH_IN_PARTY': return '상대가 다른 파티에 있습니다';
+    case 'FULL':          return '파티가 가득 찼습니다 ('+P.PARTY_MAX_MEMBERS+'명)';
+    case 'NOT_LEADER':    return '파티장만 할 수 있습니다';
+    case 'NOT_IN_PARTY':  return '파티에 있지 않습니다';
+    case 'NOT_MEMBER':    return '우리 파티원이 아닙니다';
+    case 'TARGET_BUSY':   return '상대가 다른 요청에 답하는 중입니다 — 잠시 뒤에 다시';
+    case 'SELF_BUSY':     return '보낸 요청이 아직 답을 기다리고 있습니다';
+    case 'NO_REQUEST':    return '이미 끝난 요청입니다';
+    case 'DECLINED':      return '요청이 거절됐습니다: '+w;
+    case 'EXPIRED':       return '요청 시간이 지났습니다: '+w;
+    case 'CANCELLED':     return '요청이 취소됐습니다';
+    case 'JOINED':        return mine ? '파티에 들어왔습니다' : '파티원이 들어왔습니다: '+w;
+    case 'LEFT':          return mine ? '파티에서 나왔습니다' : '파티원이 나갔습니다: '+w;
+    case 'KICKED':        return mine ? '파티에서 내보내졌습니다' : '파티원을 내보냈습니다: '+w;
+    case 'LEADER':        return mine ? '파티장이 됐습니다' : '파티장이 바뀌었습니다: '+w;
+    case 'DISBANDED':     return '파티가 해산됐습니다';
+  }
+  return '파티 알림 ('+code+')';
+}
 // 서버 알림 한 줄 — 채팅 칸에 [System] 으로. 채팅 명령의 답(/item 거절 등)이 여기로 온다.
 //   마지막 한 줄은 속성으로도 내놓는다(헤드리스 검증용 — data-bag 과 같은 자리).
 function sysMsg(t){ chatLog.push({sys:true, msg:t}); if(chatLog.length>8) chatLog.shift(); document.documentElement.setAttribute('data-sys', t); }
@@ -459,6 +510,30 @@ function onPacket(p){
       if(p.reasonName==='TAB_FULL'){ const it=ITEMS.get(p.itemId); sysMsg((it ? INV_TAB_NAMES[it.tab]+' 가방' : '가방')+'이 가득 찼습니다'); }
       else sysMsg(PICKUP_FAIL_TEXT[p.reasonName] || ('줍지 못했습니다 ('+p.reasonName+')'));
       break;
+
+    // ---- 파티 (USE_PARTY) — 판정은 서버. 여기는 받은 것을 담고 그리기만 한다 ----
+    // 파티 전체 — 가입·탈퇴·내보냄·넘기기·해산 때 온다. 인원 0 = 파티 없음(내가 빠졌거나 해산)
+    case P.MSG.S2C_PARTY_INFO:
+      party.info = p.count>0 ? { partyId:p.partyId, leaderId:p.leaderId, members:p.members } : null;
+      partyChanged(); break;
+    // 파티원 한 줄 — 서버가 0.5초마다 견줘 바뀐 사람만(체력·레벨·맵). 다른 맵의 파티원도 온다
+    case P.MSG.S2C_PARTY_MEMBER: {
+      const m=party.info && party.info.members.find(x=>x.actorId===p.actorId);
+      if(m){ m.level=p.level; m.hp=p.hp; m.maxHp=p.maxHp; m.mapId=p.mapId; m.displayChar=p.displayChar; m.colorIndex=p.colorIndex; partyChanged(); }
+      break; }
+    // 답할 요청 — 서버가 한 번에 하나만 보낸다. 창이 뜨고 Y·N 이나 단추로 답한다
+    case P.MSG.S2C_PARTY_ASK:
+      party.ask={ requestId:p.requestId, kind:p.kindName, from:p.from, about:p.about, until:performance.now()+p.remainMs };
+      partyChanged(); break;
+    // 그 요청이 무효가 됐다(시간 지남 · 보낸 사람 처지가 바뀜) — 창을 닫는다
+    case P.MSG.S2C_PARTY_ASK_END:
+      if(party.ask && party.ask.requestId===p.requestId){
+        party.ask=null;
+        sysMsg(p.reasonName==='EXPIRED' ? '받은 파티 요청의 시간이 지났습니다' : '받은 파티 요청이 취소됐습니다');
+      }
+      partyChanged(); break;
+    case P.MSG.S2C_PARTY_NOTICE:
+      party.lastNotice=p.codeName; sysMsg(partyNoticeText(p.codeName, p.actorId)); partyChanged(); break;
   }
 }
 // 전투 패킷은 대상이 나일 수도 남일 수도 있다 — 한 곳에서 고른다.
@@ -506,6 +581,13 @@ function usePortal(){
   const pt=portalInReach(); if(!pt) return;
   ws.send(P.enc.portalUse(pt.id)); portalState.sent++; portalChanged();
 }
+// 파티 — 보내기만 한다. 되는지(파티장만 · 인원 · 바쁨)는 서버가 가르고, 안 되면 사유가 [System] 으로 온다(클라가 미리 거르지 않는다 — 판정을 두 곳에 두면 어긋난다)
+function partySend(buf){ if(!ws || ws.readyState!==1 || !self) return false; ws.send(buf); party.sent++; partyChanged(); return true; }
+// 받은 요청에 답 — 보내고 창을 닫는다(서버가 답을 받으면 결과는 INFO·NOTICE 로 온다)
+function partyAnswer(accept){
+  if(!party.ask) return;
+  if(partySend(P.enc.partyAnswer(party.ask.requestId, accept))){ party.ask=null; partyChanged(); }
+}
 // 줍기 — 쓰러져 있어도 보낸다(서버가 DEAD 로 답해 [System] 한 줄이 뜬다 — 왜 안 되는지 보이게)
 function sendPickup(){
   if(!self || !ws || ws.readyState!==1) return;
@@ -526,7 +608,12 @@ if(!SNAP){
     // 1~8 = 스킬(키 번호 = 스킬 번호). I·C 와 같은 까닭으로 e.code — 누르고 있어도 한 번
     const dg=/^Digit([1-8])$/.exec(e.code);
     if(dg){ if(!e.repeat && !isMonsterSkill(Number(dg[1]))) sendSkill(Number(dg[1])); e.preventDefault(); return; }   // 몬스터 몫 번호는 안 보낸다(보내면 서버가 BAD_SKILL 로 거절)
-    if(k==='escape' && (bag.open || stw.open)){ bag.open=false; bag.hover=null; stw.open=false; stw.hover=false; bagChanged(); return; }   // 창 둘 다 닫는다
+    // P = 파티 창(관리) 열고 닫기 (I·C 와 같은 까닭으로 e.code) — 파티가 없어도 열린다(맺는 법을 안내한다)
+    if(e.code==='KeyP' && !e.repeat){ party.open=!party.open; party.hover=null; partyChanged(); e.preventDefault(); return; }
+    // Y·N = 받은 파티 요청에 수락·거절 — 요청 창이 떠 있을 때만(아니면 그냥 지나간다)
+    if(party.ask && (e.code==='KeyY' || e.code==='KeyN')){ if(!e.repeat) partyAnswer(e.code==='KeyY'); e.preventDefault(); return; }
+    if(k==='escape' && (bag.open || stw.open || party.open || party.menu)){   // 창을 다 닫는다(받은 요청 창은 답해야 닫힌다 — N 이 거절)
+      bag.open=false; bag.hover=null; stw.open=false; stw.hover=false; party.open=false; party.menu=null; party.hover=null; bagChanged(); partyChanged(); return; }
     if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k)){ if(!keys.has(k)){keys.add(k); sendMove();} e.preventDefault(); }});
   addEventListener('keyup',e=>{ if(typing())return; const k=e.key.toLowerCase(); if(keys.delete(k)) sendMove(); });
   // Enter=채팅 열기, 채팅창 내 Enter=전송/Esc=취소
@@ -535,13 +622,25 @@ if(!SNAP){
     if(e.key==='Enter'){ const t=chatbox.value.trim(); if(t)sendChat(t); chatbox.value=''; chatbox.blur(); }
     else if(e.key==='Escape'){ chatbox.value=''; chatbox.blur(); } });
   chatbox.addEventListener('focus',()=>{ if(moving && ws && ws.readyState===1){ moving=false; if(self)self.moveState=0; ws.send(P.enc.moveStop(lastDir, self?self.x:0, self?self.y:0)); } keys.clear(); });
-  // 가방 창 마우스 — 창 안에서만 쓴다. 창 밖은 지금처럼 아무 일도 안 한다(월드 클릭 동작이 없다).
+  // 가방 창 마우스 — 창 안에서만 쓴다. 창 밖(게임 화면) 클릭은 가방이 안 다룬다 — 캐릭터를 누르면 아래 파티 메뉴가 뜬다(10-17 전엔 월드 클릭 동작이 없었다).
   //   좌표는 CSS px 그대로다(캔버스가 DPR 로 변환을 걸어 그리기도 CSS px 로 한다).
   cv.addEventListener('mousemove',e=>{ const h=bag.open ? bagHit(e.offsetX,e.offsetY) : null;
     const s=stw.open ? statusHit(e.offsetX,e.offsetY) : null;
     bag.hover = h && h.slot!==undefined ? h.slot : null; stw.hover = s==='weapon';
-    cv.style.cursor = (h || s) ? 'default' : ''; });
-  cv.addEventListener('mouseleave',()=>{ bag.hover=null; stw.hover=false; });
+    const pu=partyUiHit(e.offsetX,e.offsetY);   // 파티 단추 위면 그 단추를 밝힌다
+    party.hover = pu && pu.btn ? pu : null;
+    cv.style.cursor = (h || s || pu) ? 'default' : ''; });
+  cv.addEventListener('mouseleave',()=>{ bag.hover=null; stw.hover=false; party.hover=null; });
+  // 파티 마우스 — 받은 요청 창 > 캐릭터 메뉴 > 파티 창 순서로 본다(위에 그려진 것이 먼저). 가방·상태창 위는 그쪽 몫이라 손대지 않는다.
+  //   창 밖 게임 화면을 누르면 그 자리의 사람 캐릭터(나·몬스터 빼고)에 메뉴를 연다 — 10-17 전엔 창 밖 클릭이 아무 일도 안 했다(위 가방 주석).
+  cv.addEventListener('mousedown',e=>{ if(e.button!==0) return;
+    const x=e.offsetX, y=e.offsetY;
+    const pu=partyUiHit(x,y);
+    if(pu){ partyClick(pu); return; }
+    if((bag.open && bagHit(x,y)) || (stw.open && statusHit(x,y))) return;
+    if(x<VX || x>VX+VW || y<VY || y>VY+VH){ if(party.menu){ party.menu=null; partyChanged(); } return; }
+    const id=charAt(x,y);
+    party.menu = id ? { id, x, y } : null; partyChanged(); });
   cv.addEventListener('mousedown',e=>{ if(e.button!==0 || !bag.open) return;
     const h=bagHit(e.offsetX,e.offsetY); if(h && h.tab!==undefined){ bag.tab=h.tab; bag.hover=null; bagChanged(); } });
   // 두 번 누르기 = 가방 칸이면 쓰기·끼우기, 상태창 무기 칸이면 벗기. 되는지(물약·체력·대기시간·죽음·빈 칸)는 서버가 가르고,
@@ -1023,7 +1122,10 @@ function drawHUD(){
 
   drawSkillBar();   // 게임 화면 아래 가운데 — 상태창·가방 창보다 먼저(창이 겹치면 창이 위)
   if(stw.open) drawStatus();   // 채팅 패널 뒤 — 창이 좁아 채팅 자리까지 내려와도 상태창이 위에 그려진다
+  drawPartyPanel();            // 상태창 아래(왼쪽) — 파티에 들면 늘, P 로 연 관리 창이면 파티가 없어도
   if(bag.open) drawBag();   // 맨 마지막 — 창이 낮아 레이더 자리까지 내려와도 가방이 위에 그려진다
+  drawPartyMenu();          // 캐릭터를 눌러 연 메뉴와 받은 요청 창은 모든 창 위에 — 답을 기다리는 것이라 가리면 안 된다
+  drawPartyAsk();
 }
 
 // ---- 스킬 막대 (USE_SKILL) — 게임 화면 아래 가운데. 표에 있는 스킬마다 한 칸: 키 번호 · 이름 · 쿨타임 덮개 · (지속 효과 스킬) 남은 시간 띠 ----
@@ -1253,6 +1355,134 @@ function drawStatus(){
   }
 }
 
+// ---- 파티 (USE_PARTY) — 그리기와 마우스 판정이 같은 자리 계산(…Layout)을 쓴다(가방·상태창과 같은 꼴) ----
+// 캐릭터 몸 상자(화면 px) — 누르기 판정. 그림(drawChar)은 칸 3배 크기지만 몸은 가운데 좁은 기둥이라 그만큼만 잡는다(발 = py)
+function charBox(o){ const px=sx(o.rx), py=sy(o.ry); return { x:px-0.6*ZOOM, y:py-2.6*ZOOM, w:1.2*ZOOM, h:2.8*ZOOM }; }
+// 그 자리의 사람 캐릭터(나·몬스터 빼고) — 겹치면 앞에 그려진 것(발이 아래 = ry 가 큰 것). 없으면 0
+function charAt(x,y){
+  let best=0, bestY=-1e9;
+  others.forEach((o,id)=>{ if(monMeta(o) || !(o.disp>=0x20)) return;
+    const b=charBox(o); if(x>=b.x && x<=b.x+b.w && y>=b.y && y<=b.y+b.h && o.ry>bestY){ best=id; bestY=o.ry; } });
+  return best;
+}
+// 받은 요청 창 — 게임 화면 위 가운데(레벨업 문구 아래). 단추 둘
+function partyAskLayout(){
+  const w=320, h=98, x=Math.round(VX+VW/2-w/2), y=VY+86;
+  return { x, y, w, h, accept:{ x:x+w-176, y:y+h-38, w:76, h:26 }, decline:{ x:x+w-92, y:y+h-38, w:76, h:26 } };
+}
+// 캐릭터 메뉴 — 누른 자리 오른쪽 아래. 화면 밖으로 안 나가게 당긴다
+function partyMenuLayout(){
+  const w=124, h=62, x=Math.min(party.menu.x+10, W-14-w), y=Math.min(party.menu.y+6, H-14-h);
+  return { x, y, w, h, req:{ x:x+10, y:y+28, w:w-20, h:24 } };
+}
+// 파티 목록(늘) · 관리 창(P) — 왼쪽, 상태창 아래(상태창이 닫혀 있으면 그 자리). 관리 창은 줄마다 단추가 붙어 폭이 넓다
+const PT_ROW=24, PT_TOP=30;
+function partyLayout(){
+  const visible = !!party.info || party.open; if(!visible) return null;
+  const S=statusLayout(), px=14, py = stw.open ? S.py+S.ph+12 : S.py, pw = party.open ? 268 : ST_W;
+  const ms = party.info ? party.info.members : [];
+  const iLead = !!(party.info && self && party.info.leaderId===self.id);
+  const rows = ms.map((m,i)=>{ const y=py+PT_TOP+8+i*PT_ROW, r={ y, m };
+    if(party.open && iLead && !(self && m.actorId===self.id)){ r.leader={ x:px+pw-120, y:y-1, w:46, h:20 }; r.kick={ x:px+pw-70, y:y-1, w:58, h:20 }; }   // 「내보내기」 네 글자 — 50px 은 글자가 테두리에 닿았다(사진으로 확인)
+    return r; });
+  const bodyH = ms.length ? ms.length*PT_ROW : 44;   // 파티가 없으면 안내 두 줄
+  const footH = party.open ? 40 : 4;
+  const ph = PT_TOP+8+bodyH+footH;
+  const fy = py+ph-34, btns={};
+  if(party.open && party.info){ btns.leave={ x:px+12, y:fy, w:70, h:24 }; if(iLead) btns.disband={ x:px+90, y:fy, w:70, h:24 }; }
+  return { px, py, pw, ph, rows, btns, iLead };
+}
+const inRect=(x,y,r)=>!!r && x>=r.x && x<=r.x+r.w && y>=r.y && y<=r.y+r.h;
+// 마우스가 파티 UI 위면 {where, btn?, id?}, 아니면 null — 위에 그려진 것부터(요청 창 > 메뉴 > 목록·창)
+function partyUiHit(x,y){
+  if(party.ask){ const L=partyAskLayout(); if(inRect(x,y,L)) return { where:'ask', btn: inRect(x,y,L.accept)?'accept' : inRect(x,y,L.decline)?'decline' : null }; }
+  if(party.menu){ const L=partyMenuLayout(); if(inRect(x,y,L)) return { where:'menu', btn: inRect(x,y,L.req)?'request':null }; }
+  const L=partyLayout();
+  if(L && inRect(x,y,{x:L.px,y:L.py,w:L.pw,h:L.ph})){
+    for(const r of L.rows){ if(inRect(x,y,r.leader)) return { where:'panel', btn:'leader', id:r.m.actorId }; if(inRect(x,y,r.kick)) return { where:'panel', btn:'kick', id:r.m.actorId }; }
+    if(inRect(x,y,L.btns.leave)) return { where:'panel', btn:'leave' };
+    if(inRect(x,y,L.btns.disband)) return { where:'panel', btn:'disband' };
+    return { where:'panel', btn:null };
+  }
+  return null;
+}
+function partyClick(h){
+  switch(h.btn){
+    case 'accept':  partyAnswer(true); break;
+    case 'decline': partyAnswer(false); break;
+    case 'request': partySend(P.enc.partyRequest(party.menu.id)); party.menu=null; partyChanged(); break;
+    case 'leader':  partySend(P.enc.partyLeader(h.id)); break;
+    case 'kick':    partySend(P.enc.partyKick(h.id)); break;
+    case 'leave':   partySend(P.enc.partyLeave()); break;
+    case 'disband': partySend(P.enc.partyDisband()); break;
+    default: if(h.where!=='menu' && party.menu){ party.menu=null; partyChanged(); }   // 메뉴 밖의 창을 누르면 메뉴는 닫는다
+  }
+}
+function personName(pp){ return String.fromCharCode(pp.displayChar||63); }
+function mapName(id){ const k=(MAPS.get(id)||{}).kind; return k==='town' ? '마을' : k==='dungeon' ? '던전 '+id : '맵 '+id; }
+function smallBtn(r, label, on, danger){
+  ctx.fillStyle = on ? (danger?'rgba(226,87,74,.35)':'rgba(143,214,160,.30)') : 'rgba(255,255,255,.07)'; rr(r.x,r.y,r.w,r.h,5); ctx.fill();
+  ctx.strokeStyle = danger ? 'rgba(226,120,100,.5)' : 'rgba(143,214,160,.45)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.textAlign='center'; ctx.fillStyle = danger ? '#f3c4bc' : '#dff3d8'; ctx.font='600 11px '+SANS; ctx.fillText(label, r.x+r.w/2, r.y+r.h/2+4); ctx.textAlign='left';
+}
+const isHover=(where,btn,id)=>!!party.hover && party.hover.where===where && party.hover.btn===btn && (id===undefined || party.hover.id===id);
+function drawPartyPanel(){
+  const L=partyLayout(); if(!L) return;
+  const {px,py,pw,ph}=L;
+  panel(px,py,pw,ph);
+  const n = party.info ? party.info.members.length : 0;
+  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font='600 13px '+SANS; ctx.fillText(party.info ? '파티  '+n+' / '+P.PARTY_MAX_MEMBERS : '파티', px+12, py+21);
+  ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font='11px '+SANS; ctx.fillText(party.open ? 'P 키로 닫기' : 'P 키로 관리', px+pw-12, py+21);
+  ctx.strokeStyle='rgba(150,200,150,.14)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(px+12,py+PT_TOP); ctx.lineTo(px+pw-12,py+PT_TOP); ctx.stroke();
+  ctx.textAlign='left';
+  if(!party.info){   // 관리 창을 열었는데 파티가 없다 — 맺는 법
+    ctx.fillStyle='rgba(200,220,200,.75)'; ctx.font='12px '+SANS;
+    ctx.fillText('파티가 없습니다', px+14, py+PT_TOP+22);
+    ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font='11px '+SANS;
+    ctx.fillText('화면의 캐릭터를 눌러 파티를 맺습니다', px+14, py+PT_TOP+40);
+    return;
+  }
+  for(const r of L.rows){ const m=r.m, y=r.y, me = self && m.actorId===self.id;
+    if(me){ ctx.fillStyle='rgba(143,214,160,.08)'; rr(px+6,y-2,pw-12,PT_ROW-2,5); ctx.fill(); }
+    if(m.actorId===party.info.leaderId){ ctx.fillStyle='#ffd84d'; ctx.font='600 12px '+SANS; ctx.fillText('★', px+10, y+14); }   // 파티장
+    ctx.fillStyle = me ? 'rgba(40,90,60,.92)' : 'rgba(18,26,18,.72)'; rr(px+26,y,20,19,4); ctx.fill();   // 머리 위 이름표와 같은 바탕색
+    ctx.textAlign='center'; ctx.fillStyle = me ? '#bff0c9' : '#eaf3e0'; ctx.font='600 12px '+MONO; ctx.fillText(String.fromCharCode(m.displayChar), px+36, y+14); ctx.textAlign='left';
+    ctx.fillStyle='rgba(200,220,200,.8)'; ctx.font='600 11px '+MONO; ctx.fillText('Lv.'+m.level, px+52, y+14);
+    const bx=px+96, bw = party.open ? (r.leader ? 46 : 150) : 70, bh=6, by=y+7;   // 체력 막대 — 머리 위 막대와 같은 색 규칙
+    const ratio = m.maxHp>0 ? Math.max(0,Math.min(1,m.hp/m.maxHp)) : 0;
+    ctx.fillStyle='rgba(28,38,28,.95)'; rr(bx,by,bw,bh,3); ctx.fill();
+    ctx.fillStyle = ratio>0.5 ? '#54d46e' : ratio>0.25 ? '#e6c24a' : '#e2574a'; if(ratio>0){ rr(bx,by,Math.max(3,bw*ratio),bh,3); ctx.fill(); }
+    if(m.hp<=0){ ctx.fillStyle='#f0b8b8'; ctx.font='10px '+SANS; ctx.fillText('쓰러짐', bx, by-1); }
+    if(!party.open && m.mapId!==ZONE.mapId){ ctx.textAlign='right'; ctx.fillStyle='rgba(158,200,255,.85)'; ctx.font='11px '+SANS; ctx.fillText(mapName(m.mapId), px+pw-12, y+14); ctx.textAlign='left'; }   // 다른 맵이면 어디인지
+    if(r.leader){ smallBtn(r.leader,'넘기기',isHover('panel','leader',m.actorId),false); smallBtn(r.kick,'내보내기',isHover('panel','kick',m.actorId),true); }
+  }
+  if(L.btns.leave) smallBtn(L.btns.leave,'나가기',isHover('panel','leave'),false);
+  if(L.btns.disband) smallBtn(L.btns.disband,'해산',isHover('panel','disband'),true);
+}
+function drawPartyMenu(){
+  if(!party.menu) return;
+  if(!others.has(party.menu.id)){ party.menu=null; partyChanged(); return; }   // 누른 사람이 화면에서 사라졌다
+  const L=partyMenuLayout(), o=others.get(party.menu.id);
+  ctx.fillStyle='rgba(8,12,10,.96)'; rr(L.x,L.y,L.w,L.h,8); ctx.fill(); ctx.strokeStyle='rgba(255,233,138,.35)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.textAlign='left'; ctx.fillStyle='#f2f6ec'; ctx.font='600 12px '+MONO; ctx.fillText(String.fromCharCode(o.disp), L.x+12, L.y+18);
+  ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font='11px '+SANS; ctx.fillText('#'+party.menu.id, L.x+28, L.y+18);
+  smallBtn(L.req,'파티',isHover('menu','request'),false);
+}
+function drawPartyAsk(){
+  if(!party.ask) return;
+  const a=party.ask, L=partyAskLayout();
+  ctx.fillStyle='rgba(8,12,10,.97)'; rr(L.x,L.y,L.w,L.h,10); ctx.fill(); ctx.strokeStyle='rgba(255,233,138,.45)'; ctx.lineWidth=1; ctx.stroke();
+  const title = a.kind==='APPLY' ? '가입 신청' : a.kind==='SUGGEST' ? '초대 요청' : '파티 초대';
+  const line = a.kind==='SUGGEST' ? personName(a.about)+'  Lv.'+a.about.level+'  ·  파티원 '+personName(a.from)+' 의 추천'
+             : personName(a.from)+'  Lv.'+a.from.level+(a.kind==='INVITE' && a.about.actorId ? '  ·  파티원 '+personName(a.about)+' 의 추천' : '');
+  const left = Math.max(0, Math.ceil((a.until-performance.now())/1000));
+  ctx.textAlign='left'; ctx.fillStyle='#ffe98a'; ctx.font='600 14px '+SANS; ctx.fillText(title, L.x+14, L.y+24);
+  ctx.textAlign='right'; ctx.fillStyle='rgba(200,215,200,.6)'; ctx.font='11px '+SANS; ctx.fillText(left+'초', L.x+L.w-14, L.y+24);
+  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font='13px '+SANS; ctx.fillText(fitText(line, L.w-28), L.x+14, L.y+46);
+  smallBtn(L.accept,'수락 (Y)',isHover('ask','accept'),false);
+  smallBtn(L.decline,'거절 (N)',isHover('ask','decline'),true);
+}
+
 // ---- frame ----
 const dvec=d=> d===1?{x:0,y:-1}: d===2?{x:0,y:1}: d===3?{x:-1,y:0}: d===4?{x:1,y:0}:{x:0,y:0};
 function advance(o,dt,k){
@@ -1395,10 +1625,12 @@ function setConn(ok,txt){ stat.connected=ok; connEl.textContent=txt; connEl.clas
 function clearZoneWorld(){
   others.clear(); fading.clear();
   ground.clear(); groundChanged();
+  if(party.menu){ party.menu=null; partyChanged(); }   // 누른 사람이 옛 존에 남았다 — 파티 자체는 존을 넘으므로 안 비운다
 }
 function connect(){
   clearZoneWorld(); self=null;   // 재접속 시 유령 엔티티 제거
   bag.slots.clear(); adminSent=false; bagChanged();   // 가방은 입장 때 전체 목록이 다시 온다 · 운영자 로그인도 새 접속마다
+  party.info=null; party.ask=null; party.menu=null; partyChanged();   // 끊기면 서버가 파티에서 뺐다(저장 안 함) — 새 접속은 파티 없이 시작
   const re=new P.Reassembler(onPacket);
   ws=new WebSocket(WS_URL); ws.binaryType='arraybuffer';
   // 입장 요청을 먼저 보낸다 — 서버는 이걸 받아야 캐릭터를 불러온다(USE_LOGIN).
