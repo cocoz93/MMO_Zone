@@ -136,6 +136,14 @@ public:
     // 퇴장 — 파티에서 빼고(남은 사람에게 알림) 낀 요청을 지운다. 이 사람에게는 아무것도 안 보낸다(세션이 없다). 두 번 불러도 무해.
     void Forget(CPlayer* player);
 
+    // 알림 한 줄 — 번호별로 세고(_party._notices) 내보낸다. 방 들어가기 거절(파티 없음 · 파티장 아님 · 방 거절 셋)도 게임 서버가 이 길로 보낸다 —
+    //   보내는 자리가 둘로 갈려도 세는 자리는 여기 하나다
+    void Notice(CPlayer* to, PartyNotice code, int32_t actorId);
+
+    // 읽기 — 이 사람의 파티(없으면 nullptr). 방 들어가기 판정(Room.h CheckRoomEntry)이 파티장·파티원 목록을 읽는다.
+    //   바꾸는 길은 위 공개 함수뿐이다 — 돌려준 주소는 다음 파티 변화까지만 믿을 것(같은 처리 안에서 읽고 끝낸다)
+    const Party* FindParty(const CPlayer* p) const;
+
 private:
     struct PendingRequest
     {
@@ -154,7 +162,6 @@ private:
     bool HasReceived(const CPlayer* p) const;   // 답할 요청이 있나(받는 사람 하나씩)
     bool HasSent(const CPlayer* p) const;       // 내가 누른 요청이 아직 있나(보내는 사람 하나씩)
 
-    void Notice(CPlayer* to, PartyNotice code, int32_t actorId);
     void Ask(CPlayer* to, PartyAskKind kind, CPlayer* origin, CPlayer* from, CPlayer* about, uint64_t frame);
 
     // 요청 표에서 i 번째를 뺀다 — 끝난 까닭을 센다. 알림은 부르는 쪽 몫.

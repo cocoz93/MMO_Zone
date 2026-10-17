@@ -27,7 +27,7 @@
 struct MonsterDef
 {
     int32_t     monsterId = 0;   // 0 = 이 번호의 몬스터는 없다(배열 구멍)
-    std::string name;            // UTF-8. 서버는 로그에만 쓴다
+    std::string name;            // UTF-8. 서버는 로그와 방 보상 알림 한 줄(CGameServer::RewardRoom — 「구렁이 보상 — …」)에 쓴다
     int32_t     maxHp     = 0;
     int32_t     attack    = 0;   // 물 때 공격력
     int32_t     defense   = 0;   // 맞을 때 빼는 값

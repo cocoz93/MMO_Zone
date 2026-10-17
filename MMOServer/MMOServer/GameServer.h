@@ -41,6 +41,7 @@
 #include "MonsterManager.h" // 몬스터 — 여기서는 그 알림(IMonsterEvents)을 구현한다
 #include "GroundItemManager.h" // 땅 아이템 — 여기서는 그 알림(IGroundItemEvents)을 구현한다
 #include "PartySystem.h"   // 파티 규칙 — 멤버로 들고 부르고, 그 알림(IPartyEvents)을 구현한다
+#include "Room.h"          // 파티 전용 방 — 들어가기 판정(CheckRoomEntry)과 다시 들어가기 잠금 표(CRoomLocks)
 #include "MonitorManager.h"
 #include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
 #include "Common.h"
@@ -231,6 +232,18 @@ private:
     void OnSwing(CZone* zone, CCharacter* attacker) override;
     void OnHit(CZone* zone, CCharacter* attacker, CCharacter* target, int32_t damage, int32_t remainHp) override;
     void OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target) override;   // 죽은 목록 → DEATH → 경험치 → 드랍 → 몬스터면 지움
+
+#if USE_EXP && USE_MONSTER
+    // 몬스터 경험치 주기 한 곳 — 막타 경로(OnDeath 6)와 방 보상(RewardRoom)이 같이 쓴다. 준 뒤에 세고, 오르면 알리고 바로 저장한다.
+    void GrantMonsterExp(CZone* zone, CPlayer* player, int32_t reward);
+#endif
+
+#if USE_PARTY && USE_MONSTER
+    // 방 보상(Room.h) — 방 맵의 몬스터가 죽으면 OnDeath 가 막타 경로(경험치·드랍) 대신 부른다. 방(존) 안 사람 각자
+    //   (쓰러져 부활을 기다리는 사람 포함 — 아직 방에 있다): ⑴ 경험치 전액 ⑵ 드랍 표를 따로 굴려 가방에 바로, 넘치면 그 사람 발밑 땅에 그 사람 것으로
+    //   ⑶ 다시 들어가기 잠금(맵 표 lockoutSec) ⑷ 채팅 [System] 줄 — 경험치 한 줄 + 아이템마다 한 줄. 막타·피해 기록은 안 본다(room-plan.md 「정해진 것」).
+    void RewardRoom(CZone* zone, CMonster* monster);
+#endif
 #endif
 
 #if USE_INVENTORY
@@ -306,6 +319,15 @@ private:
     // 내 주변 9섹터(시야 — 내 화면에 그려질 수 있는 곳)의 사람 중 이 번호 — 없으면 nullptr. 몬스터는 안 본다(플레이어 목록만).
     //   서버에 번호 → 사람 표가 없어서(세션 번호로만 찾는다 — FindPlayer) 화면에서 누른 사람을 여기서 찾는다. 「화면에 보이는 사람」 검사를 겸한다.
     CPlayer* FindPlayerAround(CPlayer* player, int32_t actorId);
+
+    // 파티 전용 방(Room.h) — RecvPortalUse 가 목적지가 방 맵이면 여기로 넘긴다(반경·생존은 이미 봤다).
+    //   판정(CheckRoomEntry) → 방 만들기(CMapManager::CreateRoom) → 파티장, 그다음 가입 순서로 전원 TransferPlayer(포털 도착 자리).
+    //   거절이면 아무도 안 옮기고 누른 사람에게만 알린다(SendRoomReject). 들어가기를 세는 곳은 여기 한 곳(_gameMonitor._room · _portal) —
+    //   방이 닫히는 것(열린 방 −1 · 닫힘)은 빈 채널 정리 콜백이 센다(게임 루프 5).
+    void EnterRoom(CPlayer* leader, CZone* oldZone, const PortalDef& portal);
+    // 거절 사유 → 와이어 — 파티 없음·파티장 아님은 파티 알림의 그 두 번호, 다른 존·쓰러짐·잠금은 방 알림 셋(막는 사람 번호),
+    //   번호 다 참은 S2C_ZONE_CHANGE_FAIL 1(「모든 채널 가득 참」). 파티 알림은 파티 규칙의 Notice 로 보낸다(번호별 계수가 거기 한 곳)
+    void SendRoomReject(CPlayer* leader, const RoomEntryResult& result);
 
     // 파티 알림 (IPartyEvents) — 뜻은 PartySystem.h. 보내는 수는 여기서 센다(_gameMonitor._party 의 …Sent).
     void OnPartyAsk(CPlayer* to, uint32_t requestId, PartyAskKind kind, const CPlayer* from, const CPlayer* about, uint32_t remainMs) override;
@@ -604,6 +626,9 @@ private:
 #if USE_DROP
     int32_t _nextGroundId = 1;       // 땅의 아이템 번호 — 캐릭터 번호와 따로 센다(1초에 하나씩 떨어져도 68년)
     std::vector<Item> _lootBuffer;   // 한 마리분 굴림 결과 (멤버 재사용 — 죽을 때마다 할당하지 않게)
+#if USE_PARTY
+    std::vector<Item> _roomOverflow; // 방 보상 중 가방이 차서 못 넣은 것 — 그 사람 발밑 땅으로(RewardRoom · 멤버 재사용)
+#endif
     int     _groundItemScanCounter = 0;   // TickGroundItems 의 25틱 세기
 #endif
 
@@ -685,6 +710,10 @@ private:
     // 파티 규칙 — 알림은 이 클래스(IPartyEvents)로 돌아온다. 파티원·요청의 주소를 틱 너머로 들므로 ReleasePlayer 가 Forget 을 부른다.
     //   ★ _gameMonitor 보다 뒤에 선언해야 한다(위 _combatSystem 주석과 같은 까닭).
     CPartySystem _partySystem{ _gameMonitor, *this };
+
+    // 방 다시 들어가기 잠금(계정 · 방 맵 → 풀리는 틱) — 보상을 줄 때 넣고(OnDeath 방 갈래) 들어가기 판정이 본다. 서버 메모리만(재시작하면 풀림).
+    //   풀린 것은 파티 틱 옆에서 초마다 훑어 뺀다(게임 루프 3-2c)
+    CRoomLocks _roomLocks;
 #endif
 
     // ── 섹터 아웃박스 ── 틱-지연 배칭 상태를 한 덩어리로 응집.

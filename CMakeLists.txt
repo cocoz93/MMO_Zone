@@ -156,6 +156,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/SkillSystem.cpp
     ${SRV_DIR}/BuffSystem.cpp
     ${SRV_DIR}/PartySystem.cpp
+    ${SRV_DIR}/Room.cpp
     ${SRV_DIR}/LevelTable.cpp
     ${SRV_DIR}/GameDataFiles.cpp
     ${SRV_DIR}/GameDataCsv.cpp

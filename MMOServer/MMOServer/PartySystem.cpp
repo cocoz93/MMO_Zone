@@ -25,6 +25,16 @@ Party* CPartySystem::PartyOf(const CPlayer* p)
     return (it != _parties.end()) ? &it->second : nullptr;
 }
 
+const Party* CPartySystem::FindParty(const CPlayer* p) const
+{
+    // PartyOf 의 읽기 판 — 같은 약속(_partyId 가 있으면 파티가 있다)
+    if (p->_partyId == 0)
+        return nullptr;
+    auto it = _parties.find(p->_partyId);
+    assert(it != _parties.end());
+    return (it != _parties.end()) ? &it->second : nullptr;
+}
+
 bool CPartySystem::IsMember(const Party& party, const CPlayer* p)
 {
     for (const Party::Member& m : party.members)

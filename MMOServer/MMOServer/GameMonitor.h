@@ -26,6 +26,7 @@
 #include "SkillTable.h"       // USE_SKILL — 스킬 번호 수(MAX_SKILL_ID)만큼 시전 칸을 잡는다
 #include "MapManager.h"       // 존 이동 요청 결과(ZoneChangeReject — 맵 관리자의 어휘) 수만큼 칸을 잡는다
 #include "PartySystem.h"      // USE_PARTY — 빠진 까닭(PartyLeave)·요청이 끝난 까닭(PartyRequestEnd) 수만큼 칸을 잡는다
+#include "Room.h"             // USE_PARTY — 방 들어가기 결과(RoomEntryReject) 수만큼 칸을 잡는다
 
 // [사유 enum 의 집 — 규칙 하나] 사유는 그것을 정하는 층의 헤더에 산다(10-06, 아키텍처 전수검사 7번).
 //   존·엔티티 층이 정하는 것: GroundItemRemoval·PickupReject(GroundItem.h) · ZoneChangeReject(MapManager.h) · InvAddResult(Inventory.h)
@@ -79,18 +80,20 @@ enum class PortalReject : uint8_t
     WRONG_MAP,   // 지금 맵의 포털이 아님
     TOO_FAR,     // 반경 밖
     DEAD,        // 죽은 채 — 답을 안 보낸다(존 이동 요청과 같다)
+    ROOM,        // 방 맵 포털인데 방 판정에 걸림 — 사유는 mmo_room_entries_total(Room.h RoomEntryReject). 파티를 끈 빌드는 방 맵 포털이 늘 여기
     COUNT
 };
 
 inline const char* PortalRejectName(PortalReject r)
 {
-    static_assert(static_cast<int>(PortalReject::COUNT) == 4, "PortalReject 를 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(PortalReject::COUNT) == 5, "PortalReject 를 늘렸으면 이름도 붙일 것");
     switch (r)
     {
     case PortalReject::NO_PORTAL: return "no_portal";
     case PortalReject::WRONG_MAP: return "wrong_map";
     case PortalReject::TOO_FAR:   return "too_far";
     case PortalReject::DEAD:      return "dead";
+    case PortalReject::ROOM:      return "room";
     case PortalReject::COUNT:     break;
     }
     return "?";
@@ -137,6 +140,24 @@ inline const char* PartyAskKindName(PartyAskKind r)
     case PartyAskKind::APPLY:   return "apply";
     case PartyAskKind::SUGGEST: return "suggest";
     case PartyAskKind::COUNT:   break;
+    }
+    return "?";
+}
+
+// 방 들어가기 결과 — 판정(Room.h CheckRoomEntry)과 게임 서버(번호 다 참)가 정한다. NONE 칸 = 방을 만들어 옮김
+inline const char* RoomEntryResultName(RoomEntryReject r)
+{
+    static_assert(static_cast<int>(RoomEntryReject::COUNT) == 7, "RoomEntryReject 를 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case RoomEntryReject::NONE:         return "entered";
+    case RoomEntryReject::NOT_IN_PARTY: return "not_in_party";
+    case RoomEntryReject::NOT_LEADER:   return "not_leader";
+    case RoomEntryReject::NOT_GATHERED: return "not_gathered";
+    case RoomEntryReject::DEAD:         return "dead";
+    case RoomEntryReject::LOCKED:       return "locked";
+    case RoomEntryReject::FULL:         return "full";
+    case RoomEntryReject::COUNT:        break;
     }
     return "?";
 }
@@ -670,6 +691,22 @@ public:
         Counter _mateSkippedFront;
         Counter _mateSkippedArea;
     } _party;
+
+    // ══════════════════════════════════════════════════════════════
+    // 파티 전용 방 (USE_PARTY — 방은 파티 위에 선다) — 세는 곳은 게임 서버(포털 방 갈래 EnterRoom · 빈 채널 정리 콜백 · 방 보상 RewardRoom · 잠금 훑기).
+    //   ★ 등식 둘: _entries[entered] = _closed + _active · Σ _entries(entered 뺀 칸) = mmo_portal_rejected_total{reason="room"}
+    // ══════════════════════════════════════════════════════════════
+    struct alignas(64) RoomCounters
+    {
+        Counter _active;                                                  // [게이지] 지금 열린 방 수
+        Counter _entries[static_cast<int>(RoomEntryReject::COUNT)];       // 방 포털 결과, 칸별(RoomEntryReject — NONE 칸 = 방을 만들어 옮김)
+        Counter _moved;                                                   // 방으로 옮긴 사람 수(파티장 포함)
+        Counter _closed;                                                  // 지운 방(빈 채널 정리)
+        Counter _rewards;                                                 // 방 보상을 받은 사람 수 — 보스 한 마리에 방 안 사람 수만큼(RewardRoom)
+        Counter _rewardItemsBag;                                          // 방 보상으로 가방에 바로 들어간 아이템 개수
+        Counter _rewardItemsGround;                                       // 가방이 차서 그 사람 발밑 땅으로 간 개수(땅 계수 _drop._dropped 에도 들어간다)
+        Counter _locks;                                                   // [게이지] 다시 들어가기 잠금 표 크기(넣을 때 · 초마다 훑은 뒤)
+    } _room;
 #endif
 
     // DB 저장 파이프라인 — 정의는 위 DBSaveCounters(DB 워커가 참조로 받는다)

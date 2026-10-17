@@ -1683,6 +1683,13 @@ void CGameServer::GameLoopThread()
         // 3-2c) 파티 — 요청 시간 지남 · 파티원 상태 비교(약 0.5초마다). 파티·요청이 없으면 바로 끝난다(부하 시험엔 파티가 없다).
         //   존마다 돌지 않는다 — 파티는 존을 넘는다(목록이 게임 서버에 하나, PartySystem.h [왜 따로인가]).
         _partySystem.Tick(_frameCount);
+
+        // 방 다시 들어가기 잠금 — 풀린 것 빼기(초마다). 판정은 풀리는 틱을 직접 보므로 빼기가 늦어도 결과는 같다 — 표 크기만 묶는다
+        if (_frameCount % FRAME_PER_SEC == 0)
+        {
+            _roomLocks.Sweep(_frameCount);
+            _gameMonitor._room._locks.Store(static_cast<int64_t>(_roomLocks.Size()));
+        }
 #endif
 
 #if USE_DROP
@@ -1775,7 +1782,7 @@ void CGameServer::GameLoopThread()
 #if USE_DROP
             const GroundItemContext groundCtx = MakeGroundItemContext();
 #endif
-#if USE_DROP || USE_COMBAT
+#if USE_DROP || USE_COMBAT || USE_PARTY
             _mapManager.CleanupEmptyChannels([&](CZone* zone)
             {
 #if USE_DROP
@@ -1784,6 +1791,14 @@ void CGameServer::GameLoopThread()
 #if USE_COMBAT
                 // 효과 목록은 틱 너머로 주소를 든다 — 이 존의 몬스터가 같이 해제되니 목록에서 먼저 뺀다(BuffSystem.h 「셋째 길」). 사람은 이미 퇴장으로 빠졌다
                 _buffSystem.ForgetZone(zone->GetZoneId());
+#endif
+#if USE_PARTY
+                // 빈 방 — 열린 방 수를 내린다(등식: 들어감 = 닫힘 + 열림 — GameMonitor.h _room). 방 번호는 이 뒤 다시 쓸 수 있다(CMapInstance::CreateRoom)
+                if (_mapManager.IsRoomMap(zone->GetMapId()))
+                {
+                    _gameMonitor._room._active.Add(-1);
+                    _gameMonitor._room._closed.Inc();
+                }
 #endif
             });
 #else
@@ -3174,6 +3189,7 @@ void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
 
 // 포털 사용 — 어디로 가는지는 포털 표가 정한다(클라는 번호만 보낸다 — PortalTable.h [무엇]).
 //   판정 = 살았나 · 표에 있나 · 지금 맵의 포털인가 · 반경 안인가. 넷을 다 지나야 옮긴다(옮긴 뒤 되돌리는 길은 없다 — TransferPlayer).
+//   목적지가 방 맵이면 넷 뒤에 파티 판정이 하나 더 있다(EnterRoom — 파티장이 누르면 파티원 전원이 새 방으로).
 //   실패 답은 S2C_ZONE_CHANGE_FAIL 을 같이 쓴다(4 포털에서 멂 · 5 포털 없음 — Protocol.h). 죽은 채면 답이 없다(존 이동 요청과 같다).
 //   세는 곳은 여기 한 곳 — 칸의 합(_used + Σ _rejected) = 받은 요청 수(GameMonitor.h _portal). 방어 갈래 둘(존 없음 ·
 //   목적지 채널 못 얻음)은 안 센다 — 지금 일어나는 길이 없고, 일어나면 앞엣것은 조용히, 뒤엣것은 로그로 드러난다.
@@ -3217,6 +3233,20 @@ void CGameServer::RecvPortalUse(CPlayer* player, CSerialBuffer* pMsg)
         return;
     }
 
+    // 방 맵(파티 전용 방)이면 자동 배정이 없다 — 파티 판정을 거쳐 새 방으로 전원이 같이 간다(EnterRoom · Room.h).
+    //   세는 곳: 들어가면 _used, 걸리면 _rejected[ROOM](사유는 _room 칸) — 위 등식(_used + Σ _rejected = 받은 요청 수)이 그대로다
+    if (_mapManager.IsRoomMap(portal->targetMapId))
+    {
+#if USE_PARTY
+        EnterRoom(player, oldZone, *portal);
+#else
+        // 방은 파티 위에 선다 — 파티를 끈 빌드는 방에 들어가는 길이 없다(맵 표의 방 맵은 그대로 읽힌다). 파티 알림이 없는 빌드라 「존재하지 않는 맵/채널」로 답한다
+        reject(PortalReject::ROOM);
+        SendZoneChangeFail(player, 0);   // 0: 존재하지 않는 맵/채널
+#endif
+        return;
+    }
+
     // 목적지 채널은 자동 배정 — 정원 규칙은 존 이동 요청과 같다(FindOrCreateChannel 이 자리 있는 채널을 고르고, 다 차면 새로 만든다).
     //   다른 맵이라 지금 존과 같을 수 없다(포털 표가 같은 맵 포털을 막았다 — PortalTable.h [맵 대조]).
     CZone* newZone = _mapManager.FindOrCreateChannel(portal->targetMapId, player->_isAdmin);
@@ -3232,6 +3262,74 @@ void CGameServer::RecvPortalUse(CPlayer* player, CSerialBuffer* pMsg)
     const SpawnAt at{ static_cast<float>(portal->targetX), static_cast<float>(portal->targetY) };
     TransferPlayer(player, oldZone, newZone, ArrivalKind::ZONE_CHANGE, &at);
 }
+
+#if USE_PARTY
+// 방 맵 포털(GameServer.h 선언 주석 · Room.h). 판정은 순수 함수 하나, 와이어로 바꾸기는 SendRoomReject 한 곳.
+void CGameServer::EnterRoom(CPlayer* leader, CZone* oldZone, const PortalDef& portal)
+{
+    auto& pc = _gameMonitor._portal;
+    auto& rc = _gameMonitor._room;
+
+    const Party* party = _partySystem.FindParty(leader);
+    RoomEntryResult result = CheckRoomEntry(leader, party, _roomLocks, portal.targetMapId, _frameCount);
+
+    CZone* room = nullptr;
+    if (result.reject == RoomEntryReject::NONE)
+    {
+        room = _mapManager.CreateRoom(portal.targetMapId);
+        if (room == nullptr)
+            result.reject = RoomEntryReject::FULL;   // 번호가 다 찼다(CMapInstance::CreateRoom)
+    }
+
+    rc._entries[static_cast<int>(result.reject)].Inc();
+    if (result.reject != RoomEntryReject::NONE)
+    {
+        pc._rejected[static_cast<int>(PortalReject::ROOM)].Inc();
+        SendRoomReject(leader, result);
+        return;
+    }
+
+    // 옮길 순서 = 파티장, 그다음 가입 순서. 목록을 먼저 떠 둔다 — 옮기는 동안 파티는 안 바뀌지만(TransferPlayer 는 파티를 모른다)
+    //   돌고 있는 목록의 주인이 옮기는 쪽 밖에 있다. 판정이 「전원 같은 존」을 봤으니 옮겨지는 사람의 옛 존은 모두 oldZone 이다
+    CPlayer* order[PARTY_MAX_MEMBERS];
+    int32_t count = 0;
+    order[count++] = leader;
+    for (const Party::Member& m : party->members)
+    {
+        if (m.player != leader)
+            order[count++] = m.player;
+    }
+
+    pc._used.Inc();
+    rc._active.Inc();
+    const SpawnAt at{ static_cast<float>(portal.targetX), static_cast<float>(portal.targetY) };
+    for (int32_t i = 0; i < count; ++i)
+    {
+        assert(order[i]->_zoneId == oldZone->GetZoneId() && "판정이 같은 존을 봤다 — CheckRoomEntry NOT_GATHERED");
+        TransferPlayer(order[i], oldZone, room, ArrivalKind::ZONE_CHANGE, &at);
+        rc._moved.Inc();
+    }
+    SLOG_INFO("[Room] map {} zone {} — party {} · {} moved (leader actor {})",
+              portal.targetMapId, room->GetZoneId(), party->id, count, leader->_actorId);
+}
+
+void CGameServer::SendRoomReject(CPlayer* leader, const RoomEntryResult& result)
+{
+    const int32_t blocker = (result.blocker != nullptr) ? result.blocker->_actorId : 0;
+    switch (result.reject)
+    {
+    case RoomEntryReject::NOT_IN_PARTY: _partySystem.Notice(leader, PartyNotice::NOT_IN_PARTY, 0);            return;
+    case RoomEntryReject::NOT_LEADER:   _partySystem.Notice(leader, PartyNotice::NOT_LEADER, 0);              return;
+    case RoomEntryReject::NOT_GATHERED: _partySystem.Notice(leader, PartyNotice::ROOM_NOT_GATHERED, blocker); return;
+    case RoomEntryReject::DEAD:         _partySystem.Notice(leader, PartyNotice::ROOM_DEAD, blocker);         return;
+    case RoomEntryReject::LOCKED:       _partySystem.Notice(leader, PartyNotice::ROOM_LOCKED, blocker);       return;
+    case RoomEntryReject::FULL:         SendZoneChangeFail(leader, 1);                                        return;   // 1: 모든 채널 가득 참
+    case RoomEntryReject::NONE:
+    case RoomEntryReject::COUNT:        break;
+    }
+    assert(false && "SendRoomReject 는 거절만 받는다");
+}
+#endif
 
 // 존에서 존으로 옮기기 한 곳(GameServer.h 선언 주석).
 void CGameServer::TransferPlayer(CPlayer* player, CZone* oldZone, CZone* newZone, ArrivalKind kind, const SpawnAt* at)
@@ -3354,17 +3452,54 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
     //   ★ 몬스터는 맨 끝 8) Despawn 이 해제하므로 그 "앞"인 여기서 목록에서 빼야 한다 — 뒤에 두면 해제된 주소가 목록에 남는다.
     _buffSystem.ClearAll(target);
 
+#if USE_PARTY && USE_MONSTER
+    // ── 6·7 의 갈림 — 방 맵의 몬스터면 보상이 막타 한 명이 아니라 방 안 사람 각자다(RewardRoom). 몬스터 종류는 안 가린다(보스 표식을 따로 두지 않는다 — room-plan.md 「내가 정한 기본값」 4) ──
+    const bool roomReward = (target->_kind == CharacterKind::MONSTER) && _mapManager.IsRoomMap(zone->GetMapId());
+    if (roomReward)
+        RewardRoom(zone, As<CMonster>(target));
+#else
+    const bool roomReward = false;
+#endif
+
 #if USE_EXP && USE_MONSTER
     // ── 6) 경험치 — 사람이 몬스터를 잡았을 때만 ──
     //   ★ 막타 한 명에게만 준다. 나눠 주려면 누가 얼마나 때렸는지를 몬스터가 들고 있어야 하고,
     //     그건 퇴장 경로가 훑어야 할 대기열이 하나 더 느는 일이다(Monster.h [대상] 과 같은 이유).
     //   때린 쪽은 CCharacter* 라 As<CPlayer> 로 확인 후 내려 바꾼다.
-    //   PvP 는 안 준다: 당한 쪽이 몬스터일 때만이다.
+    //   PvP 는 안 준다: 당한 쪽이 몬스터일 때만이다. 방 맵은 위 RewardRoom 이 이미 줬다.
     CPlayer* killer = As<CPlayer>(attacker);
-    if (killer != nullptr && target->_kind == CharacterKind::MONSTER)
-    {
-        const int32_t reward = As<CMonster>(target)->_def.exp;   // 잡힌 몬스터 종류의 경험치(몬스터 표)
+    if (!roomReward && killer != nullptr && target->_kind == CharacterKind::MONSTER)
+        GrantMonsterExp(zone, killer, As<CMonster>(target)->_def.exp);   // 잡힌 몬스터 종류의 경험치(몬스터 표)
+#endif
 
+#if USE_DROP
+    // ── 7) 드랍 — 사람이 몬스터를 잡았을 때만(경험치와 같은 조건) ──
+    //   막타 한 명이 주인이다(경험치와 같은 이유 — 누가 얼마나 때렸는지 몬스터가 들고 있지 않다). 방 맵은 위 RewardRoom 이 이미 줬다.
+    CPlayer*  looter = As<CPlayer>(attacker);
+    CMonster* prey   = As<CMonster>(target);
+    if (!roomReward && looter != nullptr && prey != nullptr)
+        DropLoot(zone, looter, prey);
+#endif
+    (void)roomReward;   // 경험치·드랍을 다 끈 빌드에서도 쓰인 값으로 둔다
+
+#if USE_MONSTER
+    // ── 8) 죽은 몬스터 지우기 — 보상까지 끝낸 맨 끝(이 아래로, 그리고 부른 공격 흐름도 target 을 안 쓴다) ──
+    //   시체는 클라 연출이다(웹 클라는 죽어 있는 상대의 DELETE 를 받으면 흐려지며 지운다). 서버가 들고 있으면
+    //   나중에 다가온 사람 화면에 시체가 다시 나타나고, 스폰이 새로 채우니 객체가 쌓인다(10-09).
+    //   존에서 빼는 길은 플레이어 퇴장과 같다 — 주변 DELETE · 옛 섹터 시청자 · 같은 틱 이동자 · 이동 묶음 빼기 · LeaveZone.
+    //   객체를 놓고 그 점을 비우는 것은 존의 몬스터 관리자다 — 빈 점은 그 구역 다음 리젠 때 찬다.
+    if (CMonster* dead = As<CMonster>(target))
+    {
+        BroadcastLeaveZone(zone, dead);
+        zone->GetMonsterManager().Despawn(dead);   // ← 여기서 해제된다
+    }
+#endif
+}
+
+#if USE_EXP && USE_MONSTER
+void CGameServer::GrantMonsterExp(CZone* zone, CPlayer* killer, int32_t reward)
+{
+    {   // 옛 OnDeath 6) 의 몸 그대로(10-17 도우미로 뺌 — 막타 경로와 방 보상이 같이 부른다. killer = 받는 사람)
         // ★ 준 뒤에 센다 — GainExp 는 만렙이면 한 톨도 안 쌓는다.
         //   먼저 세면 만렙 이후 잡은 수만큼 "줬다"가 늘어, 계수기가 실제와 갈린다.
         const int64_t beforeExp = killer->_exp;
@@ -3404,30 +3539,85 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
 #endif
         }
     }
+}
 #endif
+
+#if USE_PARTY && USE_MONSTER
+// 방 보상(GameServer.h 선언 주석 · room-plan.md 「흐름」). OnDeath 가 몬스터를 지우기 "앞"에 부른다 — monster 는 아직 살아 있는 객체다.
+void CGameServer::RewardRoom(CZone* zone, CMonster* monster)
+{
+    const MapDef* map = _gameDataFiles.Maps().Find(zone->GetMapId());
+    assert(map != nullptr && map->kind == MapKind::INSTANCE && "방 맵에서만 부른다 — OnDeath 의 IsRoomMap");
+    const uint64_t lockUntil = _frameCount + static_cast<uint64_t>(map != nullptr ? map->lockoutSec : 0) * FRAME_PER_SEC;
+
+    // 받는 사람 = 지금 이 존(방)의 캐릭터 중 사람 — 쓰러진 사람도 존에 있다(부활이 옮겨 가기 전까지). 목록을 먼저 떠 둔다 —
+    //   보상 중에 존 목록이 바뀌는 길은 없지만(레벨업 방송 · 가방 패킷은 존을 안 바꾼다) 도는 목록의 주인이 존이다
+    //   (보스 한 마리에 한 번이라 할당을 아끼지 않는다 — 운영자가 구경하러 들어와 있어도 빠지는 사람이 없게 상한을 두지 않는다)
+    std::vector<CPlayer*> people;
+    for (CCharacter* c : zone->GetCharacters())
+    {
+        if (CPlayer* p = As<CPlayer>(c))
+            people.push_back(p);
+    }
+    const int32_t count = static_cast<int32_t>(people.size());
 
 #if USE_DROP
-    // ── 7) 드랍 — 사람이 몬스터를 잡았을 때만(경험치와 같은 조건) ──
-    //   막타 한 명이 주인이다(경험치와 같은 이유 — 누가 얼마나 때렸는지 몬스터가 들고 있지 않다).
-    CPlayer*  looter = As<CPlayer>(attacker);
-    CMonster* prey   = As<CMonster>(target);
-    if (looter != nullptr && prey != nullptr)
-        DropLoot(zone, looter, prey);
+    thread_local std::mt19937 rng{ std::random_device{}() };   // DropLoot 와 같은 꼴(게임 스레드 전용)
+#endif
+    for (int32_t i = 0; i < count; ++i)
+    {
+        CPlayer* p = people[i];
+        // 알림은 줄을 나눈다 — 머리 한 줄(경험치) + 아이템마다 한 줄. 채팅 칸(웹)이 긴 줄 끝을 「…」로 잘라 한 줄에 다 담으면 뒤 아이템이 안 보인다
+        std::string head = monster->_def.name + " 보상 —";
+
+#if USE_EXP
+        const int64_t beforeExp = p->_exp;
+        GrantMonsterExp(zone, p, monster->_def.exp);   // 전액 — 나누지 않는다(room-plan.md 「사람이 정할 것」 3)
+        head += " 경험치 " + std::to_string(p->_exp - beforeExp);   // 만렙이면 0
+#endif
+        SendSystemMessage(p, head);
+
+#if USE_DROP
+        // 드랍 표를 사람마다 따로 굴린다 → 가방에 바로(줍기와 같은 TryAdd · FlushInventory) — 넘치면 그 사람 발밑 땅에 그 사람 것으로
+        //   (땅의 주인 규칙 그대로 — 10초 본인 먼저, GroundItemManager.h). 굴림 수는 필드 계수(_drop._rolls = 잡은 수)에 안 넣는다
+        RollDrops(_gameDataFiles.Drop().RowsOf(monster->_def.monsterId), rng, _lootBuffer);
+        _roomOverflow.clear();
+        for (const Item& it : _lootBuffer)
+        {
+            const ItemDef* def = _gameDataFiles.Item().Find(it.itemId);
+            if (def == nullptr)
+            {
+                assert(false && "드랍 표 로드가 아이템 표에 없는 번호를 막는다");
+                continue;
+            }
+            const InvAddResult r = p->_inventory.TryAdd(*def, it.count);
+            if (r == InvAddResult::OK)
+            {
+                _gameMonitor._inventory._itemsAdded.Add(it.count);   // /item · 줍기와 같은 계수기 — 가방에 들어간 개수
+                _gameMonitor._room._rewardItemsBag.Add(it.count);
+                SendSystemMessage(p, "얻음 — " + def->name + " ×" + std::to_string(it.count));
+            }
+            else
+            {
+                _gameMonitor._inventory._addRejected[static_cast<int>(r)].Inc();
+                _gameMonitor._room._rewardItemsGround.Add(it.count);
+                _roomOverflow.push_back(it);
+                SendSystemMessage(p, "가방이 차서 발밑에 — " + def->name + " ×" + std::to_string(it.count));
+            }
+        }
+        FlushInventory(p);   // 칸 패킷 + 곧바로 DB 저장(줍기와 같은 길) — 바뀐 칸이 없으면 아무것도 안 간다
+        if (!_roomOverflow.empty())
+            zone->GetGroundItemManager().Drop(MakeGroundItemContext(), _roomOverflow, p->_x, p->_y, p->_accountId, _frameCount);
 #endif
 
-#if USE_MONSTER
-    // ── 8) 죽은 몬스터 지우기 — 보상까지 끝낸 맨 끝(이 아래로, 그리고 부른 공격 흐름도 target 을 안 쓴다) ──
-    //   시체는 클라 연출이다(웹 클라는 죽어 있는 상대의 DELETE 를 받으면 흐려지며 지운다). 서버가 들고 있으면
-    //   나중에 다가온 사람 화면에 시체가 다시 나타나고, 스폰이 새로 채우니 객체가 쌓인다(10-09).
-    //   존에서 빼는 길은 플레이어 퇴장과 같다 — 주변 DELETE · 옛 섹터 시청자 · 같은 틱 이동자 · 이동 묶음 빼기 · LeaveZone.
-    //   객체를 놓고 그 점을 비우는 것은 존의 몬스터 관리자다 — 빈 점은 그 구역 다음 리젠 때 찬다.
-    if (CMonster* dead = As<CMonster>(target))
-    {
-        BroadcastLeaveZone(zone, dead);
-        zone->GetMonsterManager().Despawn(dead);   // ← 여기서 해제된다
+        _roomLocks.Lock(p->_accountId, zone->GetMapId(), lockUntil);
+        _gameMonitor._room._rewards.Inc();
     }
-#endif
+    _gameMonitor._room._locks.Store(static_cast<int64_t>(_roomLocks.Size()));
+
+    SLOG_INFO("[Room] zone {} — {} 보상 {}명 (잠금 {}초)", zone->GetZoneId(), monster->_def.name, count, map != nullptr ? map->lockoutSec : 0);
 }
+#endif
 
 #if USE_SKILL
 // ==========================================================================

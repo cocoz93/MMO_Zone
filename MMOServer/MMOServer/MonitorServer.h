@@ -543,6 +543,21 @@ private:
             ss << "mmo_party_mate_skipped_total{where=\"front\"} " << pt._mateSkippedFront << "\n";
             ss << "mmo_party_mate_skipped_total{where=\"area\"} " << pt._mateSkippedArea << "\n\n";
         }
+        // 파티 전용 방. 등식 둘(GameMonitor.h): entries{entered} = closed + active · Σ entries(entered 뺀 칸) = portal_rejected{room}
+        {
+            const auto& rm = _gameMonitor._room;
+            ss << "# HELP mmo_room_active Party rooms open right now (one channel of an instance map each)\n# TYPE mmo_room_active gauge\nmmo_room_active " << rm._active << "\n\n";
+            ss << "# HELP mmo_room_entries_total Room portal uses by a party, split by result (entered = a room was made and the party moved in)\n# TYPE mmo_room_entries_total counter\n";
+            for (int i = 0; i < static_cast<int>(RoomEntryReject::COUNT); ++i)
+                ss << "mmo_room_entries_total{result=\"" << RoomEntryResultName(static_cast<RoomEntryReject>(i)) << "\"} " << rm._entries[i] << "\n";
+            ss << "\n";
+            WriteCounter(ss, "mmo_room_moved_total", "Players moved into a room (leader included)", rm._moved);
+            WriteCounter(ss, "mmo_room_closed_total", "Rooms removed by the empty channel cleanup", rm._closed);
+            WriteCounter(ss, "mmo_room_rewards_total", "Players rewarded in a room (everyone in the room when a monster there dies)", rm._rewards);
+            WriteCounter(ss, "mmo_room_reward_items_bag_total", "Room reward items put straight into bags", rm._rewardItemsBag);
+            WriteCounter(ss, "mmo_room_reward_items_ground_total", "Room reward items dropped at the player's feet because the bag was full", rm._rewardItemsGround);
+            ss << "# HELP mmo_room_locks Room re-entry locks held right now (account and room map)\n# TYPE mmo_room_locks gauge\nmmo_room_locks " << rm._locks << "\n\n";
+        }
 #endif
 
 #if USE_MONSTER
