@@ -419,6 +419,15 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
     case MsgType::S2C_ACTOR_SPEED:
         break;
 
+    // 파티(서버 USE_PARTY) — 콘솔 클라는 캐릭터를 눌러 고를 화면이 없어 파티를 맺지 않는다. 다만 웹 사람이 콘솔 캐릭터를 눌러
+    //   초대하면 ASK 가, 시간이 지나면 ASK_END 가 온다 — 모르는 타입 로그만 막는다. 나머지 셋은 올 일이 없지만 전례대로 알고 넘긴다.
+    case MsgType::S2C_PARTY_ASK:
+    case MsgType::S2C_PARTY_ASK_END:
+    case MsgType::S2C_PARTY_NOTICE:
+    case MsgType::S2C_PARTY_INFO:
+    case MsgType::S2C_PARTY_MEMBER:
+        break;
+
     default:
         LOG_ERROR_STREAM("Unknown message type: " << static_cast<int>(header->type));
         break;

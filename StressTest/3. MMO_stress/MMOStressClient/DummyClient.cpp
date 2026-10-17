@@ -271,6 +271,13 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     // 이동 속도 — 주변 방송이라 운영자가 곁에서 /gm 을 켜고 끄면 더미도 받는다.
     //   ★ 빠뜨리면 그 순간 근처 더미가 전부 떨어진다(SKILL_CAST 와 같은 함정).
     case MsgType::S2C_ACTOR_SPEED:        return sizeof(MSG_S2C_ACTOR_SPEED);
+    // USE_PARTY: 파티 — 더미는 파티를 맺지 않지만(요청에 답을 안 한다) 사람이 화면에서 더미를 눌러 초대하면 S2C_PARTY_ASK 가 오고,
+    //   시간이 지나면 S2C_PARTY_ASK_END 가 온다. ★ 빠뜨리면 그 더미가 떨어진다. 나머지 셋은 올 일이 없지만 전례대로 크기만 등록한다.
+    case MsgType::S2C_PARTY_ASK:          return sizeof(MSG_S2C_PARTY_ASK);
+    case MsgType::S2C_PARTY_ASK_END:      return sizeof(MSG_S2C_PARTY_ASK_END);
+    case MsgType::S2C_PARTY_NOTICE:       return sizeof(MSG_S2C_PARTY_NOTICE);
+    case MsgType::S2C_PARTY_INFO:         return static_cast<uint16_t>(offsetof(MSG_S2C_PARTY_INFO, entries));   // 가변 길이: 최소 = 머리(인원 0)
+    case MsgType::S2C_PARTY_MEMBER:       return sizeof(MSG_S2C_PARTY_MEMBER);
     default: return 0;
     }
 }

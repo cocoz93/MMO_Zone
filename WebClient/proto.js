@@ -40,8 +40,18 @@
     // 스킬 쿨타임 상태 (USE_SKILL) — 본인에게만 온다. 입장·존 이동 때 아직 돌고 있는 칸마다 한 장(남은 ms). 시전 순간의 쿨타임은 지금처럼 SKILL_CAST 로 센다
     S2C_SKILL_COOLDOWN_REMAIN:1048,
     // 이동 속도 (토글 없음) — 본인 + 주변. 등장 순간의 속도는 CREATE 가 싣고, 이 장은 그 뒤에 바뀐 값(지금은 운영자 /gm 켬·끔뿐)
-    S2C_ACTOR_SPEED:1049
+    S2C_ACTOR_SPEED:1049,
+    // 파티 (USE_PARTY) — 고르기는 화면에서 캐릭터를 눌러서(캐릭터에 이름이 없다). 무엇이 갈지(초대·신청·추천)는 서버가 가린다
+    C2S_PARTY_REQUEST:1050, C2S_PARTY_ANSWER:1051, C2S_PARTY_LEAVE:1052, C2S_PARTY_KICK:1053, C2S_PARTY_LEADER:1054, C2S_PARTY_DISBAND:1055,
+    S2C_PARTY_ASK:1056, S2C_PARTY_ASK_END:1057, S2C_PARTY_NOTICE:1058, S2C_PARTY_INFO:1059, S2C_PARTY_MEMBER:1060
   };
+  // 파티 — Protocol.h PartyAskKind · PartyNotice 순서 그대로(값이 와이어에 실린다). 한글 문구는 live.html 이 이름으로 고른다
+  const PARTY_ASK_KIND = ['INVITE','APPLY','SUGGEST'];
+  const PARTY_NOTICE = ['SENT_INVITE','SENT_APPLY','SENT_SUGGEST',
+    'NO_TARGET','SELF','SAME_PARTY','BOTH_IN_PARTY','FULL','NOT_LEADER','NOT_IN_PARTY','NOT_MEMBER','TARGET_BUSY','SELF_BUSY','NO_REQUEST',
+    'DECLINED','EXPIRED','CANCELLED','JOINED','LEFT','KICKED','LEADER','DISBANDED'];
+  const PARTY_MAX_MEMBERS = 8;      // Protocol.h PARTY_MAX_MEMBERS — INFO 줄 수 상한
+  const PARTY_MEMBER_BYTES = 22;    // Protocol.h PartyMemberEntry = PartyPerson 10 + hp·maxHp·mapId 12
   // 아이템 쓰기 거절 사유 — Protocol.h UseItemFail 순서 그대로(값이 와이어에 실린다). 서버가 이 순서로 보고 먼저 걸린 하나를 보낸다
   const USE_FAIL = ['BAD_SLOT','EMPTY','NOT_USABLE','DEAD','COOLDOWN','FULL_HP','FULL_MP'];
   // 땅의 아이템 — Protocol.h GroundItemAppear · GroundItemGone · PickupFail 순서 그대로(값이 와이어에 실린다)
@@ -77,6 +87,14 @@
       displayChar:dv.getUint8(o+6), colorIndex:dv.getUint8(o+7), spawnReason:dv.getUint8(o+8),
       x:dv.getFloat32(o+9,true), y:dv.getFloat32(o+13,true), speed:dv.getInt32(o+17,true),
       ...readSnap(dv, o+21) };
+  }
+  // 파티 사람 조각 — Protocol.h PartyPerson 10B = actorId i32 · displayChar u8 · colorIndex u8 · level i32
+  function readPartyPerson(dv, o) {
+    return { actorId:dv.getInt32(o,true), displayChar:dv.getUint8(o+4), colorIndex:dv.getUint8(o+5), level:dv.getInt32(o+6,true) };
+  }
+  // 파티원 한 줄 — Protocol.h PartyMemberEntry 22B = PartyPerson 10 · hp i32 · maxHp i32 · mapId i32. INFO 의 줄이자 MEMBER 의 몸통
+  function readPartyMember(dv, o) {
+    return { ...readPartyPerson(dv, o), hp:dv.getInt32(o+10,true), maxHp:dv.getInt32(o+14,true), mapId:dv.getInt32(o+18,true) };
   }
 
   // ---- decode one packet body (dv positioned at packet start, total = header.size) ----
@@ -235,6 +253,30 @@
       //   ACTOR_SPEED 12B = actorId i32 · speed i32(칸/초 — CREATE 의 speed 와 같은 단위) — 본인 + 주변
       case MSG.S2C_ACTOR_SPEED:
         p.actorId=dv.getInt32(o,true); p.speed=dv.getInt32(o+4,true); break;
+      // ---- 파티 (USE_PARTY) ----
+      //   PARTY_ASK 33B = requestId u32 · kind u8 · from PartyPerson(10) · about PartyPerson(10) · remainMs u32 — 받는 사람에게만
+      case MSG.S2C_PARTY_ASK:
+        p.requestId=dv.getUint32(o,true); p.kind=dv.getUint8(o+4); p.kindName=PARTY_ASK_KIND[p.kind] || ('?'+p.kind);
+        p.from=readPartyPerson(dv, o+5); p.about=readPartyPerson(dv, o+15); p.remainMs=dv.getUint32(o+25,true); break;
+      //   PARTY_ASK_END 9B = requestId u32 · reason u8 (PARTY_NOTICE — EXPIRED · CANCELLED). 창을 닫는다
+      case MSG.S2C_PARTY_ASK_END:
+        p.requestId=dv.getUint32(o,true); p.reason=dv.getUint8(o+4); p.reasonName=PARTY_NOTICE[p.reason] || ('?'+p.reason); break;
+      //   PARTY_NOTICE 9B = code u8 (PARTY_NOTICE) · actorId i32 (관련 사람, 없으면 0)
+      case MSG.S2C_PARTY_NOTICE:
+        p.code=dv.getUint8(o); p.codeName=PARTY_NOTICE[p.code] || ('?'+p.code); p.actorId=dv.getInt32(o+1,true); break;
+      //   PARTY_INFO 가변 = partyId i32 · leaderId i32 · count u8 · 파티원 줄(22B) × count — count 0 = 파티 없음.
+      //   count 는 header.size 와 상한으로 한 번 더 막는다(서버 이상 시 넘겨 읽지 않게 — S2C_INVENTORY 와 같은 꼴)
+      case MSG.S2C_PARTY_INFO: {
+        p.partyId=dv.getInt32(o,true); p.leaderId=dv.getInt32(o+4,true);
+        let count=dv.getUint8(o+8);
+        const avail=Math.floor((size-13)/PARTY_MEMBER_BYTES); if(count>avail) count=avail; if(count>PARTY_MAX_MEMBERS) count=PARTY_MAX_MEMBERS;
+        p.count=count; p.members=[];
+        for(let i=0;i<count;i++) p.members.push(readPartyMember(dv, o+9+i*PARTY_MEMBER_BYTES));
+        break;
+      }
+      //   PARTY_MEMBER 26B = 파티원 한 줄(22B) — 바뀐 사람만(0.5초마다 서버가 견준다)
+      case MSG.S2C_PARTY_MEMBER:
+        Object.assign(p, readPartyMember(dv, o)); break;
       default: break; // ADMIN_* etc. — not needed for the view
     }
     return p;
@@ -285,6 +327,16 @@
     useSkill(skillId){ const {b,d}=hdr(5,MSG.C2S_USE_SKILL); d.setUint8(4, skillId); return b; },
     // C2S_PORTAL_USE: header(4) + portalId i32 = 8B — 어디로 가는지는 서버 포털 표가 정한다(클라는 번호만)
     portalUse(portalId){ const {b,d}=hdr(8,MSG.C2S_PORTAL_USE); d.setInt32(4, portalId, true); return b; },
+    // ---- 파티 (USE_PARTY) ----
+    // C2S_PARTY_REQUEST: header(4) + targetId i32 = 8B — 화면에서 누른 캐릭터. 무엇이 갈지는 서버가 가린다
+    partyRequest(targetId){ const {b,d}=hdr(8,MSG.C2S_PARTY_REQUEST); d.setInt32(4, targetId, true); return b; },
+    // C2S_PARTY_ANSWER: header(4) + requestId u32 + accept u8 = 9B
+    partyAnswer(requestId, accept){ const {b,d}=hdr(9,MSG.C2S_PARTY_ANSWER); d.setUint32(4, requestId>>>0, true); d.setUint8(8, accept?1:0); return b; },
+    // C2S_PARTY_LEAVE · DISBAND: 몸 없음 / KICK · LEADER: header(4) + targetId i32 = 8B (파티장만)
+    partyLeave(){ return hdr(4, MSG.C2S_PARTY_LEAVE).b; },
+    partyKick(targetId){ const {b,d}=hdr(8,MSG.C2S_PARTY_KICK); d.setInt32(4, targetId, true); return b; },
+    partyLeader(targetId){ const {b,d}=hdr(8,MSG.C2S_PARTY_LEADER); d.setInt32(4, targetId, true); return b; },
+    partyDisband(){ return hdr(4, MSG.C2S_PARTY_DISBAND).b; },
     moveStart(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_START); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     moveStop(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_STOP); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     // C2S_CHAT: header + wchar_t[] UTF-16LE, 널 종단 포함, (len+1)*2 바이트만 전송 (서버가 header.size로 역산)
@@ -298,7 +350,8 @@
     }
   };
 
-  const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, EQUIP_SLOT, USE_FAIL, EQUIP_FAIL, SKILL_FAIL, BUFF_KIND, ZONE_FAIL, GROUND_APPEAR, GROUND_GONE, PICKUP_FAIL, decodePacket, Reassembler, enc };
+  const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, EQUIP_SLOT, USE_FAIL, EQUIP_FAIL, SKILL_FAIL, BUFF_KIND, ZONE_FAIL, GROUND_APPEAR, GROUND_GONE, PICKUP_FAIL,
+                PARTY_ASK_KIND, PARTY_NOTICE, PARTY_MAX_MEMBERS, decodePacket, Reassembler, enc };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else global.Proto = API;
 })(typeof window !== 'undefined' ? window : globalThis);
