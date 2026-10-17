@@ -49,7 +49,8 @@
   const PARTY_ASK_KIND = ['INVITE','APPLY','SUGGEST'];
   const PARTY_NOTICE = ['SENT_INVITE','SENT_APPLY','SENT_SUGGEST',
     'NO_TARGET','SELF','SAME_PARTY','BOTH_IN_PARTY','FULL','NOT_LEADER','NOT_IN_PARTY','NOT_MEMBER','TARGET_BUSY','SELF_BUSY','NO_REQUEST',
-    'DECLINED','EXPIRED','CANCELLED','JOINED','LEFT','KICKED','LEADER','DISBANDED'];
+    'DECLINED','EXPIRED','CANCELLED','JOINED','LEFT','KICKED','LEADER','DISBANDED',
+    'ROOM_NOT_GATHERED','ROOM_DEAD','ROOM_LOCKED'];
   const PARTY_MAX_MEMBERS = 8;      // Protocol.h PARTY_MAX_MEMBERS — INFO 줄 수 상한
   const PARTY_MEMBER_BYTES = 22;    // Protocol.h PartyMemberEntry = PartyPerson 10 + hp·maxHp·mapId 12
   // 아이템 쓰기 거절 사유 — Protocol.h UseItemFail 순서 그대로(값이 와이어에 실린다). 서버가 이 순서로 보고 먼저 걸린 하나를 보낸다

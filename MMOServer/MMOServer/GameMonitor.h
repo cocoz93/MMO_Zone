@@ -143,7 +143,7 @@ inline const char* PartyAskKindName(PartyAskKind r)
 
 inline const char* PartyNoticeName(PartyNotice r)
 {
-    static_assert(static_cast<int>(PartyNotice::COUNT) == 22, "PartyNotice 를 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(PartyNotice::COUNT) == 25, "PartyNotice 를 늘렸으면 이름도 붙일 것");
     switch (r)
     {
     case PartyNotice::SENT_INVITE:   return "sent_invite";
@@ -168,6 +168,9 @@ inline const char* PartyNoticeName(PartyNotice r)
     case PartyNotice::KICKED:        return "kicked";
     case PartyNotice::LEADER:        return "leader";
     case PartyNotice::DISBANDED:     return "disbanded";
+    case PartyNotice::ROOM_NOT_GATHERED: return "room_not_gathered";
+    case PartyNotice::ROOM_DEAD:     return "room_dead";
+    case PartyNotice::ROOM_LOCKED:   return "room_locked";
     case PartyNotice::COUNT:         break;
     }
     return "?";

@@ -1210,6 +1210,11 @@ enum class PartyNotice : uint8_t
     KICKED,          // actorId 가 내보내졌다(본인이면 내가 내보내졌다)
     LEADER,          // actorId 가 파티장이 됐다
     DISBANDED,       // 파티가 해산됐다(파티장이 해산 · 한 명만 남음)
+    // 방 들어가기 거절 — 파티장이 방 맵(파티 전용 방) 포털을 썼을 때 파티장에게(actorId = 막는 파티원). 아무도 안 옮겨진다.
+    //   파티가 없거나 파티장이 아니면 위 NOT_IN_PARTY · NOT_LEADER 를 그대로 쓴다. 방 번호가 다 찼으면 S2C_ZONE_CHANGE_FAIL 1 이다
+    ROOM_NOT_GATHERED, // actorId 가 다른 존(다른 맵 · 같은 맵 다른 채널)에 있다 — 전원이 파티장과 같은 존이어야 같이 들어간다
+    ROOM_DEAD,         // actorId 가 쓰러져 있다
+    ROOM_LOCKED,       // actorId 가 그 방 맵의 다시 들어가기 잠금 중이다(보상을 받은 뒤 MapTable.csv lockoutSec 동안)
     COUNT
 };
 
