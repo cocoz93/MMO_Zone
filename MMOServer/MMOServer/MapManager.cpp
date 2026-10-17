@@ -9,6 +9,10 @@ bool CMapInstance::Init(const MapConfig& config)
 {
     _config = config;
 
+    // 방 맵은 채널 0 을 안 만든다 — 만들면 누구나 들어가는 공용 방이 된다(헤더 [방 맵]). 방은 CreateRoom 으로만 생긴다
+    if (IsRoomMap())
+        return true;
+
     // 기본 채널(channelIndex=0) 자동 생성
     if (CreateChannel(0) == nullptr)
         return false;
@@ -18,6 +22,11 @@ bool CMapInstance::Init(const MapConfig& config)
 
 CZone* CMapInstance::FindOrCreateChannel(bool isAdmin)
 {
+    // 방 맵은 자동 배정이 없다 — 로그인(저장된 자리가 방 맵) · 포털 · 운영자 무작위가 여기로 방에 들어가지 못하게.
+    //   부르는 쪽은 nullptr 을 「그 맵에 자리 없음」으로 이미 다룬다(로그인은 기본 맵으로 — CGameServer::OnCharacterLoaded)
+    if (IsRoomMap())
+        return nullptr;
+
     // 기본 채널(0) 우선 배정
     auto baseIt = _channels.find(0);
     if (baseIt != _channels.end())
@@ -38,6 +47,21 @@ CZone* CMapInstance::FindOrCreateChannel(bool isAdmin)
     // 모든 채널이 가득 참 — 동적 채널 생성
     int32_t newChannelIndex = _nextChannelIndex++;
     return CreateChannel(newChannelIndex);
+}
+
+CZone* CMapInstance::CreateRoom()
+{
+    if (!IsRoomMap())
+        return nullptr;
+
+    // 1 부터 비어 있는 가장 작은 번호 — 방은 생겼다 지워지기를 되풀이하므로 단조 증가로는 상한에 닿는다(헤더 [방 맵]).
+    //   훑기는 열린 방 수 + 1 번 안에 끝난다(그 안에 빈 번호가 반드시 있다). 방을 만드는 건 파티장이 포털을 쓸 때뿐이라 드물다
+    for (int32_t channelIndex = 1; channelIndex < CMapManager::CHANNELS_PER_MAP; ++channelIndex)
+    {
+        if (_channels.find(channelIndex) == _channels.end())
+            return CreateChannel(channelIndex);
+    }
+    return nullptr;   // 번호가 다 찼다 — 게임 서버가 「모든 채널 가득 참」으로 거절한다
 }
 
 CZone* CMapInstance::FindChannel(int32_t channelIndex)
@@ -150,6 +174,27 @@ CZone* CMapManager::FindOrCreateChannel(int32_t mapId, bool isAdmin)
     return zone;
 }
 
+CZone* CMapManager::CreateRoom(int32_t mapId)
+{
+    auto it = _maps.find(mapId);
+    if (it == _maps.end())
+        return nullptr;
+
+    CZone* zone = it->second.CreateRoom();
+
+    // 새 채널이 생겼으므로 캐시 갱신 — 다시 쓴 번호면 지울 때 이미 빠져 있다(CleanupEmptyChannels)
+    if (zone != nullptr)
+        _zoneCache[zone->GetZoneId()] = zone;
+
+    return zone;
+}
+
+bool CMapManager::IsRoomMap(int32_t mapId) const
+{
+    auto it = _maps.find(mapId);
+    return it != _maps.end() && it->second.IsRoomMap();
+}
+
 CZone* CMapManager::FindChannel(int32_t mapId, int32_t channelIndex)
 {
     auto it = _maps.find(mapId);
@@ -173,6 +218,11 @@ ZoneChangeTarget CMapManager::PickZoneChangeTarget(int32_t currentZoneId, int32_
         if (it != _maps.end())
         {
             pickedMap = &it->second;
+
+            // 방 맵 안에서는 운영자만 — 방 번호를 불러 남의 방에 들어가지 못하게(헤더 [방 맵]). 운영자는 구경·시험용으로 둔다
+            if (pickedMap->IsRoomMap() && !isAdmin)
+                return { nullptr, ZoneChangeReject::NOT_ALLOWED };
+
             zone = pickedMap->FindChannel(targetChannelIndex);
         }
     }
@@ -256,7 +306,8 @@ int32_t CMapManager::GetRandomMapId(int32_t excludeMapId) const
 
     for (const auto& [mapId, mapInstance] : _maps)
     {
-        if (mapId != excludeMapId && count < MAX_MAPS)
+        // 방 맵은 뺀다 — 자동 배정이 없어(FindOrCreateChannel nullptr) 뽑히면 이동이 늘 「없음」으로 끝난다
+        if (mapId != excludeMapId && !mapInstance.IsRoomMap() && count < MAX_MAPS)
             candidates[count++] = mapId;
     }
     if (count == 0)

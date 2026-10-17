@@ -18,9 +18,10 @@
 //        새 캐릭터가 들어가는 곳이고 죽으면 돌아오는 곳이다(CGameServer::TickRespawn).
 //        스폰 표가 이 번호로 맵을 가리키고, 읽을 때 이 표와 대조한다(CGameDataFiles::LoadAll 순서).
 //
-// [종류·시작 구역] 칸 = mapId,width,height,kind,startX0,startY0,startX1,startY1.
-//        kind 는 마을(town — 몬스터 구역 0)·던전(dungeon — 구역 ≥1). 구역 개수는 스폰 표가 읽을 때 대조한다.
-//        시작 구역은 「지정 자리 없이 이 맵에 들어올 때」의 자리다(CZone::CalcSpawnPos) — 마을은 반드시, 던전은 비우면 맵 전체 무작위.
+// [종류·시작 구역] 칸 = mapId,width,height,kind,startX0,startY0,startX1,startY1,lockoutSec.
+//        kind 는 마을(town — 몬스터 구역 0)·던전(dungeon — 구역 ≥1)·방(instance — 구역 ≥1, 한 번만 깔기). 구역 개수는 스폰 표가 읽을 때 대조한다.
+//        시작 구역은 「지정 자리 없이 이 맵에 들어올 때」의 자리다(CZone::CalcSpawnPos) — 마을은 반드시, 던전·방은 비우면 맵 전체 무작위.
+//        lockoutSec 은 방 맵만 쓴다(필수) — 보상을 받은 계정이 이 맵에 다시 못 들어가는 초. 다른 종류는 비운다(room-plan.md).
 //
 // [와이어 상한은 여기서 안 본다] 섹터 묶음이 좌표를 실어 나르는 눈금의 상한(POS_QUANT_MAX_MAP_SIZE)은
 //        와이어 사정이라 패킷을 아는 게임 서버가 맵을 등록하기 전에 본다(CGameServer::Init).
@@ -30,6 +31,7 @@ enum class MapKind : uint8_t
 {
     TOWN,      // "town"    — 몬스터 구역 0 · 시작 구역 필수
     DUNGEON,   // "dungeon" — 몬스터 구역 ≥1 · 시작 구역은 있어도 되고 없어도 된다
+    INSTANCE,  // "instance" — 파티 전용 방. 채널 하나가 방 하나(채널 0 없음 · 자동 배정 안 됨 — CMapInstance) · 구역 ≥1 이고 regenSec 0(한 번만) · lockoutSec 필수
     COUNT
 };
 
@@ -51,6 +53,7 @@ struct MapDef
     int32_t   height   = 0;   // 칸
     MapKind   kind     = MapKind::DUNGEON;
     StartArea start;
+    int32_t   lockoutSec = 0; // 방 맵만 — 보상 받은 계정이 다시 못 들어가는 초(1~MAX_LOCKOUT_SEC). 다른 종류는 0
     int32_t   fileLine = 0;   // 스폰 표 대조에서 틀렸을 때 가리킬 줄
 };
 
@@ -59,6 +62,7 @@ class CMapTable
 public:
     static constexpr int32_t MAX_MAP_ID = 1000;     // 스폰 표가 맵 번호를 색인으로 쓴다 — 오타 하나가 배열을 키우지 않게
     static constexpr int32_t MAX_SIZE   = 100000;   // 칸 수 상한 — 읽은 값을 int32 로 옮겨도 넘치지 않게(실제 상한은 와이어, 위 주석)
+    static constexpr int32_t MAX_LOCKOUT_SEC = 86400;   // 방 잠금 상한(하루) — 리젠 주기 상한과 같다. 틱 수로 바꿔도 int32 안이다
 
     // 파일을 읽어 표를 세운다. 실패하면 false 이고 까닭을 로그로 남긴다 — main 이 서버를 안 띄운다.
     bool Load(const std::string& path);

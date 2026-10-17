@@ -4,16 +4,19 @@
 #                and is born at a random spot in the inner 60% of it, so monsters never pile up in one corner.
 #   monsterId : MonsterTable.csv. count : how many live in this region (1 or more). Monsters per zone = sum of count of that map (map 1: 90 · map 2: 31 below).
 #               Density guide: 30 on an 80x80 map was six or seven on one screen - scale the counts with the map area.
-#   regenSec : 1..86400. Regen cycle of the region: every regenSec the server spawns (count - alive) NEW monsters (new ids)
+#   regenSec : 1..86400 (0 = once - instance maps only, and there it must be 0: each room spawns them when it is made, never again).
+#              Regen cycle of the region: every regenSec the server spawns (count - alive) NEW monsters (new ids)
 #              at once, at random spots in the region. The cycle starts when the zone is made (first fill), not when one dies.
 #              A killed monster is removed at once (the corpse is a client effect) and comes back at the next regen.
-#   Checked at startup against MapTable.csv: mapId must be there, every dungeon map needs >= 1 region, a town map must have none,
+#   Checked at startup against MapTable.csv: mapId must be there, every dungeon or instance map needs >= 1 region, a town map must have none,
 #   and x1 <= width-1, y1 <= height-1.
 #   Wandering is not bound to the region - regions only decide where monsters are born.
 #   Default layout (map 1 = the dungeon, 120x120): four corner blocks, the 10-tile cross in the middle is left empty (NOT a safe zone).
 #   Map 2 (80x80, 2026-10-15) is map 1 scaled down: four corner blocks (30 snakes) and the cross 35..45 left empty.
 #     The boss Guryungi (monster 2) has one region at the south end of the cross, away from the entrance (40,6) - but it wanders.
 #     regenSec 1800 = "every 30 min from the zone start, if it is dead" (not 30 min after the kill) - so it is there right after startup.
+#   Map 3 (30x30 party room, 2026-10-17): one boss at the north end, away from the arrival spot (15,22). Monster 2 is a placeholder
+#     until the room boss is made (the field Guryungi in map 2 stays).
 mapId,x0,y0,x1,y1,monsterId,count,regenSec
 1,5,5,55,55,1,23,3
 1,65,5,115,55,1,23,3
@@ -24,3 +27,4 @@ mapId,x0,y0,x1,y1,monsterId,count,regenSec
 2,5,45,35,75,1,7,3
 2,45,45,75,75,1,7,3
 2,38,66,42,70,2,1,1800
+3,13,4,17,8,2,1,0

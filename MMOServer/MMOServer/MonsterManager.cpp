@@ -200,7 +200,10 @@ void CMonsterManager::RegenDue(const MonsterContext& ctx, uint64_t frame)
         RegionState& st = _regions[region];
         if (frame < st.nextRegenFrame)
             continue;
-        st.nextRegenFrame = frame + static_cast<uint64_t>(regions[region].regenFrames);
+        // 주기 0 = 한 번만(방 맵 줄 — 스폰 표가 방 맵에만 허용한다). 첫 채우기 뒤 다음 리젠을 끝없이 미룬다 — 잡은 보스가 다시 안 깔린다
+        st.nextRegenFrame = regions[region].regenFrames == 0
+            ? UINT64_MAX
+            : frame + static_cast<uint64_t>(regions[region].regenFrames);
 
         // 빈 점마다 하나씩 — 주기 사이에 여럿 죽었으면 여럿이 이 틱에 함께 돌아온다.
         for (int32_t p = 0; p < regions[region].count; ++p)

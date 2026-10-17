@@ -93,10 +93,20 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMapTable& maps, con
             return false;
         }
 
-        // ⑸ 리젠 주기 — 0 이면 매 틱 채워 잡은 티가 안 난다
-        if (regenSec < 1 || regenSec > MAX_REGEN_SEC)
+        // ⑸ 리젠 주기 — 마을·던전은 1~상한(0 이면 매 틱 채워 잡은 티가 안 난다).
+        //    방 맵(instance)은 0 만 — 「한 번만」: 방이 생길 때 다 깔고 다시 안 채운다(CMonsterManager::RegenDue).
+        //    방 줄에 주기를 주면 잡은 보스가 다시 깔리고, 던전 줄에 0 을 주면 그 구역이 한 번 비면 영영 빈다 — 둘 다 막는다
+        if (map->kind == MapKind::INSTANCE)
         {
-            SLOG_ERROR("[SpawnRegion] {}줄: regenSec {} 는 1~{} 여야 합니다", dl.fileLine, regenSec, MAX_REGEN_SEC);
+            if (regenSec != 0)
+            {
+                SLOG_ERROR("[SpawnRegion] {}줄: 방 맵 {} 의 구역은 regenSec 0(한 번만)이어야 합니다 — 지금 {}", dl.fileLine, mapId, regenSec);
+                return false;
+            }
+        }
+        else if (regenSec < 1 || regenSec > MAX_REGEN_SEC)
+        {
+            SLOG_ERROR("[SpawnRegion] {}줄: regenSec {} 는 1~{} 여야 합니다(0 = 한 번만은 방 맵 전용)", dl.fileLine, regenSec, MAX_REGEN_SEC);
             return false;
         }
 
@@ -118,7 +128,7 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMapTable& maps, con
         ++_count;
     }
 
-    // ⑹ 맵 종류마다 구역 개수 — 던전은 하나 이상(뱀을 깔 자리가 없는 던전을 만들지 않는다), 마을은 0(마을에 몬스터를 깔지 않는다).
+    // ⑹ 맵 종류마다 구역 개수 — 던전·방은 하나 이상(뱀을 깔 자리가 없는 던전을 만들지 않는다), 마을은 0(마을에 몬스터를 깔지 않는다).
     //    틀린 맵을 다 적고 끝낸다. 종류가 늘면 갈래가 하나 는다(빠지면 컴파일러가 아니라 COUNT 갈래가 막는다)
     bool ok = true;
     for (const MapDef& m : maps.All())
@@ -130,6 +140,13 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMapTable& maps, con
             if (regions == 0)
             {
                 SLOG_ERROR("[SpawnRegion] 던전 맵 {} (MapTable.csv {}줄) 에 구역이 없습니다 — 뱀을 깔 자리가 없습니다", m.mapId, m.fileLine);
+                ok = false;
+            }
+            break;
+        case MapKind::INSTANCE:
+            if (regions == 0)
+            {
+                SLOG_ERROR("[SpawnRegion] 방 맵 {} (MapTable.csv {}줄) 에 구역이 없습니다 — 보스를 깔 자리가 없습니다", m.mapId, m.fileLine);
                 ok = false;
             }
             break;

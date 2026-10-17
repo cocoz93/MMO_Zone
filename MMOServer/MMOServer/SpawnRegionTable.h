@@ -31,7 +31,8 @@ class CMonsterTable;
 // [몬스터 번호 대조] 몬스터 번호는 몬스터 표에 있어야 한다 — 몬스터 표를 먼저 읽고 그 결과를 받는다(LoadAll 순서).
 //
 // [맵 대조] 맵 번호는 맵 표에 있어야 하고, 구역은 그 맵 안이어야 한다(0 ≤ x0 < x1 ≤ 폭 - 1).
-//        구역 개수는 맵 종류로 가른다 — 던전은 하나 이상(뱀을 깔 자리가 없는 던전을 만들지 않게), 마을은 0(MapTable.h [종류·시작 구역]).
+//        구역 개수는 맵 종류로 가른다 — 던전·방은 하나 이상(뱀을 깔 자리가 없는 던전을 만들지 않게), 마을은 0(MapTable.h [종류·시작 구역]).
+//        리젠 주기도 맵 종류로 가른다 — 방 맵(instance)은 0(한 번만 — 방이 생길 때 깔고 다시 안 채움), 나머지는 1~MAX_REGEN_SEC.
 //        맵 표도 먼저 읽고 그 결과를 받는다. 10-09 전에는 맵 크기가 INI 에 있어 게임 서버가 표를 읽은 뒤 따로 대조했다(CheckMaps).
 //        ★ 오른쪽 끝을 "폭 - 1" 로 묶는 이유 — 이동 쪽 클램프(CZone::Tick)가 좌표를 폭 - 1 까지만 둔다.
 //          그 밖에 태어나면 첫 걸음에 클램프로 멈춘다.
@@ -54,7 +55,7 @@ struct SpawnRegion
     int32_t y1        = 0;
     int32_t monsterId = 0;   // 몬스터 표 번호 (CMonsterTable::Find)
     int32_t count     = 0;   // 이 구역에 유지할 마릿수
-    int32_t regenFrames = 0;   // 리젠 주기 — 표의 regenSec × FRAME_PER_SEC(읽을 때 틱 수로 바꿔 둔다)
+    int32_t regenFrames = 0;   // 리젠 주기 — 표의 regenSec × FRAME_PER_SEC(읽을 때 틱 수로 바꿔 둔다). 0 = 한 번만(방 맵 줄만)
     int32_t fileLine  = 0;   // 틀렸을 때 가리킬 줄
     std::vector<SpawnSpot> spots;   // 점 count 개 — 읽을 때 격자로 계산해 둔다([깔 자리 — 점]). 색인 = 점 번호(CMonster::_spawnPoint)
 };

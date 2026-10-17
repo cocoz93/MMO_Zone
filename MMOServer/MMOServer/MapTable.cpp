@@ -12,7 +12,7 @@ using GameDataCsv::ParseInt;
 namespace
 {
     // 맵 종류 이름표 — MapKind 순서 그대로. 표의 kind 칸 글자가 이 중 하나여야 한다
-    constexpr const char* KIND_NAMES[] = { "town", "dungeon" };
+    constexpr const char* KIND_NAMES[] = { "town", "dungeon", "instance" };
     static_assert(sizeof(KIND_NAMES) / sizeof(KIND_NAMES[0]) == static_cast<size_t>(MapKind::COUNT),
                   "KIND_NAMES 는 MapKind 마다 한 줄이어야 한다");
 
@@ -87,21 +87,28 @@ bool CMapTable::Load(const std::string& path)
         MapKind kind = MapKind::DUNGEON;
         if (!ParseKind(cell[3], kind))
         {
-            SLOG_ERROR("[MapTable] {}줄: 종류 \"{}\" 를 모릅니다 — town · dungeon 중 하나 (맵 {})", dl.fileLine, cell[3], mapId);
+            SLOG_ERROR("[MapTable] {}줄: 종류 \"{}\" 를 모릅니다 — town · dungeon · instance 중 하나 (맵 {})", dl.fileLine, cell[3], mapId);
             return false;
         }
 
         // ⑷ 시작 구역 — 넷 다 쓰거나 다 비운다. 비우는 꼴은 칸을 아예 안 쓰거나(칸 4개) 「,,,」 처럼 빈 칸으로 둔다
         //    (SplitCsv 는 맨 끝 빈 칸 하나만 안 담으므로 빈 칸으로 비우면 칸 수가 5~7 이 된다 — 그래서 수가 아니라 내용으로 가른다).
         //    맵 안(0 ~ 폭-1)이고 시작 ≤ 끝. 마을은 반드시 있어야 한다 — 새 캐릭터·부활이 설 자리다.
+        //    뒤에 아홉째 칸(lockoutSec — ⑸)이 붙을 수 있어 시작 구역은 다섯째~여덟째 칸(4~7)만 센다.
+        if (cell.size() > 9)
+        {
+            SLOG_ERROR("[MapTable] {}줄: 칸이 {}개입니다 — 많아야 아홉(mapId,width,height,kind,startX0,startY0,startX1,startY1,lockoutSec) (맵 {})",
+                       dl.fileLine, cell.size(), mapId);
+            return false;
+        }
         StartArea start;
         size_t filled = 0;
-        for (size_t i = 4; i < cell.size(); ++i)
+        for (size_t i = 4; i < cell.size() && i < 8; ++i)
         {
             if (!cell[i].empty())
                 ++filled;
         }
-        if (cell.size() > 8 || (filled != 0 && (filled != 4 || cell.size() != 8)))
+        if (filled != 0 && filled != 4)
         {
             SLOG_ERROR("[MapTable] {}줄: 시작 구역(startX0,startY0,startX1,startY1)은 넷 다 쓰거나 다 비웁니다 — 칸 {}개 중 값 {}개 (맵 {})",
                        dl.fileLine, cell.size(), filled, mapId);
@@ -133,17 +140,43 @@ bool CMapTable::Load(const std::string& path)
             return false;
         }
 
+        // ⑸ 다시 들어가기 잠금(lockoutSec) — 방 맵(instance)만 쓰고 반드시 1~상한, 다른 종류는 비운다.
+        //    방은 보스가 한 번만 깔려서, 잠금이 없으면 잡고 나와 바로 다시 들어가 새 보스를 깐다(room-plan.md 「사람이 정할 것」 2).
+        const bool hasLockout = cell.size() == 9 && !cell[8].empty();
+        int64_t lockoutSec = 0;
+        if (hasLockout && !ParseInt(cell[8], lockoutSec))
+        {
+            SLOG_ERROR("[MapTable] {}줄: lockoutSec 칸이 숫자가 아닙니다 — \"{}\"", dl.fileLine, dl.text);
+            return false;
+        }
+        if (kind == MapKind::INSTANCE)
+        {
+            if (!hasLockout || lockoutSec < 1 || lockoutSec > MAX_LOCKOUT_SEC)
+            {
+                SLOG_ERROR("[MapTable] {}줄: 방 맵(instance)은 lockoutSec 이 1~{} 여야 합니다 — 지금 {} (맵 {})",
+                           dl.fileLine, MAX_LOCKOUT_SEC, hasLockout ? cell[8] : std::string("빈 칸"), mapId);
+                return false;
+            }
+        }
+        else if (hasLockout)
+        {
+            SLOG_ERROR("[MapTable] {}줄: lockoutSec 은 방 맵(instance)만 씁니다 — {} 맵은 비웁니다 (맵 {})",
+                       dl.fileLine, cell[3], mapId);
+            return false;
+        }
+
         MapDef d;
         d.mapId    = static_cast<int32_t>(mapId);
         d.width    = static_cast<int32_t>(width);
         d.height   = static_cast<int32_t>(height);
         d.kind     = kind;
         d.start    = start;
+        d.lockoutSec = static_cast<int32_t>(lockoutSec);
         d.fileLine = dl.fileLine;
         _rows.push_back(d);
     }
 
-    // ⑸ 첫 줄은 마을 — 첫 줄이 기본 맵이고(새 캐릭터가 들어가는 곳), 죽으면 그 맵의 시작 구역에서 되살아난다(CGameServer::TickRespawn).
+    // ⑹ 첫 줄은 마을 — 첫 줄이 기본 맵이고(새 캐릭터가 들어가는 곳), 죽으면 그 맵의 시작 구역에서 되살아난다(CGameServer::TickRespawn).
     //    던전이 첫 줄이면 새 캐릭터가 뱀 한가운데 무작위로 떨어지고 부활도 갈 곳이 없다
     if (_rows.front().kind != MapKind::TOWN)
     {
