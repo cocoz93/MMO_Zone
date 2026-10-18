@@ -218,7 +218,7 @@ bool CZone::IsReturnedHome(const SectorChangeInfo& change)
 }
 
 // ==========================================================================
-// 시야 변화 — 명단만 만든다. 보내기·계수는 CGameServer(ProcessSectorChange · SendSightPairFixes · BroadcastLeaveZone)
+// 시야 변화 — 명단만 만든다. 보내기·계수는 CSightBroadcaster(ProcessSectorChange · SendSightPairFixes · BroadcastLeaveZone)
 // ==========================================================================
 
 const CZone::SightChanges& CZone::TakeSightChanges()
@@ -297,7 +297,7 @@ void CZone::CollectLateMovers(int32_t targetOldX, int32_t targetOldY, int32_t ta
 }
 
 // ==========================================================================
-// 같은 틱 이동자 쌍 보정 — 판정은 여기, 보내기와 계수는 CGameServer::SendSightPairFixes
+// 같은 틱 이동자 쌍 보정 — 판정은 여기, 보내기와 계수는 CSightBroadcaster::SendSightPairFixes
 //
 // [왜 필요한가]
 //   섹터 점유는 이동 즉시 갱신되지만(CZone::Tick 의 섹터 변경 판정, RecvMoveStart/Stop) 통보는 틱 끝에 몰아서

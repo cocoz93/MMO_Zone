@@ -6,11 +6,12 @@
 //    전원 해제(RemoveAll)가 수명을 정한다. 칸에 넣을 때 플레이어에 세션 번호를 붙인다 — 찾기의 재사용 가드가 그 번호를 본다.
 //  - 플레이어 찾기(세션 번호로) · 전원 돌기 · 첫 일치 찾기
 //  - 한 사람에게 보내기(SendPacket) — 보낸 수·바이트를 코어 지표로 센다
+//  - 수신자 한 명에게 한 장 넣기(RequestSend · RequestSendRaw) — 방송(시야 조각)이 수신자마다 부른다. 소유권·지표는 부르는 쪽(3 단계)
 //  - 캐릭터 번호 발급 — 플레이어와 몬스터가 한 번호 공간을 쓴다(몬스터 관리자의 번호 부탁도 여기로 온다)
 //
 // [경계]
 //  네트워크는 빌려 쓴다 — 만들고 띄우고 내리는 것은 게임 서버(B0)이고, 여기는 Init 에서 받은 포인터로 보내기만 한다.
-//  주변에 보내기(방송)·묶어 보내기는 시야 조각 몫이다 — 여기는 한 사람에게 한 패킷.
+//  주변에 보내기(방송)·묶어 보내기는 시야 조각 몫이다 — 여기는 한 사람에게 한 패킷(받는 사람 고르기·소유권 일괄 확보는 방송 쪽).
 //  접근은 게임 스레드 단독이다(잠금 없음).
 //
 // [모르는 것]
@@ -96,12 +97,26 @@ public:
     }
 
     // ── 보내기 ──
-    // 한 사람에게 가는 S2C는 직렬화 버퍼(CSerialBuffer)로 조립 후 아래로 전송한다(주변 방송은 CGameServer::BroadcastAroundSector).
+    // 한 사람에게 가는 S2C는 직렬화 버퍼(CSerialBuffer)로 조립 후 아래로 전송한다(주변 방송은 CSightBroadcaster::BroadcastAroundSector).
 
     // 단일 플레이어에게 패킷 전송 (CSerialBuffer — 소유권 1을 소비)
     // 빌더가 반환한 RefCount=1 버퍼를 넘기면, 송신 후 SubRef로 소유권을 회수한다.
     //   받는 쪽은 CPlayer* 뿐이다 — 몬스터를 넘기면 컴파일이 안 된다(Player.h [세션]).
     void SendPacket(CPlayer* target, CSerialBuffer* pMsg);
+
+    // 수신자 한 명에게 한 장 넣기 — 방송(시야 조각)이 수신자마다 부른다(게임 서버 나누기 3 단계).
+    //   소유권(AddRef/SubRef)과 보낸 수·바이트 세기는 부르는 쪽 몫이다 — 방송은 소유권을 한 번에 잡고(배치 AddRef) 지표를
+    //   모아 한 번에 센다(SendPacket 과 다른 까닭). 이것을 따로 두는 까닭은 세션 번호를 아는 곳을 여기 하나로 두려는 것.
+    //   돌려주는 값 = 송신 큐에 들어갔나(네트워크 그대로). 게임 루프 송신이라 늘 Deferred(SendPacket 과 같다).
+    bool RequestSend(CPlayer* target, CSerialBuffer* pMsg)
+    {
+        return _network->RequestSendMsg(target->_sessionId, pMsg, SendFlush::Deferred);
+    }
+    // 연접한 바이트 덩어리 넣기 — 수신섹터 digest(USE_BROADCAST_BUNDLE)가 주민마다 부른다. 버퍼 소유권이 없다(바이트 복사).
+    bool RequestSendRaw(CPlayer* target, const char* data, int size)
+    {
+        return _network->RequestSendRaw(target->_sessionId, data, size);
+    }
 
     // ── 캐릭터 번호 발급 ──
     //   플레이어와 몬스터가 같이 쓴다(몬스터는 CGameServer::AllocActorId — IMonsterEvents 를 거쳐 온다).

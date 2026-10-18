@@ -30,7 +30,7 @@
 #include <Protocol/Protocol.h>   // 게임 패킷 정의 — 전에는 IOCPServer.h를 통해 딸려왔다
 #include "BuildConfig.h"   // USE_COMBAT 등 실험·컨텐츠 토글 — 간접 포함에 기대지 않고 직접 읽는다
 #include "MapManager.h"
-#include "Zone.h"          // 존 — 여기서는 그 알림(IZoneEvents)을 구현한다
+#include "Zone.h"          // 존 — 존 이동·존 틱에 쓴다(그 알림 IZoneEvents 는 시야 조각이 구현한다 — SightBroadcaster.h)
 #include "Player.h"
 #include "Combat.h"        // 전투 판정 (순수 함수 — 송신·존·섹터를 모른다)
 #include "CombatSystem.h"  // 공격 흐름 — 여기서는 그 알림(ICombatEvents)을 구현한다
@@ -50,11 +50,12 @@
 #include "PacketRoutes.h"  // 받은 패킷의 분기 표(번호 → 최소 크기 · 처리기) — 게임 서버 나누기 0-④
 #include "SessionHub.h"    // 세션 칸 · 플레이어 찾기 · 보내기 · 캐릭터 번호 발급 — 게임 서버 나누기 1 단계(B1)
 #include "SelfNotifier.h"  // 본인 알림(내 상태 패킷을 나에게만) — 게임 서버 나누기 2 단계(B5)
+#include "SightBroadcaster.h" // 시야 방송(섹터 바뀜 · 주변 방송 · 송신 묶음 · 존 알림) — 게임 서버 나누기 3 단계(B2)
 
 class CSerialBuffer;
 
-// 알림 통로 일곱 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
-//   IZoneEvents       = 존(존 틱·몬스터 관리자)의 걷기·멈춤 알림 둘 — 토글 없이 늘 있다
+// 알림 통로 여섯 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
+//   (IZoneEvents — 존의 걷기·멈춤 알림 둘 — 은 시야 조각 CSightBroadcaster 가 구현한다 · 게임 서버 나누기 3 단계)
 //   ICombatEvents     = 공격 흐름(CCombatSystem)의 알림 셋 — 스킬의 피해·죽음도 이 셋으로 온다(ApplyHit)
 //   IBuffEvents       = 지속 효과 규칙(CBuffSystem)의 알림 하나(효과가 바뀜 — 걸림·되감김·만료·죽음) · 전투 토글 소유
 //   IMonsterEvents    = 몬스터 관리자(CMonsterManager)의 알림 둘(등장·사라짐)과 번호 부탁 하나
@@ -62,13 +63,21 @@ class CSerialBuffer;
 //                       (USE_DROP 은 가방(→ 전투)과 몬스터가 다 켜져야 켜진다 — BuildConfig.h #error)
 //   ISkillEvents      = 스킬 규칙(CSkillSystem)의 알림 둘(시전 · 되살려라)
 //   IPartyEvents      = 파티 규칙(CPartySystem)의 알림 다섯(요청·요청 끝·알림 한 줄·파티 전체·파티원 한 줄)
+// 기반 목록은 첫 줄만 「:」로 시작해야 한다 — 늘 있던 통로(IZoneEvents)가 빠진 뒤로는 첫 통로를 고르는 사다리를 둔다.
+//   뿌리 토글은 셋(전투 · 몬스터 · 파티)이고 나머지(효과 · 땅 아이템 · 스킬)는 전투를 요구한다(BuildConfig.h #error) —
+//   그래서 어느 조합이든 순서는 위 표 그대로이고, 셋 다 끄면 기반이 없다. 통로가 조각으로 다 옮겨 가면(게임 서버 나누기) 사다리도 사라진다.
 class CGameServer
-    : private IZoneEvents
 #if USE_COMBAT
-    , private ICombatEvents
+    : private ICombatEvents
+#elif USE_MONSTER
+    : private IMonsterEvents
+#elif USE_PARTY
+    : private IPartyEvents
+#endif
+#if USE_COMBAT
     , private IBuffEvents
 #endif
-#if USE_MONSTER
+#if USE_MONSTER && USE_COMBAT
     , private IMonsterEvents
 #endif
 #if USE_DROP
@@ -77,7 +86,7 @@ class CGameServer
 #if USE_SKILL
     , private ISkillEvents
 #endif
-#if USE_PARTY
+#if USE_PARTY && (USE_COMBAT || USE_MONSTER)
     , private IPartyEvents
 #endif
 {
@@ -358,23 +367,11 @@ private:
                           int32_t sectorX, int32_t sectorY) override;         // 주변에 CREATE(DROP)
     void OnGroundItemGone(CZone* zone, int32_t sectorX, int32_t sectorY,
                           int32_t groundId, GroundItemRemoval why, int32_t pickerId) override;   // 주변 + 같은 틱 이동자에게 DELETE — 와이어 값 변환은 여기
-
-    // 땅의 아이템 하나를 한 사람에게 보여 준다 — 떨어질 때(DROP)·시야에 들어올 때(SEEN) 공용
-    void SendGroundItemCreate(CPlayer* target, const CGroundItem& item, GroundItemAppear reason);
-    // 한 사람 화면에서 지운다 — 시야 밖(OUT_OF_SIGHT) · 주움(PICKED, pickerId) · 사라짐(EXPIRED) 공용
-    void SendGroundItemDelete(CPlayer* target, int32_t groundId, GroundItemGone reason, int32_t pickerId);
+    //   두 알림의 보내기(주변 · 같은 틱 이동자 · 한 사람에게 보이기·지우기)는 시야 조각(_sightBroadcaster) — 게임 서버 나누기 3 단계
 
     // 틱 3-3 — 25틱에 한 번 존마다 관리자의 수명 훑기(TickExpire)를 부른다. 섹터 변경 대기열을 비운 뒤라
     //   "같은 틱에 섹터를 넘은 사람" 보정이 필요 없다. 땅에 아무것도 없는 존은 관리자가 바로 끝낸다(부하 시험은 늘 그렇다).
     void TickGroundItems();
-
-    // 같은 틱에 섹터를 넘은 사람 보정 — OnGroundItemGone 이 주변에 DELETE 를 보낸 뒤 부른다.
-    //   RecvMoveStart 는 네트워크 처리 자리에서 섹터 등록을 바꾸고 알림은 틱 끝이라, 틱 1단계(줍기)에서는
-    //   서버 등록이 그 사람 화면보다 앞서 있다. 「옛 섹터로는 보였고 새 섹터로는 안 보이는」 이동자는
-    //   주변 DELETE 에서 빠지고, 틱 끝 이탈 처리 때는 아이템이 이미 없어 영영 안 지워진다 → 여기서 보낸다.
-    //   고르는 것은 존(CZone::CollectLateMovers — BroadcastLeaveZone 셋째 덩이와 같은 함수)이다. 대기열이 비면 아무 일도 없다.
-    void SendGroundItemDeleteToLateMovers(CZone* zone, int32_t sectorX, int32_t sectorY,
-                                          int32_t groundId, GroundItemGone wire, int32_t pickerId);
 
     // 줍기 — Z 한 번에 2칸 안에서 내가 주울 수 있는 가장 가까운 것 하나(고르는 건 서버 — 존의 관리자 FindPickup).
     //   가방 넣기(TryAdd)가 먼저, 땅에서 빼기가 나중 — 반대면 가득 찬 가방에서 아이템이 사라진다.
@@ -445,16 +442,7 @@ private:
     static constexpr int64_t ACCOUNT_ID_MIN = int64_t{ 1 } << 31;
 #endif
 
-    // 섹터 변경 시 시야 진입/이탈 브로드캐스트 — 어느 섹터인가는 존이 정했다(CZone::TakeSightChanges 의 moves)
-    void ProcessSectorChange(CZone* zone, const CZone::SightMove& move);
-
-    // 같은 틱에 함께 이동한 쌍 보정 — 틱 끝 일괄 통보가 구조적으로 놓치는 CREATE/DELETE를 보충.
-    //   ProcessSectorChange는 이탈/진입 섹터의 "틱 끝 시점" 주민을 읽는데, 상대도 같은 틱에
-    //   움직였으면 그 조회에 안 걸린다 → 상호 DELETE 누락(유령) / 상호 CREATE 누락(투명인간).
-    //   기존 송신 경로는 그대로 두고 두 패스 모두 놓친 쌍만 보충한다 (중복 없음).
-    //   어느 쌍인가는 존이 정했다(CZone::TakeSightChanges 의 pairFixes) — 여기는 보내기와 계수만.
-    //   존마다 부른다 — 섹터 이동 대기열이 존 것이고, 다른 존끼리는 서로 안 보인다.
-    void SendSightPairFixes(const std::vector<CZone::SightPairFix>& fixes);
+    // 섹터 변경 처리(ProcessSectorChange)·같은 틱 쌍 보정(SendSightPairFixes)은 시야 조각으로 옮겼다 — _sightBroadcaster (게임 서버 나누기 3 단계)
 
     // 존에 들어간 뒤 알리는 길 — 어떻게 왔나가 셋을 가른다: 내 캐릭터를 알리는 패킷 · 가방·스탯까지 보내나 · 등장 사유.
     //   되돌리기 길은 없다 — 존 이동은 확인을 다 끝낸 뒤 옮기므로 들어가다 실패하지 않는다(CZone::EnterZone 주석).
@@ -476,16 +464,9 @@ private:
     struct SpawnAt { float x; float y; };
     void TransferPlayer(CPlayer* player, CZone* oldZone, CZone* newZone, ArrivalKind kind, const SpawnAt* at);
 
-    // 존 입장/퇴장 브로드캐스트
-    //   BroadcastEnterZone — 플레이어 입장: 양방향(주변 → 나를 생성, 나 → 주변을 생성)
-    //   BroadcastSpawn     — 세션 없는 것(몬스터)의 등장: 주변에 알리기만. 받는 쪽이 없으니 인바운드가 없다
-    //   BroadcastLeaveZone — 퇴장의 시야 몫: 주변(옛 섹터 시청자·같은 틱 이동자 포함)에 나를 삭제하고 이동 묶음에서 뺀다.
-    //                        존 소속은 안 건드린다 — 존에서 빼는 것은 아래 RemoveFromZone(게임 서버 나누기 0-③).
-    //   RemoveFromZone     — 존에서 빼기: 시야 몫 → 부활 대기열 정리 → CZone::LeaveZone. 종류를 안 가린다 —
+    // 존 입장/퇴장 브로드캐스트(BroadcastEnterZone · BroadcastSpawn · BroadcastLeaveZone)는 시야 조각 — SightBroadcaster.h (게임 서버 나누기 3 단계)
+    //   RemoveFromZone     — 존에서 빼기: 시야 몫(시야 조각의 BroadcastLeaveZone) → 부활 대기열 정리 → CZone::LeaveZone. 종류를 안 가린다 —
     //                        플레이어 퇴장·존 이동과 죽은 몬스터(OnDeath 끝)·사라지는 몬스터가 같이 쓴다
-    void BroadcastEnterZone(CZone* zone, CPlayer* player, SpawnReason reason);
-    void BroadcastSpawn(CZone* zone, CCharacter* who, SpawnReason reason);
-    void BroadcastLeaveZone(CZone* zone, CCharacter* player);
     void RemoveFromZone(CZone* zone, CCharacter* player);
 
     // ── 표시 속성 ── (캐릭터 번호 발급은 세션 허브 — CSessionHub::AllocActorId)
@@ -494,70 +475,13 @@ private:
     static uint8_t CalcColorIndex(int32_t playerId);
 
     // ── 패킷 전송 ──
-    // 한 사람에게 보내기는 세션 허브(_sessionHub.SendPacket — SessionHub.h). 여기는 주변에 보내기.
-
-    // 주변 브로드캐스트 (CSerialBuffer — 빌더 RefCount=1 버퍼를 소비)
-    void BroadcastAroundSector(CZone* zone, CCharacter* player, CSerialBuffer* pMsg, bool excludeSelf = true);
-
-    // ── 이동 알림 헬퍼 ──
-    // 이동 시작/정지/동기화 통보의 "묶음(dirty 마킹) ↔ 즉시 브로드캐스트" 분기를 한 곳에 흡수.
-    // 호출부는 의도만 표시, 실제 경로는 USE_SECTOR_AGGREGATION이 결정 (동작 불변).
-    void NotifyMoveStart(CZone* zone, CCharacter* player);
-    void NotifyMoveStop(CZone* zone, CCharacter* player, bool excludeSelf);
-    void NotifyMoveSync(CZone* zone, CCharacter* player);
-
-    // 존 알림 (IZoneEvents) — 뜻은 Zone.h. 존이 정한 걷기·멈춤을 위 헬퍼로 보낸다.
-    void OnCharacterMoveStart(CZone* zone, CCharacter* character) override;  // 주변에 MOVE_START
-    void OnCharacterMoveStop(CZone* zone, CCharacter* character) override;   // 주변에 MOVE_STOP · 플레이어면 저장 대상
-
-    // ── 섹터 묶음 경로 (USE_SECTOR_AGGREGATION) ──
-    void MarkMoveDirty(CCharacter* player);   // 즉시 브로드캐스트 대신 dirty 등록 (중복 방지)
-    void FlushSectorUpdates();             // 틱 끝: dirty를 섹터별로 묶어 주변에 송신
-    // 섹터 좌표 기준 주변 9섹터에 묶음 패킷 전송 (BroadcastAroundSector의 소유권/계측 패턴 복제)
-    void BroadcastSectorPacket(CZone* zone, int32_t sectorX, int32_t sectorY, CSerialBuffer* pMsg);
-
-#if USE_BROADCAST_BUNDLE
-    // ── 수신섹터 digest 경로 (Phase 3) — FlushSectorUpdates를 대체 ──
-    // 소스 섹터별 보류물(이동 번들 + 채팅)을 수신 섹터 기준으로 뒤집어, 이웃 9섹터 내용을
-    // raw 바이트 1덩어리로 연접 후 주민당 RequestSendRaw 1회. 같은 섹터 주민은 수신 집합이 동일해 공유 가능.
-    void RegisterSectorItem(CZone* zone, int32_t zoneId, int32_t sectorX, int32_t sectorY,
-                            CSerialBuffer* pMsg);   // 보류 등록 (버퍼 소유권 1을 digest 배포 후 회수)
-    void FlushSectorSends();                        // 틱 끝: 번들 빌드 → 수신섹터 연접 → 배포 → 일괄 해제
-#if USE_MEMBERSHIP_DIGEST
-    // ── 멤버십 직송 경로 (Phase 4) — 아웃바운드 CREATE/DELETE를 digest에 합류 ──
-    // 방송(3×3 이웃 배포)과 달리 "정확히 그 섹터 주민에게만" 전달. 연접 순서는 직송이 방송보다 앞.
-    void RegisterSectorDirectItem(CZone* zone, int32_t zoneId, int32_t sectorX, int32_t sectorY,
-                                  CSerialBuffer* pMsg);   // 직송 보류 등록 (버퍼 소유권 1을 배포 후 회수)
-#endif
-#endif
-
-#if USE_MEMBERSHIP_FANOUT_DEDUP
-    // 멤버십 아웃바운드 팬아웃 (Phase 1) — 미리 빌드한 버퍼 1개를 여러 섹터의 플레이어에게 배치 AddRef로 전송.
-    // BroadcastSectorPacket의 소유권/계측 패턴을 (주변 9섹터가 아닌) 임의 섹터 배열 버전으로 확장. 버퍼 소유권 1을 소비.
-    void FanoutToSectors(CZone* zone,
-                         const CSectorManager::SectorPos* sectors, int32_t sectorCount,
-                         CSerialBuffer* pMsg, CCharacter* exclude);
-#if USE_MEMBERSHIP_DIGEST
-    // [Phase 4] 아웃바운드 멤버십을 직송 보류로 등록 (+자기 섹터 점프 폴백). 버퍼 소유권 1을 소비.
-    void RegisterOutboundToSectors(CZone* zone, int32_t zoneId,
-                                   const CSectorManager::SectorPos* sectors, int32_t sectorCount,
-                                   CSerialBuffer* pMsg, CCharacter* exclude);
-#endif
-#endif
+    // 한 사람에게 보내기는 세션 허브(_sessionHub.SendPacket — SessionHub.h). 주변에 보내기 · 이동 알림 · 존 알림(IZoneEvents) ·
+    //   섹터 묶음 · 수신섹터 digest · 멤버십 팬아웃·직송 · 남의 캐릭터 생성·삭제 · 내 자리(SendSyncPosition)는 시야 조각
+    //   (_sightBroadcaster — SightBroadcaster.h · 게임 서버 나누기 3 단계).
 
     // 패킷별 전송 함수 (Fill + Send)
     void SendZoneInfo(CPlayer* target, CZone* zone);
     void SendCreateMyPlayer(CPlayer* target);
-    // target(받는 쪽)은 CPlayer*, who(그려질 대상)는 CCharacter* — 몬스터가 섹터를 옮기면 who 가 몬스터다.
-    //   받는 쪽에 몬스터를 넘기는 코드는 타입이 막는다.
-    void SendCreateOtherPlayer(CPlayer* target, CCharacter* who, SpawnReason reason = SpawnReason::NORMAL);
-    void SendDeletePlayer(CPlayer* target, CCharacter* who);
-#if USE_MEMBERSHIP_INBOUND_BUNDLE
-    // [Phase 2] 인바운드 멤버십 배치 — 상대 목록을 배치 상한씩 잘라 mover 1명에게 송신 (엔트리당 _membershipSends 1 집계)
-    void SendCreatePlayerBatch(CPlayer* target, CCharacter* const* others, int count);
-    void SendDeletePlayerBatch(CPlayer* target, CCharacter* const* others, int count);
-#endif
-    void SendSyncPosition(CPlayer* target);
     void SendZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex);
     void SendZoneChangeFail(CPlayer* target, uint8_t reason);
 
@@ -591,8 +515,7 @@ private:
     std::atomic<bool> _running;
     // 틱 주기(FRAME_PER_SEC · FRAME_INTERVAL_MS)는 BuildConfig.h — 아래 층 헤더도 같이 쓰는 단위라 여기 두지 않는다.
     static constexpr int CLEANUP_INTERVAL_FRAMES = 30 * FRAME_PER_SEC;  // 30초마다 빈 채널 정리
-    static constexpr int SYNC_INTERVAL_FRAMES = 13;          // 13 × 40ms ≈ 500ms 주기적 위치 동기화
-    static constexpr float SYNC_DISTANCE_THRESHOLD_SQ = 4.0f; // 델타 동기화 임계값 제곱 (2타일)
+    // 주기적 위치 동기화 상수 둘(SYNC_*)은 시야 조각 — SightBroadcaster.h (게임 서버 나누기 3 단계)
     static constexpr float MOVE_START_ACCEPT_DIST_SQ = 64.0f; // C2S_MOVE_START 좌표 수용 임계값 제곱 (8타일)
 
     // 좌표 수용 예산 — 위 임계값은 1회 한도일 뿐 빈도 제한이 없어, STOP/START를 연타하면
@@ -637,20 +560,19 @@ private:
     // 프레임 진입 시점 이벤트를 스왑해 받는 로컬 큐 (멤버 재사용 → deque 블록 보존으로 매 프레임 재할당 방지)
     std::queue<NetworkEvent> _localEvents;
     int _cleanupFrameCount = 0;
-    int _syncFrameCount = 0;
     uint64_t _frameCount = 0;   // 단조 증가 프레임 번호 (이동 예산의 경과 시간 산출용)
 
     // 본인 알림 — 그 사람 자신의 상태를 그 사람에게만(SelfNotifier.h). 틱 번호는 읽기만 하도록 빌려 준다(남은 시간 셈의 「지금」).
     //   ★ _sessionHub · _gameMonitor · _gameDataFiles · _frameCount 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
     CSelfNotifier _selfNotifier{ _sessionHub, _gameMonitor, _gameDataFiles, _frameCount };
 
+    // 시야 방송 — 섹터 바뀜 · 주변 방송 · 틱 지연 송신 묶음 · 땅 아이템 보이기 · 존 알림(IZoneEvents — 존 틱·몬스터 묶음에 이것을 넘긴다)
+    //   (SightBroadcaster.h). 주기 동기화 세기 · 프레임 재사용 버퍼 셋 · 섹터 아웃박스 · 방송 계측 다섯이 이 안에 있다.
+    //   ★ _sessionHub · _mapManager · _monitor · _gameMonitor 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
+    CSightBroadcaster _sightBroadcaster{ _sessionHub, _mapManager, _monitor, _gameMonitor };
+
     // 플레이어 이동 속도 덮어쓰기(칸/초) — 0 이면 생성자의 기본값을 그대로 쓴다(SetPlayerSpeed)
     int _playerSpeed = 0;
-
-    // 프레임 재사용 버퍼 (힙 할당 방지 — clear()로 capacity 유지)
-    std::vector<CPlayer*> _broadcastBuffer;          // BroadcastAroundSector 전용 — 받는 쪽은 플레이어뿐
-    std::vector<CPlayer*> _eventAroundBuffer;        // 접속/해제/존이동 전용 — 같음
-    std::vector<CCharacter*> _lateMoverBuffer;       // 늦은 이동자 조회(CZone::CollectLateMovers) 전용 — 퇴장·땅 아이템이 채우고 그 자리에서 다 쓴다
 #if USE_COMBAT
     // 공격 후보 버퍼는 두지 않는다 — 사거리가 걸치는 섹터의 주민 목록을 참조로 훑어 복사가 없다.
     //   (처음엔 GetAroundPlayers 의 전신이 벡터를 요구해 _attackTargetBuffer 를 뒀었다)
@@ -658,10 +580,10 @@ private:
     // 죽어서 부활을 기다리는 플레이어. 여기만 틱 너머로 포인터를 든다 —
     //   퇴장 경로(RemoveFromZone·ReleasePlayer)가 반드시 회수해야 한다.
     //   몬스터는 여기 안 들어온다 — 죽는 순간 지운다(OnDeath 끝 → 존의 몬스터 관리자 Despawn).
-    //   같은 규율이 이미 dirtyMovers 와 존의 섹터 이동 대기열(CZone::LeaveZone 이 뺀다)에 있다.
+    //   같은 규율이 이미 dirtyMovers(시야 조각) 와 존의 섹터 이동 대기열(CZone::LeaveZone 이 뺀다)에 있다.
     std::vector<CCharacter*> _deadActors;
     // 마을 부활로 옮길 사람과 목적지 채널 — TickRespawn 이 대기열을 다 돈 뒤에 옮긴다(도는 중에 옮기면 퇴장이 대기열을 지운다).
-    //   틱 너머로 안 든다(그 함수 안에서 채우고 비운다) — 멤버인 까닭은 틱마다 할당하지 않으려는 것뿐(_eventAroundBuffer 와 같은 꼴)
+    //   틱 너머로 안 든다(그 함수 안에서 채우고 비운다) — 멤버인 까닭은 틱마다 할당하지 않으려는 것뿐(시야 조각의 _eventAroundBuffer 와 같은 꼴)
     std::vector<std::pair<CPlayer*, CZone*>> _respawnTransferBuffer;
 
     // 공격 흐름 — 알림은 이 클래스(ICombatEvents)로 돌아온다.
@@ -686,56 +608,10 @@ private:
     CRoomLocks _roomLocks;
 #endif
 
-    // ── 섹터 아웃박스 ── 틱-지연 배칭 상태를 한 덩어리로 응집.
-    //   생산(틱 중): MarkMoveDirty / RegisterSectorItem  →  배출(틱 끝): FlushSectorUpdates / FlushSectorSends
-    //   흩어져 있던 상태를 묶어 "위에서 모아 아래서 비운다"의 대상이 한눈에 보이게 함 (동작 불변).
-    struct SectorOutbox
-    {
-        // USE_SECTOR_AGGREGATION: 이번 틱 이동/sync로 상태가 바뀐 플레이어 (틱 끝에 섹터별 묶음 송신)
-        std::vector<CCharacter*> dirtyMovers;
-
-#if USE_BROADCAST_BUNDLE
-        // USE_BROADCAST_BUNDLE: 존별 섹터 그리드에 이번 틱 보류물(번들+채팅)을 모았다가 틱 끝 digest로 배포.
-        // zoneId 키로 보관 — 틱 중 존이 사라져도 해제 루프는 존 포인터 없이 안전 (기존 GetZone null 가드 패턴).
-        struct ZonePending
-        {
-            bool ready = false;                              // 칸 배열을 잡았나(존 최초 등록 시 1회). 격자 크기·칸 번호는 섹터 관리자 것을 쓴다 — 사본 없음
-            std::vector<std::vector<CSerialBuffer*>> items;  // flatIdx → 보류 버퍼들 (등록순)
-            std::vector<uint64_t> recvEpoch;                 // 수신섹터 중복 마킹 (틱당 epoch 증가로 clear 생략)
-#if USE_MEMBERSHIP_DIGEST
-            // USE_MEMBERSHIP_DIGEST: 직송(그 섹터 주민 전용) 보류물 — 멤버십 CREATE/DELETE.
-            std::vector<std::vector<CSerialBuffer*>> directItems;   // flatIdx → 직송 버퍼들 (등록순)
-#endif
-        };
-        std::unordered_map<int32_t, ZonePending> pendingByZone;
-        std::vector<std::pair<int32_t, int32_t>> touchedSectors;   // (zoneId, flatIdx) — 보류물 있는 소스 섹터
-#if USE_MEMBERSHIP_DIGEST
-        std::vector<std::pair<int32_t, int32_t>> touchedDirectSectors;  // (zoneId, flatIdx) — 직송물 있는 섹터
-#endif
-        std::vector<std::pair<int32_t, int32_t>> receiverSectors;  // (zoneId, flatIdx) — 이번 틱 수신 후보 (재사용)
-        std::vector<char> concatBuf;                               // 수신섹터별 연접 버퍼 (재사용)
-        uint64_t flushEpoch = 0;                                   // 64비트 — wrap 없음 (0 = 미마킹 초기값과 충돌 방지)
-#endif
-    } _sectorOutbox;
-
-#if USE_BROADCAST_BUNDLE
-    // 존 최초 등록 시 그리드 확정 — 방송(items)/직송(directItems) 어느 쪽이 먼저 와도 1회만.
-    // (선언 위치: 중첩 타입 SectorOutbox::ZonePending을 인자로 받아 struct 정의 뒤에 와야 함)
-    void EnsureZonePending(CZone* zone, SectorOutbox::ZonePending& zp);
-#endif
-
-#if USE_MEMBERSHIP_INBOUND_BUNDLE
-    // USE_MEMBERSHIP_INBOUND_BUNDLE: 인바운드 멤버십 배치 수집 전용 (ProcessSectorChange 내 수집→직렬화→송신 완결, 이월 없음)
-    std::vector<CCharacter*> _membershipInboundBuffer;
-#endif
+    // 섹터 아웃박스(틱-지연 배칭 상태) · 인바운드 멤버십 수집 버퍼는 시야 조각 — SightBroadcaster.h (게임 서버 나누기 3 단계)
 
     // 비용종류별 계측 — 틱 내 누적 후 틱 끝 1회 모니터 반영 (단일 게임루프 스레드 전용 → 누적 자체엔 원자연산 불필요)
-    // BroadcastAroundSector가 network/game_logic/broadcast_sync 어느 단계에서 호출돼도 이 멤버에 합산된다.
-    int64_t _tickBroadcastGatherUs = 0;   // GetAroundPlayers 주변 모으기
-    int64_t _tickBroadcastEnqueueUs = 0;  // 수신자별 처리(복사 포함)
-    int64_t _tickMembershipSends = 0;     // 멤버십 변경 복사(BroadcastAroundSector 밖 경로) 송신 횟수
-    int64_t _tickMembershipUs = 0;        // 멤버십 송신(ProcessSectorChange 구간) 시간 — 틱 끝 _membershipCostUs로 반영
-    int64_t _tickPairFixes = 0;           // 같은 틱 이동자 쌍 보정 발동 수 — 틱 끝 _membershipPairFixes로 반영
+    //   방송 쪽 다섯(_tickBroadcast* · _tickMembership* · _tickPairFixes)은 시야 조각으로 갔다(ReportTickMetrics) — 여기 남은 것은 이동 예산 하나.
     int64_t _tickMoveBudgetRejects = 0;   // 이동 예산 초과로 거부한 좌표 수용 수 — 틱 끝 _moveBudgetRejects로 반영
 
 #if USE_DB_WORKER
