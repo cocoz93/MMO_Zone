@@ -103,6 +103,8 @@ enum class SkillEffect : uint8_t
     BUFF_ATTACK_MUL,   // 지속 효과 — 공격력 × power 를 durationMs 동안(CBuffSystem::Apply, 종류 BuffKind::ATTACK_MUL). 대상은 self 만(표 읽기가 막는다)
     DAMAGE_ATK,        // 피해 — 공격값 = 시전자 공격력(최종값) × power%. 방어력은 DAMAGE 와 같이 맞힌 뒤에 뺀다.
                        //   DAMAGE 는 시전자의 현재 체력이 식에 들어가(체력을 떼고 그 체력으로 치는 스킬) 체력이 줄수록 약해진다 — 몬스터(보스)가 쓰면 안 맞아서 따로 둔다(10-13)
+    REVIVE,            // 되살리기 — 시전자 존에서 죽은 power 번 몬스터를 빈 점 수만큼 되살린다(10-18 뱀왕). 대상은 self · 쓰는 쪽은 monster 만(표 읽기가 막는다).
+                       //   직접 깔지 않고 알림(ISkillEvents::OnRevive)으로 넘긴다 — 시전은 몬스터 판단 순회 안이라 그 자리에서 깔면 순회가 깨진다(MonsterManager.h RequestRevive)
     COUNT
 };
 
@@ -138,6 +140,7 @@ struct SkillDef
     int32_t     costHpPct      = 0;   // 시전 때 떼는 현재 체력의 % (0 = 소모 없음)
     int32_t     costMp         = 0;   // 시전 때 떼는 마력 — 고정값(0 = 소모 없음). 모자라면 LOW_MP
     int32_t     power          = 0;   // DAMAGE = 시전 전 체력의 % · DAMAGE_ATK = 시전자 공격력의 % · BUFF_ATTACK_MUL = 배수(2 = 이중공격)
+                                      //   REVIVE = 되살릴 몬스터 번호(몬스터 표 — 있는지·보스 아닌지는 몬스터 스킬 표 읽기가 본다. 이 표는 몬스터 표를 모른다)
     int32_t     cooldownMs     = 0;   // 파일에 적힌 값 그대로 — 로그용
     uint64_t    cooldownFrames = 0;   // 쿨타임(틱) — ms 를 올림해서 담는다(짧아지지 않게)
     int32_t     durationMs     = 0;   // 지속(ms) — 지속 효과(BUFF_*)만. 그 밖은 0 이어야 한다(표 읽기가 막는다) — 로그용

@@ -5,9 +5,11 @@
 #   healHp   : HP restored when used. A use item needs healHp or healMp >= 1 - one effect per potion, never both. Others 0.
 #   icon     : cell index on the LPC item sheet (16 cells per row, 32px). Server ignores it.
 #              Checked by eye on a numbered grid (09-23): 83 red bottle, 85 green bottle, 136 hide, 7 dagger; 84 blue bottle = mana potion (10-11).
+#              147 green hooked staff = the Snake King's Staff (10-18 - MyDocs/claude-plans/room-boss-ref/reward_weapon_candidates.png).
 #   attack   : added to attack power while worn (2026-09-30). equip items only - others must be 0.
 #              Every equip item goes to the weapon slot (Protocol.h EquipSlot has one part for now).
 #              Lv1 attack 10 kills a snake (30 HP) in 3 hits; the dagger (+5) makes it 2.
+#              The Snake King's Staff (+15, three times the dagger) drops only from the room boss (DropTable.csv, 2026-10-18).
 #   healMp   : mana restored when used (2026-10-11, appended last like attack). Others 0.
 #              A build without skills (USE_SKILL=0) still loads the row but refuses to use it (NOT_USABLE) - it has no mana.
 #   Lv1 HP is 800 and a snake bite is 5, so a small potion (200) is 40 bites.
@@ -18,3 +20,4 @@ itemId,name,tab,maxStack,healHp,icon,attack,healMp
 3,뱀 가죽,etc,99,0,136,0,0
 4,낡은 단검,equip,1,0,7,5,0
 5,마력 물약,use,99,0,84,0,50
+6,뱀왕의 지팡이,equip,1,0,147,15,0

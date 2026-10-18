@@ -16,7 +16,8 @@
 #   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
 #   map 1 = snake dungeon 1 (entered from the town) · map 2 = snake dungeon 2 (entered from map 1, PortalTable.csv) - the boss
 #   Guryungi (monster 2) is born only in map 2 (SpawnRegion.csv), so map 1 stays a beginner field (2026-10-15).
-#   map 3 = Guryungi's den - party room (instance), entered from the south end of map 2 (2026-10-17, sizes are placeholders).
+#   map 3 = party room (instance), entered from the south end of map 2 (2026-10-17, sizes are placeholders).
+#     The boss was a placeholder Guryungi until 10-18; now the Snake King (SpawnRegion.csv). There is no map name cell - the web names it by kind.
 mapId,width,height,kind,startX0,startY0,startX1,startY1,lockoutSec
 0,60,60,town,27,27,33,33
 1,120,120,dungeon

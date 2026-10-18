@@ -444,10 +444,12 @@ public:
         Counter _stateTransitions;  // AI 상태 전이 총수 — 한 상태가 나머지를 삼키면 여기가 먼저 멈춘다
         Counter _thinkCalls;        // 판단을 실제로 돌린 횟수 (0 이면 AI 가 아예 안 도는 것)
 
-        Counter _spawnedTotal;          // 깐 몬스터 수 — 처음 깔기와 주기 리젠 공통.
-                                        //   깐 수 − 죽은 수(_deathsTotal) = 지금 몬스터 수(빈 채널 정리로 같이 사라진 것만 예외).
+        Counter _spawnedTotal;          // 깐 몬스터 수 — 처음 깔기와 주기 리젠·되살리기 공통.
+                                        //   깐 수 − 죽은 수(_deathsTotal) = 지금 몬스터 수(빈 채널 정리로 같이 사라진 것과
+                                        //   방 클리어로 사라진 것 — mmo_room_minions_cleared_total — 만 예외).
                                         //   지운 수는 따로 안 센다 — 죽는 순간 지우므로 죽은 수와 늘 같다
                                         //   (사람 근처를 피해 다시 뽑던 계수기 둘은 그 검사와 함께 없앴다 — 10-09)
+        Counter _revivedTotal;          // 되살리기 스킬(SkillEffect::REVIVE)로 깐 수 — _spawnedTotal 에도 든다. 세는 곳은 몬스터 관리자의 리젠(RegenDue)
     } _monster;
 #endif
 
@@ -693,7 +695,8 @@ public:
     } _party;
 
     // ══════════════════════════════════════════════════════════════
-    // 파티 전용 방 (USE_PARTY — 방은 파티 위에 선다) — 세는 곳은 게임 서버(포털 방 갈래 EnterRoom · 빈 채널 정리 콜백 · 방 보상 RewardRoom · 잠금 훑기).
+    // 파티 전용 방 (USE_PARTY — 방은 파티 위에 선다) — 세는 곳은 게임 서버(포털 방 갈래 EnterRoom · 빈 채널 정리 콜백 · 방 보상 RewardRoom · 잠금 훑기
+    //   · 방 클리어 OnDeath · 사라짐 OnMonsterVanish).
     //   ★ 등식 둘: _entries[entered] = _closed + _active · Σ _entries(entered 뺀 칸) = mmo_portal_rejected_total{reason="room"}
     // ══════════════════════════════════════════════════════════════
     struct alignas(64) RoomCounters
@@ -706,6 +709,8 @@ public:
         Counter _rewardItemsBag;                                          // 방 보상으로 가방에 바로 들어간 아이템 개수
         Counter _rewardItemsGround;                                       // 가방이 차서 그 사람 발밑 땅으로 간 개수(땅 계수 _drop._dropped 에도 들어간다)
         Counter _locks;                                                   // [게이지] 다시 들어가기 잠금 표 크기(넣을 때 · 초마다 훑은 뒤)
+        Counter _cleared;                                                 // 클리어된 방 = 방에서 죽은 보스 수(OnDeath 의 방 갈래 — 몬스터 표 boss)
+        Counter _minionsCleared;                                          // 클리어로 사라진 몬스터 수(OnMonsterVanish — 방에서 깐 수 = 잡힌 수 + 이것 + 방이 닫힐 때 남은 수)
     } _room;
 #endif
 

@@ -2,6 +2,7 @@
 
 #if USE_MONSTER
 
+#include <cassert>
 #include <random>
 
 #include "Combat.h"   // CanAttack · AttackReach · 쿨타임 — 공격 판정은 플레이어와 같은 값을 쓴다
@@ -72,8 +73,9 @@ namespace
     //   ⑵ 내 체력이 조건 이하인가 — 정수 곱으로 견준다(hp × 100 ≤ maxHp × %). 나눗셈의 반올림이 경계를 흔들지 않게
     //   ⑶ 대상이 거리 안인가 — 제곱끼리 견준다(루트 안 씀). 규칙의 maxDist 는 두 몸의 가장자리 사이 거리라 중심 사이로는 두 반지름을 더해 본다
     //      (표 읽기의 FRONT·SHAPE 상한이 가장자리 사이 거리로 대조되므로 닿지 않는 거리를 뽑지 않는다 — MonsterSkillTable.h maxDist)
+    //   ⑷ 되살리기 줄이면 되살릴 빈 점이 있나 — 없으면 건너뛴다(Think 선언 주석의 vacancy)
     //   쿨타임 칸은 캐릭터 것이다(CCharacter::_skillReadyFrame — 사람과 같은 칸). 비용·대상·효과는 여기서 안 본다 — 그건 CSkillSystem 의 일이다.
-    int32_t PickSkill(const CMonster& monster, const CCharacter& target, uint64_t frame, const SkillRules& rules)
+    int32_t PickSkill(const CMonster& monster, const CCharacter& target, uint64_t frame, const SkillRules& rules, const RuleVacancy& vacancy)
     {
         if (rules.empty())
             return 0;
@@ -82,14 +84,19 @@ namespace
         const float dy = target._y - monster._y;
         const float distSq = dx * dx + dy * dy;
 
-        for (const MonsterSkillRule& r : rules)
+        // [불변식] 규칙 수는 표 읽기가 상한으로 묶었다(CMonsterSkillTable::MAX_RULES_PER_MONSTER = vacancy 의 칸 수)
+        assert(rules.size() <= vacancy.size());
+        for (size_t i = 0; i < rules.size(); ++i)
         {
+            const MonsterSkillRule& r = rules[i];
             if (frame < monster._skillReadyFrame[r.skillId])
                 continue;
             if (static_cast<int64_t>(monster._hp) * 100 > static_cast<int64_t>(monster._maxHp) * r.hpBelowPct)
                 continue;
             const float reach = r.maxDist + monster._bodyRadius + target._bodyRadius;
             if (distSq > reach * reach)
+                continue;
+            if (r.reviveMonsterId != 0 && vacancy[i] == 0)
                 continue;
             return r.skillId;
         }
@@ -126,7 +133,7 @@ Direction FaceTo(const CActor& from, const CActor& to)
 
 Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame
 #if USE_SKILL
-             , const SkillRules& rules
+             , const SkillRules& rules, const RuleVacancy& vacancy
 #endif
 )
 {
@@ -248,7 +255,7 @@ Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame
 
 #if USE_SKILL
         // 쫓는 중에도 스킬이 닿는 거리면 쓴다 — 멈추지 않는다(이동은 아래가 정한다). 방향은 위에서 대상 쪽으로 세웠고 관리자가 그 방향을 적용한 뒤 시전한다(모양이 앞쪽이다)
-        d.skillId = PickSkill(monster, *target, frame, rules);
+        d.skillId = PickSkill(monster, *target, frame, rules, vacancy);
 #endif
 
         if (InReach(monster, *target))   // 새 방향 기준 (옛 방향으로 물으면 한 걸음 더 간다 — InReach 주석)
@@ -288,7 +295,7 @@ Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame
 #if USE_SKILL
         // 스킬이 닿으면 이번 판단은 스킬이다 — 평타(d.attack)를 대신한다(한 번의 판단에 행동 하나). 다음 틱에 다시 본다:
         //   스킬은 쿨타임이 차면 다시 쓸 수 있고 평타는 따로 센다(10-10 — 스킬이 평타를 안 막는다)라 다음 판단은 평타를 칠 수 있다
-        d.skillId = PickSkill(monster, *target, frame, rules);
+        d.skillId = PickSkill(monster, *target, frame, rules, vacancy);
         if (d.skillId != 0)
         {
             d.nextThinkFrame = frame + 1;

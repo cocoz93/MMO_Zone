@@ -11,6 +11,11 @@
 #   The same (monsterId, skillId) twice is refused. At most 8 rows per monster.
 #   Zero data rows is fine - then no monster casts skills. The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
 #   maxDist is measured between the two BODY EDGES (MonsterTable.csv bodyRadius) - MonsterAI PickSkill adds both radii.
+#   A revive row (SkillTable.csv effect revive) is also skipped while none of its monsters is dead - the server counts the empty spawn spots
+#     of that kind in the caster's zone and passes the count to the AI. Without it the cast would come every cooldown and do nothing.
 #   Guryungi (monster 2, 2026-10-15, rough): Rage only at hp 50% or below (within sight 6). No damage skill - a beginner boss.
+#   Snake King (monster 3, 2026-10-18, rough): Revive first (any hp, while a fake snake king is dead), then Rage at hp 50% or below - both within sight 6.
 monsterId,skillId,maxDist,hpBelowPct
 2,5,6,50
+3,6,6,100
+3,5,6,50

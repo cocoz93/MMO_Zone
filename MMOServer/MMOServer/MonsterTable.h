@@ -35,6 +35,8 @@ struct MonsterDef
     int32_t     exp       = 0;   // 잡은 사람에게 주는 경험치
     uint8_t     display   = 0;   // 와이어 표시 문자 — Protocol.h DISPLAY_MONSTER_BASE 구간
     float       bodyRadius = 0.0f;   // 몸 반지름(칸) — 0 이면 점. 사거리 판정이 중심 거리에서 이만큼 뺀다. 표의 아홉째 칸(옛 줄은 없어도 0)
+    bool        boss      = false;   // 방 보스 — 방 맵에서 죽으면 그 방이 클리어된다(CGameServer::OnDeath — 방 안 전원 보상 · 잠금 · 나머지 몬스터 사라짐).
+                                     //   표의 열째 칸(없거나 비면 0). 「방 맵에만 · 방 맵마다 하나 · count 1」은 스폰 표 읽기가 본다(CSpawnRegionTable::Load)
     int32_t     fileLine  = 0;   // 대조(CheckSpeed)에서 틀렸을 때 가리킬 줄
 };
 

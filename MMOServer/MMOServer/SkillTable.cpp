@@ -18,7 +18,7 @@ namespace
 {
     // 파일 글자 — SkillTarget · SkillEffect 순서 그대로. 줄 수가 모자라면 아래 단언이 컴파일을 막는다.
     constexpr const char* TARGET_NAMES[] = { "front", "shape", "self" };
-    constexpr const char* EFFECT_NAMES[] = { "damage", "buff_attack_mul", "damage_attack" };   // buff_<종류> — 종류 글자는 GameMonitor.h BuffKindName 과 같다
+    constexpr const char* EFFECT_NAMES[] = { "damage", "buff_attack_mul", "damage_attack", "revive" };   // buff_<종류> — 종류 글자는 GameMonitor.h BuffKindName 과 같다
     constexpr const char* USER_NAMES[]   = { "player", "monster" };
     static_assert(sizeof(TARGET_NAMES) / sizeof(TARGET_NAMES[0]) == static_cast<size_t>(SkillTarget::COUNT),
                   "TARGET_NAMES 는 SkillTarget 마다 한 줄이어야 한다");
@@ -163,7 +163,7 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
         const SkillEffect effect = ParseName<SkillEffect>(cell[3], EFFECT_NAMES);
         if (effect == SkillEffect::COUNT)
         {
-            SLOG_ERROR("[SkillTable] {}줄: 모르는 effect \"{}\" — damage · buff_attack_mul · damage_attack 중 하나여야 합니다 (스킬 {})", dl.fileLine, cell[3], skillId);
+            SLOG_ERROR("[SkillTable] {}줄: 모르는 effect \"{}\" — damage · buff_attack_mul · damage_attack · revive 중 하나여야 합니다 (스킬 {})", dl.fileLine, cell[3], skillId);
             return false;
         }
 
@@ -245,6 +245,31 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
             if (target != SkillTarget::SELF)
             {
                 SLOG_ERROR("[SkillTable] {}줄: buff_attack_mul 은 target self 여야 합니다 — \"{}\" (스킬 {})", dl.fileLine, cell[2], skillId);
+                return false;
+            }
+            break;
+
+        case SkillEffect::REVIVE:
+            // 위력 = 되살릴 몬스터 번호 — 1 이상(있는지·보스 아닌지·같은 맵에 깔리는지는 몬스터 스킬 표 읽기가 본다 — 이 표는 몬스터 표를 모른다).
+            //   대상은 자기 자신(누구를 맞히는 스킬이 아니다) · 쓰는 쪽은 몬스터만(사람이 쓰면 몬스터를 부르는 사람이 된다) · 지속 없음
+            if (power < 1)
+            {
+                SLOG_ERROR("[SkillTable] {}줄: revive 의 power(되살릴 몬스터 번호) {} 는 1 이상이어야 합니다 (스킬 {})", dl.fileLine, power, skillId);
+                return false;
+            }
+            if (durationMs != 0)
+            {
+                SLOG_ERROR("[SkillTable] {}줄: revive 는 durationMs 를 비워야 합니다 — {} (스킬 {})", dl.fileLine, durationMs, skillId);
+                return false;
+            }
+            if (target != SkillTarget::SELF)
+            {
+                SLOG_ERROR("[SkillTable] {}줄: revive 는 target self 여야 합니다 — \"{}\" (스킬 {})", dl.fileLine, cell[2], skillId);
+                return false;
+            }
+            if (user != SkillUser::MONSTER)
+            {
+                SLOG_ERROR("[SkillTable] {}줄: revive 는 user monster 여야 합니다 — 사람은 몬스터를 되살리지 않습니다 (스킬 {})", dl.fileLine, skillId);
                 return false;
             }
             break;

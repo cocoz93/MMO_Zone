@@ -34,6 +34,7 @@ public:
     static constexpr int32_t GM_SPEED     = 21;        // 칸/초 — 게임 기본 7([Game] PlayerSpeed)의 3배
     static constexpr int32_t GM_MAX_HP    = 1000000;   // 보스 평타(30)로는 닳지 않는 크기
     static constexpr int32_t GM_ATTACK    = 3000;      // 구렁이(체력 30000 · 방어 0)를 열 대 — 체력 반에서 거는 격노를 볼 틈이 남는다
+                                                       //   (10-15 기준. 10-18 부터 구렁이 300 · 뱀왕 1000 이라 둘 다 한 대 — 값을 낮출지는 정하지 않았다)
     bool    _gmMode        = false;
     int32_t _speedBeforeGm = 0;   // 켜기 직전 속도 — 끌 때 되돌린다(속도는 레벨 표 값이 아니라 입장 때 정해진 값이라 다시 셈할 곳이 없다)
 

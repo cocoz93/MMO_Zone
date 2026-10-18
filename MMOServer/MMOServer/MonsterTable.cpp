@@ -44,18 +44,20 @@ bool CMonsterTable::Load(const std::string& path)
         SplitCsv(dl.text, cell);
         if (cell.size() < 8)
         {
-            SLOG_ERROR("[MonsterTable] {}줄: 칸이 {}개입니다 — monsterId,name,maxHp,attack,defense,speed,exp,display 여덟(+ bodyRadius)이 필요합니다",
+            SLOG_ERROR("[MonsterTable] {}줄: 칸이 {}개입니다 — monsterId,name,maxHp,attack,defense,speed,exp,display 여덟(+ bodyRadius, boss)이 필요합니다",
                        dl.fileLine, cell.size());
             return false;
         }
 
         // 아홉째 bodyRadius 칸은 옛 줄에 없어도 된다(없거나 비면 0 = 점). 끝의 빈 칸은 SplitCsv 가 안 담는다
+        //   열째 boss 칸도 같다(없거나 비면 0) — 보스가 아닌 줄은 아홉 칸 그대로 둔다
         const std::string radiusText = (cell.size() > 8) ? cell[8] : std::string();
-        int64_t monsterId = 0, maxHp = 0, attack = 0, defense = 0, speed = 0, exp = 0, display = 0;
+        const std::string bossText   = (cell.size() > 9) ? cell[9] : std::string();
+        int64_t monsterId = 0, maxHp = 0, attack = 0, defense = 0, speed = 0, exp = 0, display = 0, boss = 0;
         double  bodyRadius = 0.0;
         if (!ParseInt(cell[0], monsterId) || !ParseInt(cell[2], maxHp) || !ParseInt(cell[3], attack) ||
             !ParseInt(cell[4], defense) || !ParseInt(cell[5], speed) || !ParseInt(cell[6], exp) || !ParseInt(cell[7], display) ||
-            (!radiusText.empty() && !ParseFloat(radiusText, bodyRadius)))
+            (!radiusText.empty() && !ParseFloat(radiusText, bodyRadius)) || (!bossText.empty() && !ParseInt(bossText, boss)))
         {
             SLOG_ERROR("[MonsterTable] {}줄: 숫자여야 하는 칸이 숫자가 아닙니다 — \"{}\"", dl.fileLine, dl.text);
             return false;
@@ -118,6 +120,13 @@ bool CMonsterTable::Load(const std::string& path)
             return false;
         }
 
+        // ⑻ 보스 — 0 · 1 만. 그 밖의 값은 오타다(2 를 「보스 둘」로 읽을 사람이 있다). 어디에 깔리나는 스폰 표가 본다
+        if (boss != 0 && boss != 1)
+        {
+            SLOG_ERROR("[MonsterTable] {}줄: boss {} 는 0 · 1 이거나 비워야 합니다 (몬스터 {})", dl.fileLine, boss, monsterId);
+            return false;
+        }
+
         if (static_cast<int64_t>(_rows.size()) <= monsterId)
             _rows.resize(static_cast<size_t>(monsterId) + 1);
 
@@ -131,6 +140,7 @@ bool CMonsterTable::Load(const std::string& path)
         d.exp       = static_cast<int32_t>(exp);
         d.display   = static_cast<uint8_t>(display);
         d.bodyRadius = static_cast<float>(bodyRadius);
+        d.boss      = (boss == 1);
         d.fileLine  = dl.fileLine;
         ++_count;
     }

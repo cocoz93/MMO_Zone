@@ -7,11 +7,14 @@
 #                self  = the caster (no target search, so never NO_TARGET) - what buffs use.
 #   effect     : damage = hit the targets (target front or shape). buff_attack_mul = attack x power for durationMs (target must be self).
 #                damage_attack = hit the targets with the CASTER's attack x power % (hp does not enter the formula - monsters use it; target front or shape).
+#                revive = bring back the dead monsters of kind "power" in the caster's zone - one per empty spawn spot of that kind, born at the
+#                         server tick after the cast (target self, user monster only). A monster casts it only while at least one is dead (MonsterSkill.csv).
 #   costHpPct  : % of the CURRENT hp paid on cast, rounded down, at least 1 when above 0. 0..99.
 #                Refused (LOW_HP) when it would leave hp below 1 - your own skill never kills you.
 #   power      : damage = % of the hp BEFORE the cost. damage needs power >= costHpPct (the hit is never smaller than the cost).
 #                buff_attack_mul = the multiplier, 2..10 (1 would do nothing). Applied after level table + weapon, so changing weapons keeps the buff.
 #                damage_attack = % of the caster's attack (100 = the same value as a normal attack), 1..1000. The target's defense is subtracted afterwards (at least 1).
+#                revive = the monsterId to bring back (MonsterTable.csv) - not a boss, and born in every map the caster is born in (checked at startup).
 #   cooldownMs : rounded UP to server ticks (40ms) - 480 = 12 ticks, the same as a normal attack.
 #   The cost (hp, mana, cooldown) is paid only after every check passes, target included - a refused cast changes nothing.
 #   Values are Baram classic (warrior) as-is - not tuned to the current monsters (snake hp 30). Lv1 Baekhocham: pay 400, hit 800.
@@ -29,10 +32,13 @@
 #                A monster row needs costHpPct 0 and costMp 0 (monsters have no mana and must not pay hp) - MonsterSkill.csv checks it.
 #                The web must not show monster rows in the skill bar. A row with a monster user ends with ",,monster" after the shape/duration cells.
 #   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
-#   5 Rage = the boss Guryungi's (monster 2, 2026-10-15): attack x2 for 10s, cooldown 30s. ROUGH value carried over from the stage-1 test. When it is cast: MonsterSkill.csv.
+#   5 Rage = first the boss Guryungi's (monster 2, 2026-10-15), now also the Snake King's (monster 3, 2026-10-18): attack x2 for 10s, cooldown 30s.
+#     ROUGH value carried over from the stage-1 test. When it is cast: MonsterSkill.csv.
 #     No 4 - Guryungi is a beginner boss and has no damage skill (Strike removed 2026-10-15). An unused id is fine (the loader allows holes).
+#   6 Revive = the Snake King's (monster 3, 2026-10-18): brings back the dead fake snake kings (monster 4), as many as are dead. Cooldown 20s.
 skillId,name,target,effect,costHpPct,power,cooldownMs,costMp,shape,durationMs,user
 1,백호참,front,damage,50,100,480,10
 2,어검술,shape,damage,50,50,20000,10,1:0;2:-1;2:0;2:1
 3,이중공격,self,buff_attack_mul,0,2,60000,10,,30000
 5,격노,self,buff_attack_mul,0,2,30000,0,,10000,monster
+6,되살리기,self,revive,0,4,20000,0,,,monster

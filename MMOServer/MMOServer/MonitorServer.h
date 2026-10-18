@@ -553,10 +553,12 @@ private:
             ss << "\n";
             WriteCounter(ss, "mmo_room_moved_total", "Players moved into a room (leader included)", rm._moved);
             WriteCounter(ss, "mmo_room_closed_total", "Rooms removed by the empty channel cleanup", rm._closed);
-            WriteCounter(ss, "mmo_room_rewards_total", "Players rewarded in a room (everyone in the room when a monster there dies)", rm._rewards);
+            WriteCounter(ss, "mmo_room_rewards_total", "Players rewarded in a room (everyone in the room when its boss dies)", rm._rewards);
             WriteCounter(ss, "mmo_room_reward_items_bag_total", "Room reward items put straight into bags", rm._rewardItemsBag);
             WriteCounter(ss, "mmo_room_reward_items_ground_total", "Room reward items dropped at the player's feet because the bag was full", rm._rewardItemsGround);
             ss << "# HELP mmo_room_locks Room re-entry locks held right now (account and room map)\n# TYPE mmo_room_locks gauge\nmmo_room_locks " << rm._locks << "\n\n";
+            WriteCounter(ss, "mmo_room_cleared_total", "Rooms cleared = room bosses killed (MonsterTable.csv boss)", rm._cleared);
+            WriteCounter(ss, "mmo_room_minions_cleared_total", "Monsters removed from a room because its boss died (no death, no reward)", rm._minionsCleared);
         }
 #endif
 
@@ -579,8 +581,11 @@ private:
                      "Monster AI state changes (one state swallowing others shows up as a stall here)",
                      _gameMonitor._monster._stateTransitions);
         WriteCounter(ss, "mmo_monster_spawned_total",
-                     "Monsters spawned (first fill and refills; spawned - deaths = alive, except monsters freed with a cleaned-up channel)",
+                     "Monsters spawned (first fill, refills and revives; spawned - deaths = alive, except monsters freed with a cleaned-up channel or a cleared room)",
                      _gameMonitor._monster._spawnedTotal);
+        WriteCounter(ss, "mmo_monster_revived_total",
+                     "Monsters spawned by a revive skill (also counted in mmo_monster_spawned_total)",
+                     _gameMonitor._monster._revivedTotal);
 #endif
 
 #if USE_EXP

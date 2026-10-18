@@ -55,6 +55,15 @@ void CMonsterManager::Init()
 //   같은 틱에 판단하게(예전 처음 깔기와 같은 순서).
 void CMonsterManager::Tick(const MonsterContext& ctx, uint64_t frame)
 {
+    // 클리어된 방 — 남은 몬스터를 지우고(세운 뒤 첫 Tick 한 번) 그 뒤로는 아무것도 안 한다. 리젠도 안 돌아 되살리기 표시도 여기서 끝난다.
+    //   지우기를 판단 순회 앞에 두는 이유 — Despawn 과 같은 약속(순회 중엔 안 지운다)
+    if (_cleared)
+    {
+        if (!_monsters.empty())
+            VanishAll(ctx);
+        return;
+    }
+
     RegenDue(ctx, frame);
 
     _thinking = true;   // 이 순회 중엔 Despawn 금지(헤더 ★) — 몬스터 공격이 죽이는 건 플레이어뿐이라 지금은 안 불린다
@@ -100,8 +109,16 @@ void CMonsterManager::Think(const MonsterContext& ctx, CMonster* monster, uint64
 
     CCharacter* target = FindAITarget(monster);
 #if USE_SKILL
-    // 이 몬스터가 쓰는 스킬 규칙 — 몬스터 번호로 꺼내 AI 에 넘긴다(AI 는 표를 모른다). 규칙 없는 몬스터(뱀)는 빈 목록이다
-    const MonsterAI::Decision d = MonsterAI::Think(*monster, target, frame, _gameData.MonsterSkills().RulesOf(monster->_def.monsterId));
+    // 이 몬스터가 쓰는 스킬 규칙 — 몬스터 번호로 꺼내 AI 에 넘긴다(AI 는 표를 모른다). 규칙 없는 몬스터(뱀)는 빈 목록이다.
+    //   되살리기 줄은 되살릴 빈 점 수를 같이 넘긴다(AI 는 존·구역을 모른다) — 0 이면 AI 가 그 줄을 건너뛴다. 다른 줄의 칸은 0 그대로 둔다(안 읽는다)
+    const MonsterAI::SkillRules& rules = _gameData.MonsterSkills().RulesOf(monster->_def.monsterId);
+    MonsterAI::RuleVacancy vacancy{};
+    for (size_t i = 0; i < rules.size() && i < vacancy.size(); ++i)
+    {
+        if (rules[i].reviveMonsterId != 0)
+            vacancy[i] = CountVacant(rules[i].reviveMonsterId);
+    }
+    const MonsterAI::Decision d = MonsterAI::Think(*monster, target, frame, rules, vacancy);
 #else
     const MonsterAI::Decision d = MonsterAI::Think(*monster, target, frame);
 #endif
@@ -198,20 +215,29 @@ void CMonsterManager::RegenDue(const MonsterContext& ctx, uint64_t frame)
     for (size_t region = 0; region < _regions.size(); ++region)
     {
         RegionState& st = _regions[region];
-        if (frame < st.nextRegenFrame)
+        const bool due    = (frame >= st.nextRegenFrame);
+        const bool revive = st.reviveDue;   // 되살리기 요청(RequestRevive) — 주기와 따로 빈 점만 채운다
+        if (!due && !revive)
             continue;
-        // 주기 0 = 한 번만(방 맵 줄 — 스폰 표가 방 맵에만 허용한다). 첫 채우기 뒤 다음 리젠을 끝없이 미룬다 — 잡은 보스가 다시 안 깔린다
-        st.nextRegenFrame = regions[region].regenFrames == 0
-            ? UINT64_MAX
-            : frame + static_cast<uint64_t>(regions[region].regenFrames);
+        st.reviveDue = false;
+        // 주기 0 = 한 번만(방 맵 줄 — 스폰 표가 방 맵에만 허용한다). 첫 채우기 뒤 다음 리젠을 끝없이 미룬다 — 잡은 보스가 다시 안 깔린다.
+        //   되살리기만으로 온 패스는 주기를 안 민다(주기 리젠 구역이어도 그 박자가 그대로다)
+        if (due)
+        {
+            st.nextRegenFrame = regions[region].regenFrames == 0
+                ? UINT64_MAX
+                : frame + static_cast<uint64_t>(regions[region].regenFrames);
+        }
 
-        // 빈 점마다 하나씩 — 주기 사이에 여럿 죽었으면 여럿이 이 틱에 함께 돌아온다.
+        // 빈 점마다 하나씩 — 주기 사이에 여럿 죽었으면 여럿이 이 틱에 함께 돌아온다. 되살리기도 같다(= 정확히 죽은 수).
         for (int32_t p = 0; p < regions[region].count; ++p)
         {
             if (st.taken[static_cast<size_t>(p)] == 0)
             {
                 Spawn(ctx, static_cast<int32_t>(region), p, frame);
                 ++spawned;
+                if (revive)
+                    ctx.monitor._monster._revivedTotal.Inc();   // 되살리기로 깐 수(깐 수 _spawnedTotal 에도 든다)
             }
         }
     }
@@ -294,5 +320,62 @@ void CMonsterManager::OnBlockedByWall(CMonster* monster)
 {
     monster->_nextThinkFrame = 0;
 }
+
+// 방 클리어 — 표시만(헤더 ★). 지우기는 다음 Tick 첫머리의 VanishAll.
+void CMonsterManager::RequestClear()
+{
+    _cleared = true;
+}
+
+// 되살리기 — 그 몬스터의 구역마다 표시만(헤더 ★). 깔기는 다음 Tick 의 RegenDue(빈 점마다 하나 = 죽은 수).
+void CMonsterManager::RequestRevive(int32_t monsterId)
+{
+    if (_cleared)
+        return;   // 보스가 죽은 방 — 지울 몬스터를 다시 깔지 않는다
+
+    const std::vector<SpawnRegion>& regions = _gameData.SpawnRegions().RegionsOf(_zone.GetMapId());
+    assert(_regions.size() == regions.size() && "Init 이 같은 목록으로 세웠다");
+    for (size_t i = 0; i < regions.size(); ++i)
+    {
+        if (regions[i].monsterId == monsterId)
+            _regions[i].reviveDue = true;
+    }
+}
+
+// 클리어 — 남은 몬스터를 하나씩 알리고(받는 쪽이 존에서 뺀다 — 주변 DELETE) 목록을 비운다. 점도 비운다(차 있음은 Spawn 이 세우고 지우는 쪽이 내린다).
+void CMonsterManager::VanishAll(const MonsterContext& ctx)
+{
+    assert(!_thinking && "판단 순회 중에 몬스터를 지우면 순회가 깨진다 — 헤더 Despawn ★");
+
+    for (const auto& monster : _monsters)
+    {
+        ctx.events.OnMonsterVanish(&_zone, monster.get());
+        assert(monster->_listIndex == -1 && "받는 쪽이 존에서 뺀다 — CGameServer::BroadcastLeaveZone");
+    }
+    _monsters.clear();   // ← 여기서 다 해제된다
+
+    for (RegionState& st : _regions)
+    {
+        std::fill(st.taken.begin(), st.taken.end(), static_cast<uint8_t>(0));
+        st.reviveDue = false;
+    }
+}
+
+#if USE_SKILL
+// 이 존에서 그 몬스터의 빈 점 수 — 구역이 몇 안 되고(방 맵 둘) 되살리기 줄이 있는 몬스터만 부른다.
+int32_t CMonsterManager::CountVacant(int32_t monsterId) const
+{
+    const std::vector<SpawnRegion>& regions = _gameData.SpawnRegions().RegionsOf(_zone.GetMapId());
+    int32_t vacant = 0;
+    for (size_t i = 0; i < regions.size() && i < _regions.size(); ++i)
+    {
+        if (regions[i].monsterId != monsterId)
+            continue;
+        for (uint8_t taken : _regions[i].taken)
+            vacant += (taken == 0) ? 1 : 0;
+    }
+    return vacant;
+}
+#endif
 
 #endif // USE_MONSTER

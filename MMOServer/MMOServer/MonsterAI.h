@@ -31,6 +31,7 @@
 #include "Monster.h"
 
 #if USE_SKILL
+#include <array>
 #include <vector>
 #include "MonsterSkillTable.h"   // MonsterSkillRule — 몬스터의 스킬 규칙 목록을 입력으로만 받는다(표 객체·스킬 시스템은 모른다)
 #endif
@@ -107,8 +108,11 @@ namespace MonsterAI
 #if USE_SKILL
     //   rules = 이 몬스터가 쓰는 스킬 규칙(줄 순서 = 우선순위 — MonsterSkillTable.h). 없는 몬스터(뱀)는 빈 목록이고 그러면 스킬을 안 고른다.
     //   쫓는 중(CHASE)·사거리 안(ATTACK) 둘에서만 본다 — 대상이 있고 시야 안일 때다.
-    using SkillRules = std::vector<MonsterSkillRule>;
-    Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame, const SkillRules& rules);
+    //   vacancy = 규칙마다 되살릴 빈 점 수(색인 = rules 의 색인). 되살리기 줄(reviveMonsterId ≠ 0)만 읽고, 0 이면 그 줄을 건너뛴다(다음 줄로) —
+    //   되살릴 게 없는데 쓰면 헛시전이 쿨타임마다 나고 그 판단의 행동(격노·평타)을 먹는다. 세는 쪽은 몬스터 관리자다(이 모듈은 존·구역을 모른다)
+    using SkillRules  = std::vector<MonsterSkillRule>;
+    using RuleVacancy = std::array<int32_t, CMonsterSkillTable::MAX_RULES_PER_MONSTER>;
+    Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame, const SkillRules& rules, const RuleVacancy& vacancy);
 #else
     Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame);
 #endif

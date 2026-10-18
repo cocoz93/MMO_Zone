@@ -12,6 +12,8 @@
 //    몰리고, 깔 때마다 계산할 이유가 없다(10-09 사용자 결정).
 //  - 사람 근처를 피하지 않는다(10-09 사용자 결정) — 격자에선 칸 안에 사람이 서 있으면 다시 뽑아도 거의 다 걸려
 //    효과가 없었고, 사람 옆에 깔려도 돌아다니던 뱀이 다가온 것과 같다. 깔 때 섹터를 훑는 일도 없어진다.
+//  - 방 클리어(RequestClear — 남은 몬스터를 사라지게)와 되살리기(RequestRevive — 죽은 만큼 다시 깔기, 10-18 뱀왕)는 표시만 세우고
+//    다음 Tick 이 한다 — 둘 다 목록을 도는 중(범위 스킬의 대상 버퍼 · 판단 순회)에 불리기 때문이다
 //  - 송신·번호 발급은 하지 않는다 — 일이 생기면 IMonsterEvents·IZoneEvents(걷기·멈춤)로 알리고, 받는 쪽(CGameServer)이 한다
 //
 // [왜 떼어냈나]
@@ -62,6 +64,10 @@ public:
     // 등장 — 지금 자리 주변에 CREATE(SPAWN). 깔 때.
     virtual void OnMonsterSpawn(CZone* zone, CMonster* monster) = 0;
 
+    // 사라짐 — 등장의 짝. 방이 클리어돼 남은 몬스터를 지울 때(VanishAll) 하나마다 온다 — 받는 쪽은 죽은 몬스터를 지우기 앞과 같은 일을 한다
+    //   (효과 목록에서 빼기 · 존에서 빼기 = 주변 DELETE — CGameServer::BroadcastLeaveZone). 이 뒤에 관리자가 객체를 해제한다.
+    virtual void OnMonsterVanish(CZone* zone, CMonster* monster) = 0;
+
     // 걷기 시작·멈춤은 여기 없다 — 존 틱의 벽 멈춤과 같은 IZoneEvents 로 알린다(MonsterContext::zoneEvents).
 };
 
@@ -110,6 +116,19 @@ public:
     // 존 틱이 맵 경계에서 세웠다 → 다음 틱에 바로 다시 판단하게 한다(CZone::Tick 이 부른다).
     void OnBlockedByWall(CMonster* monster);
 
+    // 방 클리어 — 보스가 죽었다(CGameServer::OnDeath 의 방 갈래). 표시만 세우고, 남은 몬스터 지우기는 다음 Tick 첫머리(판단 순회 앞)다.
+    //   ★ 그 자리에서 지우지 않는 이유 — 죽음 처리는 범위 스킬이 대상 버퍼를 도는 중일 수 있다(CSkillSystem::HitTargets). 어검술 한 번에
+    //     보스와 다른 몬스터가 같이 들어 있고 보스가 먼저 죽을 때 여기서 지우면 버퍼의 다음 칸이 해제된 주소다.
+    //   그 뒤로 이 존은 리젠·판단을 안 한다 — 되살리기 요청도 버린다. 방은 사람이 다 나가면 빈 채널 정리가 지운다.
+    //   다음 Tick 은 같은 프레임의 게임 루프 1-1) 일 수도 있다 — 사람의 공격·스킬(1) 패킷 처리)이 보스를 죽이면 그 뒤에 1-1) 이 온다.
+    void RequestClear();
+
+    // 되살리기 요청 — 이 존에서 그 몬스터의 구역마다 「다음 Tick 의 리젠에서 빈 점 채우기」 표시만 세운다(RegenDue 가 깐다 = 정확히 죽은 수).
+    //   ★ 보스의 시전은 판단 순회(Think) 안에서 오므로 여기서 깔면 도는 목록에 넣게 된다 — 그래서 표시만. 주기는 안 민다(주기 리젠 구역이어도 그대로).
+    //   클리어된 존이면 버린다 — 클리어 「뒤」에 온 요청이다. 보스가 죽기 직전에 세운 표시는 Tick(클리어면 리젠을 안 돈다)과
+    //   VanishAll(표시를 내린다)이 막는다(세 겹).
+    void RequestRevive(int32_t monsterId);
+
     // 목록을 밖에 내주는 함수는 두지 않는다 — 몬스터를 도는 자리(판단·정리)가 전부 이 클래스 안이다.
 
 private:
@@ -127,6 +146,14 @@ private:
 
     // 태어날 자리 — 그 점의 범위(스폰 표가 읽을 때 계산해 둔 칸 안쪽) 안 균등 무작위. 난수 두 번이 전부다.
     void PickSpawnPos(int32_t regionIndex, int32_t point, float& outX, float& outY) const;
+
+    // 클리어 — 남은 몬스터를 다 알리고(사라짐) 놓는다. Tick 첫머리에서만(판단 순회 밖 — Despawn 과 같은 약속).
+    void VanishAll(const MonsterContext& ctx);
+
+#if USE_SKILL
+    // 이 존에서 그 몬스터의 빈 점 수 — 되살리기 줄을 AI 가 고를지의 입력(MonsterAI::Think 의 vacancy).
+    int32_t CountVacant(int32_t monsterId) const;
+#endif
 
     CZone& _zone;   // 나를 든 존 — 존이 나보다 오래 산다(멤버)
     const CGameDataFiles& _gameData;   // 기획 데이터 — 게임 서버가 들고 기동 뒤 안 바뀐다. 존보다 오래 산다
@@ -149,16 +176,19 @@ private:
     //   다음 리젠은 0(첫 틱에 바로 — 처음 깔기)에서 시작해 리젠할 때마다 「그 틱 + 주기」로 민다.
     //   주기가 0 인 구역(방 맵 — 한 번만)은 처음 깔기 뒤 끝(UINT64_MAX)으로 민다.
     //   틱이 매 프레임 돌아 리젠은 늘 제 틱에 일어나므로 존이 생긴 때부터 일정 간격이 된다(죽은 때를 기준으로 삼지 않는다).
+    //   되살리기 표시(reviveDue)는 주기와 따로다 — 세운 다음 Tick 의 RegenDue 가 빈 점을 채우고 내린다(주기는 안 민다).
     struct RegionState
     {
         std::vector<uint8_t> taken;            // 점(count 개)마다 몬스터가 있나
         uint64_t             nextRegenFrame = 0;
+        bool                 reviveDue = false;   // 되살리기 요청(RequestRevive) — 다음 RegenDue 가 주기와 상관없이 빈 점을 채운다
     };
     std::vector<RegionState> _regions;
 
     int32_t  _capacity = 0;    // 이 존의 몬스터 정원 = 구역 count 의 합 — 로그를 남길 패스(존을 통째로 채운 때)를 가린다
     uint32_t _spawnSeq = 0;    // 깐 순번 — 첫 판단 시점을 흩는 데 쓴다
     bool     _thinking = false;   // 판단 순회 중인가 — 그동안 Despawn 이 불리면 단언이 잡는다
+    bool     _cleared  = false;   // 방이 클리어됐나(RequestClear) — 세운 뒤 첫 Tick 이 남은 몬스터를 지우고, 그 뒤로 리젠·판단을 안 한다
 };
 
 #endif // USE_MONSTER

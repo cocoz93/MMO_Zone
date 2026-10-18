@@ -3,7 +3,8 @@
 #   Each row is rolled on its own at every kill, so one kill can drop several items or nothing.
 #   chance  : percent, up to two decimals (0.5 is fine). Stored as basis points; > 0 and <= 100.
 #   min/max : 1 <= min <= max <= the item's maxStack.
-#   monsterId : MonsterTable.csv (1 = snake · 2 = Guryungi, the boss)
+#   monsterId : MonsterTable.csv (1 = snake · 2 = Guryungi · 3 = Snake King, the room boss · 4 = fake snake king - no rows, no reward)
+#   A room boss's rows are rolled once per player in the room (each player gets their own roll), not once for the last hitter.
 #   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
 #   With the rows below a snake drops nothing 21% of the time; on average 1.17 ground items (1.47 pieces) per kill.
 #   (mana potion row added 2026-10-11 - 25%, same as the small potion. Before it: nothing 28%, 0.92 items, 1.22 pieces.)
@@ -15,3 +16,5 @@ itemId,monsterId,chance,min,max
 5,1,25,1,1
 2,2,100,2,3
 4,2,20,1,1
+2,3,100,2,3
+6,3,100,1,1

@@ -38,8 +38,9 @@ bool CGameDataFiles::LoadAll(const std::string& dir)
         return false;
 #endif
 #if USE_MONSTER && USE_SKILL
-    // ★ 몬스터 표·스킬 표 "뒤" — 규칙의 몬스터 번호·스킬 번호·스킬의 쓰는 쪽(user)·비용·닿는 거리를 두 표와 대조한다
-    if (!_monsterSkill.Load(dir + "MonsterSkill.csv", _monster, _skill))
+    // ★ 몬스터 표·스킬 표 "뒤" — 규칙의 몬스터 번호·스킬 번호·스킬의 쓰는 쪽(user)·비용·닿는 거리를 두 표와 대조한다.
+    //   맵 표·스폰 표 "뒤"이기도 하다 — 되살리기 줄의 「되살릴 몬스터가 시전자와 같은 맵에 깔리나」를 본다
+    if (!_monsterSkill.Load(dir + "MonsterSkill.csv", _monster, _skill, _map, _spawnRegion))
         return false;
 #endif
 

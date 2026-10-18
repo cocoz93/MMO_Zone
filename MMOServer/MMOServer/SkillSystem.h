@@ -5,7 +5,7 @@
 //  - 스킬 한 번: 시전자 검사 → 대상 고르기 → 시전 전 체력 잡기 → 비용(체력·마력) 떼기·쿨타임 → 시전 알림 → 효과
 //  - 그 과정에서 정한 것(시전·거절 사유·맞힌 수)을 지표(CGameMonitor)로 센다 — CCombatSystem·CItemSystem 과 같은 꼴
 //  - 보내기는 하지 않는다 — 시전은 ISkillEvents 로 알리고, 피해·죽음·보상은 CCombatSystem::ApplyHit 가 ICombatEvents 로,
-//    지속 효과(걸림·되감김)는 CBuffSystem::Apply 가 IBuffEvents 로 알린다.
+//    지속 효과(걸림·되감김)는 CBuffSystem::Apply 가 IBuffEvents 로 알린다. 되살리기는 ISkillEvents::OnRevive 로 넘긴다(깔기는 몬스터 관리자).
 //    거절은 알림이 아니라 돌려주는 값이다(CItemSystem::UseItem 꼴) — 게임 서버가 와이어 SkillFail 로 바꿔 보낸다
 //
 // [세 칸] 정의 = 스킬 표(CSkillTable — 기획 데이터) · 진행 = 캐릭터마다의 쿨타임·마력·효과 칸(CCharacter::_skillReadyFrame·_mp·_buffs) · 규칙 = 여기
@@ -68,6 +68,11 @@ public:
     //   ★ 효과(피해·죽음·보상)는 이 뒤에 ICombatEvents 로 따로 온다 — 와이어 순서가 시전 → 시전자 체력 → 시전자 마력 → 피해다.
     //     지속 효과는 IBuffEvents 로 온다 — 시전 → 시전자 마력 → ACTOR_BUFF → MY_STATS.
     virtual void OnCast(CZone* zone, CCharacter* caster, const SkillDef& def) = 0;
+
+    // 되살려라 — 효과 REVIVE(시전 알림 뒤). 이 존에서 죽은 monsterId 를 빈 점 수만큼 되살리는 일을 받는 쪽이 존의 몬스터 관리자에 요청한다
+    //   (CMonsterManager::RequestRevive — 깔기는 다음 틱). 이 층은 몬스터 관리자를 모른다([계층 경계]) — 그래서 알림이다.
+    //   몬스터를 끈 빌드에선 받는 쪽이 아무것도 안 한다(되살리기 줄은 user=monster 라 몬스터가 없으면 아무도 안 쓴다).
+    virtual void OnRevive(CZone* zone, CCharacter* caster, int32_t monsterId) = 0;
 };
 
 class CSkillSystem

@@ -192,6 +192,12 @@ void CSkillSystem::ApplyEffect(CZone* zone, CCharacter* caster, const SkillDef& 
         break;
     }
 
+    case SkillEffect::REVIVE:
+        // 되살리기 — 직접 깔지 않고 알린다. 몬스터의 시전은 관리자의 판단 순회 안이라 여기서 깔면 순회가 깨지고,
+        //   이 층은 관리자를 모른다(헤더 [계층 경계]). 대상(self)은 안 쓴다 — 누구를 맞히는 스킬이 아니다. _hits 도 안 센다(되살린 수는 관리자가 센다)
+        _events.OnRevive(zone, caster, def.power);
+        break;
+
     case SkillEffect::COUNT:
         break;   // 표 읽기가 막는다 — 여기 오지 않는다
     }

@@ -8,8 +8,10 @@
 
 #if USE_MONSTER && USE_SKILL
 
+class CMapTable;
 class CMonsterTable;
 class CSkillTable;
+class CSpawnRegionTable;
 
 // ==========================================================================
 // CMonsterSkillTable — 몬스터가 쓰는 스킬 규칙 (Run/bin/MonsterSkill.csv)
@@ -29,6 +31,9 @@ class CSkillTable;
 //        maxDist 는 스킬이 닿는 거리 안이어야 한다 — 모양이 안 닿는 거리에서 시도해 거절만 쌓이는 것을 읽기에서 막는다
 //        (FRONT 는 일반 공격 사거리 · SHAPE 는 칸 목록이 닿는 거리 shapeReach · SELF 는 시야까지).
 //        스킬 표를 먼저 읽고 그 결과를 받는다(CGameDataFiles::LoadAll 순서).
+//        되살리기(SkillEffect::REVIVE) 줄은 셋을 더 본다 — 되살릴 몬스터(스킬 표 power)가 몬스터 표에 있고 · 보스가 아니고
+//        (보스를 되살리면 클리어가 두 번 온다) · 시전자가 깔리는 맵마다 그 몬스터의 구역도 있어야 한다(없으면 되살릴 빈 점이 없어 영영 안 쓰인다).
+//        그래서 맵 표·스폰 표도 받는다(둘 다 먼저 읽는다).
 //
 // [값 줄 0 도 된다] 스킬을 쓰는 몬스터가 아직 없는 세계다(포털 표와 같다). 파일이 없으면 오류다(다른 표와 같다).
 // ==========================================================================
@@ -38,6 +43,8 @@ struct MonsterSkillRule
     float   maxDist    = 0.0f;    // 대상까지 이 거리(타일) 이내일 때만 — 0 초과 MAX_DIST 이하. 두 몸의 **가장자리 사이** 거리다
                                   //   (AI 가 중심 사이로는 시전자·대상 반지름을 더해 본다 — MonsterAI.cpp PickSkill. 몸 반지름 0 이면 중심 사이와 같다)
     int32_t hpBelowPct = 100;     // 시전자 체력이 이 % 이하일 때만 — 1..100 (100 = 늘)
+    int32_t reviveMonsterId = 0;  // 되살리기 줄이면 되살릴 몬스터 번호(스킬 표 power 를 옮겨 적음), 아니면 0.
+                                  //   AI 는 이 몬스터의 빈 점 수를 입력으로 받아 0 이면 이 줄을 건너뛴다(MonsterAI::Think 의 vacancy — 센 쪽은 몬스터 관리자)
     int32_t fileLine   = 0;       // 틀렸을 때 가리킬 줄
 };
 
@@ -49,8 +56,9 @@ public:
     static constexpr float   MAX_DIST              = 6.0f;  // 몬스터 시야(MonsterAI::SIGHT_RANGE) — 그 밖의 대상은 AI 가 아예 안 본다(.cpp 의 단언이 맞춘다)
 
     // 파일을 읽어 표를 세운다. 실패하면 false 이고 까닭을 로그로 남긴다 — main 이 서버를 안 띄운다.
-    //   monsters · skills — 번호를 대조할 표(먼저 읽은 것)
-    bool Load(const std::string& path, const CMonsterTable& monsters, const CSkillTable& skills);
+    //   monsters · skills — 번호를 대조할 표(먼저 읽은 것) · maps · spawns — 되살리기 줄의 「같은 맵에 깔리나」를 대조할 표(먼저 읽은 것)
+    bool Load(const std::string& path, const CMonsterTable& monsters, const CSkillTable& skills,
+              const CMapTable& maps, const CSpawnRegionTable& spawns);
 
     // 이 몬스터의 규칙들(파일 순서 = 우선순위). 없으면 빈 목록 — 규칙 없는 몬스터(뱀)는 곧바로 빈 목록이다.
     const std::vector<MonsterSkillRule>& RulesOf(int32_t monsterId) const

@@ -80,9 +80,19 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMapTable& maps, con
         }
 
         // ⑶ 몬스터 — 몬스터 표에 있어야 한다(표끼리 대조)
-        if (monsterId < 1 || monsterId > CMonsterTable::MAX_MONSTER_ID || monsters.Find(static_cast<int32_t>(monsterId)) == nullptr)
+        const MonsterDef* monster = (monsterId < 1 || monsterId > CMonsterTable::MAX_MONSTER_ID) ? nullptr : monsters.Find(static_cast<int32_t>(monsterId));
+        if (monster == nullptr)
         {
             SLOG_ERROR("[SpawnRegion] {}줄: 몬스터 {} 는 몬스터 표(MonsterTable.csv)에 없습니다", dl.fileLine, monsterId);
+            return false;
+        }
+
+        // ⑶-2 보스는 방 맵에만 — 필드에서 죽으면 클리어할 방이 없다(방 클리어는 방 맵 갈래 — CGameServer::OnDeath).
+        //   방 맵마다 하나인지는 줄을 다 읽은 뒤 아래 ⑹ 이 센다
+        if (monster->boss && map->kind != MapKind::INSTANCE)
+        {
+            SLOG_ERROR("[SpawnRegion] {}줄: 몬스터 {}({}) 는 보스라 방 맵(instance)에만 깔 수 있습니다 — 맵 {} 은 방 맵이 아닙니다",
+                       dl.fileLine, monsterId, monster->name, mapId);
             return false;
         }
 
@@ -144,12 +154,37 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMapTable& maps, con
             }
             break;
         case MapKind::INSTANCE:
+        {
             if (regions == 0)
             {
                 SLOG_ERROR("[SpawnRegion] 방 맵 {} (MapTable.csv {}줄) 에 구역이 없습니다 — 보스를 깔 자리가 없습니다", m.mapId, m.fileLine);
                 ok = false;
+                break;
+            }
+            // 보스 구역 — 정확히 하나 · count 1. 없으면 그 방은 영영 클리어가 안 되고(보상·잠금이 안 걸린다),
+            //   둘 이상이면 보스가 죽을 때마다 클리어가 다시 온다(헤더 [맵 대조])
+            int32_t bossRegions = 0;
+            for (const SpawnRegion& r : RegionsOf(m.mapId))
+            {
+                const MonsterDef* def = monsters.Find(r.monsterId);   // ⑶ 이 이미 대조했다
+                if (def == nullptr || !def->boss)
+                    continue;
+                ++bossRegions;
+                if (r.count != 1)
+                {
+                    SLOG_ERROR("[SpawnRegion] {}줄: 방 맵 {} 의 보스 {}({}) 구역은 count 1 이어야 합니다 — 지금 {}",
+                               r.fileLine, m.mapId, r.monsterId, def->name, r.count);
+                    ok = false;
+                }
+            }
+            if (bossRegions != 1)
+            {
+                SLOG_ERROR("[SpawnRegion] 방 맵 {} (MapTable.csv {}줄) 의 보스 구역이 {}개입니다 — 정확히 하나여야 합니다(몬스터 표 boss = 1 인 몬스터)",
+                           m.mapId, m.fileLine, bossRegions);
+                ok = false;
             }
             break;
+        }
         case MapKind::TOWN:
             if (regions != 0)
             {

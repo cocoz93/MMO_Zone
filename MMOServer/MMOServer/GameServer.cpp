@@ -3453,10 +3453,18 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
     _buffSystem.ClearAll(target);
 
 #if USE_PARTY && USE_MONSTER
-    // ── 6·7 의 갈림 — 방 맵의 몬스터면 보상이 막타 한 명이 아니라 방 안 사람 각자다(RewardRoom). 몬스터 종류는 안 가린다(보스 표식을 따로 두지 않는다 — room-plan.md 「내가 정한 기본값」 4) ──
-    const bool roomReward = (target->_kind == CharacterKind::MONSTER) && _mapManager.IsRoomMap(zone->GetMapId());
+    // ── 6·7 의 갈림 — 방 맵의 보스(몬스터 표 boss)면 방 클리어다: 보상이 막타 한 명이 아니라 방 안 사람 각자(RewardRoom)이고,
+    //   남은 몬스터는 사라진다(RequestClear — 지우기는 다음 몬스터 틱. 여기는 범위 스킬의 대상 버퍼를 도는 중일 수 있다 — MonsterManager.h).
+    //   보스가 아닌 방 몬스터(가짜 뱀왕)는 필드와 같은 막타 길로 간다 — 경험치 0 · 드랍 줄 없음이면 아무것도 안 생긴다(10-18 · snakeking-plan.md D5).
+    //   (10-17 엔 보스 표식이 없어 방의 몬스터면 종류를 안 가렸다 — room-plan.md 「내가 정한 기본값」 4)
+    CMonster* const roomMonster = _mapManager.IsRoomMap(zone->GetMapId()) ? As<CMonster>(target) : nullptr;
+    const bool roomReward = (roomMonster != nullptr) && roomMonster->_def.boss;
     if (roomReward)
-        RewardRoom(zone, As<CMonster>(target));
+    {
+        RewardRoom(zone, roomMonster);
+        zone->GetMonsterManager().RequestClear();
+        _gameMonitor._room._cleared.Inc();
+    }
 #else
     const bool roomReward = false;
 #endif
@@ -3656,6 +3664,19 @@ void CGameServer::OnCast(CZone* zone, CCharacter* caster, const SkillDef& def)
         if (CPlayer* player = As<CPlayer>(caster))
             SendActorMp(player);
     }
+}
+
+// 되살려라 — 효과 REVIVE(시전 알림 뒤). 요청만 넘긴다: 깔기는 존의 몬스터 관리자가 다음 틱 리젠에서(빈 점마다 하나 — 등장 알림은 OnMonsterSpawn 그대로).
+//   여기서 깔지 않는 이유 — 몬스터의 시전은 그 관리자의 판단 순회 안에서 온다(MonsterManager.h RequestRevive ★).
+void CGameServer::OnRevive(CZone* zone, CCharacter* caster, int32_t monsterId)
+{
+    (void)caster;
+#if USE_MONSTER
+    zone->GetMonsterManager().RequestRevive(monsterId);
+#else
+    (void)zone;
+    (void)monsterId;   // 몬스터를 끈 빌드엔 되살리기를 쓰는 몬스터가 없다(되살리기 줄은 user=monster)
+#endif
 }
 
 // 마력 알림 — 그 사람 자신의 마력을 그 사람에게만. 세는 곳도 여기 한 곳(SendMyStats 와 같은 꼴).
@@ -3985,6 +4006,20 @@ void CGameServer::OnMonsterSpawn(CZone* zone, CMonster* monster)
     //   안 맞추면 옛 자리와의 차이로 보정 패킷(MOVE_SYNC)이 한 번 더 나갈 뿐, 위치가 틀리지는 않는다.
     monster->_lastSyncX = monster->_x;
     monster->_lastSyncY = monster->_y;
+}
+
+// 사라짐 — 방 클리어로 남은 몬스터를 지울 때 하나마다(CMonsterManager::VanishAll). 죽은 몬스터 지우기 앞(OnDeath 3·8)과 같은 두 일:
+//   효과 목록에서 빼고(이 뒤에 관리자가 해제한다 — 목록에 주소가 남으면 안 된다) · 존에서 뺀다(주변 DELETE · 같은 틱 이동자 · 대기열 — 플레이어 퇴장과 같은 길).
+//   죽음(DEATH)은 안 보낸다 — 죽은 게 아니라 사라진 것이다.
+void CGameServer::OnMonsterVanish(CZone* zone, CMonster* monster)
+{
+#if USE_COMBAT
+    _buffSystem.ClearAll(monster);
+#endif
+    BroadcastLeaveZone(zone, monster);
+#if USE_PARTY
+    _gameMonitor._room._minionsCleared.Inc();   // 클리어는 방 갈래만 건다(OnDeath) — 사라짐은 곧 방 클리어로 지운 수다
+#endif
 }
 #endif // USE_MONSTER
 
