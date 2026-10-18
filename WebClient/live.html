@@ -100,6 +100,7 @@ const HIT_LIFE = 0.5;                        // 피격 점멸 + 데미지 숫자
 const SWING_LIFE = 0.18;                     // 휘두르는 호
 const SKILL_HIT_LIFE = 0.5;                  // 스킬에 맞은 상대 발밑 표시(피격 점멸과 같은 길이)
 const CAST_LIFE = 0.3;                       // 범위 스킬(target=shape) 칸 깔기 — 맞는 칸을 잠깐 붉게 · 자신(target=self) 시전은 발밑 푸른 고리
+const CAST_ANIM_LIFE = 0.7;                  // 주문 동작 그림(MON_META.cast — 뱀왕 7열)을 한 번 도는 시간 — 몬스터가 스킬을 쓸 때(되살리기·격노)
 const SPAWN_LIFE = 0.6;                      // 부활 섬광
 const FADE_LIFE = 0.5;                       // 죽은 채로 지워진 상대가 흐려지며 사라지는 시간(초)
 const LEVELUP_LIFE = 1.6;                    // 레벨업 문구 표시 시간(초)
@@ -273,14 +274,16 @@ const PICKUP_FAIL_TEXT = {
 const COMBAT_INIT = () => ({ hp:null, maxHp:null, mp:null, maxMp:null, hitT:0, hitDmg:0, swingT:0, spawnT:0, castSkill:0, skillHitT:0, castT:0, castCells:null, castSelf:false, buffs:null, dead:false });
 // 죽은 채로 지워진 상대 — 그리기만 한다. id -> others 에 있던 그 객체 + fadeT.
 //   서버는 몬스터가 죽는 순간 지우고 DEATH 바로 뒤에 DELETE 를 보낸다(10-09) — 시체는 이 연출뿐이다.
-//   DELETE 에 사유 칸이 없어 「죽어 있었나(dead)」로 가른다. 살아 있던 상대(시야 밖으로 나감·퇴장)는 바로 지운다.
+//   DELETE 에 사유 칸이 없어 「죽어 있었나(dead)」로 가른다. 살아 있던 사람(시야 밖으로 나감·퇴장)은 바로 지운다.
 //   쓰러진 채 시야 밖으로 나가거나 접속을 끊은 사람도 흐려지는데 해가 없다.
+//   몬스터는 살아 있어도 흐려진다(10-18) — 방 보스(뱀왕)가 죽으면 남은 가짜 뱀왕이 죽음 없이 DELETE 로 사라진다(서버 방 클리어).
+//     바로 지우면 화면에서 뚝 끊긴다. 시야 밖으로 나가는 몬스터도 같이 흐려지는데 그 자리는 화면 가장자리 밖이라 해가 없다.
 //   others 와 따로 두는 이유 — 서버가 이미 지운 번호라 다른 패킷이 가리킬 일이 없고, others 를 도는 자리(레이더 등)에 섞이지 않게.
 const fading = new Map();
 function removeOther(id){
   const o=others.get(id); if(!o) return;     // 모르는 번호의 DELETE 는 버린다
   others.delete(id);
-  if(o.dead){ o.fadeT=FADE_LIFE; fading.set(id,o); }
+  if(o.dead || monMeta(o)){ o.fadeT=FADE_LIFE; fading.set(id,o); }
 }
 const stat = { count:{}, rate:{}, bytes:0, kbps:0, connected:false };
 function bump(name,n){ stat.count[name]=(stat.count[name]||0)+(n===undefined?1:n); }
@@ -318,12 +321,22 @@ function rowOf(dir){ return dir===1?0 : dir===3?1 : dir===4?3 : 2; }  // UP/LEFT
 //   (Protocol.h DISPLAY_MONSTER_BASE). 사람은 'A'~'Z','a'~'z','0'~'9' 만 받으므로 0x20 미만이면 몬스터다.
 //   시트 규격이 사람(LPC 9열)과 달라(뱀 7열) 조합 캐시와 따로 굽는다 — 종류×방향이라 몇 장뿐이다.
 const MONIMG = {};                                   // kind -> Image (MON 전역에서 적재)
-const DISPLAY_KIND = { 0x01:'snake', 0x02:'guryungi' };   // 0x01 = Protocol.h DISPLAY_SNAKE · 0x02 = 구렁이(보스) — 값은 몬스터 표 display 칸(Protocol.h 에는 이름 없음)
+const DISPLAY_KIND = { 0x01:'snake', 0x02:'guryungi', 0x03:'snakeking', 0x04:'fakeking' };   // 0x01 = Protocol.h DISPLAY_SNAKE · 0x02 = 구렁이 · 0x03 = 뱀왕(방 보스) · 0x04 = 가짜 뱀왕 — 값은 몬스터 표 display 칸(Protocol.h 에는 이름 없음)
 const MONSHEET = new Map();                          // 'kind:행' -> 구운 캔버스(cols*64 x 64) — 상한 불필요(종류×4장)
 function monMeta(o){
   if(!(o.disp>0 && o.disp<0x20)) return null;
   const k=DISPLAY_KIND[o.disp];
   return (k && window.MON_META && MON_META[k]) ? Object.assign({kind:k}, MON_META[k]) : null;
+}
+// 몬스터 그림 열 — 주문 동작(스킬을 쓴 직후 CAST_ANIM_LIFE 동안) → 걷기 → 서 있음 순으로 고른다(갈래 셋이라 순서대로 return).
+//   뱀은 walk[0] 이 서 있는 그림이고 주문 동작이 없다 · 뱀왕(사람형)은 idle(열 0)·cast(9~15)가 따로 있다 — 메타에 없으면 옛 그림 그대로
+function monFrame(mon,o,t){
+  if(mon.cast && o.castAnimT>0){
+    const i=Math.floor((1-o.castAnimT/CAST_ANIM_LIFE)*mon.cast.length);
+    return mon.cast[Math.min(mon.cast.length-1, Math.max(0,i))];
+  }
+  if(o.moveState===1) return mon.walk[Math.floor(t*8+(o.id||0))%mon.walk.length];
+  return (mon.idle!==undefined) ? mon.idle : mon.walk[0];
 }
 function monSheetFor(meta,row){ const k=meta.kind+':'+row;
   const hit=MONSHEET.get(k); if(hit) return hit;
@@ -463,6 +476,7 @@ function onPacket(p){
         a.castCells=null; a.castSelf=false;
         if(s && s.target==='shape' && s.shape.length){ a.castT=CAST_LIFE; a.castCells=s.shape; }
         else if(selfCast){ a.castT=CAST_LIFE; a.castSelf=true; }
+        const m=monMeta(a); if(m && m.cast) a.castAnimT=CAST_ANIM_LIFE;   // 주문 동작 그림이 있는 몬스터(뱀왕) — 걷던 중이어도 잠깐 손을 든다
       }
       if(self && p.casterId===self.id){
         skillReadyAt.set(p.skillId, performance.now()+(s?s.cooldownMs:0));
@@ -764,9 +778,9 @@ function drawChar(o,isMe,t,fade=1){
   const mon=monMeta(o);
   const sc=(mon && mon.scale) || 1;   // 보스는 그림만 키운다 — 발 위치(py)는 그대로, 판정은 서버의 점
   const H0=3.0*ZOOM*sc, dw=H0, dh=H0;   // 몬스터도 같은 크기 — 시트 여백이 이미 뱀을 사람의 0.69배로 만든다
-  // 걷기 프레임: 사람은 LPC 9열 중 1~8, 몬스터는 메타의 walk 목록을 돈다(뱀 0~3)
+  // 걷기 프레임: 사람은 LPC 9열 중 1~8, 몬스터는 메타의 walk 목록을 돈다(뱀 0~3 · 뱀왕 1~8) — 몬스터는 monFrame(주문 동작 · 서 있음까지)
   const frame = mon
-    ? (o.moveState===1 ? mon.walk[Math.floor(t*8+(o.id||0))%mon.walk.length] : mon.walk[0])
+    ? monFrame(mon,o,t)
     : ((o.moveState===1)?(1+Math.floor(t*8+(o.id||0))%8):0);
   shadow(px,py,0.75*ZOOM*sc,fade);
   ctx.imageSmoothingEnabled=false;
@@ -896,10 +910,11 @@ function drawSkillCast(o){
 }
 // 자신(target=self) 시전 — 시전자 발밑에 푸른 고리를 잠깐(땅 층 — 맞은 상대 고리와 같은 납작한 타원, 색만 다르다). 효과가 걸렸다는 신호일 뿐
 //   남은 시간은 막대 칸(drawSkillBar 의 띠)이 맡는다.
+//   몸이 큰 시전자(뱀왕 반지름 1.3)는 몸 반지름만큼 키운다(10-18) — 0.6→0.9칸 그대로면 두 배로 그린 몸에 가린다. 사람은 0 이라 그대로다
 function drawSelfCast(o){
   const k=o.castT/CAST_LIFE;                       // 1 → 0
   const px=sx(o.rx), py=sy(o.ry);
-  const r=(0.6+0.3*(1-k))*ZOOM;                    // 0.6칸 → 0.9칸으로 퍼진다
+  const r=(castRadius(o)+0.6+0.3*(1-k))*ZOOM;      // (몸 반지름 +) 0.6칸 → 0.9칸으로 퍼진다
   ctx.save();
   ctx.beginPath(); ctx.ellipse(px,py,r,r*0.45,0,0,7);
   ctx.fillStyle='rgba(80,160,255,'+(0.45*k)+')'; ctx.fill();
@@ -1584,6 +1599,7 @@ function decayCombat(o,dt){
   if(o.spawnT>0) o.spawnT=Math.max(0,o.spawnT-dt);
   if(o.skillHitT>0) o.skillHitT=Math.max(0,o.skillHitT-dt);
   if(o.castT>0)  o.castT =Math.max(0,o.castT-dt);
+  if(o.castAnimT>0) o.castAnimT=Math.max(0,o.castAnimT-dt);
 }
 function render(t){
   ctx.clearRect(0,0,W,H);
