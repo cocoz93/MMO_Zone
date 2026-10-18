@@ -14,7 +14,7 @@
 #include <algorithm>
 #include <cstddef>  // offsetof
 #include <cassert>  // 직렬화 필드 누락/폭 검증
-#include <cstring>  // memcpy — 알림 문구를 고정 배열에 옮겨 담는다
+#include <cstring>  // strcmp — 운영 로그인 열쇠 대조 (알림 문구 memcpy 는 SelfNotifier.cpp 로 옮겼다)
 #include <string>
 #include <random>   // USE_DROP — 드랍 굴림 난수 (스폰 자리 뽑기는 MonsterManager.cpp 로 갔다)
 #include "PacketBuild.h" // 여러 조각이 같이 쓰는 조립 함수(머리 쓰기·닫기 · 등장 조각 · 파티 조각 · 부활 · 체력 바뀜) — 게임 서버 나누기 0-②
@@ -166,36 +166,13 @@ namespace
         return buf;
     }
 
-    // MakeRespawn 은 PacketBuild.h — 배치(도착 때 본인)와 전투(부활 방송) 둘이 부른다
+    // MakeRespawn 은 PacketBuild.h — 본인 알림(도착 때 본인)과 전투(부활 방송) 둘이 부른다
 
-#if USE_EXP
-    CSerialBuffer* MakeExp(int32_t level, int64_t exp, int64_t levelBaseExp, int64_t nextLevelExp)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_EXP::TYPE);
-        *buf << static_cast<int>(level);
-        *buf << exp;
-        *buf << levelBaseExp;
-        *buf << nextLevelExp;
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_EXP));
-        return buf;
-    }
-#endif
+    // MakeExp(경험치) 는 SelfNotifier.cpp — 본인 알림 조각만 부른다(게임 서버 나누기 2 단계)
 
     // MakeActorStats 는 PacketBuild.h — 전투 · 처치 보상 · 가방 · 운영 명령이 같이 부른다
 
-    // 내 최종 공격력·방어력 — 본인 전용(SendMyStats 만 부른다)
-    CSerialBuffer* MakeMyStats(int32_t attack, int32_t defense)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_MY_STATS::TYPE);
-        *buf << static_cast<int>(attack);
-        *buf << static_cast<int>(defense);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_MY_STATS));
-        return buf;
-    }
+    // MakeMyStats(내 최종 공격력·방어력) 는 SelfNotifier.cpp — 본인 알림 조각만 부른다(게임 서버 나누기 2 단계)
 #endif // USE_COMBAT
 
     CSerialBuffer* MakeZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex)
@@ -346,54 +323,12 @@ namespace
     }
 
 #if USE_INVENTORY
-    // 본인에게 알림 한 줄 — 고정 256바이트 char 배열이라 SetData(raw)로 통째로 싣는다.
-    //   넘치면 자른다(마지막 한 바이트는 NUL 자리). 답 문구는 짧아 UTF-8 글자 가운데서 잘릴 일이 없다.
-    //   ※ 지금 부르는 곳이 채팅 명령 답뿐이라 USE_INVENTORY 안에 둔다(밖에 두면 끈 빌드에서 안 쓰는 함수가 된다).
-    CSerialBuffer* MakeError(const std::string& utf8)
-    {
-        char text[sizeof(MSG_S2C_ERROR::message)] = {};
-        const size_t n = (utf8.size() < sizeof(text) - 1) ? utf8.size() : sizeof(text) - 1;
-        memcpy(text, utf8.data(), n);
-
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_ERROR::TYPE);
-        buf->SetData(text, static_cast<int>(sizeof(text)));
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_ERROR));
-        return buf;
-    }
+    // MakeError(본인에게 알림 한 줄) 는 SelfNotifier.cpp — 본인 알림 조각만 부른다(게임 서버 나누기 2 단계)
 
     // ── 인벤토리 (USE_INVENTORY) ──
     //   필드 순서는 Protocol.h 의 InventoryEntry·MSG_S2C_INVENTORY_SLOT 와 글자 그대로 같아야 한다.
 
-    // 가방 전체는 한 장으로 간다(나눠 보내는 길이 없다) — 가득 찬 가방도 한 패킷에 들어가야 한다.
-    //   지금 616B(헤더 4 + 개수 2 + 10 × 61 — 가방 60 + 착용 1). 탭·착용 칸을 늘려 칸이 145개를 넘으면 여기서 컴파일이 멈춘다.
-    //   ※ Protocol.h 가 아니라 여기 두는 이유 — 상한(MAX_PACKET_SIZE)이 코어 헤더에 있어 거기선 안 보인다.
-    static_assert(sizeof(MSG_S2C_INVENTORY) <= MAX_PACKET_SIZE,
-                  "가득 찬 가방 전체 목록이 한 패킷(MAX_PACKET_SIZE)에 안 들어간다 — 나눠 보내는 길을 만들 것");
-
-    // 가방 전체 — 가변 길이, 빈 칸은 안 싣는다. count 를 먼저 세어 앞에 쓴다(MakeSectorUpdates 와 같은 꼴).
-    CSerialBuffer* MakeInventory(const CInventory& inv)
-    {
-        const int count = inv.CountNonEmpty();
-
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_INVENTORY::TYPE);
-        *buf << static_cast<uint16_t>(count);
-        for (int i = 0; i < INVENTORY_ALL_SLOTS; ++i)   // 착용 칸까지 — 클라가 무기 칸도 이 한 장으로 안다
-        {
-            const Item& s = inv.At(i);
-            if (s.itemId == 0)
-                continue;
-            *buf << static_cast<uint16_t>(CInventory::SlotNumberOf(i));
-            *buf << static_cast<int>(s.itemId);
-            *buf << static_cast<int>(s.count);
-        }
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() ==
-            offsetof(MSG_S2C_INVENTORY, entries) + static_cast<size_t>(count) * sizeof(InventoryEntry));
-        return buf;
-    }
+    // MakeInventory(가방 전체 한 장 · 크기 static_assert 포함) 는 SelfNotifier.cpp — 본인 알림 조각만 부른다(게임 서버 나누기 2 단계)
 
     CSerialBuffer* MakeInventorySlot(uint16_t slot, int32_t itemId, int32_t count)
     {
@@ -432,21 +367,7 @@ namespace
 #endif
 #endif // USE_INVENTORY
 
-#if USE_COMBAT
-    // 지속 효과 통보 — 본인에게만(Protocol.h MSG_S2C_ACTOR_BUFF). remainMs 0 = 풀림
-    CSerialBuffer* MakeActorBuff(int32_t actorId, uint8_t kind, int32_t value, uint32_t remainMs)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_ACTOR_BUFF::TYPE);
-        *buf << static_cast<int>(actorId);
-        *buf << static_cast<uint8_t>(kind);
-        *buf << static_cast<int>(value);
-        *buf << static_cast<unsigned int>(remainMs);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_ACTOR_BUFF));
-        return buf;
-    }
-#endif
+    // MakeActorBuff(지속 효과 통보 — 본인에게만) 는 SelfNotifier.cpp — 본인 알림 조각만 부른다(게임 서버 나누기 2 단계)
 
 #if USE_SKILL
     // 스킬 거절 사유 → 와이어 값. 사유를 정하는 건 CSkillSystem(SkillSystem.h), 패킷 값으로 바꾸는 건 여기 —
@@ -492,31 +413,7 @@ namespace
         return buf;
     }
 
-    // 남은 스킬 쿨타임 — 본인에게만(Protocol.h MSG_S2C_SKILL_COOLDOWN_REMAIN). remainMs 는 1 이상(다 돈 칸은 안 보낸다)
-    CSerialBuffer* MakeSkillCooldownRemain(int32_t actorId, uint8_t skillId, uint32_t remainMs)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_SKILL_COOLDOWN_REMAIN::TYPE);
-        *buf << static_cast<int>(actorId);
-        *buf << static_cast<uint8_t>(skillId);
-        *buf << static_cast<unsigned int>(remainMs);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_SKILL_COOLDOWN_REMAIN));
-        return buf;
-    }
-
-    // 마력 — 본인 전용(SendActorMp 만 부른다). 모양은 ACTOR_STATS 꼴(대상 번호 먼저)
-    CSerialBuffer* MakeActorMp(int32_t actorId, int32_t mp, int32_t maxMp)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_ACTOR_MP::TYPE);
-        *buf << static_cast<int>(actorId);
-        *buf << static_cast<int>(mp);
-        *buf << static_cast<int>(maxMp);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_ACTOR_MP));
-        return buf;
-    }
+    // MakeSkillCooldownRemain(남은 스킬 쿨타임) · MakeActorMp(마력) 는 SelfNotifier.cpp — 본인 알림 조각만 부른다(게임 서버 나누기 2 단계)
 #endif
 
 #if USE_PARTY
@@ -2480,14 +2377,14 @@ void CGameServer::HandleChatCommand(CPlayer* player, const ChatChar* msg, uint16
     if (found == nullptr)
     {
         counters._commandRejected[static_cast<int>(ChatCommandReject::UNKNOWN_COMMAND)].Inc();
-        SendSystemMessage(player, "모르는 명령입니다: " + cmd);
+        _selfNotifier.SendSystemMessage(player, "모르는 명령입니다: " + cmd);
         return;
     }
 
     if (!player->_isAdmin)
     {
         counters._commandRejected[static_cast<int>(ChatCommandReject::NOT_ADMIN)].Inc();
-        SendSystemMessage(player, "운영자만 쓸 수 있는 명령입니다: " + cmd);
+        _selfNotifier.SendSystemMessage(player, "운영자만 쓸 수 있는 명령입니다: " + cmd);
         return;
     }
 
@@ -2505,7 +2402,7 @@ void CGameServer::RunGmCommand(CPlayer* player, const std::vector<std::string>& 
     if (words.size() != 1)
     {
         counters._commandRejected[static_cast<int>(ChatCommandReject::BAD_ARGS)].Inc();
-        SendSystemMessage(player, "쓰는 법: /gm (켜고 끈다 — 인자 없음)");
+        _selfNotifier.SendSystemMessage(player, "쓰는 법: /gm (켜고 끈다 — 인자 없음)");
         return;
     }
 
@@ -2514,7 +2411,7 @@ void CGameServer::RunGmCommand(CPlayer* player, const std::vector<std::string>& 
     if (player->_isDead)
     {
         counters._commandRejected[static_cast<int>(ChatCommandReject::DEAD)].Inc();
-        SendSystemMessage(player, "쓰러진 채로는 GM 모드를 바꿀 수 없습니다");
+        _selfNotifier.SendSystemMessage(player, "쓰러진 채로는 GM 모드를 바꿀 수 없습니다");
         return;
     }
 
@@ -2537,16 +2434,16 @@ void CGameServer::RunGmCommand(CPlayer* player, const std::vector<std::string>& 
         BroadcastAroundSector(zone, player, MakeActorStats(player->_actorId, player->_hp, player->_maxHp), false);
         BroadcastAroundSector(zone, player, MakeActorSpeed(player->_actorId, player->_speed), false);
     }
-    SendMyStats(player);
+    _selfNotifier.SendMyStats(player);
 #if USE_SKILL
-    SendActorMp(player);   // 켤 때 가득 채운 마력 — 끌 때는 안 바뀌지만 같은 한 벌로 보낸다
+    _selfNotifier.SendActorMp(player);   // 켤 때 가득 채운 마력 — 끌 때는 안 바뀌지만 같은 한 벌로 보낸다
 #endif
 
     SLOG_INFO("[GM] /gm (account={}, player={}) -> {} (speed {}, maxHp {}, attack {})",
               player->_accountId, player->_actorId, player->_gmMode ? "on" : "off",
               player->_speed, player->_maxHp, player->_attackPower);
     // 웹 채팅창 한 줄(400px)에 값이 다 들어가는 길이로 — 길면 끝이 「…」로 잘려 공격력이 안 보인다(10-16 헤드리스 사진)
-    SendSystemMessage(player, std::string(player->_gmMode ? "GM 켬" : "GM 끔")
+    _selfNotifier.SendSystemMessage(player, std::string(player->_gmMode ? "GM 켬" : "GM 끔")
         + " — 속도 " + std::to_string(player->_speed) + " · 체력 " + std::to_string(player->_maxHp)
         + " · 공격력 " + std::to_string(player->_attackPower));
 }
@@ -2564,7 +2461,7 @@ void CGameServer::RunItemCommand(CPlayer* player, const std::vector<std::string>
     if (!okId || !okCount || words.size() > 3 || count < 1 || count > 9999)
     {
         counters._commandRejected[static_cast<int>(ChatCommandReject::BAD_ARGS)].Inc();
-        SendSystemMessage(player, "쓰는 법: /item <아이템번호> [개수 1~9999]");
+        _selfNotifier.SendSystemMessage(player, "쓰는 법: /item <아이템번호> [개수 1~9999]");
         return;
     }
 
@@ -2575,7 +2472,7 @@ void CGameServer::RunItemCommand(CPlayer* player, const std::vector<std::string>
     if (def == nullptr)
     {
         counters._addRejected[static_cast<int>(InvAddResult::UNKNOWN_ITEM)].Inc();
-        SendSystemMessage(player, "없는 아이템 번호입니다: " + words[1]);
+        _selfNotifier.SendSystemMessage(player, "없는 아이템 번호입니다: " + words[1]);
         return;
     }
 
@@ -2590,13 +2487,13 @@ void CGameServer::RunItemCommand(CPlayer* player, const std::vector<std::string>
         return;
 
     case InvAddResult::TAB_FULL:
-        SendSystemMessage(player, std::string("가방에 자리가 없습니다 — ") + InvTabDisplayName(def->tab)
+        _selfNotifier.SendSystemMessage(player, std::string("가방에 자리가 없습니다 — ") + InvTabDisplayName(def->tab)
                                   + " 탭에 " + def->name + " " + std::to_string(count) + "개를 다 둘 수 없습니다");
         break;
 
     case InvAddResult::UNKNOWN_ITEM:   // TryAdd 는 이 둘을 안 돌려준다 — 위에서 이미 걸렀다
     case InvAddResult::BAD_COUNT:
-        SendSystemMessage(player, std::string("넣지 못했습니다: ") + InvAddResultName(result));
+        _selfNotifier.SendSystemMessage(player, std::string("넣지 못했습니다: ") + InvAddResultName(result));
         break;
 
     case InvAddResult::COUNT:          // 값이 아니라 개수 표시 — 아래 배열 색인으로 쓰면 범위 밖이다
@@ -2704,16 +2601,7 @@ void CGameServer::LoadInventoryRows(CPlayer* player, const DBResult& result)
 }
 #endif
 
-void CGameServer::SendInventory(CPlayer* player)
-{
-    _sessionHub.SendPacket(player, MakeInventory(player->_inventory));
-    _gameMonitor._inventory._snapshotsSent.Inc();
-}
-
-void CGameServer::SendSystemMessage(CPlayer* player, const std::string& utf8)
-{
-    _sessionHub.SendPacket(player, MakeError(utf8));
-}
+// 가방 전체(SendInventory) · 알림 한 줄(SendSystemMessage) 은 본인 알림 조각으로 옮겼다 — CSelfNotifier (게임 서버 나누기 2 단계)
 
 void CGameServer::RecvUseItem(CPlayer* player, CSerialBuffer* pMsg)
 {
@@ -2742,7 +2630,7 @@ void CGameServer::RecvUseItem(CPlayer* player, CSerialBuffer* pMsg)
     }
 #if USE_SKILL
     if (used->healMp > 0)
-        SendActorMp(player);
+        _selfNotifier.SendActorMp(player);
 #endif
 }
 
@@ -2776,7 +2664,7 @@ void CGameServer::ApplyEquip(CPlayer* player, uint16_t slot, bool unequip)
     // 칸 패킷 둘 + DB 두 줄 → 본인에게 새 공격력(공격력은 CItemSystem::Equip 이 이미 다시 세웠다).
     //   ★ 순서가 곧 와이어 순서다 — 칸 패킷이 MY_STATS 보다 앞선다(클라가 무기 칸을 먼저 알고 숫자를 채운다).
     FlushInventory(player);
-    SendMyStats(player);
+    _selfNotifier.SendMyStats(player);
 }
 #endif // USE_EQUIP
 #endif // USE_INVENTORY
@@ -3321,7 +3209,7 @@ void CGameServer::GrantMonsterExp(CZone* zone, CPlayer* killer, int32_t reward)
             _gameMonitor._exp._granted.Inc();
             _gameMonitor._exp._grantedAmount.Add(killer->_exp - beforeExp);
 
-            SendExp(killer);
+            _selfNotifier.SendExp(killer);
 
             // 저장 표시는 켜지 않는다 — 늘어난 경험치·레벨은 다음 주기 판정(ShouldSave)이 마지막 저장값(_dbSaved)과 견주어 싣는다.
         }
@@ -3334,11 +3222,11 @@ void CGameServer::GrantMonsterExp(CZone* zone, CPlayer* killer, int32_t reward)
                 MakeActorStats(killer->_actorId, killer->_hp, killer->_maxHp), false);
 
             // 오른 공격력·방어력은 본인에게만 — 남의 공격력은 화면에 안 쓴다(S2C_MY_STATS 는 본인 전용)
-            SendMyStats(killer);
+            _selfNotifier.SendMyStats(killer);
 
 #if USE_SKILL
             // 늘고 가득 찬 마력도 본인에게만(RecalcStats 가 레벨업 때 채운다)
-            SendActorMp(killer);
+            _selfNotifier.SendActorMp(killer);
 #endif
 
 #if USE_DB_WORKER
@@ -3385,7 +3273,7 @@ void CGameServer::RewardRoom(CZone* zone, CMonster* monster)
         GrantMonsterExp(zone, p, monster->_def.exp);   // 전액 — 나누지 않는다(room-plan.md 「사람이 정할 것」 3)
         head += " 경험치 " + std::to_string(p->_exp - beforeExp);   // 만렙이면 0
 #endif
-        SendSystemMessage(p, head);
+        _selfNotifier.SendSystemMessage(p, head);
 
 #if USE_DROP
         // 드랍 표를 사람마다 따로 굴린다 → 가방에 바로(줍기와 같은 TryAdd · FlushInventory) — 넘치면 그 사람 발밑 땅에 그 사람 것으로
@@ -3405,14 +3293,14 @@ void CGameServer::RewardRoom(CZone* zone, CMonster* monster)
             {
                 _gameMonitor._inventory._itemsAdded.Add(it.count);   // /item · 줍기와 같은 계수기 — 가방에 들어간 개수
                 _gameMonitor._room._rewardItemsBag.Add(it.count);
-                SendSystemMessage(p, "얻음 — " + def->name + " ×" + std::to_string(it.count));
+                _selfNotifier.SendSystemMessage(p, "얻음 — " + def->name + " ×" + std::to_string(it.count));
             }
             else
             {
                 _gameMonitor._inventory._addRejected[static_cast<int>(r)].Inc();
                 _gameMonitor._room._rewardItemsGround.Add(it.count);
                 _roomOverflow.push_back(it);
-                SendSystemMessage(p, "가방이 차서 발밑에 — " + def->name + " ×" + std::to_string(it.count));
+                _selfNotifier.SendSystemMessage(p, "가방이 차서 발밑에 — " + def->name + " ×" + std::to_string(it.count));
             }
         }
         FlushInventory(p);   // 칸 패킷 + 곧바로 DB 저장(줍기와 같은 길) — 바뀐 칸이 없으면 아무것도 안 간다
@@ -3464,7 +3352,7 @@ void CGameServer::OnCast(CZone* zone, CCharacter* caster, const SkillDef& def)
     if (def.costMp > 0)
     {
         if (CPlayer* player = As<CPlayer>(caster))
-            SendActorMp(player);
+            _selfNotifier.SendActorMp(player);
     }
 }
 
@@ -3481,41 +3369,14 @@ void CGameServer::OnRevive(CZone* zone, CCharacter* caster, int32_t monsterId)
 #endif
 }
 
-// 마력 알림 — 그 사람 자신의 마력을 그 사람에게만. 세는 곳도 여기 한 곳(SendMyStats 와 같은 꼴).
-void CGameServer::SendActorMp(CPlayer* player)
-{
-    _sessionHub.SendPacket(player, MakeActorMp(player->_actorId, player->_mp, player->_maxMp));
-    _gameMonitor._skill._actorMpSent.Inc();
-}
-
-// 아직 돌고 있는 쿨타임 칸마다 한 장 — 입장·존 이동(NotifyArrival). 다 돈 칸(ready ≤ 지금)은 안 보낸다(0 은 이 패킷에 없는 값이다).
-//   남은 시간은 남은 틱 × 명목 40ms — 클라는 받은 순간부터 깎는다. 시전 순간의 쿨타임은 지금처럼 클라가 SKILL_CAST 로 센다.
-void CGameServer::SendActiveSkillCooldowns(CPlayer* player)
-{
-    for (int id = 1; id <= MAX_SKILL_ID; ++id)
-    {
-        const uint64_t ready = player->_skillReadyFrame[id];
-        if (ready <= _frameCount)
-            continue;
-        const uint32_t remainMs = static_cast<uint32_t>((ready - _frameCount) * FRAME_INTERVAL_MS);   // 표 상한 1시간 → 360만 ms, u32 안
-        _sessionHub.SendPacket(player, MakeSkillCooldownRemain(player->_actorId, static_cast<uint8_t>(id), remainMs));
-        _gameMonitor._skill._cooldownRemainSent.Inc();
-    }
-}
+// 마력 알림(SendActorMp) · 남은 쿨타임(SendActiveSkillCooldowns) 은 본인 알림 조각으로 옮겼다 — CSelfNotifier (게임 서버 나누기 2 단계)
 #endif // USE_SKILL
 
-// ==========================================================================
-// 스탯·경험치 보내기 — 세우는 규칙은 CStatSystem(StatSystem.cpp), 여기는 결과를 패킷으로만
-// ==========================================================================
-void CGameServer::SendMyStats(CPlayer* player)
-{
-    _sessionHub.SendPacket(player, MakeMyStats(player->_attackPower, player->_defense));
-    _gameMonitor._combat._myStatsSent.Inc();
-}
+// 스탯·경험치 보내기(SendMyStats · SendExp) 는 본인 알림 조각으로 옮겼다 — CSelfNotifier (게임 서버 나누기 2 단계)
 
 #if USE_COMBAT
 // ==========================================================================
-// 지속 효과 — 걸기·만료·정리는 CBuffSystem(BuffSystem.cpp), 여기는 알림을 받아 본인에게 보내기만
+// 지속 효과 — 걸기·만료·정리는 CBuffSystem(BuffSystem.cpp), 여기는 알림을 받아 본인 알림 조각에 넘기기만
 // ==========================================================================
 
 // 효과가 바뀌었다(걸림·되감김·만료·죽음) — 스탯은 이미 다시 선 뒤라 MY_STATS 가 새 공격력이다. 와이어 = ACTOR_BUFF → MY_STATS.
@@ -3524,55 +3385,13 @@ void CGameServer::OnBuffChanged(CCharacter* target, BuffKind kind)
 {
     if (CPlayer* player = As<CPlayer>(target))
     {
-        SendActorBuff(player, kind);
-        SendMyStats(player);
+        _selfNotifier.SendActorBuff(player, kind);
+        _selfNotifier.SendMyStats(player);
     }
 }
 
-// 효과 칸 하나를 본인에게 — 비었으면 value 0 · remainMs 0(풀림). 세는 곳도 여기 한 곳(SendActorMp 와 같은 꼴).
-//   ★ 켜진 칸에 0 을 보내지 않는다 — 0 은 「풀림」의 뜻이다. 존 이동 패킷이 같은 틱의 만료 훑기(3-2b) 앞에 처리되면 남은 틱이 0 이
-//     될 수 있어 그때는 1ms 로 올린다(다음 틱의 만료가 곧 0 을 보낸다).
-void CGameServer::SendActorBuff(CPlayer* player, BuffKind kind)
-{
-    const BuffSlot& slot = player->_buffs[static_cast<int>(kind)];
-    uint32_t remainMs = 0;
-    if (slot.IsActive())
-    {
-        const uint64_t leftFrames = (slot.expireFrame > _frameCount) ? (slot.expireFrame - _frameCount) : 0;
-        remainMs = static_cast<uint32_t>(leftFrames * FRAME_INTERVAL_MS);
-        if (remainMs == 0)
-            remainMs = 1;
-    }
-    _sessionHub.SendPacket(player, MakeActorBuff(player->_actorId, static_cast<uint8_t>(kind), slot.IsActive() ? slot.value : 0, remainMs));
-    _gameMonitor._buff._actorBuffSent.Inc();
-}
-
-// 켜져 있는 칸을 전부 — 입장·존 이동. 입장엔 DB 저장값으로 되살린 효과가 가고(없으면 0장 — RestoreCooldownsAndBuffs),
-//   존 이동엔 그대로 따라온 효과가 다시 간다(웹이 존을 넘으면 내 액터를 새로 만드는 날 비지 않게 — ACTOR_MP 와 같은 까닭, 10-11).
-void CGameServer::SendActiveBuffs(CPlayer* player)
-{
-    for (int k = 0; k < BUFF_KIND_COUNT; ++k)
-    {
-        if (player->_buffs[k].IsActive())
-            SendActorBuff(player, static_cast<BuffKind>(k));
-    }
-}
+// 효과 칸 보내기(SendActorBuff · SendActiveBuffs) 는 본인 알림 조각으로 옮겼다 — CSelfNotifier (게임 서버 나누기 2 단계)
 #endif // USE_COMBAT
-
-#if USE_EXP
-// 레벨·경험치 — 표(CLevelTable)의 누적 필요치를 그대로 싣는다(누적 기준은 StatSystem.cpp 경험치 머리 주석).
-void CGameServer::SendExp(CPlayer* player)
-{
-    const CLevelTable& table = _gameDataFiles.Level();
-    const int32_t maxLevel = table.MaxLevel();
-
-    // 만렙이면 다음 필요치가 0 — 클라는 0 을 보면 나누지 말고 MAX 로 그린다.
-    const int64_t nextExp = (player->_level < maxLevel) ? table.RequiredExp(player->_level + 1) : 0;
-
-    _sessionHub.SendPacket(player, MakeExp(player->_level, player->_exp,
-                               table.RequiredExp(player->_level), nextExp));
-}
-#endif // USE_EXP
 
 // 부활 대기자 훑기 — 틱마다 1회. 죽은 것만 따로 들고 있어 존 전체를 돌지 않는다.
 void CGameServer::TickRespawn()
@@ -4040,7 +3859,7 @@ void CGameServer::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind kind)
     // 2-1) 마을 부활 — 내 자리를 안 뒤에 「되살아났다」(체력). 웹·콘솔이 이미 받는 패킷이라 클라는 죽음 풀기를 새로 안 짠다.
     //   본인에게만 — 마을 사람들은 아래 4) 의 CREATE 가 체력 가득한 나를 보여 준다(CREATE 가 체력을 싣는다)
     if (rule.revive)
-        _sessionHub.SendPacket(player, MakeRespawn(player->_actorId, player->_x, player->_y, player->_hp));
+        _selfNotifier.SendRespawn(player);
 #endif
 
 #if USE_EXP
@@ -4049,7 +3868,7 @@ void CGameServer::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind kind)
     //   콘솔 클라는 존을 넘을 때 내 정보를 통째로 비우고 다시 세운다(speed 만 따로 옮겨 담는다,
     //   GameInstance.cpp 의 ZONE_CHANGE_OK). 안 보내면 거기서 화면이 1 레벨로 돌아가고
     //   다음 경험치가 들어올 때까지 그대로다. 웹 클라는 안 비우므로 이 장이 덧쓰기가 될 뿐 무해하다.
-    SendExp(player);
+    _selfNotifier.SendExp(player);
 #endif
 
 #if USE_SKILL
@@ -4057,20 +3876,20 @@ void CGameServer::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind kind)
     //   ★ 웹은 마력을 내 액터(self)에 담는다 — 웹 주석(live.html 의 me 정의 위)은 존을 넘으면 self 를 새로 만든다고 적어 둔다.
     //     지금은 웹에 존 이동 처리가 없어 덧쓰기가 될 뿐이지만, 그 처리가 생기는 날 마력이 비지 않게 미리 보낸다(10-11).
     //   부하 더미도 입장 때 이 한 장을 반드시 받는다 — 등록을 빼면 전원 떨어진다(가방 전체·MY_STATS 와 같은 함정).
-    SendActorMp(player);
+    _selfNotifier.SendActorMp(player);
 #endif
 
 #if USE_COMBAT
     // 3-0) 켜져 있는 지속 효과 — 마력과 같은 자리·같은 까닭(존 이동 때 다시, firstEntry 밖). 입장 땐 DB 저장값으로 되살린 효과만 간다(없으면 0장).
     //   부하 더미에겐 올 일이 없다(스킬을 안 쓴다) — 등록은 해 뒀다(DummyClient.cpp).
-    SendActiveBuffs(player);
+    _selfNotifier.SendActiveBuffs(player);
 #endif
 
 #if USE_SKILL
     // 3-0b) 아직 돌고 있는 스킬 쿨타임 — 효과와 같은 자리·같은 까닭(존 이동 때 다시, firstEntry 밖). 없으면 0장.
     //   다시 접속하면 DB 저장값으로 되살린 쿨타임이 여기서 처음 클라에 간다(RestoreCooldownsAndBuffs) — 안 보내면 웹 스킬 칸이 다 풀린 것처럼 그려진다.
     //   부하 더미에겐 올 일이 없다(스킬을 안 쓴다) — 등록은 해 뒀다(DummyClient.cpp).
-    SendActiveSkillCooldowns(player);
+    _selfNotifier.SendActiveSkillCooldowns(player);
 #endif
 
     if (rule.firstEntry)
@@ -4080,13 +3899,13 @@ void CGameServer::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind kind)
         //   ★ 부하 더미가 이 패킷을 받는 유일한 길이 여기다(더미는 아이템을 안 받는다). 그래서 더미 시험과
         //     "등록을 빼면 떨어지나" 돌연변이가 이 한 장에 매달려 있다 — "비었으면 안 보내자"로 바꾸면 둘 다
         //     조용히 아무것도 안 보게 된다.
-        SendInventory(player);
+        _selfNotifier.SendInventory(player);
 #endif
 
 #if USE_COMBAT
         // 3-2) 최종 공격력·방어력 — 가방 전체 뒤(클라가 무기 칸을 알고 나서 숫자를 채우게).
         //   ★ 부하 더미도 이 한 장을 반드시 받는다 — 가방 전체와 같은 함정(등록을 빼면 전원 떨어진다).
-        SendMyStats(player);
+        _selfNotifier.SendMyStats(player);
 #endif
     }
 

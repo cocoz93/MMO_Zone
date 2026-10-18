@@ -15,7 +15,7 @@
 //        가르는 물음 하나 — "나무나 포탈에도 말이 되나" → 되면 CActor, 안 되면 여기.
 //
 // [세션] 조종 세션(_sessionId)은 여기 없고 CPlayer 에 있다. 패킷을 받는 쪽은 플레이어뿐이라
-//        보내는 함수(CSessionHub::SendPacket 과 CGameServer::SendXxx)는 전부 CPlayer* 만 받는다 — 몬스터에게
+//        보내는 함수(CSessionHub::SendPacket 과 CGameServer·CSelfNotifier 의 SendXxx)는 전부 CPlayer* 만 받는다 — 몬스터에게
 //        보내는 코드는 컴파일이 안 된다. 섹터 목록(CCharacter*)에서 받는 쪽을 고를 때는
 //        As<CPlayer>(아래 As) 로 확인 후 내려 바꾼다. 코드 전체에서 내려 바꾸는 자리는 그 한 곳뿐이다.
 //

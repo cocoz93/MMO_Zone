@@ -140,6 +140,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/main.cpp
     ${SRV_DIR}/GameServer.cpp
     ${SRV_DIR}/SessionHub.cpp
+    ${SRV_DIR}/SelfNotifier.cpp
     ${SRV_DIR}/MapManager.cpp
     ${SRV_DIR}/SectorManager.cpp
     ${SRV_DIR}/Zone.cpp

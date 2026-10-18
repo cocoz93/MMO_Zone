@@ -49,6 +49,7 @@
 #include "DB/DBWorker.h"
 #include "PacketRoutes.h"  // 받은 패킷의 분기 표(번호 → 최소 크기 · 처리기) — 게임 서버 나누기 0-④
 #include "SessionHub.h"    // 세션 칸 · 플레이어 찾기 · 보내기 · 캐릭터 번호 발급 — 게임 서버 나누기 1 단계(B1)
+#include "SelfNotifier.h"  // 본인 알림(내 상태 패킷을 나에게만) — 게임 서버 나누기 2 단계(B5)
 
 class CSerialBuffer;
 
@@ -119,19 +120,7 @@ public:
     // 읽은 기획 데이터 — main 이 맵 표의 줄과 INI 운영 값을 엮어 맵 설정(MapConfig)을 만들 때 읽는다.
     const CGameDataFiles& GameData() const { return _gameDataFiles; }
 
-#if USE_EXP
-    // ── 경험치·레벨 ──
-    //   규칙(경험치 더하기·레벨 올리기·표 밖 보정)은 CStatSystem(_statSystem) — 여기는 결과를 보내기만 한다.
-    // 본인에게 레벨·경험치를 알린다. 만렙이면 nextLevelExp 를 0 으로 보낸다.
-    void SendExp(CPlayer* player);
-#endif
-
-#if USE_COMBAT
-    // 스탯 세우기는 CStatSystem::RecalcStats(_statSystem) — 여기는 결과를 보내기만 한다.
-    // 본인에게 최종 공격력·방어력(S2C_MY_STATS) — 입장·레벨업·끼우기·빼기·지속 효과 걸림·풀림(OnBuffChanged). 세는 곳도 여기 한 곳.
-    //   존 이동 때는 안 보낸다 — 값이 안 바뀌고, 웹은 판을 안 비우며, 콘솔은 이 값을 안 그린다.
-    void SendMyStats(CPlayer* player);
-#endif
+    // 경험치·스탯 보내기(SendExp · SendMyStats)는 본인 알림 조각으로 옮겼다 — _selfNotifier (SelfNotifier.h · 게임 서버 나누기 2 단계)
 
     // 서버 시작/종료
     bool Start();
@@ -222,17 +211,12 @@ private:
     void RemoveFromDeadActors(CCharacter* player);
 
     // ── 지속 효과 (USE_COMBAT) ──
-    // 걸기·만료·정리는 CBuffSystem(_buffSystem) — 여기는 알림을 받아 보내기만. 틱 3-2b 가 만료를 훑고,
+    // 걸기·만료·정리는 CBuffSystem(_buffSystem) — 여기는 알림을 받아 본인 알림 조각에 넘기기만. 틱 3-2b 가 만료를 훑고,
     //   사라지는 두 길(ReleasePlayer → Forget · OnDeath → ClearAll)이 목록에서 뺀다(BuffSystem.h [목록은 틱 너머로 주소를 든다]).
     // 효과 알림 (IBuffEvents) — 스탯은 이미 다시 선 뒤다. 사람이면 S2C_ACTOR_BUFF(본인) → S2C_MY_STATS(바뀐 공격력). 몬스터면 보낼 세션이 없다.
     void OnBuffChanged(CCharacter* target, BuffKind kind) override;
 
-    // 본인에게 효과 칸 하나(S2C_ACTOR_BUFF) — 비었으면 remainMs 0(풀림). 세는 곳도 여기 한 곳.
-    //   ★ 본인 전용이다 — BroadcastAroundSector 로 보내지 말 것(Protocol.h MSG_S2C_ACTOR_BUFF).
-    void SendActorBuff(CPlayer* player, BuffKind kind);
-
-    // 켜져 있는 효과를 전부 본인에게 — 입장·존 이동(NotifyArrival). 입장 때는 DB 저장값으로 되살린 효과만 간다(없으면 0장 — RestoreCooldownsAndBuffs).
-    void SendActiveBuffs(CPlayer* player);
+    // 효과 칸 보내기(SendActorBuff · SendActiveBuffs)는 본인 알림 조각으로 옮겼다 — _selfNotifier (게임 서버 나누기 2 단계)
 
     // 공격 알림 셋 (ICombatEvents) — 뜻과 순서는 CombatSystem.h. 셋 다 공격자 주변 9섹터에 방송한다.
     void OnSwing(CZone* zone, CCharacter* attacker) override;
@@ -264,11 +248,7 @@ private:
     //   ★ 칸을 바꾼 자리는 반드시 부른다. 넣기·쓰기·드랍 어느 길이든 내보내는 길은 이것 하나다.
     void FlushInventory(CPlayer* player);
 
-    // 가방 전체 — 입장 때 한 번(빈 가방이어도 한 장).
-    void SendInventory(CPlayer* player);
-
-    // 본인에게 알림 한 줄 — 기존 S2C_ERROR 를 쓴다(콘솔은 이미 UTF-8 로 풀어 보여 준다).
-    void SendSystemMessage(CPlayer* player, const std::string& utf8);
+    // 가방 전체(SendInventory) · 알림 한 줄(SendSystemMessage)은 본인 알림 조각으로 옮겼다 — _selfNotifier (게임 서버 나누기 2 단계)
 
     // 아이템 쓰기(지금은 물약만) — CItemSystem::UseItem 을 불러, 거절이면 사유를 본인에게(와이어 값으로 바꿔),
     //   성공이면 칸 갱신 + 채운 쪽 통보(체력 물약 = 체력 주변 방송 · 마력 물약 = 마력 본인만). 판정·적용·세기는 CItemSystem 이다.
@@ -305,13 +285,7 @@ private:
     // 되살려라 (ISkillEvents) — 존의 몬스터 관리자에 요청만 넘긴다(RequestRevive — 깔기는 다음 틱 리젠 · 등장 알림은 OnMonsterSpawn 그대로).
     void OnRevive(CZone* zone, CCharacter* caster, int32_t monsterId) override;
 
-    // 본인에게 마력(S2C_ACTOR_MP) — 입장·존 이동·레벨업·스킬 마력 소모·마력 물약. 세는 곳도 여기 한 곳.
-    //   ★ 본인 전용이다 — BroadcastAroundSector 로 보내지 말 것(Protocol.h MSG_S2C_ACTOR_MP).
-    void SendActorMp(CPlayer* player);
-
-    // 아직 돌고 있는 스킬 쿨타임을 전부 본인에게(S2C_SKILL_COOLDOWN_REMAIN) — 입장·존 이동(NotifyArrival, SendActiveBuffs 옆). 칸마다 한 장, 없으면 0장.
-    //   ★ 본인 전용이다 — BroadcastAroundSector 로 보내지 말 것(Protocol.h MSG_S2C_SKILL_COOLDOWN_REMAIN). 세는 곳도 여기 한 곳.
-    void SendActiveSkillCooldowns(CPlayer* player);
+    // 마력(SendActorMp) · 남은 쿨타임(SendActiveSkillCooldowns)은 본인 알림 조각으로 옮겼다 — _selfNotifier (게임 서버 나누기 2 단계)
 #endif
 
 #if USE_PARTY
@@ -665,6 +639,10 @@ private:
     int _cleanupFrameCount = 0;
     int _syncFrameCount = 0;
     uint64_t _frameCount = 0;   // 단조 증가 프레임 번호 (이동 예산의 경과 시간 산출용)
+
+    // 본인 알림 — 그 사람 자신의 상태를 그 사람에게만(SelfNotifier.h). 틱 번호는 읽기만 하도록 빌려 준다(남은 시간 셈의 「지금」).
+    //   ★ _sessionHub · _gameMonitor · _gameDataFiles · _frameCount 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
+    CSelfNotifier _selfNotifier{ _sessionHub, _gameMonitor, _gameDataFiles, _frameCount };
 
     // 플레이어 이동 속도 덮어쓰기(칸/초) — 0 이면 생성자의 기본값을 그대로 쓴다(SetPlayerSpeed)
     int _playerSpeed = 0;
