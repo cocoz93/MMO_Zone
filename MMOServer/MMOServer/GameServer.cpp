@@ -721,6 +721,12 @@ bool CGameServer::Init(ServerMode mode, int port, int maxClients,
 {
     _mode = mode;
 
+    if (!RegisterRoutes())
+    {
+        SLOG_ERROR("[GameServer] 패킷 분기 표 등록 실패 — 표 범위 밖 번호이거나 같은 번호를 두 번 등록했다 (RegisterRoutes)");
+        return false;
+    }
+
     _network = std::make_unique<NetIoModel>(port, maxClients, _mode, _monitor,
                                             workerThreads, sendWorkers, rioWorkers, completionBatch, sendDepth);
 
@@ -2129,26 +2135,26 @@ void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
     assert(peekedSize == static_cast<int>(sizeof(header)));
     (void)peekedSize;   // 릴리즈(NDEBUG) 미사용 경고 억제
 
-    // 타입별 최소 패킷 크기 검증
-    uint16_t expectedSize = GetExpectedSize(header.type);
-    if (expectedSize == 0 || header.size < expectedSize)
+    // 타입별 최소 패킷 크기 검증 — 분기 표에서 찾는다(크기와 처리기가 한 줄이라 둘이 어긋날 수 없다 — 게임 서버 나누기 0-④).
+    //   등록 안 된 번호·크기 미달은 버리고 오류로 센다(전과 같다).
+    const CPacketRoutes::Route* route = _routes.Find(header.type);
+    if (route == nullptr || header.size < route->minSize)
     {
         _monitor._packetErrors.Inc();
         pMsg->SubRef();
         return;
     }
 
-#if USE_LOGIN
     // 입장 요청만 아래 문턱 "앞"에서 가른다 — 이 패킷이 올 때는 아직 플레이어가 없어서,
     //   문턱 뒤에 두면 FindPlayer 가 nullptr 을 돌려 영영 핸들러에 못 닿는다.
     //   나머지 패킷은 지금까지와 똑같이 플레이어를 찾은 뒤에 간다.
-    if (header.type == MsgType::C2S_ENTER_GAME)
+    //   (표에서는 「찾기 전 처리기」가 있는 줄 — 지금은 USE_LOGIN 의 입장 요청 하나뿐이다. RegisterRoutes)
+    if (route->onSession)
     {
-        RecvEnterGame(sessionId, pMsg);
+        route->onSession(sessionId, pMsg);
         pMsg->SubRef();
         return;
     }
-#endif
 
     // 경계 계층: sessionId → CPlayer* 변환은 여기 한 번뿐 — 이후 컨텐츠 로직은 세션 ID 를 다시 쓰지 않는다.
     //   핸들러(RecvXxx)는 CPlayer* 를 받고, 브로드캐스트·섹터 쪽은 CCharacter* 로 받는다(몬스터도 같은 길).
@@ -2159,148 +2165,71 @@ void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
         return;
     }
 
-    switch (header.type)
-    {
-    case MsgType::C2S_MOVE_START:
-        RecvMoveStart(player, pMsg);
-        break;
-
-    case MsgType::C2S_MOVE_STOP:
-        RecvMoveStop(player, pMsg);
-        break;
-
-    case MsgType::C2S_CHAT:
-        RecvChat(player, pMsg);
-        break;
-
-    case MsgType::C2S_ZONE_CHANGE:
-        RecvZoneChange(player, pMsg);
-        break;
-
-    case MsgType::C2S_PORTAL_USE:
-        RecvPortalUse(player, pMsg);
-        break;
-
-    case MsgType::C2S_ADMIN_LOGIN:
-        RecvAdminLogin(player, pMsg);
-        break;
-
-#if USE_COMBAT
-    case MsgType::C2S_ATTACK:
-        RecvAttack(player, pMsg);
-        break;
-#endif
-
-#if USE_INVENTORY
-    case MsgType::C2S_USE_ITEM:
-        RecvUseItem(player, pMsg);
-        break;
-#endif
-
-#if USE_EQUIP
-    case MsgType::C2S_EQUIP:
-        RecvEquip(player, pMsg);
-        break;
-
-    case MsgType::C2S_UNEQUIP:
-        RecvUnequip(player, pMsg);
-        break;
-#endif
-
-#if USE_DROP
-    case MsgType::C2S_PICKUP:
-        RecvPickup(player, pMsg);
-        break;
-#endif
-
-#if USE_SKILL
-    case MsgType::C2S_USE_SKILL:
-        RecvUseSkill(player, pMsg);
-        break;
-#endif
-
-#if USE_PARTY
-    case MsgType::C2S_PARTY_REQUEST:
-        RecvPartyRequest(player, pMsg);
-        break;
-
-    case MsgType::C2S_PARTY_ANSWER:
-        RecvPartyAnswer(player, pMsg);
-        break;
-
-    case MsgType::C2S_PARTY_LEAVE:
-        RecvPartyLeave(player);
-        break;
-
-    case MsgType::C2S_PARTY_KICK:
-        RecvPartyKick(player, pMsg);
-        break;
-
-    case MsgType::C2S_PARTY_LEADER:
-        RecvPartyLeader(player, pMsg);
-        break;
-
-    case MsgType::C2S_PARTY_DISBAND:
-        RecvPartyDisband(player);
-        break;
-#endif
-
-    default:
-        // C2S_HEARTBEAT 등 — 게임 로직 처리 불필요 (타임아웃 갱신은 IOCPServer 수신 시점에서 처리)
-        break;
-    }
+    // 처리기가 없는 줄 — C2S_HEARTBEAT 등 — 게임 로직 처리 불필요 (타임아웃 갱신은 IOCPServer 수신 시점에서 처리)
+    if (route->onPlayer)
+        route->onPlayer(player, pMsg);
 
     // SerialBuffer 해제 (소유권 1 반환 — RefCount=0이면 프리리스트로)
     pMsg->SubRef();
 }
 
-uint16_t CGameServer::GetExpectedSize(MsgType type)
+// 받은 패킷의 분기 표 — 번호마다 최소 크기와 처리기를 한 줄로(전에는 크기 표 GetExpectedSize 의 switch 와 OnReceived 의 switch 가 따로였다 — 게임 서버 나누기 0-④).
+//   크기 줄을 빠뜨려 패킷이 조용히 버려지던 함정(아래 줄마다 남긴 옛 주석)은 처리기와 크기가 한 줄이 되며 구조로 막힌다.
+//   토글이 꺼진 컨텐츠는 줄 자체가 없다 — 그 번호는 등록 안 된 번호로 버려지고 _packetErrors 가 오른다(전과 같다).
+bool CGameServer::RegisterRoutes()
 {
-    switch (type)
-    {
-    case MsgType::C2S_MOVE_START:   return sizeof(MSG_C2S_MOVE_START);
-    case MsgType::C2S_MOVE_STOP:    return sizeof(MSG_C2S_MOVE_STOP);
-    case MsgType::C2S_CHAT:         return sizeof(MsgHeader) + sizeof(ChatChar); // 가변 길이: 최소 1글자
-    case MsgType::C2S_ZONE_CHANGE:  return sizeof(MSG_C2S_ZONE_CHANGE);
+    bool ok = true;
+    ok &= _routes.OnPlayer(MsgType::C2S_MOVE_START, sizeof(MSG_C2S_MOVE_START), [this](CPlayer* p, CSerialBuffer* m) { RecvMoveStart(p, m); });
+    ok &= _routes.OnPlayer(MsgType::C2S_MOVE_STOP,  sizeof(MSG_C2S_MOVE_STOP),  [this](CPlayer* p, CSerialBuffer* m) { RecvMoveStop(p, m); });
+    ok &= _routes.OnPlayer(MsgType::C2S_CHAT,       sizeof(MsgHeader) + sizeof(ChatChar),   // 가변 길이: 최소 1글자
+                           [this](CPlayer* p, CSerialBuffer* m) { RecvChat(p, m); });
+    ok &= _routes.OnPlayer(MsgType::C2S_ZONE_CHANGE, sizeof(MSG_C2S_ZONE_CHANGE), [this](CPlayer* p, CSerialBuffer* m) { RecvZoneChange(p, m); });
     // 이 줄이 없으면 포털 키가 조용히 버려진다(아래 물약과 같은 함정 — 답도 로그도 없다). 토글 없음(포털 표처럼)
-    case MsgType::C2S_PORTAL_USE:   return sizeof(MSG_C2S_PORTAL_USE);
-    case MsgType::C2S_HEARTBEAT:    return sizeof(MSG_C2S_HEARTBEAT);
+    ok &= _routes.OnPlayer(MsgType::C2S_PORTAL_USE, sizeof(MSG_C2S_PORTAL_USE), [this](CPlayer* p, CSerialBuffer* m) { RecvPortalUse(p, m); });
+    ok &= _routes.Size(MsgType::C2S_HEARTBEAT, sizeof(MSG_C2S_HEARTBEAT));   // 처리기 없음 — 타임아웃 갱신은 IOCPServer 수신 시점
 #if USE_COMBAT
-    // 이 줄을 빠뜨리면 0이 돌아가 위 OnReceived가 패킷을 조용히 버린다(로그 없음, _packetErrors만 증가).
-    case MsgType::C2S_ATTACK:       return sizeof(MSG_C2S_ATTACK);
+    // 이 줄을 빠뜨리면 등록 안 된 번호가 되어 OnReceived가 패킷을 조용히 버린다(로그 없음, _packetErrors만 증가).
+    ok &= _routes.OnPlayer(MsgType::C2S_ATTACK, sizeof(MSG_C2S_ATTACK), [this](CPlayer* p, CSerialBuffer* m) { RecvAttack(p, m); });
 #endif
-    case MsgType::C2S_ADMIN_LOGIN:  return sizeof(MSG_C2S_ADMIN_LOGIN);
+    ok &= _routes.OnPlayer(MsgType::C2S_ADMIN_LOGIN, sizeof(MSG_C2S_ADMIN_LOGIN), [this](CPlayer* p, CSerialBuffer* m) { RecvAdminLogin(p, m); });
     // 이 줄이 없으면 입장 요청이 0 을 받아 파싱 오류로 샌다 — 로그도 안 남고 _packetErrors 만 오른다.
-    //   1단계에서는 크기만 등록하고 핸들러는 없다(아래 OnReceived 의 default 로 빠지거나,
+    //   1단계에서는 크기만 등록하고 핸들러는 없다(OnReceived 에서 처리기 없는 줄로 넘어가거나,
     //   플레이어가 아직 없으면 그 앞 문턱에서 버려진다). 서버 동작은 그대로다.
-    case MsgType::C2S_ENTER_GAME:   return sizeof(MSG_C2S_ENTER_GAME);
+    //   (USE_LOGIN 이면 플레이어를 찾기 「전」에 처리한다 — 이 패킷이 올 때는 아직 플레이어가 없다. 끄면 크기만)
+#if USE_LOGIN
+    ok &= _routes.OnSession(MsgType::C2S_ENTER_GAME, sizeof(MSG_C2S_ENTER_GAME), [this](int64_t s, CSerialBuffer* m) { RecvEnterGame(s, m); });
+#else
+    ok &= _routes.Size(MsgType::C2S_ENTER_GAME, sizeof(MSG_C2S_ENTER_GAME));
+#endif
 #if USE_INVENTORY
     // 이 줄이 없으면 물약 쓰기가 조용히 버려진다(위 C2S_ATTACK 과 같은 함정 — 답도 로그도 없다).
-    case MsgType::C2S_USE_ITEM:     return sizeof(MSG_C2S_USE_ITEM);
+    ok &= _routes.OnPlayer(MsgType::C2S_USE_ITEM, sizeof(MSG_C2S_USE_ITEM), [this](CPlayer* p, CSerialBuffer* m) { RecvUseItem(p, m); });
 #endif
 #if USE_EQUIP
     // 이 두 줄이 없으면 끼우기·빼기가 조용히 버려진다(위 물약과 같은 함정 — 거절 패킷도 안 간다).
-    case MsgType::C2S_EQUIP:        return sizeof(MSG_C2S_EQUIP);
-    case MsgType::C2S_UNEQUIP:      return sizeof(MSG_C2S_UNEQUIP);
+    ok &= _routes.OnPlayer(MsgType::C2S_EQUIP,   sizeof(MSG_C2S_EQUIP),   [this](CPlayer* p, CSerialBuffer* m) { RecvEquip(p, m); });
+    ok &= _routes.OnPlayer(MsgType::C2S_UNEQUIP, sizeof(MSG_C2S_UNEQUIP), [this](CPlayer* p, CSerialBuffer* m) { RecvUnequip(p, m); });
 #endif
 #if USE_DROP
-    case MsgType::C2S_PICKUP:       return sizeof(MSG_C2S_PICKUP);   // 몸 없음 — 헤더뿐
+    ok &= _routes.OnPlayer(MsgType::C2S_PICKUP, sizeof(MSG_C2S_PICKUP),   // 몸 없음 — 헤더뿐
+                           [this](CPlayer* p, CSerialBuffer* m) { RecvPickup(p, m); });
 #endif
 #if USE_SKILL
     // 이 줄이 없으면 스킬 요청이 조용히 버려진다(위 물약과 같은 함정 — 거절 패킷도 안 간다)
-    case MsgType::C2S_USE_SKILL:    return sizeof(MSG_C2S_USE_SKILL);
+    ok &= _routes.OnPlayer(MsgType::C2S_USE_SKILL, sizeof(MSG_C2S_USE_SKILL), [this](CPlayer* p, CSerialBuffer* m) { RecvUseSkill(p, m); });
 #endif
 #if USE_PARTY
     // 이 여섯 줄이 없으면 파티 요청이 조용히 버려진다(위 물약과 같은 함정 — 답도 로그도 없다)
-    case MsgType::C2S_PARTY_REQUEST: return sizeof(MSG_C2S_PARTY_REQUEST);
-    case MsgType::C2S_PARTY_ANSWER:  return sizeof(MSG_C2S_PARTY_ANSWER);
-    case MsgType::C2S_PARTY_LEAVE:   return sizeof(MSG_C2S_PARTY_LEAVE);     // 몸 없음 — 헤더뿐
-    case MsgType::C2S_PARTY_KICK:    return sizeof(MSG_C2S_PARTY_KICK);
-    case MsgType::C2S_PARTY_LEADER:  return sizeof(MSG_C2S_PARTY_LEADER);
-    case MsgType::C2S_PARTY_DISBAND: return sizeof(MSG_C2S_PARTY_DISBAND);   // 몸 없음 — 헤더뿐
+    ok &= _routes.OnPlayer(MsgType::C2S_PARTY_REQUEST, sizeof(MSG_C2S_PARTY_REQUEST), [this](CPlayer* p, CSerialBuffer* m) { RecvPartyRequest(p, m); });
+    ok &= _routes.OnPlayer(MsgType::C2S_PARTY_ANSWER,  sizeof(MSG_C2S_PARTY_ANSWER),  [this](CPlayer* p, CSerialBuffer* m) { RecvPartyAnswer(p, m); });
+    ok &= _routes.OnPlayer(MsgType::C2S_PARTY_LEAVE,   sizeof(MSG_C2S_PARTY_LEAVE),   // 몸 없음 — 헤더뿐
+                           [this](CPlayer* p, CSerialBuffer*) { RecvPartyLeave(p); });
+    ok &= _routes.OnPlayer(MsgType::C2S_PARTY_KICK,    sizeof(MSG_C2S_PARTY_KICK),    [this](CPlayer* p, CSerialBuffer* m) { RecvPartyKick(p, m); });
+    ok &= _routes.OnPlayer(MsgType::C2S_PARTY_LEADER,  sizeof(MSG_C2S_PARTY_LEADER),  [this](CPlayer* p, CSerialBuffer* m) { RecvPartyLeader(p, m); });
+    ok &= _routes.OnPlayer(MsgType::C2S_PARTY_DISBAND, sizeof(MSG_C2S_PARTY_DISBAND), // 몸 없음 — 헤더뿐
+                           [this](CPlayer* p, CSerialBuffer*) { RecvPartyDisband(p); });
 #endif
-    default:                        return 0;
-    }
+    return ok;
 }
 
 // ==========================================================================

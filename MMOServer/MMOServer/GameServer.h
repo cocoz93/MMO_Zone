@@ -47,6 +47,7 @@
 #include "Common.h"
 #include "GameDataFiles.h"  // 기획 데이터 파일(맵·레벨·아이템·몬스터·스폰 구역·드랍 표)
 #include "DB/DBWorker.h"
+#include "PacketRoutes.h"  // 받은 패킷의 분기 표(번호 → 최소 크기 · 처리기) — 게임 서버 나누기 0-④
 
 class CSerialBuffer;
 
@@ -595,11 +596,14 @@ private:
     // 반환 false면 수용하지 않고 서버 좌표를 유지한다(기존 범위초과 경로와 동일한 처리).
     bool ConsumeMoveBudget(CPlayer* player, float distSq);
 
-    // 패킷 타입별 최소 크기 반환 (0이면 알 수 없는 타입)
-    static uint16_t GetExpectedSize(MsgType type);
+    // 받은 패킷의 분기 표를 채운다 — 패킷 번호마다 최소 크기와 처리기 한 줄(전에는 크기 표 GetExpectedSize 와 분기 switch 가 따로였다).
+    //   Init 이 맨 앞에서 부른다. 등록이 실패하면(범위 밖 · 두 번 등록) false — 기동 거절.
+    bool RegisterRoutes();
 
 private:
     ServerMode _mode;
+
+    CPacketRoutes _routes;   // 받은 패킷의 분기 표 — RegisterRoutes 가 채우고 OnReceived 가 찾는다
 
     CMonitorManager& _monitor;       // 코어 지표 — 배치 송신 경로에서 코어 대신 세는 자리가 있어 게임도 참조한다
     CGameMonitor&    _gameMonitor;   // 게임 컨텐츠 지표 (전투)
