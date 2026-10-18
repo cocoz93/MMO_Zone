@@ -1939,22 +1939,22 @@ void CGameServer::OnConnected(int64_t sessionId)
 //     바꾸는 날)에는 접속마다 전체를 훑게 된다. 그때 재 보고 계정 → 플레이어 맵으로 바꾼다.
 void CGameServer::KickDuplicateAccount(int64_t accountId, int64_t exceptSessionId)
 {
-    // ⑴ 게임 중 — 정리 코드를 새로 쓰지 않고 평소 끊김 처리를 그대로 부른다. 그 안에 퇴장 방송·
+    // ⑴ 게임 중 — 정리 코드를 새로 쓰지 않고 평소 끊김 처리와 같은 「떠나보내기」(LeaveGame)를 부른다. 그 안에 퇴장 방송·
     //    슬롯 해제·부활 대기열 회수·최종 저장 투입이 전부 있고, 무엇보다 **틱 중간 대기열에서 빼는
-    //    일**이 들어 있다(BroadcastLeaveZone 이 부르는 CZone::LeaveZone 이 존의 섹터 이동 대기열에서
+    //    일**이 들어 있다(RemoveFromZone 이 부르는 CZone::LeaveZone 이 존의 섹터 이동 대기열에서
     //    제거). 이 함수는 네트워크 이벤트 구간 한가운데서 플레이어를 지우는데, 같은 틱에
     //    그 플레이어가 MOVE_STOP 으로 그 대기열에 들어가 있을 수 있다 — 새로 짰으면 빠뜨렸을 자리다.
     //    뒤늦게 오는 진짜 끊김 이벤트는 플레이어가 이미 없어 FindPlayer 가 nullptr 이라 무해하다.
     for (const auto& slot : _sessionSlots)
     {
-        CPlayer* other = slot.get();   // OnDisconnected 가 이 칸을 비우면(해제) other 는 못 쓴다 — 아래는 그 뒤 바로 break
+        CPlayer* other = slot.get();   // LeaveGame 이 이 칸을 비우면(해제) other 는 못 쓴다 — 아래는 그 뒤 바로 break
         if (other == nullptr || other->_accountId != accountId || other->_sessionId == exceptSessionId)
             continue;
 
         const int64_t oldSession = other->_sessionId;
         SLOG_WARN("[LOGIN] duplicate account -> kick old session (account={}, old={}, new={})",
                   accountId, oldSession, exceptSessionId);
-        OnDisconnected(oldSession);                        // 최종 저장이 이 뒤의 조회보다 큐에서 앞선다
+        LeaveGame(other);                                  // 최종 저장이 이 뒤의 조회보다 큐에서 앞선다
         _network->RequestDisconnectSession(oldSession);
         _gameMonitor._enter._duplicate.Inc();
         break;   // 같은 계정이 둘 이상 게임 중일 수는 없다 — 여기서 막고 있기 때문이다
@@ -2062,11 +2062,19 @@ void CGameServer::OnDisconnected(int64_t sessionId)
 #endif
         return;
     }
+    LeaveGame(player);
+}
+
+// 떠나보내기 — 게임 중인 플레이어를 세계에서 내보내는 한 곳: 존에서 빼기(존을 찾으면) → 놓기(ReleasePlayer).
+//   끊김(OnDisconnected)과 같은 계정 재접속(KickDuplicateAccount)이 같이 부른다 — 정리 코드를 두 벌 두지 않는다(게임 서버 나누기 0-③).
+//   ★ 부른 뒤에는 player 를 쓰지 말 것 — ReleasePlayer 가 해제했다.
+void CGameServer::LeaveGame(CPlayer* player)
+{
     CZone* zone = _mapManager.GetZone(player->_zoneId);
     if (zone != nullptr)
     {
         // 주변 DELETE 브로드캐스트 + 섹터/존 해제
-        BroadcastLeaveZone(zone, player);
+        RemoveFromZone(zone, player);
     }
 
     // 대기열 회수 → 로그아웃 최종 저장 → 슬롯 비우기(해제) — 놓는 길은 하나다
@@ -2084,12 +2092,12 @@ void CGameServer::ReleasePlayer(CPlayer* player)
 #endif
 
 #if USE_COMBAT
-    // 부활 대기열 회수 — 끊김 길에서는 BroadcastLeaveZone 이 이미 하지만, 존을 못 찾은 갈래는 그걸 건너뛴다.
+    // 부활 대기열 회수 — 끊김 길에서는 RemoveFromZone 이 이미 하지만, 존을 못 찾은 갈래는 그걸 건너뛴다.
     //   그 상태로 죽어 있을 수는 없어도, 아래 해제 뒤에 대기열이 그 주소를 들고 있으면
     //   다음 틱이 해제된 메모리를 밟는다. 두 번 불러도 무해하므로 여기서도 뺀다.
     RemoveFromDeadActors(player);
 
-    // 지속 효과 목록도 같은 까닭으로 여기서 뺀다(알림 없음 — 세션이 없다). BroadcastLeaveZone 에서는 안 뺀다 — 존 이동이 그 길을 지난다.
+    // 지속 효과 목록도 같은 까닭으로 여기서 뺀다(알림 없음 — 세션이 없다). RemoveFromZone 에서는 안 뺀다 — 존 이동이 그 길을 지난다.
     _buffSystem.Forget(player);
 #endif
 
@@ -3244,7 +3252,7 @@ void CGameServer::TransferPlayer(CPlayer* player, CZone* oldZone, CZone* newZone
     assert(oldZone != newZone);
 
     // ── 현재 존에서 퇴장 ──
-    BroadcastLeaveZone(oldZone, player);
+    RemoveFromZone(oldZone, player);
 
     // ── 새 존에 입장 (player 객체 재활용, playerId 유지) ──
     //   들어갈 수 있는지는 부르는 쪽이 나가기 "전에" 다 봤다 — 입장은 실패가 없다(CZone::EnterZone 주석).
@@ -3404,7 +3412,7 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
     //   객체를 놓고 그 점을 비우는 것은 존의 몬스터 관리자다 — 빈 점은 그 구역 다음 리젠 때 찬다.
     if (CMonster* dead = As<CMonster>(target))
     {
-        BroadcastLeaveZone(zone, dead);
+        RemoveFromZone(zone, dead);
         zone->GetMonsterManager().Despawn(dead);   // ← 여기서 해제된다
     }
 #endif
@@ -3684,7 +3692,7 @@ void CGameServer::TickRespawn()
     if (_deadActors.empty())
         return;
 
-    // 마을로 옮길 사람 — 대기열을 도는 동안엔 옮기지 않는다. 옮기기(TransferPlayer → BroadcastLeaveZone)가
+    // 마을로 옮길 사람 — 대기열을 도는 동안엔 옮기지 않는다. 옮기기(TransferPlayer → RemoveFromZone)가
     //   이 대기열을 지우므로(RemoveFromDeadActors) 도는 자리가 어긋난다. 담아 두고 다 돈 뒤 아래에서 옮긴다.
     _respawnTransferBuffer.clear();
 
@@ -3922,7 +3930,7 @@ void CGameServer::OnMonsterVanish(CZone* zone, CMonster* monster)
 #if USE_COMBAT
     _buffSystem.ClearAll(monster);
 #endif
-    BroadcastLeaveZone(zone, monster);
+    RemoveFromZone(zone, monster);
 #if USE_PARTY
     _gameMonitor._room._minionsCleared.Inc();   // 클리어는 방 갈래만 건다(OnDeath) — 사라짐은 곧 방 클리어로 지운 수다
 #endif
@@ -4285,6 +4293,14 @@ void CGameServer::BroadcastLeaveZone(CZone* zone, CCharacter* player)
             SendDeletePlayer(m, player);
         ++_tickPairFixes;
     }
+}
+
+// 존에서 빼기 — 시야 몫(위 BroadcastLeaveZone) → 부활 대기열 정리 → 존에서 빼기, 이 순서
+//   (쪼개기 전 BroadcastLeaveZone 한 몸일 때의 순서 그대로 — 게임 서버 나누기 0-③).
+//   플레이어 퇴장·존 이동과 죽은 몬스터(OnDeath 끝)·사라지는 몬스터(OnMonsterVanish)가 같이 쓴다 — 종류를 안 가린다.
+void CGameServer::RemoveFromZone(CZone* zone, CCharacter* player)
+{
+    BroadcastLeaveZone(zone, player);
 
 #if USE_COMBAT
     // 부활 대기열에서도 제거 — 위 이동 묶음·아래 LeaveZone 의 섹터 이동 대기열과 같은 이유다(틱 끝 TickRespawn dangling 방지).

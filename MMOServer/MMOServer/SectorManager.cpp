@@ -25,7 +25,7 @@ namespace
         //   아래 swap-and-pop이 당겨온 원소의 인덱스까지 갱신한 뒤 -1로 되돌린다. 호출부 4곳
         //   (Zone::LeaveZone·Zone::Tick, CGameServer::RecvMoveStart·RecvMoveStop)은 모두 직전까지
         //   등록돼 있던 캐릭터를 그 등록 섹터 좌표로 넘기고, 중복 호출 경로도 없다
-        //   (LeaveZone 호출은 BroadcastLeaveZone 단 한 곳, 그 뒤엔 슬롯이 비거나 새 존에 재등록된다).
+        //   (LeaveZone 호출은 RemoveFromZone 단 한 곳, 그 뒤엔 슬롯이 비거나 새 존에 재등록된다).
         //   어느 목록인지는 RemoveCharacter 가 AddCharacter 와 같은 기준(_kind)으로 고른다.
         assert(idx >= 0 && idx < static_cast<int32_t>(list.size()) && list[idx] == c);
 

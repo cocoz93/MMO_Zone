@@ -72,11 +72,11 @@ void CMonsterManager::Tick(const MonsterContext& ctx, uint64_t frame)
     _thinking = false;
 }
 
-// 죽은 몬스터 지우기 — 존에서는 이미 빠졌다(CGameServer::BroadcastLeaveZone). 객체를 놓고 그 점을 비운다.
+// 죽은 몬스터 지우기 — 존에서는 이미 빠졌다(CGameServer::RemoveFromZone). 객체를 놓고 그 점을 비운다.
 void CMonsterManager::Despawn(CMonster* monster)
 {
     assert(!_thinking && "판단 순회 중에 몬스터를 지우면 순회가 깨진다 — 헤더 Despawn ★");
-    assert(monster->_listIndex == -1 && "존에서 먼저 뺄 것 — CGameServer::BroadcastLeaveZone");
+    assert(monster->_listIndex == -1 && "존에서 먼저 뺄 것 — CGameServer::RemoveFromZone");
 
     // [불변식] 구역·점 색인은 깔 때(Spawn) 같은 목록에서 준 것이다
     assert(monster->_spawnRegion >= 0 && monster->_spawnRegion < static_cast<int32_t>(_regions.size()));
@@ -350,7 +350,7 @@ void CMonsterManager::VanishAll(const MonsterContext& ctx)
     for (const auto& monster : _monsters)
     {
         ctx.events.OnMonsterVanish(&_zone, monster.get());
-        assert(monster->_listIndex == -1 && "받는 쪽이 존에서 뺀다 — CGameServer::BroadcastLeaveZone");
+        assert(monster->_listIndex == -1 && "받는 쪽이 존에서 뺀다 — CGameServer::RemoveFromZone");
     }
     _monsters.clear();   // ← 여기서 다 해제된다
 

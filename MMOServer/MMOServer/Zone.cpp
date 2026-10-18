@@ -95,7 +95,7 @@ void CZone::LeaveZone(CCharacter* player)
     _sectorManager.RemoveCharacter(player, player->_sectorX, player->_sectorY);
 
     // 섹터 이동 대기열에서 제거 — 틱 끝 처리(게임 루프 3)가 지워진 캐릭터를 읽지 않게.
-    //   부르는 쪽(CGameServer::BroadcastLeaveZone)은 대기열을 다 읽은 뒤에 여기로 온다.
+    //   부르는 쪽(CGameServer::RemoveFromZone)은 대기열을 다 읽은 뒤에 여기로 온다.
     _sectorChangedSet.erase(player);
     _pendingSectorChanges.erase(
         std::remove_if(_pendingSectorChanges.begin(), _pendingSectorChanges.end(),

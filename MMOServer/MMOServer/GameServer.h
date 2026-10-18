@@ -184,10 +184,14 @@ private:
     // 게임 중인 플레이어를 놓는 한 곳 — 존에서 나간 "뒤"에 부른다(지금은 끊김 한 곳. 존 이동 복귀 실패 길은 10-09 에 없앴다 —
     //   존 이동은 확인을 다 끝내고 옮겨서 들어가다 실패하지 않는다, CZone::EnterZone 주석).
     //   틱 너머로 이 플레이어를 드는 목록에서 빼기 → 최종 저장 → 슬롯 비우기(여기서 해제), 이 순서.
-    //   ★ 존 퇴장(BroadcastLeaveZone)은 부르는 쪽 몫 — 존을 못 찾은 끊김(OnDisconnected 의 zone == nullptr)은 퇴장 없이 놓기만 한다.
+    //   ★ 존 퇴장(RemoveFromZone)은 부르는 쪽 몫 — 존을 못 찾은 끊김(LeaveGame 의 zone == nullptr)은 퇴장 없이 놓기만 한다.
     //     CZone::LeaveZone 은 _zoneId 를 안 지우므로, 이미 존을 나간 길이 다시 생겨 이 안에서 _zoneId 로 나가면 같은 존을 두 번 나간다.
     //   ★ 부른 뒤에는 player 를 쓰지 말 것 — 이미 해제됐다.
     void ReleasePlayer(CPlayer* player);
+
+    // 떠나보내기 — 게임 중인 플레이어를 세계에서 내보내는 한 곳: 존에서 빼기(존을 찾으면) → 놓기(ReleasePlayer).
+    //   끊김(OnDisconnected)과 같은 계정 재접속(KickDuplicateAccount)이 같이 부른다. 부른 뒤에는 player 를 쓰지 말 것.
+    void LeaveGame(CPlayer* player);
 
     // 패킷 핸들러
     void RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg);
@@ -499,11 +503,14 @@ private:
     // 존 입장/퇴장 브로드캐스트
     //   BroadcastEnterZone — 플레이어 입장: 양방향(주변 → 나를 생성, 나 → 주변을 생성)
     //   BroadcastSpawn     — 세션 없는 것(몬스터)의 등장: 주변에 알리기만. 받는 쪽이 없으니 인바운드가 없다
-    //   BroadcastLeaveZone — 퇴장: 주변에 나를 삭제하고 대기열에서 뺀 뒤 존에서 뺀다. 종류를 안 가린다 —
-    //                        플레이어 퇴장·존 이동과 죽은 몬스터(OnDeath 끝)가 같이 쓴다
+    //   BroadcastLeaveZone — 퇴장의 시야 몫: 주변(옛 섹터 시청자·같은 틱 이동자 포함)에 나를 삭제하고 이동 묶음에서 뺀다.
+    //                        존 소속은 안 건드린다 — 존에서 빼는 것은 아래 RemoveFromZone(게임 서버 나누기 0-③).
+    //   RemoveFromZone     — 존에서 빼기: 시야 몫 → 부활 대기열 정리 → CZone::LeaveZone. 종류를 안 가린다 —
+    //                        플레이어 퇴장·존 이동과 죽은 몬스터(OnDeath 끝)·사라지는 몬스터가 같이 쓴다
     void BroadcastEnterZone(CZone* zone, CPlayer* player, SpawnReason reason);
     void BroadcastSpawn(CZone* zone, CCharacter* who, SpawnReason reason);
     void BroadcastLeaveZone(CZone* zone, CCharacter* player);
+    void RemoveFromZone(CZone* zone, CCharacter* player);
 
     // ── 플레이어 ID 발급 + 표시 속성 ──
 
@@ -690,7 +697,7 @@ private:
     //   (처음엔 GetAroundPlayers 의 전신이 벡터를 요구해 _attackTargetBuffer 를 뒀었다)
 
     // 죽어서 부활을 기다리는 플레이어. 여기만 틱 너머로 포인터를 든다 —
-    //   퇴장 경로(BroadcastLeaveZone·ReleasePlayer)가 반드시 회수해야 한다.
+    //   퇴장 경로(RemoveFromZone·ReleasePlayer)가 반드시 회수해야 한다.
     //   몬스터는 여기 안 들어온다 — 죽는 순간 지운다(OnDeath 끝 → 존의 몬스터 관리자 Despawn).
     //   같은 규율이 이미 dirtyMovers 와 존의 섹터 이동 대기열(CZone::LeaveZone 이 뺀다)에 있다.
     std::vector<CCharacter*> _deadActors;
