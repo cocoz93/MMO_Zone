@@ -756,8 +756,7 @@ bool CGameServer::Init(ServerMode mode, int port, int maxClients,
         // 프레임 재사용 컨테이너 reserve (워밍업 realloc 방지)
         // 전체 서버 범위 버퍼도 maxPerChannel 기준 — 초과 시 자연 증가 후 capacity 유지
         int32_t maxPerChannel = maps[0].maxPlayersPerChannel;
-        _sessionSlots.clear();                       // 인덱스 직접 접근용 슬롯 (sessionId 인덱스로 접근)
-        _sessionSlots.resize(maxClients);            //   unique_ptr 라 assign(n, nullptr) 대신 — 전부 빈 칸으로
+        _sessionHub.Init(_network.get(), maxClients);   // 세션 칸 maxClients 개(전부 빈 칸) · 보내기에 쓸 네트워크
 #if USE_DB_WORKER
         _pendingEnter.assign(maxClients, PendingEnter{});   // 대기표 — 위 슬롯과 같은 크기·같은 색인 (불변식 공유)
 #endif
@@ -838,7 +837,7 @@ void CGameServer::Stop()
     }
 
     // 잔여 플레이어 정리 — 슬롯(unique_ptr)이 주인이라 비우면 해제된다(DB 를 켠 빌드면 최종 저장은 위 SaveAllPlayers 가 이미 했다)
-    _sessionSlots.clear();
+    _sessionHub.RemoveAll();
 
     // 몬스터는 여기서 안 치운다 — 소유가 존이라 _mapManager 가 소멸할 때 존과 같이 해제된다.
     //   게임 스레드가 이미 끝나(위 join) 그 사이에 몬스터를 읽는 코드가 없다.
@@ -1210,18 +1209,15 @@ void CGameServer::TickPeriodicSave()
     thread_local std::vector<size_t>    dropped;
     batch.clear();
     owners.clear();
-    for (const auto& slot : _sessionSlots)
+    _sessionHub.ForEachPlayer([&](CPlayer* player)
     {
-        CPlayer* player = slot.get();
-        if (player == nullptr)
-            continue;
         if (ShouldSave(player))
         {
             batch.push_back(MakeSaveJob(player));
             owners.push_back(player);
             MarkSaveQueued(player, batch.back());   // 저장 요청 후 리셋 (드롭되면 아래에서 되돌림)
         }
-    }
+    });
     _dbWorker->EnqueueBatch(batch, &dropped);   // lock 1회 + notify 1회
 
     // 백프레셔로 버려진 잡은 dirty를 되살려 다음 주기에 재시도한다.
@@ -1236,15 +1232,12 @@ void CGameServer::SaveAllPlayers()
     // 종료는 유실 방지 우선 — dirty/MOVING 무관하게 전원 최종 저장(안전망).
     // 주기 저장(ShouldSave 필터)과 목적이 다름: 여기선 dirty 추적을 신뢰하지 않고 무조건 다 씀.
     std::vector<DBSaveJob> batch;
-    batch.reserve(_sessionSlots.size());
-    for (const auto& slot : _sessionSlots)
+    batch.reserve(_sessionHub.SlotCount());
+    _sessionHub.ForEachPlayer([&](CPlayer* player)
     {
-        CPlayer* player = slot.get();
-        if (player == nullptr)
-            continue;
         batch.push_back(MakeSaveJob(player));
         MarkSaveQueued(player, batch.back());
-    }
+    });
     _dbWorker->EnqueueBatch(batch);   // 배치 1회 핸드오프
 }
 
@@ -1301,7 +1294,7 @@ void CGameServer::SetPendingEnter(int64_t sessionId, int64_t accountId, int32_t 
 
     if (slot.sessionId != -1)
     {
-        // 있을 수 없다 — 같은 자리의 끊김 이벤트는 다음 접속보다 먼저 온다(_sessionSlots 도 같은 순서에 기댄다).
+        // 있을 수 없다 — 같은 자리의 끊김 이벤트는 다음 접속보다 먼저 온다(세션 허브의 칸도 같은 순서에 기댄다).
         //   그래도 덮어쓰면 스스로 아문다: 옛 조회의 결과는 세션 번호가 안 맞아 orphaned 로 세어진다.
         SLOG_ERROR("[DB] pending enter overwritten (slot={}, old session={}, new session={})",
                    idx, slot.sessionId, sessionId);
@@ -1798,20 +1791,8 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
     else
         zone->EnterZone(player);
 
-    // 경계 매핑 등록 — 이제 슬롯이 주인이다
-    player->_sessionId = sessionId;
-    std::unique_ptr<CPlayer>& slot = _sessionSlots[CSession::ExtractIndex(sessionId)];
-    if (slot)
-    {
-        // 있을 수 없다 — 같은 자리의 끊김 이벤트는 다음 접속보다 먼저 온다(SetPendingEnter 와 같은 불변식).
-        //   그래도 그렇게 되면 옛 플레이어는 해제하지 않고 놓아 버린다(release) — 아직 존 목록이 그 주소를
-        //   들고 있을 수 있어 여기서 해제하면 다음 틱이 해제된 메모리를 밟는다. 새는 쪽이 덜 위험하다(전에도 새었다).
-        SLOG_ERROR("[ENTER] session slot still occupied (slot={}, old session={}, new session={})",
-                   CSession::ExtractIndex(sessionId), slot->_sessionId, sessionId);
-        assert(false && "슬롯에 살아 있는 플레이어가 있다");
-        (void)slot.release();
-    }
-    slot = std::move(owned);
+    // 경계 매핑 등록 — 세션 번호를 붙이고 이제 슬롯이 주인이다(칸이 차 있을 때의 처리는 CSessionHub::AddPlayer)
+    _sessionHub.AddPlayer(sessionId, std::move(owned));
 
     // 델타 동기화 기준 좌표 초기화 (스폰 직후 불필요한 동기화 방지)
     player->_lastSyncX = player->_x;
@@ -1891,7 +1872,7 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
 void CGameServer::OnConnected(int64_t sessionId)
 {
     // 이미 등록된 세션이면 무시 (중복 접속 방어)
-    if (FindPlayer(sessionId) != nullptr)
+    if (_sessionHub.FindPlayer(sessionId) != nullptr)
     {
         _network->RequestDisconnectSession(sessionId);
         return;
@@ -1909,7 +1890,7 @@ void CGameServer::OnConnected(int64_t sessionId)
 #else
     // 번호는 접속 때 뽑는다 — 지금은 계정 번호 = 캐릭터 번호(임시)라 조회 열쇠로 먼저 필요하다.
     //   못 들어간 접속은 번호 하나를 버린다(단조 증가 카운터라 무해 — 몬스터도 같은 카운터를 쓴다).
-    const int32_t actorId = AllocPlayerId();
+    const int32_t actorId = _sessionHub.AllocActorId();
 
 #if USE_DB_WORKER
     if (_dbWorker)
@@ -1951,19 +1932,19 @@ void CGameServer::KickDuplicateAccount(int64_t accountId, int64_t exceptSessionI
     //    제거). 이 함수는 네트워크 이벤트 구간 한가운데서 플레이어를 지우는데, 같은 틱에
     //    그 플레이어가 MOVE_STOP 으로 그 대기열에 들어가 있을 수 있다 — 새로 짰으면 빠뜨렸을 자리다.
     //    뒤늦게 오는 진짜 끊김 이벤트는 플레이어가 이미 없어 FindPlayer 가 nullptr 이라 무해하다.
-    for (const auto& slot : _sessionSlots)
+    //    첫 일치 하나만 본다 — 같은 계정이 둘 이상 게임 중일 수는 없다(여기서 막고 있기 때문이다).
+    CPlayer* other = _sessionHub.FindPlayerIf([&](const CPlayer* p)
     {
-        CPlayer* other = slot.get();   // LeaveGame 이 이 칸을 비우면(해제) other 는 못 쓴다 — 아래는 그 뒤 바로 break
-        if (other == nullptr || other->_accountId != accountId || other->_sessionId == exceptSessionId)
-            continue;
-
+        return p->_accountId == accountId && p->_sessionId != exceptSessionId;
+    });
+    if (other != nullptr)
+    {
         const int64_t oldSession = other->_sessionId;
         SLOG_WARN("[LOGIN] duplicate account -> kick old session (account={}, old={}, new={})",
                   accountId, oldSession, exceptSessionId);
-        LeaveGame(other);                                  // 최종 저장이 이 뒤의 조회보다 큐에서 앞선다
+        LeaveGame(other);                                  // 최종 저장이 이 뒤의 조회보다 큐에서 앞선다 · 이 뒤로 other 는 못 쓴다(칸이 비며 해제)
         _network->RequestDisconnectSession(oldSession);
         _gameMonitor._enter._duplicate.Inc();
-        break;   // 같은 계정이 둘 이상 게임 중일 수는 없다 — 여기서 막고 있기 때문이다
     }
 
     // ⑵ 불러오는 중 — 아직 플레이어가 없으니 저장도 방송도 없다. 대기표만 지우고 끊는다.
@@ -2017,8 +1998,8 @@ void CGameServer::RecvEnterGame(int64_t sessionId, CSerialBuffer* pMsg)
 
     // ⑵ 번호 둘. 캐릭터 번호는 언제나 새로 뽑고, 계정 번호는 들고 온 값이 있으면 그것, 없으면(0)
     //    방금 뽑은 캐릭터 번호를 그대로 쓴다 — 그래야 번호를 안 들고 온 접속이 지금까지와 똑같이 돈다.
-    //    자동과 지정은 구간이 타입으로 갈린다: AllocPlayerId 는 int32 카운터라 2^31 위로 못 올라온다.
-    const int32_t actorId   = AllocPlayerId();
+    //    자동과 지정은 구간이 타입으로 갈린다: 캐릭터 번호(CSessionHub::AllocActorId)는 int32 카운터라 2^31 위로 못 올라온다.
+    const int32_t actorId   = _sessionHub.AllocActorId();
     const int64_t accountId = (recvMsg.accountId != 0) ? recvMsg.accountId : static_cast<int64_t>(actorId);
 
     // [불변식] 여기 오는 동안 _dbWorker 는 널이 아니다 — InitDB 가 실패하면 main 이 서버를 아예
@@ -2057,7 +2038,7 @@ void CGameServer::RecvEnterGame(int64_t sessionId, CSerialBuffer* pMsg)
 
 void CGameServer::OnDisconnected(int64_t sessionId)
 {
-    CPlayer* player = FindPlayer(sessionId);
+    CPlayer* player = _sessionHub.FindPlayer(sessionId);
     if (player == nullptr)
     {
 #if USE_DB_WORKER
@@ -2114,9 +2095,7 @@ void CGameServer::ReleasePlayer(CPlayer* player)
 #endif
 
     // 슬롯 비우기 — 주인이 슬롯이라 여기서 해제된다(맨 끝이어야 한다)
-    std::unique_ptr<CPlayer>& slot = _sessionSlots[CSession::ExtractIndex(player->_sessionId)];
-    assert(slot.get() == player);
-    slot.reset();
+    _sessionHub.RemovePlayer(player);
 }
 
 void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
@@ -2158,7 +2137,7 @@ void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
 
     // 경계 계층: sessionId → CPlayer* 변환은 여기 한 번뿐 — 이후 컨텐츠 로직은 세션 ID 를 다시 쓰지 않는다.
     //   핸들러(RecvXxx)는 CPlayer* 를 받고, 브로드캐스트·섹터 쪽은 CCharacter* 로 받는다(몬스터도 같은 길).
-    CPlayer* player = FindPlayer(sessionId);
+    CPlayer* player = _sessionHub.FindPlayer(sessionId);
     if (player == nullptr)
     {
         pMsg->SubRef();
@@ -2635,7 +2614,7 @@ void CGameServer::FlushInventory(CPlayer* player)
         // 칸의 "최종값"을 보낸다 — 증감이 아니라서 같은 칸이 두 번 가도 결과가 같다
         const Item& s = inv.At(index);
         const uint16_t slotNo = CInventory::SlotNumberOf(index);
-        SendPacket(player, MakeInventorySlot(slotNo, s.itemId, s.count));
+        _sessionHub.SendPacket(player, MakeInventorySlot(slotNo, s.itemId, s.count));
         _gameMonitor._inventory._slotUpdatesSent.Inc();
 
 #if USE_DB_WORKER
@@ -2727,13 +2706,13 @@ void CGameServer::LoadInventoryRows(CPlayer* player, const DBResult& result)
 
 void CGameServer::SendInventory(CPlayer* player)
 {
-    SendPacket(player, MakeInventory(player->_inventory));
+    _sessionHub.SendPacket(player, MakeInventory(player->_inventory));
     _gameMonitor._inventory._snapshotsSent.Inc();
 }
 
 void CGameServer::SendSystemMessage(CPlayer* player, const std::string& utf8)
 {
-    SendPacket(player, MakeError(utf8));
+    _sessionHub.SendPacket(player, MakeError(utf8));
 }
 
 void CGameServer::RecvUseItem(CPlayer* player, CSerialBuffer* pMsg)
@@ -2746,7 +2725,7 @@ void CGameServer::RecvUseItem(CPlayer* player, CSerialBuffer* pMsg)
     const UseItemReject reject = _itemSystem.UseItem(player, recvMsg.slot, _frameCount, used);
     if (reject != UseItemReject::COUNT)
     {
-        SendPacket(player, MakeUseItemFail(recvMsg.slot, ToUseItemFail(reject)));
+        _sessionHub.SendPacket(player, MakeUseItemFail(recvMsg.slot, ToUseItemFail(reject)));
         return;
     }
 
@@ -2790,7 +2769,7 @@ void CGameServer::ApplyEquip(CPlayer* player, uint16_t slot, bool unequip)
     const EquipReject reject = _itemSystem.Equip(player, slot, unequip, _frameCount);
     if (reject != EquipReject::COUNT)
     {
-        SendPacket(player, MakeEquipFail(slot, ToEquipFail(reject)));
+        _sessionHub.SendPacket(player, MakeEquipFail(slot, ToEquipFail(reject)));
         return;
     }
 
@@ -2810,10 +2789,7 @@ void CGameServer::ApplyEquip(CPlayer* player, uint16_t slot, bool unequip)
 // 계층 경계 헬퍼
 // ==========================================================================
 
-int32_t CGameServer::AllocPlayerId()
-{
-    return _nextPlayerId++;
-}
+// 캐릭터 번호 발급(AllocPlayerId)은 세션 허브로 옮겼다 — CSessionHub::AllocActorId (게임 서버 나누기 1 단계)
 
 // playerId → 고유 표시 문자 (A-Z, a-z, 0-9 = 62종)
 uint8_t CGameServer::CalcDisplayChar(int32_t playerId)
@@ -2830,24 +2806,7 @@ uint8_t CGameServer::CalcColorIndex(int32_t playerId)
 }
 
 // ── 패킷 전송 추상화 ──
-// 단일 플레이어에게 패킷 전송 (CSerialBuffer — 소유권 1을 소비)
-// 빌더가 반환한 RefCount=1 버퍼를 넘기면, 송신 후 SubRef로 소유권을 회수한다.
-//   받는 쪽은 CPlayer* 뿐이다. 세션 -1 검사는 둔다 — 스폰 도중처럼 세션이 잠시 없는 상태가 생기면 이 한 줄이 막는다.
-void CGameServer::SendPacket(CPlayer* target, CSerialBuffer* pMsg)
-{
-    if (target->_sessionId != -1)
-    {
-        pMsg->AddRef();   // 송신용 소유권 — RequestSendMsg(CSerialBuffer*)가 소비
-        // 게임루프 송신은 묶어 보낼 수 있음을 표시(Deferred) — 실제 지연 여부는 USE_SEND_COALESCING이 결정
-        const int dataSize = pMsg->GetDataSize();
-        if (_network->RequestSendMsg(target->_sessionId, pMsg, SendFlush::Deferred))
-        {
-            _monitor._sendPackets.Inc();
-            _monitor._sendEnqueuedBytes.Add(static_cast<int64_t>(dataSize));
-        }
-    }
-    pMsg->SubRef();       // 빌더가 넘긴 소유권 1 회수 (세션 무효여도 안전 회수)
-}
+// 단일 플레이어에게 패킷 전송(SendPacket)은 세션 허브로 옮겼다 — CSessionHub::SendPacket (게임 서버 나누기 1 단계)
 
 // 주변 브로드캐스트 (CSerialBuffer — 빌더 RefCount=1 버퍼를 소비)
 void CGameServer::BroadcastAroundSector(CZone* zone, CCharacter* player, CSerialBuffer* pMsg, bool excludeSelf)
@@ -2948,24 +2907,24 @@ void CGameServer::OnCharacterMoveStop(CZone* zone, CCharacter* character)
 
 void CGameServer::SendZoneInfo(CPlayer* target, CZone* zone)
 {
-    SendPacket(target, MakeZoneInfo(zone));
+    _sessionHub.SendPacket(target, MakeZoneInfo(zone));
 }
 
 void CGameServer::SendCreateMyPlayer(CPlayer* target)
 {
-    SendPacket(target, MakeCreateMyPlayer(target));   // 본인 체력도 이 안에 실린다(ActorSnapshot)
+    _sessionHub.SendPacket(target, MakeCreateMyPlayer(target));   // 본인 체력도 이 안에 실린다(ActorSnapshot)
 }
 
 void CGameServer::SendCreateOtherPlayer(CPlayer* target, CCharacter* who, SpawnReason reason)
 {
     ++_tickMembershipSends;   // 멤버십 변경 복사 집계 (BroadcastAroundSector 밖 경로)
-    SendPacket(target, MakeCreateOtherPlayer(who, reason));
+    _sessionHub.SendPacket(target, MakeCreateOtherPlayer(who, reason));
 }
 
 void CGameServer::SendDeletePlayer(CPlayer* target, CCharacter* who)
 {
     ++_tickMembershipSends;   // 멤버십 변경 복사 집계 (BroadcastAroundSector 밖 경로)
-    SendPacket(target, MakeDeletePlayer(who->_actorId));
+    _sessionHub.SendPacket(target, MakeDeletePlayer(who->_actorId));
 }
 
 #if USE_MEMBERSHIP_INBOUND_BUNDLE
@@ -2978,7 +2937,7 @@ void CGameServer::SendCreatePlayerBatch(CPlayer* target, CCharacter* const* othe
     for (int i = 0; i < count; i += CREATE_PLAYER_BATCH_MAX_ENTRIES)
     {
         int chunk = (std::min)(count - i, CREATE_PLAYER_BATCH_MAX_ENTRIES);
-        SendPacket(target, MakeCreatePlayerBatch(others + i, chunk));
+        _sessionHub.SendPacket(target, MakeCreatePlayerBatch(others + i, chunk));
     }
 }
 
@@ -2988,14 +2947,14 @@ void CGameServer::SendDeletePlayerBatch(CPlayer* target, CCharacter* const* othe
     for (int i = 0; i < count; i += DELETE_PLAYER_BATCH_MAX_ENTRIES)
     {
         int chunk = (std::min)(count - i, DELETE_PLAYER_BATCH_MAX_ENTRIES);
-        SendPacket(target, MakeDeletePlayerBatch(others + i, chunk));
+        _sessionHub.SendPacket(target, MakeDeletePlayerBatch(others + i, chunk));
     }
 }
 #endif // USE_MEMBERSHIP_INBOUND_BUNDLE
 
 void CGameServer::SendSyncPosition(CPlayer* target)
 {
-    SendPacket(target, MakeSyncPosition(target->_actorId, target->_x, target->_y));
+    _sessionHub.SendPacket(target, MakeSyncPosition(target->_actorId, target->_x, target->_y));
 }
 
 void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
@@ -3224,11 +3183,11 @@ void CGameServer::RecvAdminLogin(CPlayer* player, CSerialBuffer* pMsg)
     if (strcmp(recvMsg.key, ADMIN_KEY) == 0)
     {
         player->_isAdmin = true;
-        SendPacket(player, MakeAdminLoginOk());
+        _sessionHub.SendPacket(player, MakeAdminLoginOk());
     }
     else
     {
-        SendPacket(player, MakeAdminLoginFail());
+        _sessionHub.SendPacket(player, MakeAdminLoginFail());
     }
 }
 
@@ -3487,7 +3446,7 @@ void CGameServer::RecvUseSkill(CPlayer* player, CSerialBuffer* pMsg)
     // 거절이면 아무것도 안 바뀌었다(비용은 모든 검사 뒤에만 뗀다) — 사유만 본인에게
     const SkillReject reject = _skillSystem.UseSkill(zone, player, recvMsg.skillId, _frameCount);
     if (reject != SkillReject::COUNT)
-        SendPacket(player, MakeSkillFail(recvMsg.skillId, ToSkillFail(reject)));
+        _sessionHub.SendPacket(player, MakeSkillFail(recvMsg.skillId, ToSkillFail(reject)));
 }
 
 // 시전했다 — 비용을 뗀 뒤, 효과 전에 온다. 와이어 순서 = 시전 모양 → 시전자 체력 → 시전자 마력(본인만) → (효과의 DAMAGE …)
@@ -3525,7 +3484,7 @@ void CGameServer::OnRevive(CZone* zone, CCharacter* caster, int32_t monsterId)
 // 마력 알림 — 그 사람 자신의 마력을 그 사람에게만. 세는 곳도 여기 한 곳(SendMyStats 와 같은 꼴).
 void CGameServer::SendActorMp(CPlayer* player)
 {
-    SendPacket(player, MakeActorMp(player->_actorId, player->_mp, player->_maxMp));
+    _sessionHub.SendPacket(player, MakeActorMp(player->_actorId, player->_mp, player->_maxMp));
     _gameMonitor._skill._actorMpSent.Inc();
 }
 
@@ -3539,7 +3498,7 @@ void CGameServer::SendActiveSkillCooldowns(CPlayer* player)
         if (ready <= _frameCount)
             continue;
         const uint32_t remainMs = static_cast<uint32_t>((ready - _frameCount) * FRAME_INTERVAL_MS);   // 표 상한 1시간 → 360만 ms, u32 안
-        SendPacket(player, MakeSkillCooldownRemain(player->_actorId, static_cast<uint8_t>(id), remainMs));
+        _sessionHub.SendPacket(player, MakeSkillCooldownRemain(player->_actorId, static_cast<uint8_t>(id), remainMs));
         _gameMonitor._skill._cooldownRemainSent.Inc();
     }
 }
@@ -3550,7 +3509,7 @@ void CGameServer::SendActiveSkillCooldowns(CPlayer* player)
 // ==========================================================================
 void CGameServer::SendMyStats(CPlayer* player)
 {
-    SendPacket(player, MakeMyStats(player->_attackPower, player->_defense));
+    _sessionHub.SendPacket(player, MakeMyStats(player->_attackPower, player->_defense));
     _gameMonitor._combat._myStatsSent.Inc();
 }
 
@@ -3584,7 +3543,7 @@ void CGameServer::SendActorBuff(CPlayer* player, BuffKind kind)
         if (remainMs == 0)
             remainMs = 1;
     }
-    SendPacket(player, MakeActorBuff(player->_actorId, static_cast<uint8_t>(kind), slot.IsActive() ? slot.value : 0, remainMs));
+    _sessionHub.SendPacket(player, MakeActorBuff(player->_actorId, static_cast<uint8_t>(kind), slot.IsActive() ? slot.value : 0, remainMs));
     _gameMonitor._buff._actorBuffSent.Inc();
 }
 
@@ -3610,7 +3569,7 @@ void CGameServer::SendExp(CPlayer* player)
     // 만렙이면 다음 필요치가 0 — 클라는 0 을 보면 나누지 말고 MAX 로 그린다.
     const int64_t nextExp = (player->_level < maxLevel) ? table.RequiredExp(player->_level + 1) : 0;
 
-    SendPacket(player, MakeExp(player->_level, player->_exp,
+    _sessionHub.SendPacket(player, MakeExp(player->_level, player->_exp,
                                table.RequiredExp(player->_level), nextExp));
 }
 #endif // USE_EXP
@@ -3768,30 +3727,30 @@ CPlayer* CGameServer::FindPlayerAround(CPlayer* player, int32_t actorId)
 
 void CGameServer::OnPartyAsk(CPlayer* to, uint32_t requestId, PartyAskKind kind, const CPlayer* from, const CPlayer* about, uint32_t remainMs)
 {
-    SendPacket(to, MakePartyAsk(requestId, kind, from, about, remainMs));
+    _sessionHub.SendPacket(to, MakePartyAsk(requestId, kind, from, about, remainMs));
     _gameMonitor._party._askSent.Inc();
 }
 
 void CGameServer::OnPartyAskEnd(CPlayer* to, uint32_t requestId, PartyNotice why)
 {
-    SendPacket(to, MakePartyAskEnd(requestId, why));
+    _sessionHub.SendPacket(to, MakePartyAskEnd(requestId, why));
     _gameMonitor._party._askEndSent.Inc();
 }
 
 void CGameServer::OnPartyNotice(CPlayer* to, PartyNotice code, int32_t actorId)
 {
-    SendPacket(to, MakePartyNotice(code, actorId));   // 세기는 규칙 쪽(CPartySystem::Notice — 번호별)
+    _sessionHub.SendPacket(to, MakePartyNotice(code, actorId));   // 세기는 규칙 쪽(CPartySystem::Notice — 번호별)
 }
 
 void CGameServer::OnPartyInfo(CPlayer* to, const Party* party)
 {
-    SendPacket(to, MakePartyInfo(party));
+    _sessionHub.SendPacket(to, MakePartyInfo(party));
     _gameMonitor._party._infoSent.Inc();
 }
 
 void CGameServer::OnPartyMember(CPlayer* to, const CPlayer* member)
 {
-    SendPacket(to, MakePartyMember(member));
+    _sessionHub.SendPacket(to, MakePartyMember(member));
     _gameMonitor._party._memberSent.Inc();
 }
 #endif // USE_PARTY
@@ -3829,7 +3788,7 @@ void CGameServer::TickMonsters()
 
 int32_t CGameServer::AllocActorId()
 {
-    return AllocPlayerId();   // 단일 증가 카운터라 플레이어와 충돌하지 않는다
+    return _sessionHub.AllocActorId();   // 단일 증가 카운터라 플레이어와 충돌하지 않는다
 }
 
 void CGameServer::OnMonsterSpawn(CZone* zone, CMonster* monster)
@@ -3896,12 +3855,12 @@ void CGameServer::DropLoot(CZone* zone, CPlayer* killer, CMonster* monster)
 
 void CGameServer::SendGroundItemCreate(CPlayer* target, const CGroundItem& item, GroundItemAppear reason)
 {
-    SendPacket(target, MakeGroundItemCreate(item, reason));
+    _sessionHub.SendPacket(target, MakeGroundItemCreate(item, reason));
 }
 
 void CGameServer::SendGroundItemDelete(CPlayer* target, int32_t groundId, GroundItemGone reason, int32_t pickerId)
 {
-    SendPacket(target, MakeGroundItemDelete(groundId, reason, pickerId));
+    _sessionHub.SendPacket(target, MakeGroundItemDelete(groundId, reason, pickerId));
 }
 
 // ── 땅 아이템 알림과 번호 부탁 (IGroundItemEvents) ── 패킷 조립·송신은 이 파일 것을 그대로 쓴다.
@@ -3987,18 +3946,18 @@ void CGameServer::RecvPickup(CPlayer* player, CSerialBuffer* /*pMsg*/)   // 몸�
     }
 
     _gameMonitor._drop._pickupRejected[static_cast<int>(fail)].Inc();
-    SendPacket(player, MakePickupFail(fail, failItemId));
+    _sessionHub.SendPacket(player, MakePickupFail(fail, failItemId));
 }
 #endif // USE_DROP
 
 void CGameServer::SendZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex)
 {
-    SendPacket(target, MakeZoneChangeOk(target, mapId, channelIndex));
+    _sessionHub.SendPacket(target, MakeZoneChangeOk(target, mapId, channelIndex));
 }
 
 void CGameServer::SendZoneChangeFail(CPlayer* target, uint8_t reason)
 {
-    SendPacket(target, MakeZoneChangeFail(reason));
+    _sessionHub.SendPacket(target, MakeZoneChangeFail(reason));
 }
 
 // C2S_MOVE_START 좌표 수용의 이동량 예산 — 경과분을 적립하고, 통과하면 소비까지 수행.
@@ -4081,7 +4040,7 @@ void CGameServer::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind kind)
     // 2-1) 마을 부활 — 내 자리를 안 뒤에 「되살아났다」(체력). 웹·콘솔이 이미 받는 패킷이라 클라는 죽음 풀기를 새로 안 짠다.
     //   본인에게만 — 마을 사람들은 아래 4) 의 CREATE 가 체력 가득한 나를 보여 준다(CREATE 가 체력을 싣는다)
     if (rule.revive)
-        SendPacket(player, MakeRespawn(player->_actorId, player->_x, player->_y, player->_hp));
+        _sessionHub.SendPacket(player, MakeRespawn(player->_actorId, player->_x, player->_y, player->_hp));
 #endif
 
 #if USE_EXP

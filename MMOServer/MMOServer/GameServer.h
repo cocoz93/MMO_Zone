@@ -48,6 +48,7 @@
 #include "GameDataFiles.h"  // 기획 데이터 파일(맵·레벨·아이템·몬스터·스폰 구역·드랍 표)
 #include "DB/DBWorker.h"
 #include "PacketRoutes.h"  // 받은 패킷의 분기 표(번호 → 최소 크기 · 처리기) — 게임 서버 나누기 0-④
+#include "SessionHub.h"    // 세션 칸 · 플레이어 찾기 · 보내기 · 캐릭터 번호 발급 — 게임 서버 나누기 1 단계(B1)
 
 class CSerialBuffer;
 
@@ -359,7 +360,7 @@ private:
     MonsterContext MakeMonsterContext();
 
     // 몬스터 알림과 번호 부탁 (IMonsterEvents) — 뜻은 MonsterManager.h.
-    int32_t AllocActorId() override;                                         // = AllocPlayerId — 번호 공간이 플레이어와 하나
+    int32_t AllocActorId() override;                                         // = 세션 허브의 발급기 — 번호 공간이 플레이어와 하나
     void OnMonsterSpawn(CZone* zone, CMonster* monster) override;            // 주변에 CREATE(SPAWN) · 동기화 기준점을 지금 자리로
     void OnMonsterVanish(CZone* zone, CMonster* monster) override;           // 방 클리어 — 효과 목록에서 빼고 존에서 뺀다(주변 DELETE) · 죽은 몬스터 지우기 앞과 같은 길
 #endif
@@ -465,7 +466,7 @@ private:
     void KickDuplicateAccount(int64_t accountId, int64_t exceptSessionId);
 
     // 지정 계정 번호의 하한 = 2^31. 입장 요청의 계정 번호는 0(미지정) 아니면 이 값 이상이어야 한다.
-    //   자동 번호는 int32 카운터(AllocPlayerId)라 2^31 위로 못 올라오므로, 이 아래로 내려온 지정 번호는
+    //   자동 번호는 int32 카운터(CSessionHub::AllocActorId)라 2^31 위로 못 올라오므로, 이 아래로 내려온 지정 번호는
     //   0 으로 들어온 남의 접속과 같은 행을 쓰게 된다. 노션의 "100억 이상"은 운용 권장이고 서버가 강제하는 값이 아니다.
     static constexpr int64_t ACCOUNT_ID_MIN = int64_t{ 1 } << 31;
 #endif
@@ -513,19 +514,13 @@ private:
     void BroadcastLeaveZone(CZone* zone, CCharacter* player);
     void RemoveFromZone(CZone* zone, CCharacter* player);
 
-    // ── 플레이어 ID 발급 + 표시 속성 ──
+    // ── 표시 속성 ── (캐릭터 번호 발급은 세션 허브 — CSessionHub::AllocActorId)
 
-    int32_t AllocPlayerId();
     static uint8_t CalcDisplayChar(int32_t playerId);
     static uint8_t CalcColorIndex(int32_t playerId);
 
-    // ── 패킷 전송 추상화 ──
-    // 모든 S2C는 직렬화 버퍼(CSerialBuffer)로 조립 후 아래 오버로드로 전송한다.
-
-    // 단일 플레이어에게 패킷 전송 (CSerialBuffer — 소유권 1을 소비)
-    // 빌더가 반환한 RefCount=1 버퍼를 넘기면, 송신 후 SubRef로 소유권을 회수한다.
-    //   받는 쪽은 CPlayer* 뿐이다 — 몬스터를 넘기면 컴파일이 안 된다(Player.h [세션]).
-    void SendPacket(CPlayer* target, CSerialBuffer* pMsg);
+    // ── 패킷 전송 ──
+    // 한 사람에게 보내기는 세션 허브(_sessionHub.SendPacket — SessionHub.h). 여기는 주변에 보내기.
 
     // 주변 브로드캐스트 (CSerialBuffer — 빌더 RefCount=1 버퍼를 소비)
     void BroadcastAroundSector(CZone* zone, CCharacter* player, CSerialBuffer* pMsg, bool excludeSelf = true);
@@ -609,6 +604,10 @@ private:
     CGameMonitor&    _gameMonitor;   // 게임 컨텐츠 지표 (전투)
     std::unique_ptr<NetIoModel> _network;
 
+    // 세션 칸 · 플레이어 찾기 · 보내기 · 캐릭터 번호 발급 — 플레이어의 주인이 이 안의 칸이다(SessionHub.h).
+    //   ★ _monitor 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다). 네트워크는 Init 에서 포인터로 넘긴다.
+    CSessionHub _sessionHub{ _monitor };
+
     // 기획 데이터 — 기동 때 한 번 읽고 그 뒤로는 읽기만 한다(게임 스레드가 매 전투·명령에서 본다).
     //   ★ _mapManager 보다 앞에 선언 — 맵 관리자가 이것을 받아 존에 건넨다(멤버는 선언 순서로 세워진다).
     CGameDataFiles _gameDataFiles;
@@ -636,7 +635,6 @@ private:
     static constexpr float MOVE_BUDGET_SLACK = 0.25f;
 
     int32_t _defaultMapId = 0;  // 최초 접속 시 입장할 맵 = 맵 표 첫 줄 = 마을(죽으면 여기 시작 구역으로 — TickRespawn)
-    int32_t _nextPlayerId = 1;  // 전역 playerId 카운터 (싱글스레드 게임 루프)
 
 #if USE_DROP
     int32_t _nextGroundId = 1;       // 땅의 아이템 번호 — 캐릭터 번호와 따로 센다(1초에 하나씩 떨어져도 68년)
@@ -661,27 +659,6 @@ private:
     // 아이템 쓰기·장착 규칙 — 장착 뒤 공격력은 _statSystem 으로 세운다(그래서 그 뒤에 선언).
     CItemSystem _itemSystem{ _gameDataFiles, _gameMonitor, _statSystem };
 #endif
-
-    // 네트워크 경계: sessionId → CPlayer* (수신 시 플레이어 조회)
-    //   sessionId 상위 16비트 = 세션 슬롯 인덱스 → 해시맵 대신 인덱스 배열 직접 접근 (캐시미스 제거).
-    //   슬롯 재사용(ABA)은 FindPlayer의 _sessionId 일치 검사로 방어. 접근은 게임 스레드 단독.
-    //   ★ 플레이어의 주인이 이 슬롯이다(unique_ptr) — 손으로 delete 하지 않는다. 게임 중인 플레이어를 놓는 길은
-    //     ReleasePlayer 하나, 종료는 clear() 가 해제한다. 입장 중 슬롯에 넣기 전까지는 SpawnPlayer 의 지역 unique_ptr 가 든다.
-    std::vector<std::unique_ptr<CPlayer>> _sessionSlots;
-
-    // 슬롯 조회 + 재사용 가드 — 등록된 세션이 아니면 nullptr
-    CPlayer* FindPlayer(int64_t sessionId) const
-    {
-        uint16_t idx = CSession::ExtractIndex(sessionId);
-        // [불변식] idx < _sessionSlots.size() — 슬롯 배열은 Init에서 maxClients 칸으로 잡히고,
-        //   세션 인덱스는 같은 maxClients로 잡힌 CIOCPServer 세션 배열의 인덱스라 항상 그 미만이다.
-        //   ※ 바로 아래가 배열 인덱싱이다. 이 불변식이 깨지면 릴리즈에서는 곧장 범위 밖 접근이 된다
-        //     (다른 불변식 assert들과 달리 실패 대가가 메모리 손상). 슬롯 크기 산정이나 maxClients
-        //     전달 경로를 손보면 반드시 디버그 빌드로 여기를 통과시킬 것.
-        assert(idx < _sessionSlots.size());
-        CPlayer* p = _sessionSlots[idx].get();
-        return (p != nullptr && p->_sessionId == sessionId) ? p : nullptr;
-    }
 
     // 프레임 진입 시점 이벤트를 스왑해 받는 로컬 큐 (멤버 재사용 → deque 블록 보존으로 매 프레임 재할당 방지)
     std::queue<NetworkEvent> _localEvents;
@@ -793,7 +770,7 @@ private:
     //   _localEvents 와 같은 방식). 접근은 게임 스레드 단독.
     std::vector<DBResult> _dbResults;
 
-    // 대기표 — _sessionSlots 와 같은 크기·같은 색인(해시맵 아님). Init 에서 나란히 잡는다.
+    // 대기표 — 세션 허브의 칸(_sessionHub)과 같은 크기·같은 색인(해시맵 아님). Init 에서 나란히 잡는다.
     //   개수는 배열을 훑지 않으려고 상태별로 따로 센다. 접근은 게임 스레드 단독.
     std::vector<PendingEnter> _pendingEnter;
     int32_t _pendingLoadingCount = 0;   // [불러오는 중] — DB 결과를 기다린다
