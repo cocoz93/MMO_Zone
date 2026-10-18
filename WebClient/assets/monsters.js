@@ -15,6 +15,7 @@
 // snakeking(뱀왕, 방 보스 · 0x03) · fakeking(가짜 뱀왕 · 0x04) — LPC 캐릭터 생성기 층을 겹친 사람형(10-18). 1024x256 = 16열 x 4행, 행 순서는 LPC 그대로.
 //   열 0 = 서 있음 · 1~8 = 걷기(사람 LPC 와 같다) · 9~15 = 주문 동작(되살리기·격노를 쓸 때 — live.html 의 cast). 지팡이는 걷기 열에만 있다(생성기에 주문 동작 층이 없다).
 //   몸·꼬리 살색을 도마뱀 머리의 초록으로 바꿨고 도포 색만 다르다(진짜 파랑 · 가짜 갈색). 발 끝 y=61 · 머리 끝 y=19(행마다 같다) · 몸 반폭 14px.
+//   이름표는 둘 다 「뱀왕」(10-18 사용자 결정 — 「가짜」를 머리 위에 써 주지 않는다. 서버 표 이름 「가짜 뱀왕」은 로그에만 쓰인다)
 //   idle = 서 있을 때의 열 · cast = 주문 동작 열 목록. radius = 반폭 14px ÷ 64 × 그리는 높이(3칸 × scale) — 서버 MonsterTable.csv bodyRadius 와 같은 값.
 //   만든 방법 = MyDocs/claude-plans/boss-art/make_snakeking_sprite.py (생성기 커밋 9bf06be 고정 · 크레딧은 assets/monsters_credits.txt).
 window.MON = {
@@ -27,5 +28,5 @@ window.MON_META = {
   snake: { cols: 7, rows: 4, walk: [0,1,2,3], attack: 4, footAdj: 0.69, top: [16,22,16,22], label: '뱀' },
   guryungi: { cols: 7, rows: 4, walk: [0,1,2,3], attack: 4, footAdj: 0.69, top: [16,22,16,22], label: '구렁이', scale: 3, radius: 2 },
   snakeking: { cols: 16, rows: 4, idle: 0, walk: [1,2,3,4,5,6,7,8], cast: [9,10,11,12,13,14,15], footAdj: 0.9, top: [19,19,19,19], label: '뱀왕', scale: 2, radius: 1.3 },
-  fakeking: { cols: 16, rows: 4, idle: 0, walk: [1,2,3,4,5,6,7,8], cast: [9,10,11,12,13,14,15], footAdj: 0.9, top: [19,19,19,19], label: '가짜 뱀왕', scale: 1.5, radius: 1.0 }
+  fakeking: { cols: 16, rows: 4, idle: 0, walk: [1,2,3,4,5,6,7,8], cast: [9,10,11,12,13,14,15], footAdj: 0.9, top: [19,19,19,19], label: '뱀왕', scale: 1.5, radius: 1.0 }
 };
