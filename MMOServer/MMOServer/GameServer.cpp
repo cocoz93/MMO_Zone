@@ -17,6 +17,9 @@
 #include <cstring>  // memcpy — 알림 문구를 고정 배열에 옮겨 담는다
 #include <string>
 #include <random>   // USE_DROP — 드랍 굴림 난수 (스폰 자리 뽑기는 MonsterManager.cpp 로 갔다)
+#include "PacketBuild.h" // 여러 조각이 같이 쓰는 조립 함수(머리 쓰기·닫기 · 등장 조각 · 파티 조각 · 부활 · 체력 바뀜) — 게임 서버 나누기 0-②
+
+using namespace PacketBuild;   // 아래 조립 함수들이 머리 쓰기·닫기를 이름만으로 부른다(옮기기 전과 같은 꼴)
 
 // ==========================================================================
 // S2C 직렬화 헬퍼 (파일 로컬)
@@ -31,62 +34,8 @@
 // ==========================================================================
 namespace
 {
-    // 헤더 시작: size placeholder(아래서 백패치) + type
-    inline void BeginPacket(CSerialBuffer* buf, MsgType type)
-    {
-        *buf << static_cast<uint16_t>(0);                 // header.size (placeholder)
-        *buf << static_cast<uint16_t>(type);              // header.type
-    }
-
-    // 헤더 종료: size 백패치(= 전체 payload 바이트) + Seal
-    // 소유권 1은 Alloc()/Clear()에서 이미 확보됨(RefCount=1) → 여기서 AddRef 불필요
-    inline void FinalizePacket(CSerialBuffer* buf)
-    {
-        *reinterpret_cast<uint16_t*>(buf->GetPayloadBufferPtr()) =
-            static_cast<uint16_t>(buf->GetDataSize());
-        buf->Seal();
-    }
-
-    // 강제 인라인 — 아래 CREATE 조각 쓰기 둘에만 쓴다. 소스는 한 벌, 기계어는 부르는 자리마다 펼친다.
-    //   그냥 inline 은 권고라 Release(MSVC)가 따로 떨어진 함수로 남겨, 묶음 루프가 엔트리마다 호출했다
-    //   (10-09 기계어 관측 — 한 명분을 합치기 전엔 묶음 장마다 1번. WriteCreateEntry 만 강제하면 이번엔 WriteSnapshot 이 남았다).
-#if defined(_MSC_VER)
-    #define CREATE_FORCEINLINE __forceinline
-#else
-    #define CREATE_FORCEINLINE inline __attribute__((always_inline))
-#endif
-
-    // 등장 상태 조각(Protocol.h ActorSnapshot) — MakeCreateMyPlayer 와 WriteCreateEntry(CREATE_OTHER·묶음) 둘이 맨 끝에 부른다.
-    //   조각에 필드를 늘리면 여기 한 줄 · proto.js readSnap 한 줄(Protocol.h 의 크기 단언이 알려 준다).
-    //   전투가 꺼진 빌드는 0 을 싣는다 — _hp 는 꺼져도 있지만(CCharacter) 쓰는 곳이 없어 의미가 없다.
-    CREATE_FORCEINLINE void WriteSnapshot(CSerialBuffer* buf, const CCharacter* ch)
-    {
-#if USE_COMBAT
-        *buf << static_cast<int>(ch->_hp);
-        *buf << static_cast<int>(ch->_maxHp);
-#else
-        (void)ch;
-        *buf << static_cast<int>(0);
-        *buf << static_cast<int>(0);
-#endif
-    }
-
-    // 남의 캐릭터 한 명분(Protocol.h CreatePlayerEntry) — CREATE_OTHER 의 몸통이자 묶음 엔트리 한 칸.
-    //   MakeCreateOtherPlayer 와 MakeCreatePlayerBatch 가 둘 다 이것을 부른다 — 칸을 늘리면 여기 한 줄.
-    //   강제 인라인 — 위 CREATE_FORCEINLINE 주석.
-    CREATE_FORCEINLINE void WriteCreateEntry(CSerialBuffer* buf, const CCharacter* ch, SpawnReason reason)
-    {
-        *buf << static_cast<int>(ch->_actorId);
-        *buf << static_cast<uint8_t>(ch->_direction);
-        *buf << static_cast<uint8_t>(ch->_moveState);
-        *buf << static_cast<uint8_t>(ch->_displayChar);
-        *buf << static_cast<uint8_t>(ch->_colorIndex);
-        *buf << static_cast<uint8_t>(reason);
-        *buf << ch->_x;
-        *buf << ch->_y;
-        *buf << static_cast<int>(ch->_speed);
-        WriteSnapshot(buf, ch);
-    }
+    // 머리 쓰기·닫기(BeginPacket · FinalizePacket)와 등장 조각(WriteSnapshot · WriteCreateEntry)은 PacketBuild.h 로 옮겼다
+    //   — 여러 조각이 같이 쓴다(게임 서버 나누기 0-②). 강제 인라인(CREATE_FORCEINLINE)도 거기서 정한다.
 
     // MOVE_START / MOVE_STOP은 레이아웃 동일 — 3곳/2곳에서 재사용되므로 빌더로 DRY 처리
     CSerialBuffer* MakeMoveStart(int32_t playerId, uint8_t direction, float x, float y)
@@ -217,18 +166,7 @@ namespace
         return buf;
     }
 
-    CSerialBuffer* MakeRespawn(int32_t targetId, float x, float y, int32_t hp)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_RESPAWN::TYPE);
-        *buf << static_cast<int>(targetId);
-        *buf << x;
-        *buf << y;
-        *buf << static_cast<int>(hp);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_RESPAWN));
-        return buf;
-    }
+    // MakeRespawn 은 PacketBuild.h — 배치(도착 때 본인)와 전투(부활 방송) 둘이 부른다
 
 #if USE_EXP
     CSerialBuffer* MakeExp(int32_t level, int64_t exp, int64_t levelBaseExp, int64_t nextLevelExp)
@@ -245,17 +183,7 @@ namespace
     }
 #endif
 
-    CSerialBuffer* MakeActorStats(int32_t actorId, int32_t hp, int32_t maxHp)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_ACTOR_STATS::TYPE);
-        *buf << static_cast<int>(actorId);
-        *buf << static_cast<int>(hp);
-        *buf << static_cast<int>(maxHp);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_ACTOR_STATS));
-        return buf;
-    }
+    // MakeActorStats 는 PacketBuild.h — 전투 · 처치 보상 · 가방 · 운영 명령이 같이 부른다
 
     // 내 최종 공격력·방어력 — 본인 전용(SendMyStats 만 부른다)
     CSerialBuffer* MakeMyStats(int32_t attack, int32_t defense)
@@ -592,29 +520,7 @@ namespace
 #endif
 
 #if USE_PARTY
-    // 파티 사람 조각(Protocol.h PartyPerson 10B) — p 가 nullptr 이면 0 으로 채운다(ASK 의 about 이 없을 때).
-    void WritePartyPerson(CSerialBuffer* buf, const CPlayer* p)
-    {
-        *buf << static_cast<int>(p != nullptr ? p->_actorId : 0);
-        *buf << static_cast<uint8_t>(p != nullptr ? p->_displayChar : 0);
-        *buf << static_cast<uint8_t>(p != nullptr ? p->_colorIndex : 0);
-        *buf << static_cast<int>(p != nullptr ? p->_level : 0);
-    }
-
-    // 파티원 한 줄(Protocol.h PartyMemberEntry 22B) — INFO 의 줄이자 MEMBER 의 몸통. 줄을 늘리면 여기 한 곳 · proto.js readPartyMember.
-    //   체력은 등장 조각(WriteSnapshot)과 같은 규칙 — 전투가 꺼진 빌드는 0. 맵은 존 번호를 풀어 싣는다(채널은 안 싣는다).
-    void WritePartyMember(CSerialBuffer* buf, const CPlayer* p)
-    {
-        WritePartyPerson(buf, p);
-#if USE_COMBAT
-        *buf << static_cast<int>(p->_hp);
-        *buf << static_cast<int>(p->_maxHp);
-#else
-        *buf << static_cast<int>(0);
-        *buf << static_cast<int>(0);
-#endif
-        *buf << static_cast<int>(CMapManager::GetMapIdFromZoneId(p->_zoneId));
-    }
+    // 파티 사람 조각·파티원 한 줄(WritePartyPerson · WritePartyMember)은 PacketBuild.h — 파티 패킷 여럿이 몸통에 끼워 쓴다
 
     CSerialBuffer* MakePartyAsk(uint32_t requestId, PartyAskKind kind, const CPlayer* from, const CPlayer* about, uint32_t remainMs)
     {
