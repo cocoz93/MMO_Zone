@@ -15,7 +15,7 @@
 // [토글 없음] 맵은 컨텐츠가 아니라 세계 자체라 전투·몬스터를 다 끈 빌드도 이 표로 맵을 세운다.
 //
 // [목록 = 줄] 한 줄이 맵 하나. 첫 줄이 기본 접속 맵이다(CGameServer::Init 의 _defaultMapId) — 마을(town)이어야 한다.
-//        새 캐릭터가 들어가는 곳이고 죽으면 돌아오는 곳이다(CGameServer::TickRespawn).
+//        새 캐릭터가 들어가는 곳이고 죽으면 돌아오는 곳이다(CCombatHandler::TickRespawn).
 //        스폰 표가 이 번호로 맵을 가리키고, 읽을 때 이 표와 대조한다(CGameDataFiles::LoadAll 순서).
 //
 // [종류·시작 구역] 칸 = mapId,width,height,kind,startX0,startY0,startX1,startY1,lockoutSec.

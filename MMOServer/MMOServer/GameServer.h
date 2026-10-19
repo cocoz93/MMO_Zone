@@ -33,11 +33,11 @@
 #include "Zone.h"          // 존 — 존 이동·존 틱에 쓴다(그 알림 IZoneEvents 는 시야 조각이 구현한다 — SightBroadcaster.h)
 #include "Player.h"
 #include "Combat.h"        // 전투 판정 (순수 함수 — 송신·존·섹터를 모른다)
-#include "CombatSystem.h"  // 공격 흐름 — 여기서는 그 알림(ICombatEvents)을 구현한다
+#include "CombatSystem.h"  // 공격 흐름 — 멤버로 든다(그 알림 ICombatEvents 는 전투 조각이 구현한다 — CombatHandler.h)
 #include "StatSystem.h"    // 스탯·레벨 규칙 — 멤버로 들고 부른다
-#include "BuffSystem.h"    // 지속 효과 규칙 — 멤버로 들고 부르고, 그 알림(IBuffEvents)을 구현한다
+#include "BuffSystem.h"    // 지속 효과 규칙 — 멤버로 들고 부른다(그 알림 IBuffEvents 는 전투 조각이 구현한다)
 #include "ItemSystem.h"    // 아이템 쓰기·장착 규칙 — 멤버로 들고 부른다
-#include "SkillSystem.h"   // 스킬 규칙 — 멤버로 들고 부르고, 그 알림(ISkillEvents)을 구현한다
+#include "SkillSystem.h"   // 스킬 규칙 — 멤버로 든다(그 알림 ISkillEvents 는 전투 조각이 구현한다)
 #include "MonsterManager.h" // 몬스터 — 여기서는 그 알림(IMonsterEvents)을 구현한다
 #include "GroundItemManager.h" // 땅 아이템 — 여기서는 그 알림(IGroundItemEvents)을 구현한다
 #include "PartySystem.h"   // 파티 규칙 — 멤버로 든다(그 알림 IPartyEvents 는 파티·방 조각이 구현한다 — PartyHandler.h)
@@ -55,32 +55,24 @@
 #include "ItemHandler.h"      // 가방·땅(물약 · 장착 · 줍기 · 땅 아이템 알림 — USE_INVENTORY) — 게임 서버 나누기 6 단계(C6)
 #include "PartyHandler.h"     // 파티·방(파티 요청 · 파티 알림 · 방 입장·거절 · 다시 들어가기 잠금 — USE_PARTY) — 게임 서버 나누기 7 단계(C7)
 #include "RewardHandler.h"    // 처치 보상(몬스터 경험치 · 드랍 굴림 · 방 보상 — USE_COMBAT && USE_MONSTER) — 게임 서버 나누기 8 단계(C5)
+#include "CombatHandler.h"    // 전투(공격·스킬 요청 · 공격·시전·효과 알림 · 부활 대기열 — USE_COMBAT) — 게임 서버 나누기 9 단계(C3)
 
 class CSerialBuffer;
 
-// 알림 통로 여섯 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
+// 알림 통로 셋 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
 //   (IZoneEvents — 존의 걷기·멈춤 알림 둘 — 은 시야 조각 CSightBroadcaster 가 구현한다 · 게임 서버 나누기 3 단계)
 //   (IGroundItemEvents — 땅 아이템 관리자의 알림 둘과 번호 부탁 하나 — 는 가방·땅 조각 CItemHandler 가 구현한다 · 게임 서버 나누기 6 단계)
 //   (IPartyEvents — 파티 규칙의 알림 다섯 — 은 파티·방 조각 CPartyHandler 가 구현한다 · 게임 서버 나누기 7 단계)
+//   (ICombatEvents · IBuffEvents · ISkillEvents — 공격 흐름 · 지속 효과 · 스킬 규칙의 알림 — 은 전투 조각 CCombatHandler 가 구현한다 · 게임 서버 나누기 9 단계)
 //   IPlacementEvents  = 배치(CPlayerPlacement)의 알림 둘(존에서 빠짐 · 떠남 — 틱 너머 목록 정리) — 게임 서버 나누기 5 단계(0-③ ⑴⑶) · 토글 없이 늘 있다
-//   ICombatEvents     = 공격 흐름(CCombatSystem)의 알림 셋 — 스킬의 피해·죽음도 이 셋으로 온다(ApplyHit)
-//   IBuffEvents       = 지속 효과 규칙(CBuffSystem)의 알림 하나(효과가 바뀜 — 걸림·되감김·만료·죽음) · 전투 토글 소유
 //   IMonsterEvents    = 몬스터 관리자(CMonsterManager)의 알림 둘(등장·사라짐)과 번호 부탁 하나
-//   ISkillEvents      = 스킬 규칙(CSkillSystem)의 알림 둘(시전 · 되살려라)
 //   ICharacterLoadEvents = 캐릭터 저장소(CCharacterStore)의 불러오기 결과 하나(OnCharacterLoaded) — 게임 서버 나누기 4 단계(0-③ ⑷) · USE_DB_WORKER
 // 기반 목록 — 늘 있는 통로(IPlacementEvents)가 첫 줄이라 나머지는 토글마다 「, 」로 붙는다.
 //   (3·4 단계 동안은 늘 있던 IZoneEvents 가 빠져 첫 통로를 고르는 #if 사다리를 뒀었다 — 5 단계에서 늘 있는 통로가 생겨 걷어냄)
 class CGameServer
     : private IPlacementEvents
-#if USE_COMBAT
-    , private ICombatEvents
-    , private IBuffEvents
-#endif
 #if USE_MONSTER
     , private IMonsterEvents
-#endif
-#if USE_SKILL
-    , private ISkillEvents
 #endif
 #if USE_DB_WORKER
     , private ICharacterLoadEvents
@@ -192,39 +184,10 @@ private:
     void RecvPortalUse(CPlayer* player, CSerialBuffer* pMsg);   // 포털 — 판정 뒤 TransferPlayer 로 포털 표의 도착 자리에
     void RecvAdminLogin(CPlayer* player, CSerialBuffer* pMsg);
 
-#if USE_COMBAT
-    // ── 전투 (USE_COMBAT) ──
-    // 공격 흐름은 CCombatSystem(_combatSystem)이 하고, 여기서는 그 알림을 받아 세계에 적용한다
-    //   (송신 · 죽은 목록 등록 · 보상).
-    void RecvAttack(CPlayer* player, CSerialBuffer* pMsg);
-
-    // 부활 대기자 훑기 — 틱마다 1회. 존 전체를 돌지 않으려고 죽은 것만 따로 들고 있는다.
-    //   플레이어만 — 몬스터는 되살리지 않는다(죽는 순간 지우고, 스폰이 새로 채운다).
-    //   마을(기본 맵)이 아닌 맵에서 죽었으면 마을 시작 구역으로 옮겨 되살린다(배치의 TransferPlayer, ArrivalKind::RESPAWN) — 대기열을 다 돈 뒤에.
-    void TickRespawn();
-
-    // 부활 자리 규칙 한 곳 — 죽은 맵이 마을(기본 맵)이 아니면 마을 시작 구역으로, 마을이면 제자리.
-    //   부르는 곳 둘: TickRespawn(죽고 3초 뒤) · OnCharacterLoaded(죽은 채 저장된 행 — 나가기·부활 전 주기 저장·죽은 채 서버 다운).
-    bool RespawnsToTown(int32_t deathMapId) const { return deathMapId != _defaultMapId; }
-
-    // 부활 대기열에서 빼기 — 퇴장 경로가 반드시 부른다(배치의 「존에서 빠짐 · 떠남」 알림 — OnLeavingZone · OnLeavingGame). 안 부르면 다음 틱이 해제된 포인터를 밟는다.
-    void RemoveFromDeadActors(CCharacter* player);
-
-    // ── 지속 효과 (USE_COMBAT) ──
-    // 걸기·만료·정리는 CBuffSystem(_buffSystem) — 여기는 알림을 받아 본인 알림 조각에 넘기기만. 틱 3-2b 가 만료를 훑고,
-    //   사라지는 두 길(놓기의 「떠남」 알림 OnLeavingGame → Forget · OnDeath → ClearAll)이 목록에서 뺀다(BuffSystem.h [목록은 틱 너머로 주소를 든다]).
-    // 효과 알림 (IBuffEvents) — 스탯은 이미 다시 선 뒤다. 사람이면 S2C_ACTOR_BUFF(본인) → S2C_MY_STATS(바뀐 공격력). 몬스터면 보낼 세션이 없다.
-    void OnBuffChanged(CCharacter* target, BuffKind kind) override;
-
+    // 공격·스킬 요청 · 공격·시전·효과 알림(ICombatEvents · ISkillEvents · IBuffEvents) · 부활 대기열은 전투 조각 — _combatHandler (CombatHandler.h · 게임 서버 나누기 9 단계).
+    //   부활 자리 규칙(RespawnsToTown)은 Combat.h 의 순수 함수 — 전투 조각의 부활 틱과 입장(OnCharacterLoaded)이 같이 쓴다.
     // 효과 칸 보내기(SendActorBuff · SendActiveBuffs)는 본인 알림 조각으로 옮겼다 — _selfNotifier (게임 서버 나누기 2 단계)
-
-    // 공격 알림 셋 (ICombatEvents) — 뜻과 순서는 CombatSystem.h. 셋 다 공격자 주변 9섹터에 방송한다.
-    void OnSwing(CZone* zone, CCharacter* attacker) override;
-    void OnHit(CZone* zone, CCharacter* attacker, CCharacter* target, int32_t damage, int32_t remainHp) override;
-    void OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target) override;   // 죽은 목록 → DEATH → 경험치 → 드랍 → 몬스터면 지움
-
     // 몬스터 경험치 주기(GrantMonsterExp) · 방 보상(RewardRoom)은 처치 보상 조각 — _rewardHandler (RewardHandler.h · 게임 서버 나누기 8 단계)
-#endif
 
 #if USE_INVENTORY
     // ── 인벤토리 (USE_INVENTORY) ──
@@ -239,20 +202,7 @@ private:
     // 불러온 가방 줄 넣기(LoadInventoryRows)는 캐릭터 저장소 조각 — CharacterStore.h (게임 서버 나누기 4 단계)
 #endif
 
-#if USE_SKILL
-    // ── 스킬 (USE_SKILL) ──
-    // 판정·비용·대상·효과는 CSkillSystem(_skillSystem) — 여기는 받기와, 거절이면 사유를 본인에게(와이어 값으로 바꿔) 보내기만.
-    //   성공의 결과는 알림으로 돌아온다 — 시전(OnCast: 시전 방송 · 시전자 체력 · 시전자 마력) → 피해·죽음·보상(ICombatEvents, 일반 공격과 같은 함수).
-    void RecvUseSkill(CPlayer* player, CSerialBuffer* pMsg);
-
-    // 시전 알림 (ISkillEvents) — 뜻과 순서는 SkillSystem.h. 시전자 주변 9섹터에 방송한다(본인 포함). 마력은 본인에게만.
-    void OnCast(CZone* zone, CCharacter* caster, const SkillDef& def) override;
-
-    // 되살려라 (ISkillEvents) — 존의 몬스터 관리자에 요청만 넘긴다(RequestRevive — 깔기는 다음 틱 리젠 · 등장 알림은 OnMonsterSpawn 그대로).
-    void OnRevive(CZone* zone, CCharacter* caster, int32_t monsterId) override;
-
     // 마력(SendActorMp) · 남은 쿨타임(SendActiveSkillCooldowns)은 본인 알림 조각으로 옮겼다 — _selfNotifier (게임 서버 나누기 2 단계)
-#endif
 
     // 파티 요청 · 파티 알림(IPartyEvents) · 방 입장·거절 · 다시 들어가기 잠금은 파티·방 조각 — _partyHandler (PartyHandler.h · 게임 서버 나누기 7 단계)
 
@@ -401,9 +351,10 @@ private:
     //   ★ _gameDataFiles·_gameMonitor 보다 뒤에 선언해야 한다(멤버는 선언 순서로 세워진다 — _combatSystem 주석과 같은 까닭).
     CStatSystem _statSystem{ _gameDataFiles, _gameMonitor };
 
-    // 지속 효과 규칙 — 알림은 이 클래스(IBuffEvents)로 돌아온다. 바뀌면 _statSystem 으로 스탯을 다시 세운다(그래서 그 뒤에 선언).
+    // 지속 효과 규칙 — 알림은 전투 조각(_combatHandler · IBuffEvents)으로 간다. 바뀌면 _statSystem 으로 스탯을 다시 세운다(그래서 그 뒤에 선언).
     //   거는 쪽은 _skillSystem(아래 — 그 참조를 받으므로 이보다 뒤) · 아이템이 걸게 되면 _itemSystem 도 받는다.
-    CBuffSystem _buffSystem{ _gameMonitor, _statSystem, *this };
+    //   알림 받는 _combatHandler 는 한참 뒤에 선언된다(그 조각이 이 규칙의 참조를 받는다) — 참조를 묶기만 하고 생성 중엔 안 부른다.
+    CBuffSystem _buffSystem{ _gameMonitor, _statSystem, _combatHandler };
 #endif
 
 #if USE_INVENTORY
@@ -462,25 +413,19 @@ private:
     // 공격 후보 버퍼는 두지 않는다 — 사거리가 걸치는 섹터의 주민 목록을 참조로 훑어 복사가 없다.
     //   (처음엔 GetAroundPlayers 의 전신이 벡터를 요구해 _attackTargetBuffer 를 뒀었다)
 
-    // 죽어서 부활을 기다리는 플레이어. 여기만 틱 너머로 포인터를 든다 —
-    //   퇴장 경로(배치의 「존에서 빠짐 · 떠남」 알림 — OnLeavingZone · OnLeavingGame)가 반드시 회수해야 한다.
-    //   몬스터는 여기 안 들어온다 — 죽는 순간 지운다(OnDeath 끝 → 존의 몬스터 관리자 Despawn).
-    //   같은 규율이 이미 dirtyMovers(시야 조각) 와 존의 섹터 이동 대기열(CZone::LeaveZone 이 뺀다)에 있다.
-    std::vector<CCharacter*> _deadActors;
-    // 마을 부활로 옮길 사람과 목적지 채널 — TickRespawn 이 대기열을 다 돈 뒤에 옮긴다(도는 중에 옮기면 퇴장이 대기열을 지운다).
-    //   틱 너머로 안 든다(그 함수 안에서 채우고 비운다) — 멤버인 까닭은 틱마다 할당하지 않으려는 것뿐(시야 조각의 _eventAroundBuffer 와 같은 꼴)
-    std::vector<std::pair<CPlayer*, CZone*>> _respawnTransferBuffer;
+    // 죽어서 부활을 기다리는 플레이어(_deadActors) · 마을 부활로 옮길 버퍼(_respawnTransferBuffer)는 전투 조각 — CombatHandler.h (게임 서버 나누기 9 단계)
 
-    // 공격 흐름 — 알림은 이 클래스(ICombatEvents)로 돌아온다.
+    // 공격 흐름 — 알림은 전투 조각(_combatHandler · ICombatEvents)으로 간다.
     //   ★ _gameMonitor 보다 뒤에 선언해야 한다 — 멤버는 선언 순서로 세워지므로, 앞에 두면 아직 안 묶인 참조를 넘긴다.
-    CCombatSystem _combatSystem{ _gameMonitor, *this };
+    //   알림 받는 _combatHandler 는 거꾸로 이 뒤다(그 조각이 이 규칙의 참조를 받는다) — 참조를 묶기만 하고 생성 중엔 안 부른다.
+    CCombatSystem _combatSystem{ _gameMonitor, _combatHandler };
 #endif
 
 #if USE_SKILL
-    // 스킬 규칙 — 알림은 이 클래스(ISkillEvents)로 돌아온다.
+    // 스킬 규칙 — 알림은 전투 조각(_combatHandler · ISkillEvents)으로 간다.
     //   ★ _combatSystem·_buffSystem 뒤에 선언해야 한다 — 그 참조(대상 찾기·맞힌 뒤 처리 · 지속 효과 걸기)를 받는다. 멤버는 선언 순서로
     //     세워지므로 앞에 두면 아직 안 만들어진 객체의 참조를 넘긴다(위 _combatSystem 주석과 같은 까닭).
-    CSkillSystem _skillSystem{ _gameDataFiles, _gameMonitor, _combatSystem, _buffSystem, *this };
+    CSkillSystem _skillSystem{ _gameDataFiles, _gameMonitor, _combatSystem, _buffSystem, _combatHandler };
 #endif
 
 #if USE_PARTY
@@ -511,6 +456,22 @@ private:
                                    _partyHandler,
 #endif
                                    _statSystem, _gameMonitor, _gameDataFiles, _frameCount };
+#endif
+
+#if USE_COMBAT
+    // 전투 — 공격·스킬 요청 · 공격·시전·효과 알림(ICombatEvents · ISkillEvents · IBuffEvents) · 부활 대기열(CombatHandler.h).
+    //   ★ _sessionHub · _selfNotifier · _sightBroadcaster · _placement · _rewardHandler · _combatSystem · _buffSystem · _skillSystem · _mapManager ·
+    //     _gameMonitor · _frameCount · _defaultMapId 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
+    //     규칙 셋(_buffSystem · _combatSystem · _skillSystem)은 거꾸로 이것의 참조를 받는다 — 알림 받는 쪽이라 묶기만 하고 생성 중엔 안 부른다.
+    CCombatHandler _combatHandler{ _sessionHub, _selfNotifier, _sightBroadcaster, _placement,
+#if USE_MONSTER
+                                   _rewardHandler,
+#endif
+                                   _combatSystem, _buffSystem,
+#if USE_SKILL
+                                   _skillSystem,
+#endif
+                                   _mapManager, _gameMonitor, _frameCount, _defaultMapId };
 #endif
 
     // 섹터 아웃박스(틱-지연 배칭 상태) · 인바운드 멤버십 수집 버퍼는 시야 조각 — SightBroadcaster.h (게임 서버 나누기 3 단계)

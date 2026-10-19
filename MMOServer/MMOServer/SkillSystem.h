@@ -56,7 +56,7 @@ enum class SkillReject : uint8_t
     COUNT
 };
 
-// 스킬이 일을 할 때 부르는 알림 — CGameServer 가 구현한다(패킷 조립·송신). ICombatEvents 와 같은 꼴.
+// 스킬이 일을 할 때 부르는 알림 — 전투 조각 CCombatHandler 가 구현한다(패킷 조립·송신 — 게임 서버 나누기 9 단계). ICombatEvents 와 같은 꼴.
 //   ★ 순수 가상이라 하나를 빠뜨리면 컴파일이 안 된다.
 class ISkillEvents
 {

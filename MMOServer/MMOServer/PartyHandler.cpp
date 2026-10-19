@@ -102,7 +102,7 @@ namespace
 bool CPartyHandler::RegisterRoutes(CPacketRoutes& routes)
 {
     bool ok = true;
-    // 이 여섯 줄이 없으면 파티 요청이 조용히 버려진다(위 물약과 같은 함정 — 답도 로그도 없다)
+    // 이 여섯 줄이 없으면 파티 요청이 조용히 버려진다(등록 안 된 번호는 OnReceived 가 조용히 버린다 — 답도 로그도 없다)
     ok &= routes.OnPlayer(MsgType::C2S_PARTY_REQUEST, sizeof(MSG_C2S_PARTY_REQUEST), [this](CPlayer* p, CSerialBuffer* m) { RecvPartyRequest(p, m); });
     ok &= routes.OnPlayer(MsgType::C2S_PARTY_ANSWER,  sizeof(MSG_C2S_PARTY_ANSWER),  [this](CPlayer* p, CSerialBuffer* m) { RecvPartyAnswer(p, m); });
     ok &= routes.OnPlayer(MsgType::C2S_PARTY_LEAVE,   sizeof(MSG_C2S_PARTY_LEAVE),   // 몸 없음 — 헤더뿐

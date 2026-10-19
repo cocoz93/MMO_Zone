@@ -87,7 +87,7 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMapTable& maps, con
             return false;
         }
 
-        // ⑶-2 보스는 방 맵에만 — 필드에서 죽으면 클리어할 방이 없다(방 클리어는 방 맵 갈래 — CGameServer::OnDeath).
+        // ⑶-2 보스는 방 맵에만 — 필드에서 죽으면 클리어할 방이 없다(방 클리어는 방 맵 갈래 — CCombatHandler::OnDeath).
         //   방 맵마다 하나인지는 줄을 다 읽은 뒤 아래 ⑹ 이 센다
         if (monster->boss && map->kind != MapKind::INSTANCE)
         {

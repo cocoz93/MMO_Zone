@@ -154,7 +154,7 @@ bool CItemHandler::RegisterRoutes(CPacketRoutes& routes)
 {
     bool ok = true;
 #if USE_INVENTORY
-    // 이 줄이 없으면 물약 쓰기가 조용히 버려진다(위 C2S_ATTACK 과 같은 함정 — 답도 로그도 없다).
+    // 이 줄이 없으면 물약 쓰기가 조용히 버려진다(등록 안 된 번호는 OnReceived 가 조용히 버린다 — 답도 로그도 없다).
     ok &= routes.OnPlayer(MsgType::C2S_USE_ITEM, sizeof(MSG_C2S_USE_ITEM), [this](CPlayer* p, CSerialBuffer* m) { RecvUseItem(p, m); });
 #endif
 #if USE_EQUIP

@@ -5,7 +5,7 @@
 //  - 공격 한 번의 처음부터 끝까지: 쿨타임 판정 → 대상 찾기(섹터 훑기) → 피해 → 죽음 필드
 //  - 대상 찾기(FindFrontTarget · CollectCandidates)와 맞힌 뒤 처리(ApplyHit)는 따로 열어 둔다 — 스킬도 같은 것을 부른다
 //  - 그 과정에서 정한 것을 지표(CGameMonitor)로 센다 — 무엇을 정했는지는 여기서만 안다
-//  - 송신·죽은 목록·보상은 하지 않는다 — 일이 생기면 ICombatEvents 로 알리고, 받는 쪽(CGameServer)이 한다
+//  - 송신·죽은 목록·보상은 하지 않는다 — 일이 생기면 ICombatEvents 로 알리고, 받는 쪽(전투 조각 CCombatHandler)이 한다
 //
 // [왜 떼어냈나]
 //  플레이어(RecvAttack)와 몬스터(CMonsterManager::Think)가 같은 공격을 쓴다. 몬스터 코드가 존 쪽으로 가면서
@@ -28,7 +28,7 @@ class CZone;
 class CCharacter;
 class CGameMonitor;
 
-// 공격 흐름이 일이 생길 때 부르는 알림 — CGameServer 가 구현한다(패킷 조립·송신·죽은 목록·보상).
+// 공격 흐름이 일이 생길 때 부르는 알림 — 전투 조각 CCombatHandler 가 구현한다(패킷 조립·송신·죽은 목록·보상 부르기 — 게임 서버 나누기 9 단계).
 //   "패킷을 보내라"가 아니라 "무슨 일이 있었다"로 알린다 — 패킷 조립 함수는 GameServer.cpp 안에 있고,
 //   플레이어 죽은 목록은 받는 쪽이 든다. 죽은 몬스터는 받는 쪽이 OnDeath 끝에서 지운다(되살리지 않고 스폰이 새로 채운다).
 //   ★ 순수 가상이라 하나를 빠뜨리면 컴파일이 안 된다(함수를 넘기는 방식이면 첫 죽음 때 실행 중에야 터진다).
