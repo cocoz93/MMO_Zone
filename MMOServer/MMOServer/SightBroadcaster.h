@@ -86,7 +86,7 @@ public:
     void BroadcastSpawn(CZone* zone, CCharacter* who, SpawnReason reason);
     void BroadcastLeaveZone(CZone* zone, CCharacter* player);
 
-    // 본인에게 내 자리(SYNC_POSITION) — 이동 시작 좌표를 받아 주지 않을 때 서버 자리로 되돌린다(CGameServer::RecvMoveStart).
+    // 본인에게 내 자리(SYNC_POSITION) — 이동 시작 좌표를 받아 주지 않을 때 서버 자리로 되돌린다(CMoveHandler::RecvMoveStart).
     void SendSyncPosition(CPlayer* target);
 
 #if USE_DROP

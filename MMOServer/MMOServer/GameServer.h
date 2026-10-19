@@ -56,6 +56,7 @@
 #include "RewardHandler.h"    // 처치 보상(몬스터 경험치 · 드랍 굴림 · 방 보상 — USE_COMBAT && USE_MONSTER) — 게임 서버 나누기 8 단계(C5)
 #include "CombatHandler.h"    // 전투(공격·스킬 요청 · 공격·시전·효과 알림 · 부활 대기열 — USE_COMBAT) — 게임 서버 나누기 9 단계(C3)
 #include "MonsterHandler.h"   // 몬스터(몬스터 틱 · 등장·사라짐 알림 · 번호 발급 — USE_MONSTER) — 게임 서버 나누기 10 단계(C4)
+#include "MoveHandler.h"      // 이동(이동 시작·멈춤 요청 · 좌표 수용 예산 — 토글 없음) — 게임 서버 나누기 11 단계(C2)
 
 class CSerialBuffer;
 
@@ -174,8 +175,7 @@ private:
     void OnLeavingGame(CPlayer* player) override;      // 부활 대기열 · 지속 효과 목록 · 파티원·요청 표에서 빼기 (전투 · 파티)
 
     // 패킷 핸들러
-    void RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg);
-    void RecvMoveStop(CPlayer* player, CSerialBuffer* pMsg);
+    // 이동 시작·멈춤(RecvMoveStart · RecvMoveStop)은 이동 조각 — _moveHandler (MoveHandler.h · 게임 서버 나누기 11 단계)
     void RecvChat(CPlayer* player, CSerialBuffer* pMsg);
     void RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg);
     void RecvPortalUse(CPlayer* player, CSerialBuffer* pMsg);   // 포털 — 판정 뒤 TransferPlayer 로 포털 표의 도착 자리에
@@ -275,9 +275,7 @@ private:
 
     // 패킷별 전송 함수(존 정보 · 내 캐릭터 생성 · 존 이동 성공·실패)는 배치 조각 — _placement (게임 서버 나누기 5 단계)
 
-    // C2S_MOVE_START 좌표 수용의 이동량 예산 검사 — 경과분 적립 후 통과하면 소비까지 수행.
-    // 반환 false면 수용하지 않고 서버 좌표를 유지한다(기존 범위초과 경로와 동일한 처리).
-    bool ConsumeMoveBudget(CPlayer* player, float distSq);
+    // 좌표 수용 예산 검사(ConsumeMoveBudget)는 이동 조각 — _moveHandler (게임 서버 나누기 11 단계)
 
     // 받은 패킷의 분기 표를 채운다 — 패킷 번호마다 최소 크기와 처리기 한 줄(전에는 크기 표 GetExpectedSize 와 분기 switch 가 따로였다).
     //   Init 이 맨 앞에서 부른다. 등록이 실패하면(범위 밖 · 두 번 등록) false — 기동 거절.
@@ -306,20 +304,7 @@ private:
     // 틱 주기(FRAME_PER_SEC · FRAME_INTERVAL_MS)는 BuildConfig.h — 아래 층 헤더도 같이 쓰는 단위라 여기 두지 않는다.
     static constexpr int CLEANUP_INTERVAL_FRAMES = 30 * FRAME_PER_SEC;  // 30초마다 빈 채널 정리
     // 주기적 위치 동기화 상수 둘(SYNC_*)은 시야 조각 — SightBroadcaster.h (게임 서버 나누기 3 단계)
-    static constexpr float MOVE_START_ACCEPT_DIST_SQ = 64.0f; // C2S_MOVE_START 좌표 수용 임계값 제곱 (8타일)
-
-    // 좌표 수용 예산 — 위 임계값은 1회 한도일 뿐 빈도 제한이 없어, STOP/START를 연타하면
-    //   매 전이마다 8타일씩 수용돼 사실상 무제한 순간이동이 됐다(수신 빈도 제한은 서버 어디에도 없음).
-    //   상한은 위 임계값과 같은 8타일 → 정상 클라의 단발 보정은 지금과 동일하게 통과.
-    //   적립은 자기 속도 × 여유계수로 시간 비례 → 연타해도 장기 평균은 적립 속도로 수렴한다.
-    //   단 서버 주도 이동(매 틱 speed×dt)은 예산 검사 대상이 아니라 그 위에 얹히므로,
-    //   치트 이동량 상한은 speed×(1+SLACK)이다. SLACK 1.25일 때 실측 2.09배 → 0.25로 조여 총합 1.25배.
-    static constexpr float MOVE_BUDGET_CAP = 8.0f;     // 예산 상한 (타일) — MOVE_START_ACCEPT_DIST_SQ의 제곱근
-    // 적립 여유계수 (네트워크 지터·프레임 흔들림 흡수). 낮출수록 조이지만 정상 클라 오탐 위험이 커진다:
-    //   정상 소모 ≈ RTT/2 × speed(예측-서버 좌표 오차), 적립은 speed×SLACK/초.
-    //   speed 30·RTT 200ms(오차 3타일/회) 기준 견디는 MOVE_START 빈도 = 초당 2.5회.
-    //   루프백 실측은 RTT≈0이라 이 오탐을 못 잡는다 → mmo_move_budget_rejects_total 실네트워크 관측 필요.
-    static constexpr float MOVE_BUDGET_SLACK = 0.25f;
+    // 좌표 수용 한도·예산 상수 셋(MOVE_START_ACCEPT_DIST_SQ · MOVE_BUDGET_CAP · MOVE_BUDGET_SLACK)은 이동 조각 — MoveHandler.h (게임 서버 나누기 11 단계)
 
     int32_t _defaultMapId = 0;  // 최초 접속 시 입장할 맵 = 맵 표 첫 줄 = 마을(죽으면 여기 시작 구역으로 — TickRespawn)
 
@@ -468,11 +453,13 @@ private:
                                      _mapManager, _gameMonitor, _frameCount };
 #endif
 
+    // 이동 — 이동 시작·멈춤 요청 · 좌표 수용 예산 · 틱 끝 거부 건수(MoveHandler.h).
+    //   ★ _sightBroadcaster · _mapManager · _gameMonitor · _frameCount 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
+    CMoveHandler _moveHandler{ _sightBroadcaster, _mapManager, _gameMonitor, _frameCount };
+
     // 섹터 아웃박스(틱-지연 배칭 상태) · 인바운드 멤버십 수집 버퍼는 시야 조각 — SightBroadcaster.h (게임 서버 나누기 3 단계)
 
-    // 비용종류별 계측 — 틱 내 누적 후 틱 끝 1회 모니터 반영 (단일 게임루프 스레드 전용 → 누적 자체엔 원자연산 불필요)
-    //   방송 쪽 다섯(_tickBroadcast* · _tickMembership* · _tickPairFixes)은 시야 조각으로 갔다(ReportTickMetrics) — 여기 남은 것은 이동 예산 하나.
-    int64_t _tickMoveBudgetRejects = 0;   // 이동 예산 초과로 거부한 좌표 수용 수 — 틱 끝 _moveBudgetRejects로 반영
+    // 비용종류별 계측(틱 내 누적 → 틱 끝 1회 반영) — 방송 쪽 다섯은 시야 조각 · 이동 예산 거부(_tickMoveBudgetRejects)는 이동 조각(둘 다 ReportTickMetrics)
 
 #if USE_DB_WORKER
     // DB 워커 · 저장 주기 세기 · 회신 받는 버퍼는 캐릭터 저장소 — CharacterStore.h (게임 서버 나누기 4 단계)
