@@ -312,8 +312,11 @@ void CGameServer::GameLoopThread()
 
         auto phaseT3 = Clock::now();
 
-        // 4) 주기적 위치 동기화 (MOVING 플레이어 → 주변 브로드캐스트) — 시야 조각. 같은 순회에 동접 게이지(_enter._inGame)가 얹혀 있다
+        // 4) 주기적 위치 동기화 (MOVING 플레이어 → 주변 브로드캐스트) — 시야 조각
         _sightBroadcaster.TickPeriodicSync();
+
+        // 4-1) 동접 게이지(_enter._inGame — 존 정원 카운터의 합, 약 0.5초마다) — 입장 조각. 위 순회에 얹혀 있던 자리 그대로(게임 서버 나누기 14 단계)
+        _entryHandler.TickInGameGauge();
 
         // 이번 틱 보류물 비우기 — digest(USE_BROADCAST_BUNDLE) 또는 섹터 묶음(USE_SECTOR_AGGREGATION). 아래 flush가 묶어 보냄
         _sightBroadcaster.FlushSends();

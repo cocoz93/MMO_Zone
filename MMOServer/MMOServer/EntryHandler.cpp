@@ -79,6 +79,20 @@ void CEntryHandler::DropPendingEnter(int64_t sessionId)
 }
 #endif
 
+// 동접 게이지 — 시야 조각의 주기 동기화 순회(CSightBroadcaster::TickPeriodicSync)에 얹혀 있던 셈을 떼어 옴(게임 서버 나누기 14 단계).
+//   주기·자리(틱 4 그 순회 바로 뒤)가 같아 같은 틱에 같은 값을 쓴다 — 사이에 존 인원을 바꾸는 일이 없다.
+void CEntryHandler::TickInGameGauge()
+{
+    ++_inGameGaugeFrameCount;
+    if (_inGameGaugeFrameCount >= IN_GAME_GAUGE_INTERVAL_FRAMES)
+    {
+        _inGameGaugeFrameCount = 0;
+        int64_t inGame = 0;   // 게임 중인 플레이어 수 — 존마다 덧셈 한 번
+        _mapManager.ForEachZone([&](CZone* zone) { inGame += zone->GetPlayerCount(); });
+        _gameMonitor._enter._inGame.Store(inGame);   // 게이지 — 동접 = 게임 중 + 불러오는 중 (GameMonitor.h)
+    }
+}
+
 #if USE_DB_WORKER
 // ==========================================================================
 // DB 왕복 — 캐릭터 불러오기

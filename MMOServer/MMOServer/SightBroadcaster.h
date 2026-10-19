@@ -15,8 +15,8 @@
 //
 // [모르는 것]
 //  전투·보상·가방·파티·입장 절차. 받는 쪽은 언제나 플레이어다(몬스터는 받는 쪽이 못 된다 — 섹터 목록의 플레이어 칸만 돈다).
-//  남의 몫을 얹은 자리 둘 — 경계에 막혀 멈춘 플레이어에 저장 표시(_dbDirty)를 켠다(OnCharacterMoveStop · USE_DB_WORKER) ·
-//  주기 동기화 순회에 동접 게이지(_enter._inGame)를 얹었다(TickPeriodicSync). 둘 다 옮기기 전 게임 서버에서 그 자리에 있던 그대로다.
+//  남의 몫을 얹은 자리 하나 — 경계에 막혀 멈춘 플레이어에 저장 표시(_dbDirty)를 켠다(OnCharacterMoveStop · USE_DB_WORKER). 옮기기 전 게임 서버에서
+//  그 자리에 있던 그대로다. 주기 동기화 순회에 얹혀 있던 동접 게이지(_enter._inGame)는 입장 조각으로 갔다(TickInGameGauge — 게임 서버 나누기 14 단계).
 // ==========================================================================
 #pragma once
 
@@ -57,7 +57,7 @@ public:
     // ── 틱 — 게임 루프가 이 차례로 부른다(CGameServer::GameLoopThread) ──
     // 3) 섹터 변경 배치 처리 — 존마다 대기열이 정한 명단(이동 · 같은 틱 쌍)을 보내기만. 멤버십 구간 시간을 잰다.
     void ProcessSightChanges();
-    // 4) 주기적 위치 동기화 — 13틱마다 MOVING 플레이어 중 2칸 넘게 간 것만 주변에. 같은 순회에 동접 게이지(_enter._inGame)를 얹었다.
+    // 4) 주기적 위치 동기화 — 13틱마다 MOVING 플레이어 중 2칸 넘게 간 것만 주변에.
     void TickPeriodicSync();
     // 4 뒤) 이번 틱 보류물 비우기 — digest(USE_BROADCAST_BUNDLE) 또는 섹터 묶음(USE_SECTOR_AGGREGATION). 실제 송신(flush)은 네트워크 몫.
     void FlushSends();
@@ -182,7 +182,7 @@ private:
     CSessionHub&     _sessionHub;    // 보내기 — 한 사람에게 한 패킷 · 수신자 한 명에게 한 장(RequestSend · RequestSendRaw)
     CMapManager&     _mapManager;    // 존 찾기(zoneId → 존) · 존마다 돌기 — 읽기만
     CMonitorManager& _monitor;       // 코어 지표 — 배치 송신 경로에서 코어 대신 세는 자리가 있다(보낸 수·바이트 · 방송 호출·대상 · 구간 시간)
-    CGameMonitor&    _gameMonitor;   // 게임 지표 — 멤버십 셋 · 늦은 이동자 DELETE · 동접 게이지
+    CGameMonitor&    _gameMonitor;   // 게임 지표 — 멤버십 셋 · 늦은 이동자 DELETE
 
     static constexpr int SYNC_INTERVAL_FRAMES = 13;          // 13 × 40ms ≈ 500ms 주기적 위치 동기화
     static constexpr float SYNC_DISTANCE_THRESHOLD_SQ = 4.0f; // 델타 동기화 임계값 제곱 (2타일)

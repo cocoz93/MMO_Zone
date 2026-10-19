@@ -217,10 +217,8 @@ void CSightBroadcaster::TickPeriodicSync()
     if (_syncFrameCount >= SYNC_INTERVAL_FRAMES)
     {
         _syncFrameCount = 0;
-        int64_t inGame = 0;   // 게임 중인 플레이어 수 — 이미 도는 이 순회에 얹는다(존마다 덧셈 한 번)
         _mapManager.ForEachZone([&](CZone* zone)
         {
-            inGame += zone->GetPlayerCount();
             for (CCharacter* player : zone->GetCharacters())
             {
                 if (player->_moveState != MoveState::MOVING)
@@ -238,7 +236,7 @@ void CSightBroadcaster::TickPeriodicSync()
                 NotifyMoveSync(zone, player);  // 본인 포함 (이동 중 클라-서버 좌표 드리프트 보정)
             }
         });
-        _gameMonitor._enter._inGame.Store(inGame);   // 게이지 — 동접 = 게임 중 + 불러오는 중 (GameMonitor.h)
+        // 동접 게이지(_enter._inGame)는 이 순회에 얹혀 있다가 입장 조각으로 갔다 — CEntryHandler::TickInGameGauge (게임 서버 나누기 14 단계)
     }
 }
 
