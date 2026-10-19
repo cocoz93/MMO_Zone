@@ -9,7 +9,7 @@
 //  - 맵 경계 규칙(맵 안 검사·클램프·벽 판정) — 맵 크기를 든 곳이 여기라서
 //  - 섹터 이동 대기열 — 담긴 옛 섹터 좌표가 이 존의 격자라서. 읽어서 CREATE/DELETE 를 보내는 것은 게임 서버의 시야 조각(CSightBroadcaster)
 //  - 땅 아이템 관리자 소유 (_groundItemManager, 값) — 땅 아이템 목록과 놓기·수명·줍기 고르기·개수는 그쪽
-//    (GroundItemManager.h). 무엇이 떨어질지(굴림)와 송신은 CGameServer
+//    (GroundItemManager.h). 무엇이 떨어질지(굴림)는 게임 서버의 처치 보상 조각(CRewardHandler), 알림 받기·송신은 가방·땅 조각(CItemHandler)·시야 조각
 //  - 패킷 처리는 CGameServer · 브로드캐스트는 그 시야 조각(CSightBroadcaster), 몬스터 판단은 CMonsterManager 가 담당
 //
 // [설계]

@@ -166,7 +166,7 @@ bool CStatSystem::GainExp(CPlayer* player, int64_t amount)
     if (player->_level == before)
         return false;
 
-    // 오르면 체력·마력을 가득 채운다 — 쓰러져 있으면 안 채운다. 방 보상(CGameServer::RewardRoom)은 부활을 기다리는 사람에게도 가는데,
+    // 오르면 체력·마력을 가득 채운다 — 쓰러져 있으면 안 채운다. 방 보상(CRewardHandler::RewardRoom)은 부활을 기다리는 사람에게도 가는데,
     //   채우면 「쓰러졌는데 체력이 있다」가 되고 그 채로 저장되면 「죽은 채 저장 = 체력 0」 규칙(입장 때 부활 판정)이 깨진다. 부활이 채운다
     RecalcStats(player, !player->_isDead);
     _gameMonitor._exp._levelUps.Inc();

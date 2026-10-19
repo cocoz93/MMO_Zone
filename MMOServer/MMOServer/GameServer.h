@@ -54,6 +54,7 @@
 #include "PlayerPlacement.h"  // 배치(존에 넣기·옮기기·빼기·떠나보내기 · 도착 차례) — 게임 서버 나누기 5 단계(B4)
 #include "ItemHandler.h"      // 가방·땅(물약 · 장착 · 줍기 · 땅 아이템 알림 — USE_INVENTORY) — 게임 서버 나누기 6 단계(C6)
 #include "PartyHandler.h"     // 파티·방(파티 요청 · 파티 알림 · 방 입장·거절 · 다시 들어가기 잠금 — USE_PARTY) — 게임 서버 나누기 7 단계(C7)
+#include "RewardHandler.h"    // 처치 보상(몬스터 경험치 · 드랍 굴림 · 방 보상 — USE_COMBAT && USE_MONSTER) — 게임 서버 나누기 8 단계(C5)
 
 class CSerialBuffer;
 
@@ -222,17 +223,7 @@ private:
     void OnHit(CZone* zone, CCharacter* attacker, CCharacter* target, int32_t damage, int32_t remainHp) override;
     void OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target) override;   // 죽은 목록 → DEATH → 경험치 → 드랍 → 몬스터면 지움
 
-#if USE_EXP && USE_MONSTER
-    // 몬스터 경험치 주기 한 곳 — 막타 경로(OnDeath 6)와 방 보상(RewardRoom)이 같이 쓴다. 준 뒤에 세고, 오르면 알리고 바로 저장한다.
-    void GrantMonsterExp(CZone* zone, CPlayer* player, int32_t reward);
-#endif
-
-#if USE_PARTY && USE_MONSTER
-    // 방 보상(Room.h) — 방 맵의 보스(몬스터 표 boss)가 죽으면 OnDeath 가 막타 경로(경험치·드랍) 대신 부른다. 방(존) 안 사람 각자
-    //   (쓰러져 부활을 기다리는 사람 포함 — 아직 방에 있다): ⑴ 경험치 전액 ⑵ 드랍 표를 따로 굴려 가방에 바로, 넘치면 그 사람 발밑 땅에 그 사람 것으로
-    //   ⑶ 다시 들어가기 잠금(맵 표 lockoutSec) ⑷ 채팅 [System] 줄 — 경험치 한 줄 + 아이템마다 한 줄. 막타·피해 기록은 안 본다(room-plan.md 「정해진 것」).
-    void RewardRoom(CZone* zone, CMonster* monster);
-#endif
+    // 몬스터 경험치 주기(GrantMonsterExp) · 방 보상(RewardRoom)은 처치 보상 조각 — _rewardHandler (RewardHandler.h · 게임 서버 나누기 8 단계)
 #endif
 
 #if USE_INVENTORY
@@ -284,19 +275,8 @@ private:
     void OnMonsterVanish(CZone* zone, CMonster* monster) override;           // 방 클리어 — 효과 목록에서 빼고 존에서 뺀다(주변 DELETE) · 죽은 몬스터 지우기 앞과 같은 길
 #endif
 
-#if USE_DROP
-    // ── 드랍 (USE_DROP) ──
-    // 땅 아이템(목록)과 그 규칙(놓기·수명·주인·줍기 고르기·개수)은 존마다 든 CGroundItemManager 에 있다(GroundItemManager.h).
-    //   여기는 무엇이 떨어질지 굴리고, 관리자를 부르고, 알림을 받아 송신·번호 발급을 하고, 줍기의 가방·저장을 한다.
-
-    // 사람이 몬스터를 잡으면 부른다(OnDeath 의 경험치 블록 뒤 — 같은 조건).
-    //   표의 줄마다 굴리고, 결과를 존의 관리자에게 넘겨 땅에 놓는다(아이템마다 OnGroundItemDrop 으로 돌아온다).
-    //   주인 = 막타 친 계정 — 굴림은 잡은 사람에게 주는 보상이라 경험치와 같은 이 자리에서 한다.
-    void DropLoot(CZone* zone, CPlayer* killer, CMonster* monster);
-
-    // 관리자에 넘길 묶음(MakeGroundItemContext) · 땅 아이템 알림(IGroundItemEvents) · 수명 훑기 틱 · 줍기는 가방·땅 조각
-    //   — _itemHandler (ItemHandler.h · 게임 서버 나누기 6 단계). 굴림(위 DropLoot)만 여기 남았다(처치 보상 몫).
-#endif
+    // 드랍 굴림(DropLoot)은 처치 보상 조각 — _rewardHandler (RewardHandler.h · 게임 서버 나누기 8 단계) ·
+    //   관리자에 넘길 묶음 · 땅 아이템 알림 · 수명 훑기 틱 · 줍기는 가방·땅 조각 — _itemHandler (ItemHandler.h · 게임 서버 나누기 6 단계)
 
 #if USE_DB_WORKER
     // DB 저장 파이프라인(저장 세 길 · 저장 대상 판정 · 쿨타임·버프 묶기·되살리기)과 불러오기 요청·회신 꺼내기는
@@ -413,13 +393,8 @@ private:
 
     int32_t _defaultMapId = 0;  // 최초 접속 시 입장할 맵 = 맵 표 첫 줄 = 마을(죽으면 여기 시작 구역으로 — TickRespawn)
 
-#if USE_DROP
     // 땅의 아이템 번호(_nextGroundId) · 수명 훑기 세기(_groundItemScanCounter)는 가방·땅 조각 — ItemHandler.h (게임 서버 나누기 6 단계)
-    std::vector<Item> _lootBuffer;   // 한 마리분 굴림 결과 (멤버 재사용 — 죽을 때마다 할당하지 않게)
-#if USE_PARTY
-    std::vector<Item> _roomOverflow; // 방 보상 중 가방이 차서 못 넣은 것 — 그 사람 발밑 땅으로(RewardRoom · 멤버 재사용)
-#endif
-#endif
+    // 굴림 결과 버퍼(_lootBuffer) · 방 보상 넘침(_roomOverflow)은 처치 보상 조각 — RewardHandler.h (게임 서버 나누기 8 단계)
 
 #if USE_COMBAT
     // 스탯·레벨 규칙 — 표(_gameDataFiles)를 참조한다.
@@ -519,6 +494,23 @@ private:
     CPartySystem _partySystem{ _gameMonitor, _partyHandler };
 
     // 방 다시 들어가기 잠금 표(_roomLocks)는 파티·방 조각 — PartyHandler.h (게임 서버 나누기 7 단계)
+#endif
+
+#if USE_COMBAT && USE_MONSTER
+    // 처치 보상 — 몬스터 경험치 · 드랍 굴림 · 방 보상(RewardHandler.h). 처치 알림(OnDeath)이 부른다.
+    //   ★ _selfNotifier · _sightBroadcaster · _characterStore · _itemHandler · _partyHandler · _statSystem · _gameMonitor · _gameDataFiles · _frameCount
+    //     보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
+    CRewardHandler _rewardHandler{ _selfNotifier, _sightBroadcaster,
+#if USE_DB_WORKER
+                                   _characterStore,
+#endif
+#if USE_DROP
+                                   _itemHandler,
+#endif
+#if USE_PARTY
+                                   _partyHandler,
+#endif
+                                   _statSystem, _gameMonitor, _gameDataFiles, _frameCount };
 #endif
 
     // 섹터 아웃박스(틱-지연 배칭 상태) · 인바운드 멤버십 수집 버퍼는 시야 조각 — SightBroadcaster.h (게임 서버 나누기 3 단계)

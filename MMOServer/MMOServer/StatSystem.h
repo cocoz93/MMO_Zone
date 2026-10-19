@@ -6,7 +6,7 @@
 //  - 입장 때 저장된 체력·마력 넣기 — 세운 최대치로 깎는다(RestoreHpMp)
 //  - 경험치 더하기와 레벨 올리기 · 표 밖 레벨 보정(플레이어만 — 레벨은 사람만 쌓는다)
 //  - 그 과정에서 정한 것(레벨업·보정)을 지표(CGameMonitor)로 센다 — 무엇을 정했는지는 여기서만 안다(CCombatSystem 과 같은 꼴)
-//  - 보내기·저장·보상은 하지 않는다 — 부르는 쪽(CGameServer)이 SendExp·SendMyStats·SendActorMp(마력 — USE_SKILL)로 보내고, 저장은 마지막 저장값과 견주어 정한다(ShouldSave)
+//  - 보내기·저장·보상은 하지 않는다 — 부르는 쪽(처치 보상 조각 CRewardHandler · CGameServer)이 본인 알림 조각의 SendExp·SendMyStats·SendActorMp(마력 — USE_SKILL)로 보내고, 저장은 마지막 저장값과 견주어 정한다(ShouldSave)
 //
 // [왜 떼어냈나]
 //  규칙의 입력이 CPlayer 필드와 기획 표뿐인데 CGameServer 멤버였다. 그러면 게임 서버가 부르는 쪽(존·몬스터 관리자)은
