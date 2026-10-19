@@ -131,7 +131,7 @@ private:
     //   sessionId 상위 16비트 = 세션 슬롯 인덱스 → 해시맵 대신 인덱스 배열 직접 접근 (캐시미스 제거).
     //   슬롯 재사용(ABA)은 FindPlayer의 _sessionId 일치 검사로 방어. 접근은 게임 스레드 단독.
     //   ★ 플레이어의 주인이 이 슬롯이다(unique_ptr) — 손으로 delete 하지 않는다. 게임 중인 플레이어를 놓는 길은
-    //     RemovePlayer(떠나보내기 끝 — CGameServer::ReleasePlayer) 하나, 종료는 RemoveAll 이 해제한다.
+    //     RemovePlayer(떠나보내기 끝 — CPlayerPlacement::ReleasePlayer) 하나, 종료는 RemoveAll 이 해제한다.
     //     입장 중 슬롯에 넣기 전까지는 CGameServer::SpawnPlayer 의 지역 unique_ptr 가 든다.
     std::vector<std::unique_ptr<CPlayer>> _slots;
 

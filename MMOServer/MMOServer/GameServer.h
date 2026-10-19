@@ -52,11 +52,13 @@
 #include "SelfNotifier.h"  // 본인 알림(내 상태 패킷을 나에게만) — 게임 서버 나누기 2 단계(B5)
 #include "SightBroadcaster.h" // 시야 방송(섹터 바뀜 · 주변 방송 · 송신 묶음 · 존 알림) — 게임 서버 나누기 3 단계(B2)
 #include "CharacterStore.h"   // 캐릭터 저장소(DB 워커 · 저장 세 길 · 불러오기 — USE_DB_WORKER) — 게임 서버 나누기 4 단계(B3)
+#include "PlayerPlacement.h"  // 배치(존에 넣기·옮기기·빼기·떠나보내기 · 도착 차례) — 게임 서버 나누기 5 단계(B4)
 
 class CSerialBuffer;
 
-// 알림 통로 일곱 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
+// 알림 통로 여덟 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
 //   (IZoneEvents — 존의 걷기·멈춤 알림 둘 — 은 시야 조각 CSightBroadcaster 가 구현한다 · 게임 서버 나누기 3 단계)
+//   IPlacementEvents  = 배치(CPlayerPlacement)의 알림 둘(존에서 빠짐 · 떠남 — 틱 너머 목록 정리) — 게임 서버 나누기 5 단계(0-③ ⑴⑶) · 토글 없이 늘 있다
 //   ICombatEvents     = 공격 흐름(CCombatSystem)의 알림 셋 — 스킬의 피해·죽음도 이 셋으로 온다(ApplyHit)
 //   IBuffEvents       = 지속 효과 규칙(CBuffSystem)의 알림 하나(효과가 바뀜 — 걸림·되감김·만료·죽음) · 전투 토글 소유
 //   IMonsterEvents    = 몬스터 관리자(CMonsterManager)의 알림 둘(등장·사라짐)과 번호 부탁 하나
@@ -65,23 +67,15 @@ class CSerialBuffer;
 //   ISkillEvents      = 스킬 규칙(CSkillSystem)의 알림 둘(시전 · 되살려라)
 //   IPartyEvents      = 파티 규칙(CPartySystem)의 알림 다섯(요청·요청 끝·알림 한 줄·파티 전체·파티원 한 줄)
 //   ICharacterLoadEvents = 캐릭터 저장소(CCharacterStore)의 불러오기 결과 하나(OnCharacterLoaded) — 게임 서버 나누기 4 단계(0-③ ⑷) · USE_DB_WORKER
-// 기반 목록은 첫 줄만 「:」로 시작해야 한다 — 늘 있던 통로(IZoneEvents)가 빠진 뒤로는 첫 통로를 고르는 사다리를 둔다.
-//   뿌리 토글은 넷(전투 · 몬스터 · 파티 · DB)이고 나머지(효과 · 땅 아이템 · 스킬)는 전투를 요구한다(BuildConfig.h #error) —
-//   그래서 어느 조합이든 순서는 위 표 그대로이고, 넷 다 끄면 기반이 없다. 통로가 조각으로 다 옮겨 가면(게임 서버 나누기) 사다리도 사라진다.
+// 기반 목록 — 늘 있는 통로(IPlacementEvents)가 첫 줄이라 나머지는 토글마다 「, 」로 붙는다.
+//   (3·4 단계 동안은 늘 있던 IZoneEvents 가 빠져 첫 통로를 고르는 #if 사다리를 뒀었다 — 5 단계에서 늘 있는 통로가 생겨 걷어냄)
 class CGameServer
+    : private IPlacementEvents
 #if USE_COMBAT
-    : private ICombatEvents
-#elif USE_MONSTER
-    : private IMonsterEvents
-#elif USE_PARTY
-    : private IPartyEvents
-#elif USE_DB_WORKER
-    : private ICharacterLoadEvents
-#endif
-#if USE_COMBAT
+    , private ICombatEvents
     , private IBuffEvents
 #endif
-#if USE_MONSTER && USE_COMBAT
+#if USE_MONSTER
     , private IMonsterEvents
 #endif
 #if USE_DROP
@@ -90,10 +84,10 @@ class CGameServer
 #if USE_SKILL
     , private ISkillEvents
 #endif
-#if USE_PARTY && (USE_COMBAT || USE_MONSTER)
+#if USE_PARTY
     , private IPartyEvents
 #endif
-#if USE_DB_WORKER && (USE_COMBAT || USE_MONSTER || USE_PARTY)
+#if USE_DB_WORKER
     , private ICharacterLoadEvents
 #endif
 {
@@ -188,17 +182,12 @@ private:
     CPlayer* SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t accountId,
                          CZone* zone, const EnterPlacement& place);
 
-    // 게임 중인 플레이어를 놓는 한 곳 — 존에서 나간 "뒤"에 부른다(지금은 끊김 한 곳. 존 이동 복귀 실패 길은 10-09 에 없앴다 —
-    //   존 이동은 확인을 다 끝내고 옮겨서 들어가다 실패하지 않는다, CZone::EnterZone 주석).
-    //   틱 너머로 이 플레이어를 드는 목록에서 빼기 → 최종 저장 → 슬롯 비우기(여기서 해제), 이 순서.
-    //   ★ 존 퇴장(RemoveFromZone)은 부르는 쪽 몫 — 존을 못 찾은 끊김(LeaveGame 의 zone == nullptr)은 퇴장 없이 놓기만 한다.
-    //     CZone::LeaveZone 은 _zoneId 를 안 지우므로, 이미 존을 나간 길이 다시 생겨 이 안에서 _zoneId 로 나가면 같은 존을 두 번 나간다.
-    //   ★ 부른 뒤에는 player 를 쓰지 말 것 — 이미 해제됐다.
-    void ReleasePlayer(CPlayer* player);
+    // 떠나보내기(LeaveGame) · 놓기(ReleasePlayer)는 배치 조각 — _placement (PlayerPlacement.h · 게임 서버 나누기 5 단계).
+    //   그 안에서 틱 너머 목록을 정리하라는 알림이 아래 둘로 온다.
 
-    // 떠나보내기 — 게임 중인 플레이어를 세계에서 내보내는 한 곳: 존에서 빼기(존을 찾으면) → 놓기(ReleasePlayer).
-    //   끊김(OnDisconnected)과 같은 계정 재접속(KickDuplicateAccount)이 같이 부른다. 부른 뒤에는 player 를 쓰지 말 것.
-    void LeaveGame(CPlayer* player);
+    // 「존에서 빠짐 · 떠남」 알림 (IPlacementEvents) — 뜻은 PlayerPlacement.h. 몸은 옮기기 전 RemoveFromZone · ReleasePlayer 의 그 자리 그대로.
+    void OnLeavingZone(CCharacter* player) override;   // 부활 대기열에서 빼기 (전투)
+    void OnLeavingGame(CPlayer* player) override;      // 부활 대기열 · 지속 효과 목록 · 파티원·요청 표에서 빼기 (전투 · 파티)
 
     // 패킷 핸들러
     void RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg);
@@ -216,19 +205,19 @@ private:
 
     // 부활 대기자 훑기 — 틱마다 1회. 존 전체를 돌지 않으려고 죽은 것만 따로 들고 있는다.
     //   플레이어만 — 몬스터는 되살리지 않는다(죽는 순간 지우고, 스폰이 새로 채운다).
-    //   마을(기본 맵)이 아닌 맵에서 죽었으면 마을 시작 구역으로 옮겨 되살린다(TransferPlayer, ArrivalKind::RESPAWN) — 대기열을 다 돈 뒤에.
+    //   마을(기본 맵)이 아닌 맵에서 죽었으면 마을 시작 구역으로 옮겨 되살린다(배치의 TransferPlayer, ArrivalKind::RESPAWN) — 대기열을 다 돈 뒤에.
     void TickRespawn();
 
     // 부활 자리 규칙 한 곳 — 죽은 맵이 마을(기본 맵)이 아니면 마을 시작 구역으로, 마을이면 제자리.
     //   부르는 곳 둘: TickRespawn(죽고 3초 뒤) · OnCharacterLoaded(죽은 채 저장된 행 — 나가기·부활 전 주기 저장·죽은 채 서버 다운).
     bool RespawnsToTown(int32_t deathMapId) const { return deathMapId != _defaultMapId; }
 
-    // 부활 대기열에서 빼기 — 퇴장 경로가 반드시 부른다. 안 부르면 다음 틱이 해제된 포인터를 밟는다.
+    // 부활 대기열에서 빼기 — 퇴장 경로가 반드시 부른다(배치의 「존에서 빠짐 · 떠남」 알림 — OnLeavingZone · OnLeavingGame). 안 부르면 다음 틱이 해제된 포인터를 밟는다.
     void RemoveFromDeadActors(CCharacter* player);
 
     // ── 지속 효과 (USE_COMBAT) ──
     // 걸기·만료·정리는 CBuffSystem(_buffSystem) — 여기는 알림을 받아 본인 알림 조각에 넘기기만. 틱 3-2b 가 만료를 훑고,
-    //   사라지는 두 길(ReleasePlayer → Forget · OnDeath → ClearAll)이 목록에서 뺀다(BuffSystem.h [목록은 틱 너머로 주소를 든다]).
+    //   사라지는 두 길(놓기의 「떠남」 알림 OnLeavingGame → Forget · OnDeath → ClearAll)이 목록에서 뺀다(BuffSystem.h [목록은 틱 너머로 주소를 든다]).
     // 효과 알림 (IBuffEvents) — 스탯은 이미 다시 선 뒤다. 사람이면 S2C_ACTOR_BUFF(본인) → S2C_MY_STATS(바뀐 공격력). 몬스터면 보낼 세션이 없다.
     void OnBuffChanged(CCharacter* target, BuffKind kind) override;
 
@@ -434,30 +423,9 @@ private:
 
     // 섹터 변경 처리(ProcessSectorChange)·같은 틱 쌍 보정(SendSightPairFixes)은 시야 조각으로 옮겼다 — _sightBroadcaster (게임 서버 나누기 3 단계)
 
-    // 존에 들어간 뒤 알리는 길 — 어떻게 왔나가 셋을 가른다: 내 캐릭터를 알리는 패킷 · 가방·스탯까지 보내나 · 등장 사유.
-    //   되돌리기 길은 없다 — 존 이동은 확인을 다 끝낸 뒤 옮기므로 들어가다 실패하지 않는다(CZone::EnterZone 주석).
-    enum class ArrivalKind : uint8_t
-    {
-        CONNECT,       // 처음 접속 — CREATE_MY · 가방 · 공격력/방어력까지, 사유 CONNECT
-        ZONE_CHANGE,   // 존 이동(요청·포털) — ZONE_CHANGE_OK 가 내 캐릭터를 알림, 사유 ZONE_TRANSFER
-        RESPAWN,       // 마을 부활 — 존 이동과 같고 ZONE_CHANGE_OK 바로 뒤에 본인에게 RESPAWN(체력·되살아남)
-        COUNT
-    };
-    // 순서 = 존 정보 → 내 캐릭터 → 레벨·경험치 → (접속만) 가방 전체 → 공격력·방어력 → 주변과 서로 생성(BroadcastEnterZone).
-    //   ★ 이 순서가 곧 와이어 순서다 — 클라가 존·나를 알고 나서 숫자와 남을 채운다. 본인 전용 패킷이 늘면 여기 한 곳에.
-    void NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind kind);
-
-    // 존에서 존으로 옮기기 한 곳 — 존 이동 요청(RecvZoneChange)이 부른다. 다른 길로 존을 옮길 일이 생기면 이 함수를 탄다.
-    //   퇴장 방송 → 새 존 입장 → 존 이동 수 → 저장 표시 → 동기화 기준 → 도착 알림(kind).
-    //   at == nullptr 이면 그 존의 「자리 없이 들어오는」 규칙(CZone::EnterZone → CalcSpawnPos), 있으면 그 자리(EnterZoneAt).
-    //   들어갈 수 있는지(목적지·정원·같은 존)는 부르는 쪽이 이미 봤다 — 입장은 실패가 없다(CZone::EnterZone 주석).
-    struct SpawnAt { float x; float y; };
-    void TransferPlayer(CPlayer* player, CZone* oldZone, CZone* newZone, ArrivalKind kind, const SpawnAt* at);
-
+    // 도착 종류(ArrivalKind) · 도착 차례(NotifyArrival) · 존에서 존으로 옮기기(TransferPlayer · SpawnAt) · 존에서 빼기(RemoveFromZone)는
+    //   배치 조각 — _placement (PlayerPlacement.h · 게임 서버 나누기 5 단계).
     // 존 입장/퇴장 브로드캐스트(BroadcastEnterZone · BroadcastSpawn · BroadcastLeaveZone)는 시야 조각 — SightBroadcaster.h (게임 서버 나누기 3 단계)
-    //   RemoveFromZone     — 존에서 빼기: 시야 몫(시야 조각의 BroadcastLeaveZone) → 부활 대기열 정리 → CZone::LeaveZone. 종류를 안 가린다 —
-    //                        플레이어 퇴장·존 이동과 죽은 몬스터(OnDeath 끝)·사라지는 몬스터가 같이 쓴다
-    void RemoveFromZone(CZone* zone, CCharacter* player);
 
     // ── 표시 속성 ── (캐릭터 번호 발급은 세션 허브 — CSessionHub::AllocActorId)
 
@@ -469,11 +437,7 @@ private:
     //   섹터 묶음 · 수신섹터 digest · 멤버십 팬아웃·직송 · 남의 캐릭터 생성·삭제 · 내 자리(SendSyncPosition)는 시야 조각
     //   (_sightBroadcaster — SightBroadcaster.h · 게임 서버 나누기 3 단계).
 
-    // 패킷별 전송 함수 (Fill + Send)
-    void SendZoneInfo(CPlayer* target, CZone* zone);
-    void SendCreateMyPlayer(CPlayer* target);
-    void SendZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex);
-    void SendZoneChangeFail(CPlayer* target, uint8_t reason);
+    // 패킷별 전송 함수(존 정보 · 내 캐릭터 생성 · 존 이동 성공·실패)는 배치 조각 — _placement (게임 서버 나누기 5 단계)
 
     // C2S_MOVE_START 좌표 수용의 이동량 예산 검사 — 경과분 적립 후 통과하면 소비까지 수행.
     // 반환 false면 수용하지 않고 서버 좌표를 유지한다(기존 범위초과 경로와 동일한 처리).
@@ -572,6 +536,15 @@ private:
                                      _frameCount, *this };
 #endif
 
+    // 배치 — 존에 넣기·옮기기·빼기·떠나보내기 · 도착 차례(PlayerPlacement.h). 틱 너머 목록 정리는 이 클래스(IPlacementEvents)로 알려 온다.
+    //   ★ _sessionHub · _selfNotifier · _sightBroadcaster · _characterStore · _mapManager · _gameMonitor 보다 뒤에 선언 — 그 참조를 받는다.
+    //     *this 는 참조만 넘긴다(생성 중엔 부르지 않는다).
+    CPlayerPlacement _placement{ _sessionHub, _selfNotifier, _sightBroadcaster,
+#if USE_DB_WORKER
+                                 _characterStore,
+#endif
+                                 _mapManager, _gameMonitor, *this };
+
     // 플레이어 이동 속도 덮어쓰기(칸/초) — 0 이면 생성자의 기본값을 그대로 쓴다(SetPlayerSpeed)
     int _playerSpeed = 0;
 #if USE_COMBAT
@@ -579,7 +552,7 @@ private:
     //   (처음엔 GetAroundPlayers 의 전신이 벡터를 요구해 _attackTargetBuffer 를 뒀었다)
 
     // 죽어서 부활을 기다리는 플레이어. 여기만 틱 너머로 포인터를 든다 —
-    //   퇴장 경로(RemoveFromZone·ReleasePlayer)가 반드시 회수해야 한다.
+    //   퇴장 경로(배치의 「존에서 빠짐 · 떠남」 알림 — OnLeavingZone · OnLeavingGame)가 반드시 회수해야 한다.
     //   몬스터는 여기 안 들어온다 — 죽는 순간 지운다(OnDeath 끝 → 존의 몬스터 관리자 Despawn).
     //   같은 규율이 이미 dirtyMovers(시야 조각) 와 존의 섹터 이동 대기열(CZone::LeaveZone 이 뺀다)에 있다.
     std::vector<CCharacter*> _deadActors;
@@ -600,7 +573,7 @@ private:
 #endif
 
 #if USE_PARTY
-    // 파티 규칙 — 알림은 이 클래스(IPartyEvents)로 돌아온다. 파티원·요청의 주소를 틱 너머로 들므로 ReleasePlayer 가 Forget 을 부른다.
+    // 파티 규칙 — 알림은 이 클래스(IPartyEvents)로 돌아온다. 파티원·요청의 주소를 틱 너머로 들므로 놓기의 「떠남」 알림(OnLeavingGame)이 Forget 을 부른다.
     //   ★ _gameMonitor 보다 뒤에 선언해야 한다(위 _combatSystem 주석과 같은 까닭).
     CPartySystem _partySystem{ _gameMonitor, *this };
 

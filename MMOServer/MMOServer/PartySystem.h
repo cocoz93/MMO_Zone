@@ -19,7 +19,7 @@
 //
 // [왜 따로인가] 파티는 존을 넘는다 — 목록은 게임 서버에 하나(효과 목록 CBuffSystem 과 같은 꼴). 존마다 두면 존을 옮길 때 옮겨 담아야 한다.
 //
-// [목록은 틱 너머로 주소를 든다] 파티원·요청의 CPlayer* — 사람이 사라지는 길은 퇴장 하나다(CGameServer::ReleasePlayer → Forget).
+// [목록은 틱 너머로 주소를 든다] 파티원·요청의 CPlayer* — 사람이 사라지는 길은 퇴장 하나다(CPlayerPlacement::ReleasePlayer → 「떠남」 알림 CGameServer::OnLeavingGame → Forget).
 //  죽음·존 이동은 같은 CPlayer 가 그대로라 빼지 않는다. 빠뜨리면 다음 틱이 해제된 메모리를 밟는다.
 //
 // [계층 경계] CPlayer·CGameMonitor 와 존 번호 → 맵 번호 풀기(CMapManager 정적 함수)만 안다. 세션·패킷·섹터는 모른다 —

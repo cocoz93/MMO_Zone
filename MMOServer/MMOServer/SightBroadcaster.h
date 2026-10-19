@@ -81,7 +81,7 @@ public:
     //   BroadcastEnterZone — 플레이어 입장: 양방향(주변 → 나를 생성, 나 → 주변을 생성)
     //   BroadcastSpawn     — 세션 없는 것(몬스터)의 등장: 주변에 알리기만. 받는 쪽이 없으니 인바운드가 없다
     //   BroadcastLeaveZone — 퇴장의 시야 몫: 주변(옛 섹터 시청자·같은 틱 이동자 포함)에 나를 삭제하고 이동 묶음에서 뺀다.
-    //                        존 소속은 안 건드린다 — 존에서 빼는 것은 CGameServer::RemoveFromZone(게임 서버 나누기 0-③).
+    //                        존 소속은 안 건드린다 — 존에서 빼는 것은 CPlayerPlacement::RemoveFromZone(게임 서버 나누기 0-③).
     void BroadcastEnterZone(CZone* zone, CPlayer* player, SpawnReason reason);
     void BroadcastSpawn(CZone* zone, CCharacter* who, SpawnReason reason);
     void BroadcastLeaveZone(CZone* zone, CCharacter* player);

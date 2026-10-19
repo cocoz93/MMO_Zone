@@ -143,6 +143,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/SelfNotifier.cpp
     ${SRV_DIR}/SightBroadcaster.cpp
     ${SRV_DIR}/CharacterStore.cpp
+    ${SRV_DIR}/PlayerPlacement.cpp
     ${SRV_DIR}/MapManager.cpp
     ${SRV_DIR}/SectorManager.cpp
     ${SRV_DIR}/Zone.cpp

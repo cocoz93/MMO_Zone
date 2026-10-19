@@ -39,36 +39,7 @@ namespace
 
     // MakeMoveStart · MakeMoveStop · MakeSyncPosition(이동 셋) 은 SightBroadcaster.cpp — 시야 방송 조각만 부른다(게임 서버 나누기 3 단계)
 
-    CSerialBuffer* MakeZoneInfo(CZone* zone)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_ZONE_INFO::TYPE);
-        *buf << static_cast<int>(zone->GetMapId());
-        *buf << static_cast<int>(CMapManager::GetChannelIndexFromZoneId(zone->GetZoneId()));
-        *buf << static_cast<int>(zone->GetMapWidth());
-        *buf << static_cast<int>(zone->GetMapHeight());
-        *buf << static_cast<int>(zone->GetSectorManager().GetSectorSize());
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_ZONE_INFO));
-        return buf;
-    }
-
-    CSerialBuffer* MakeCreateMyPlayer(CPlayer* target)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_CREATE_MY_PLAYER::TYPE);
-        *buf << static_cast<int>(target->_actorId);
-        *buf << static_cast<uint8_t>(target->_direction);
-        *buf << static_cast<uint8_t>(target->_displayChar);
-        *buf << static_cast<uint8_t>(target->_colorIndex);
-        *buf << target->_x;
-        *buf << target->_y;
-        *buf << static_cast<int>(target->_speed);
-        WriteSnapshot(buf, target);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_CREATE_MY_PLAYER));
-        return buf;
-    }
+    // MakeZoneInfo · MakeCreateMyPlayer(존 정보 · 내 캐릭터 생성) 는 PlayerPlacement.cpp — 배치 조각만 부른다(게임 서버 나누기 5 단계)
 
     // MakeCreateOtherPlayer · MakeDeletePlayer(남의 캐릭터 생성·삭제) 는 SightBroadcaster.cpp — 시야 방송 조각만 부른다(게임 서버 나누기 3 단계)
 
@@ -120,32 +91,7 @@ namespace
     // MakeMyStats(내 최종 공격력·방어력) 는 SelfNotifier.cpp — 본인 알림 조각만 부른다(게임 서버 나누기 2 단계)
 #endif // USE_COMBAT
 
-    CSerialBuffer* MakeZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_ZONE_CHANGE_OK::TYPE);
-        *buf << static_cast<int>(mapId);
-        *buf << static_cast<int>(channelIndex);
-        *buf << static_cast<int>(target->_actorId);
-        *buf << static_cast<uint8_t>(target->_displayChar);
-        *buf << static_cast<uint8_t>(target->_colorIndex);
-        *buf << static_cast<uint8_t>(target->_direction);
-        *buf << target->_x;
-        *buf << target->_y;
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_ZONE_CHANGE_OK));
-        return buf;
-    }
-
-    CSerialBuffer* MakeZoneChangeFail(uint8_t reason)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_ZONE_CHANGE_FAIL::TYPE);
-        *buf << static_cast<uint8_t>(reason);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_ZONE_CHANGE_FAIL));
-        return buf;
-    }
+    // MakeZoneChangeOk · MakeZoneChangeFail(존 이동 성공·실패) 는 PlayerPlacement.cpp — 배치 조각만 부른다(게임 서버 나누기 5 단계)
 
     // 존 이동 거절 사유 → 와이어 값 (MSG_S2C_ZONE_CHANGE_FAIL::reason — 0: 없음, 1: 가득 참, 2: 이미 해당 채널)
     uint8_t ToZoneChangeFailReason(ZoneChangeReject reject)
@@ -1121,7 +1067,7 @@ CPlayer* CGameServer::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t ac
 
     // 본인에게 존·내 캐릭터·숫자·가방·스탯 → 주변과 서로 생성 (순서와 「접속만 보내는 것」은 NotifyArrival 한 곳)
     //   불러온 가방은 위에서 이미 채웠다(스탯 세우기 앞 — 무기 몫 때문). 여기서는 보내기만 한다.
-    NotifyArrival(player, zone, ArrivalKind::CONNECT);
+    _placement.NotifyArrival(player, zone, CPlayerPlacement::ArrivalKind::CONNECT);
 
     return player;
 }
@@ -1199,7 +1145,7 @@ void CGameServer::KickDuplicateAccount(int64_t accountId, int64_t exceptSessionI
         const int64_t oldSession = other->_sessionId;
         SLOG_WARN("[LOGIN] duplicate account -> kick old session (account={}, old={}, new={})",
                   accountId, oldSession, exceptSessionId);
-        LeaveGame(other);                                  // 최종 저장이 이 뒤의 조회보다 큐에서 앞선다 · 이 뒤로 other 는 못 쓴다(칸이 비며 해제)
+        _placement.LeaveGame(other);                                  // 최종 저장이 이 뒤의 조회보다 큐에서 앞선다 · 이 뒤로 other 는 못 쓴다(칸이 비며 해제)
         _network->RequestDisconnectSession(oldSession);
         _gameMonitor._enter._duplicate.Inc();
     }
@@ -1306,35 +1252,28 @@ void CGameServer::OnDisconnected(int64_t sessionId)
 #endif
         return;
     }
-    LeaveGame(player);
+    _placement.LeaveGame(player);
 }
 
-// 떠나보내기 — 게임 중인 플레이어를 세계에서 내보내는 한 곳: 존에서 빼기(존을 찾으면) → 놓기(ReleasePlayer).
-//   끊김(OnDisconnected)과 같은 계정 재접속(KickDuplicateAccount)이 같이 부른다 — 정리 코드를 두 벌 두지 않는다(게임 서버 나누기 0-③).
-//   ★ 부른 뒤에는 player 를 쓰지 말 것 — ReleasePlayer 가 해제했다.
-void CGameServer::LeaveGame(CPlayer* player)
-{
-    CZone* zone = _mapManager.GetZone(player->_zoneId);
-    if (zone != nullptr)
-    {
-        // 주변 DELETE 브로드캐스트 + 섹터/존 해제
-        RemoveFromZone(zone, player);
-    }
+// 떠나보내기(LeaveGame) · 놓기(ReleasePlayer) 는 배치 조각으로 옮겼다 — CPlayerPlacement (게임 서버 나누기 5 단계)
 
-    // 대기열 회수 → 로그아웃 최종 저장 → 슬롯 비우기(해제) — 놓는 길은 하나다
-    ReleasePlayer(player);
-}
+// ── 「존에서 빠짐 · 떠남」 알림 (IPlacementEvents) ── 배치 조각(CPlayerPlacement)이 부른다 — 몸은 옮기기 전 RemoveFromZone · ReleasePlayer 의
+//   그 자리 그대로(게임 서버 나누기 5 단계 · 0-③ ⑴⑶). 전투·파티 조각을 떼면 그쪽으로 간다.
 
-void CGameServer::ReleasePlayer(CPlayer* player)
+// 존에서 빠짐 — 시야 몫 뒤 · CZone::LeaveZone 앞(CPlayerPlacement::RemoveFromZone). 종류를 안 가린다(플레이어·몬스터).
+void CGameServer::OnLeavingZone(CCharacter* player)
 {
-#if USE_DB_WORKER
-    // 최종 저장 (스냅샷은 값 복사라 직후 해제 안전)
-    //   ★ 아래 Forget 보다 「앞」이다 — Forget 이 버프 칸을 비우므로 뒤에서 찍으면 걸려 있던 버프가 저장에 안 실린다
-    //     (나갔다 들어오면 버프가 늘 사라진다 — 컴파일도 화면도 멀쩡하고 DB 의 buffs 열만 비어 있다).
-    if (_characterStore.IsRunning())
-        _characterStore.EnqueuePlayerSave(player);
+#if USE_COMBAT
+    // 부활 대기열에서도 제거 — 위 이동 묶음·아래 LeaveZone 의 섹터 이동 대기열과 같은 이유다(틱 끝 TickRespawn dangling 방지).
+    //   죽은 채로 퇴장·존이동하는 경우가 실제 경로다(부활 3초 안에 창을 닫으면 여기로 온다).
+    RemoveFromDeadActors(player);
 #endif
+    (void)player;   // 전투를 끈 빌드엔 할 일이 없다
+}
 
+// 떠남 — 최종 저장 뒤 · 칸 비우기(해제) 앞(CPlayerPlacement::ReleasePlayer). 이 사람에게 보낼 세션은 이미 없다.
+void CGameServer::OnLeavingGame(CPlayer* player)
+{
 #if USE_COMBAT
     // 부활 대기열 회수 — 끊김 길에서는 RemoveFromZone 이 이미 하지만, 존을 못 찾은 갈래는 그걸 건너뛴다.
     //   그 상태로 죽어 있을 수는 없어도, 아래 해제 뒤에 대기열이 그 주소를 들고 있으면
@@ -1350,9 +1289,7 @@ void CGameServer::ReleasePlayer(CPlayer* player)
     //   끊기면 바로 파티에서 빠지는 규칙(10-16 사용자 결정)이 이 한 줄이다. 존 이동·죽음은 이 길을 안 지난다(파티는 존을 넘는다).
     _partySystem.Forget(player);
 #endif
-
-    // 슬롯 비우기 — 주인이 슬롯이라 여기서 해제된다(맨 끝이어야 한다)
-    _sessionHub.RemovePlayer(player);
+    (void)player;   // 전투·파티를 다 끈 빌드엔 할 일이 없다
 }
 
 void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
@@ -1994,15 +1931,7 @@ uint8_t CGameServer::CalcColorIndex(int32_t playerId)
 
 // 주변 방송(BroadcastAroundSector) · 이동 알림 셋(NotifyMoveStart/Stop/Sync) · 존 알림(IZoneEvents) 은 시야 방송 조각으로 옮겼다 — CSightBroadcaster (게임 서버 나누기 3 단계)
 
-void CGameServer::SendZoneInfo(CPlayer* target, CZone* zone)
-{
-    _sessionHub.SendPacket(target, MakeZoneInfo(zone));
-}
-
-void CGameServer::SendCreateMyPlayer(CPlayer* target)
-{
-    _sessionHub.SendPacket(target, MakeCreateMyPlayer(target));   // 본인 체력도 이 안에 실린다(ActorSnapshot)
-}
+// 존 정보 · 내 캐릭터 생성 보내기(SendZoneInfo · SendCreateMyPlayer) 는 배치 조각으로 옮겼다 — CPlayerPlacement (게임 서버 나누기 5 단계)
 
 // 남의 캐릭터 생성·삭제 보내기 · 인바운드 멤버십 묶음 · 내 자리(SendSyncPosition) 는 시야 방송 조각으로 옮겼다 — CSightBroadcaster (게임 서버 나누기 3 단계)
 
@@ -2030,12 +1959,12 @@ void CGameServer::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
     _gameMonitor._sector._zoneChangeResults[static_cast<int>(target.reject)].Inc();   // 성공(NONE)·거절 모두 — 칸의 합 = 요청 수
     if (target.reject != ZoneChangeReject::NONE)
     {
-        SendZoneChangeFail(player, ToZoneChangeFailReason(target.reject));
+        _placement.SendZoneChangeFail(player, ToZoneChangeFailReason(target.reject));
         return;
     }
     // 들어갈 수 있는지는 위 PickZoneChangeTarget 이 나가기 "전에" 다 봤다 — 옮기기는 TransferPlayer 한 곳.
     //   자리는 그 존의 규칙(at = nullptr — CZone::CalcSpawnPos)
-    TransferPlayer(player, oldZone, target.zone, ArrivalKind::ZONE_CHANGE, nullptr);
+    _placement.TransferPlayer(player, oldZone, target.zone, CPlayerPlacement::ArrivalKind::ZONE_CHANGE, nullptr);
 }
 
 // 포털 사용 — 어디로 가는지는 포털 표가 정한다(클라는 번호만 보낸다 — PortalTable.h [무엇]).
@@ -2068,19 +1997,19 @@ void CGameServer::RecvPortalUse(CPlayer* player, CSerialBuffer* pMsg)
     if (portal == nullptr)
     {
         reject(PortalReject::NO_PORTAL);
-        SendZoneChangeFail(player, 5);   // 5: 포털 없음
+        _placement.SendZoneChangeFail(player, 5);   // 5: 포털 없음
         return;
     }
     if (portal->mapId != oldZone->GetMapId())
     {
         reject(PortalReject::WRONG_MAP);
-        SendZoneChangeFail(player, 5);   // 5: 포털 없음 — 클라에겐 「없는 번호」와 같은 답이다(GameMonitor.h PortalReject)
+        _placement.SendZoneChangeFail(player, 5);   // 5: 포털 없음 — 클라에겐 「없는 번호」와 같은 답이다(GameMonitor.h PortalReject)
         return;
     }
     if (!portal->InReach(player->_x, player->_y))
     {
         reject(PortalReject::TOO_FAR);
-        SendZoneChangeFail(player, 4);   // 4: 포털에서 멂
+        _placement.SendZoneChangeFail(player, 4);   // 4: 포털에서 멂
         return;
     }
 
@@ -2093,7 +2022,7 @@ void CGameServer::RecvPortalUse(CPlayer* player, CSerialBuffer* pMsg)
 #else
         // 방은 파티 위에 선다 — 파티를 끈 빌드는 방에 들어가는 길이 없다(맵 표의 방 맵은 그대로 읽힌다). 파티 알림이 없는 빌드라 「존재하지 않는 맵/채널」로 답한다
         reject(PortalReject::ROOM);
-        SendZoneChangeFail(player, 0);   // 0: 존재하지 않는 맵/채널
+        _placement.SendZoneChangeFail(player, 0);   // 0: 존재하지 않는 맵/채널
 #endif
         return;
     }
@@ -2105,13 +2034,13 @@ void CGameServer::RecvPortalUse(CPlayer* player, CSerialBuffer* pMsg)
     {
         // 맵은 표가 대조했으니 채널 만들기 실패뿐이다 — 존 이동 요청의 NOT_FOUND 와 같은 답
         SLOG_ERROR("[Portal] 목적지 채널을 못 얻었습니다 (portal={}, map={})", portal->portalId, portal->targetMapId);
-        SendZoneChangeFail(player, 0);   // 0: 존재하지 않는 맵/채널
+        _placement.SendZoneChangeFail(player, 0);   // 0: 존재하지 않는 맵/채널
         return;
     }
 
     pc._used.Inc();
-    const SpawnAt at{ static_cast<float>(portal->targetX), static_cast<float>(portal->targetY) };
-    TransferPlayer(player, oldZone, newZone, ArrivalKind::ZONE_CHANGE, &at);
+    const CPlayerPlacement::SpawnAt at{ static_cast<float>(portal->targetX), static_cast<float>(portal->targetY) };
+    _placement.TransferPlayer(player, oldZone, newZone, CPlayerPlacement::ArrivalKind::ZONE_CHANGE, &at);
 }
 
 #if USE_PARTY
@@ -2153,11 +2082,11 @@ void CGameServer::EnterRoom(CPlayer* leader, CZone* oldZone, const PortalDef& po
 
     pc._used.Inc();
     rc._active.Inc();
-    const SpawnAt at{ static_cast<float>(portal.targetX), static_cast<float>(portal.targetY) };
+    const CPlayerPlacement::SpawnAt at{ static_cast<float>(portal.targetX), static_cast<float>(portal.targetY) };
     for (int32_t i = 0; i < count; ++i)
     {
         assert(order[i]->_zoneId == oldZone->GetZoneId() && "판정이 같은 존을 봤다 — CheckRoomEntry NOT_GATHERED");
-        TransferPlayer(order[i], oldZone, room, ArrivalKind::ZONE_CHANGE, &at);
+        _placement.TransferPlayer(order[i], oldZone, room, CPlayerPlacement::ArrivalKind::ZONE_CHANGE, &at);
         rc._moved.Inc();
     }
     SLOG_INFO("[Room] map {} zone {} — party {} · {} moved (leader actor {})",
@@ -2174,7 +2103,7 @@ void CGameServer::SendRoomReject(CPlayer* leader, const RoomEntryResult& result)
     case RoomEntryReject::NOT_GATHERED: _partySystem.Notice(leader, PartyNotice::ROOM_NOT_GATHERED, blocker); return;
     case RoomEntryReject::DEAD:         _partySystem.Notice(leader, PartyNotice::ROOM_DEAD, blocker);         return;
     case RoomEntryReject::LOCKED:       _partySystem.Notice(leader, PartyNotice::ROOM_LOCKED, blocker);       return;
-    case RoomEntryReject::FULL:         SendZoneChangeFail(leader, 1);                                        return;   // 1: 모든 채널 가득 참
+    case RoomEntryReject::FULL:         _placement.SendZoneChangeFail(leader, 1);                                        return;   // 1: 모든 채널 가득 참
     case RoomEntryReject::NONE:
     case RoomEntryReject::COUNT:        break;
     }
@@ -2182,36 +2111,7 @@ void CGameServer::SendRoomReject(CPlayer* leader, const RoomEntryResult& result)
 }
 #endif
 
-// 존에서 존으로 옮기기 한 곳(GameServer.h 선언 주석).
-void CGameServer::TransferPlayer(CPlayer* player, CZone* oldZone, CZone* newZone, ArrivalKind kind, const SpawnAt* at)
-{
-    // 같은 존으로 옮기기는 부르는 쪽이 막았다 — 통과시키면 자리만 다시 뽑혀 순간이동이 된다(PickZoneChangeTarget 의 SAME_ZONE 주석)
-    assert(oldZone != newZone);
-
-    // ── 현재 존에서 퇴장 ──
-    RemoveFromZone(oldZone, player);
-
-    // ── 새 존에 입장 (player 객체 재활용, playerId 유지) ──
-    //   들어갈 수 있는지는 부르는 쪽이 나가기 "전에" 다 봤다 — 입장은 실패가 없다(CZone::EnterZone 주석).
-    //   그래서 나간 뒤 들어가다 실패해 원래 맵으로 되돌리는 길이 없다(10-09 에 없앰 — 한 번도 안 도는 길이었다).
-    if (at != nullptr)
-        newZone->EnterZoneAt(player, at->x, at->y);
-    else
-        newZone->EnterZone(player);
-
-    _gameMonitor._sector._zoneChangeCount.Inc();
-
-#if USE_DB_WORKER
-    player->_dbDirty = true;   // 존/맵 이동 → 위치·map_id 변경, 저장 대상
-#endif
-
-    // 델타 동기화 기준 좌표 초기화
-    player->_lastSyncX = player->_x;
-    player->_lastSyncY = player->_y;
-
-    // 존 정보 + 존 이동 성공 통보 + 숫자 → 주변과 서로 생성 (NotifyArrival 한 곳)
-    NotifyArrival(player, newZone, kind);
-}
+// 존에서 존으로 옮기기(TransferPlayer) 는 배치 조각으로 옮겼다 — CPlayerPlacement (게임 서버 나누기 5 단계)
 
 // ── 운영자 인증 ──
 
@@ -2349,7 +2249,7 @@ void CGameServer::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
     //   객체를 놓고 그 점을 비우는 것은 존의 몬스터 관리자다 — 빈 점은 그 구역 다음 리젠 때 찬다.
     if (CMonster* dead = As<CMonster>(target))
     {
-        RemoveFromZone(zone, dead);
+        _placement.RemoveFromZone(zone, dead);
         zone->GetMonsterManager().Despawn(dead);   // ← 여기서 해제된다
     }
 #endif
@@ -2619,7 +2519,7 @@ void CGameServer::TickRespawn()
     {
         CZone* oldZone = _mapManager.GetZone(player->_zoneId);
         assert(oldZone != nullptr && oldZone != town);   // 위에서 「존이 있고 마을이 아님」을 보고 담았다
-        TransferPlayer(player, oldZone, town, ArrivalKind::RESPAWN, nullptr);
+        _placement.TransferPlayer(player, oldZone, town, CPlayerPlacement::ArrivalKind::RESPAWN, nullptr);
     }
     _respawnTransferBuffer.clear();
 }
@@ -2798,7 +2698,7 @@ void CGameServer::OnMonsterVanish(CZone* zone, CMonster* monster)
 #if USE_COMBAT
     _buffSystem.ClearAll(monster);
 #endif
-    RemoveFromZone(zone, monster);
+    _placement.RemoveFromZone(zone, monster);
 #if USE_PARTY
     _gameMonitor._room._minionsCleared.Inc();   // 클리어는 방 갈래만 건다(OnDeath) — 사라짐은 곧 방 클리어로 지운 수다
 #endif
@@ -2914,15 +2814,7 @@ void CGameServer::RecvPickup(CPlayer* player, CSerialBuffer* /*pMsg*/)   // 몸�
 }
 #endif // USE_DROP
 
-void CGameServer::SendZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex)
-{
-    _sessionHub.SendPacket(target, MakeZoneChangeOk(target, mapId, channelIndex));
-}
-
-void CGameServer::SendZoneChangeFail(CPlayer* target, uint8_t reason)
-{
-    _sessionHub.SendPacket(target, MakeZoneChangeFail(reason));
-}
+// 존 이동 성공·실패 보내기(SendZoneChangeOk · SendZoneChangeFail) 는 배치 조각으로 옮겼다 — CPlayerPlacement (게임 서버 나누기 5 단계)
 
 // C2S_MOVE_START 좌표 수용의 이동량 예산 — 경과분을 적립하고, 통과하면 소비까지 수행.
 //   적립: 마지막 검사 이후 흐른 프레임 × 자기 속도 × 여유계수. 상한이 1회 수용 한도(8타일)와 같아
@@ -2953,110 +2845,11 @@ bool CGameServer::ConsumeMoveBudget(CPlayer* player, float distSq)
 
 // 같은 틱 이동자에게 땅 아이템 DELETE(SendGroundItemDeleteToLateMovers) 는 시야 방송 조각으로 옮겼다 — CSightBroadcaster (게임 서버 나누기 3 단계)
 
-// ==========================================================================
-// 존 입장/퇴장 브로드캐스트
-// ==========================================================================
-
-void CGameServer::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind kind)
-{
-    // 길마다 다른 셋 — 내 캐릭터를 CREATE_MY 로 알리나(아니면 ZONE_CHANGE_OK) · 가방·스탯까지 보내나 · 등장 사유.
-    //   ArrivalKind 마다 한 줄. 줄 수가 길 수와 다르면 컴파일이 막는다(switch 는 이 빌드들에서 빠진 갈래를 경고하지 않는다).
-    //   revive — 마을 부활만. 다른 맵에서 되살아났다는 사실은 ZONE_CHANGE_OK 가 못 싣는다(체력이 없다) — 본인에게 RESPAWN 한 장.
-    struct ArrivalRule { bool createMy; bool firstEntry; SpawnReason reason; bool revive; };
-    static constexpr ArrivalRule ARRIVAL_RULES[] = {
-        { true,  true,  SpawnReason::CONNECT,       false },  // CONNECT
-        { false, false, SpawnReason::ZONE_TRANSFER, false },  // ZONE_CHANGE — 내 캐릭터는 ZONE_CHANGE_OK 가 알린다
-        { false, false, SpawnReason::ZONE_TRANSFER, true  },  // RESPAWN — 존 이동 + 본인에게 RESPAWN
-    };
-    static_assert(sizeof(ARRIVAL_RULES) / sizeof(ARRIVAL_RULES[0]) == static_cast<size_t>(ArrivalKind::COUNT),
-                  "ARRIVAL_RULES 는 ArrivalKind 마다 한 줄이어야 한다");
-    assert(static_cast<size_t>(kind) < static_cast<size_t>(ArrivalKind::COUNT));
-    const ArrivalRule& rule = ARRIVAL_RULES[static_cast<size_t>(kind)];
-
-    // 1) 존 메타 정보
-    SendZoneInfo(player, zone);
-
-    // 2) 내 캐릭터 — 접속은 CREATE_MY, 존 이동은 성공 통보(ZONE_CHANGE_OK)가 내 자리를 싣는다
-    if (rule.createMy)
-        SendCreateMyPlayer(player);
-    else
-        SendZoneChangeOk(player, zone->GetMapId(), CMapManager::GetChannelIndexFromZoneId(zone->GetZoneId()));
-
-#if USE_COMBAT
-    // 2-1) 마을 부활 — 내 자리를 안 뒤에 「되살아났다」(체력). 웹·콘솔이 이미 받는 패킷이라 클라는 죽음 풀기를 새로 안 짠다.
-    //   본인에게만 — 마을 사람들은 아래 4) 의 CREATE 가 체력 가득한 나를 보여 준다(CREATE 가 체력을 싣는다)
-    if (rule.revive)
-        _selfNotifier.SendRespawn(player);
-#endif
-
-#if USE_EXP
-    // 3) 레벨·경험치 — 내 캐릭터 뒤에 보낸다(클라가 내 액터를 알고 나서 숫자를 채우게).
-    //   ★ 존 이동도 다시 보낸다 — 그 길은 SendCreateMyPlayer 를 안 거친다.
-    //   콘솔 클라는 존을 넘을 때 내 정보를 통째로 비우고 다시 세운다(speed 만 따로 옮겨 담는다,
-    //   GameInstance.cpp 의 ZONE_CHANGE_OK). 안 보내면 거기서 화면이 1 레벨로 돌아가고
-    //   다음 경험치가 들어올 때까지 그대로다. 웹 클라는 안 비우므로 이 장이 덧쓰기가 될 뿐 무해하다.
-    _selfNotifier.SendExp(player);
-#endif
-
-#if USE_SKILL
-    // 3) 마력도 같은 자리 — 내 캐릭터 뒤(클라가 번호로 내 액터를 찾게). 경험치와 같이 존 이동 때도 다시 보낸다(firstEntry 밖).
-    //   ★ 웹은 마력을 내 액터(self)에 담는다 — 웹 주석(live.html 의 me 정의 위)은 존을 넘으면 self 를 새로 만든다고 적어 둔다.
-    //     지금은 웹에 존 이동 처리가 없어 덧쓰기가 될 뿐이지만, 그 처리가 생기는 날 마력이 비지 않게 미리 보낸다(10-11).
-    //   부하 더미도 입장 때 이 한 장을 반드시 받는다 — 등록을 빼면 전원 떨어진다(가방 전체·MY_STATS 와 같은 함정).
-    _selfNotifier.SendActorMp(player);
-#endif
-
-#if USE_COMBAT
-    // 3-0) 켜져 있는 지속 효과 — 마력과 같은 자리·같은 까닭(존 이동 때 다시, firstEntry 밖). 입장 땐 DB 저장값으로 되살린 효과만 간다(없으면 0장).
-    //   부하 더미에겐 올 일이 없다(스킬을 안 쓴다) — 등록은 해 뒀다(DummyClient.cpp).
-    _selfNotifier.SendActiveBuffs(player);
-#endif
-
-#if USE_SKILL
-    // 3-0b) 아직 돌고 있는 스킬 쿨타임 — 효과와 같은 자리·같은 까닭(존 이동 때 다시, firstEntry 밖). 없으면 0장.
-    //   다시 접속하면 DB 저장값으로 되살린 쿨타임이 여기서 처음 클라에 간다(RestoreCooldownsAndBuffs) — 안 보내면 웹 스킬 칸이 다 풀린 것처럼 그려진다.
-    //   부하 더미에겐 올 일이 없다(스킬을 안 쓴다) — 등록은 해 뒀다(DummyClient.cpp).
-    _selfNotifier.SendActiveSkillCooldowns(player);
-#endif
-
-    if (rule.firstEntry)
-    {
-#if USE_INVENTORY
-        // 3-1) 가방 전체 — 빈 가방이어도 한 장. 존 이동 때는 안 보낸다(가방이 안 바뀐다).
-        //   ★ 부하 더미가 이 패킷을 받는 유일한 길이 여기다(더미는 아이템을 안 받는다). 그래서 더미 시험과
-        //     "등록을 빼면 떨어지나" 돌연변이가 이 한 장에 매달려 있다 — "비었으면 안 보내자"로 바꾸면 둘 다
-        //     조용히 아무것도 안 보게 된다.
-        _selfNotifier.SendInventory(player);
-#endif
-
-#if USE_COMBAT
-        // 3-2) 최종 공격력·방어력 — 가방 전체 뒤(클라가 무기 칸을 알고 나서 숫자를 채우게).
-        //   ★ 부하 더미도 이 한 장을 반드시 받는다 — 가방 전체와 같은 함정(등록을 빼면 전원 떨어진다).
-        _selfNotifier.SendMyStats(player);
-#endif
-    }
-
-    // 4) 주변 상호 CREATE — 본인 몫을 다 보낸 뒤
-    _sightBroadcaster.BroadcastEnterZone(zone, player, rule.reason);
-}
+// 도착 차례(NotifyArrival — 존 정보 → 내 캐릭터 → 본인 상태 → 주변과 서로 생성) 는 배치 조각으로 옮겼다 — CPlayerPlacement (게임 서버 나누기 5 단계)
 
 // 존 입장·등장·퇴장 방송(BroadcastEnterZone · BroadcastSpawn · BroadcastLeaveZone) 은 시야 방송 조각으로 옮겼다 — CSightBroadcaster (게임 서버 나누기 3 단계)
 
-// 존에서 빼기 — 시야 몫(시야 조각의 BroadcastLeaveZone) → 부활 대기열 정리 → 존에서 빼기, 이 순서
-//   (쪼개기 전 BroadcastLeaveZone 한 몸일 때의 순서 그대로 — 게임 서버 나누기 0-③).
-//   플레이어 퇴장·존 이동과 죽은 몬스터(OnDeath 끝)·사라지는 몬스터(OnMonsterVanish)가 같이 쓴다 — 종류를 안 가린다.
-void CGameServer::RemoveFromZone(CZone* zone, CCharacter* player)
-{
-    _sightBroadcaster.BroadcastLeaveZone(zone, player);
-
-#if USE_COMBAT
-    // 부활 대기열에서도 제거 — 위 이동 묶음·아래 LeaveZone 의 섹터 이동 대기열과 같은 이유다(틱 끝 TickRespawn dangling 방지).
-    //   죽은 채로 퇴장·존이동하는 경우가 실제 경로다(부활 3초 안에 창을 닫으면 여기로 온다).
-    RemoveFromDeadActors(player);
-#endif
-
-    zone->LeaveZone(player);
-}
+// 존에서 빼기(RemoveFromZone) 는 배치 조각으로 옮겼다 — CPlayerPlacement (게임 서버 나누기 5 단계)
 
 // ==========================================================================
 // 같은 틱 이동자 쌍 보정 · 섹터 변경 방송 · 멤버십 팬아웃·직송 · 섹터 묶음 · 수신섹터 digest 는 시야 방송 조각으로 옮겼다

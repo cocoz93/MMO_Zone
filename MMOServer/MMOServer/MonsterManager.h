@@ -65,7 +65,7 @@ public:
     virtual void OnMonsterSpawn(CZone* zone, CMonster* monster) = 0;
 
     // 사라짐 — 등장의 짝. 방이 클리어돼 남은 몬스터를 지울 때(VanishAll) 하나마다 온다 — 받는 쪽은 죽은 몬스터를 지우기 앞과 같은 일을 한다
-    //   (효과 목록에서 빼기 · 존에서 빼기 = 주변 DELETE — CGameServer::RemoveFromZone). 이 뒤에 관리자가 객체를 해제한다.
+    //   (효과 목록에서 빼기 · 존에서 빼기 = 주변 DELETE — CPlayerPlacement::RemoveFromZone). 이 뒤에 관리자가 객체를 해제한다.
     virtual void OnMonsterVanish(CZone* zone, CMonster* monster) = 0;
 
     // 걷기 시작·멈춤은 여기 없다 — 존 틱의 벽 멈춤과 같은 IZoneEvents 로 알린다(MonsterContext::zoneEvents).
@@ -107,7 +107,7 @@ public:
     // 죽은 몬스터를 지우고 그 점을 비운다 — 게임 서버가 죽음 처리 끝에 부른다. 빈 점은 그 구역 다음 리젠 때 찬다.
     //   시체는 클라 연출이라 서버는 죽는 순간 지운다(서버가 들고 있으면 나중에 다가온 사람 화면에 다시 나타난다).
     //   ★ 부르기 전에 존에서 빼 둘 것 — 주변 DELETE·대기열 빼기·LeaveZone 은 플레이어 퇴장과 같은 길
-    //     (CGameServer::RemoveFromZone)이다. 여기는 객체(소유)와 점만 다룬다.
+    //     (CPlayerPlacement::RemoveFromZone)이다. 여기는 객체(소유)와 점만 다룬다.
     //   ★ 판단 순회(Tick) 중에는 부르지 않는다 — 도는 목록에서 지우면 순회가 깨진다(단언).
     //     지금 몬스터를 죽이는 건 플레이어의 공격·스킬(틱 1 패킷 처리)뿐이다. 한 번에 여럿을 죽이는 범위 스킬(어검술)도
     //     「대상을 다 고른 뒤 피해 적용」으로 짰다(CSkillSystem 의 대상 버퍼 — SelectTargets 로 모은 뒤 ApplyEffect 가 하나씩).
