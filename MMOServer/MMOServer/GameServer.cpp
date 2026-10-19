@@ -6,60 +6,8 @@
 #include <Common/ErrorLog.h>
 #include "CoreAffinity.h"
 #include <chrono>
-#include <cassert>  // 불변식 검증(틱 끝 이동 표시 · 받은 패킷 머리) — 직렬화 크기 검증은 조립 함수와 같이 조각들로 갔다
+#include <cassert>  // 불변식 검증(틱 끝 이동 표시 · 받은 패킷 머리)
 #include <string>
-
-// ==========================================================================
-// S2C 조립 — 이 파일에는 하나도 남지 않았다(게임 서버 나누기 0-②~13 단계에 조각들과 PacketBuild.h 로 옮김).
-//   쓰는 법(직렬화 규칙 · 소유권 계약)은 PacketBuild.h 머리로 옮겼다(14 단계). 아래는 옮긴 자리 목록이다.
-// ==========================================================================
-namespace
-{
-    // 머리 쓰기·닫기(BeginPacket · FinalizePacket)와 등장 조각(WriteSnapshot · WriteCreateEntry)은 PacketBuild.h 로 옮겼다
-    //   — 여러 조각이 같이 쓴다(게임 서버 나누기 0-②). 강제 인라인(CREATE_FORCEINLINE)도 거기서 정한다.
-
-    // MakeMoveStart · MakeMoveStop · MakeSyncPosition(이동 셋) 은 SightBroadcaster.cpp — 시야 방송 조각만 부른다(게임 서버 나누기 3 단계)
-
-    // MakeZoneInfo · MakeCreateMyPlayer(존 정보 · 내 캐릭터 생성) 는 PlayerPlacement.cpp — 배치 조각만 부른다(게임 서버 나누기 5 단계)
-
-    // MakeCreateOtherPlayer · MakeDeletePlayer(남의 캐릭터 생성·삭제) 는 SightBroadcaster.cpp — 시야 방송 조각만 부른다(게임 서버 나누기 3 단계)
-
-    // MakeAttack · MakeDamage · MakeDeath(휘두름 · 피해 · 죽음) 는 CombatHandler.cpp — 전투 조각만 부른다(게임 서버 나누기 9 단계)
-
-    // MakeRespawn 은 PacketBuild.h — 본인 알림(도착 때 본인)과 전투(부활 방송) 둘이 부른다
-
-    // MakeExp(경험치) 는 SelfNotifier.cpp — 본인 알림 조각만 부른다(게임 서버 나누기 2 단계)
-
-    // MakeActorStats 는 PacketBuild.h — 전투 · 처치 보상 · 가방 · 운영 명령이 같이 부른다
-
-    // MakeMyStats(내 최종 공격력·방어력) 는 SelfNotifier.cpp — 본인 알림 조각만 부른다(게임 서버 나누기 2 단계)
-
-    // MakeZoneChangeOk · MakeZoneChangeFail(존 이동 성공·실패) 는 PlayerPlacement.cpp — 배치 조각만 부른다(게임 서버 나누기 5 단계)
-
-    // ToZoneChangeFailReason(존 이동 거절 사유 → 와이어) 은 EntryHandler.cpp — 입장 조각만 부른다(게임 서버 나누기 12 단계)
-
-    // 땅 아이템·줍기·쓰기·장착 거절 사유 → 와이어 값(ToGroundItemGone · ToPickupFail · ToUseItemFail · ToEquipFail) 은 ItemHandler.cpp
-    //   — 가방·땅 조각만 부른다(게임 서버 나누기 6 단계)
-
-    // MakeAdminLoginOk · MakeAdminLoginFail · MakeChat(운영자 로그인 성공·실패 · 채팅) 는 ChatHandler.cpp — 채팅·운영 조각만 부른다(게임 서버 나누기 13 단계)
-
-    // MakeError(알림 한 줄) · MakeInventory(가방 전체) 는 SelfNotifier.cpp(2 단계) · MakeInventorySlot(칸 하나) · MakeUseItemFail · MakeEquipFail(쓰기·장착 거절) 는
-    //   ItemHandler.cpp(6 단계) — 각각 그 조각만 부른다(게임 서버 나누기)
-
-    // MakeActorBuff(지속 효과 통보 — 본인에게만) 는 SelfNotifier.cpp — 본인 알림 조각만 부른다(게임 서버 나누기 2 단계)
-
-    // ToSkillFail(스킬 거절 사유 → 와이어) · MakeSkillCast · MakeSkillFail(시전 · 스킬 거절) 는 CombatHandler.cpp — 전투 조각만 부른다(게임 서버 나누기 9 단계)
-
-    // MakeSkillCooldownRemain(남은 스킬 쿨타임) · MakeActorMp(마력) 는 SelfNotifier.cpp — 본인 알림 조각만 부른다(게임 서버 나누기 2 단계)
-
-    // MakePartyAsk · MakePartyAskEnd · MakePartyNotice · MakePartyInfo · MakePartyMember(파티 패킷) 는 PartyHandler.cpp
-    //   — 파티·방 조각만 부른다(게임 서버 나누기 7 단계)
-
-    // MakeGroundItemCreate · MakeGroundItemDelete(땅 아이템 보이기·지우기) 는 SightBroadcaster.cpp(3 단계) · MakePickupFail(줍기 거절) 은 ItemHandler.cpp(6 단계)
-
-    // MakeSectorUpdates(섹터 묶음) · MakeCreatePlayerBatch · MakeDeletePlayerBatch(인바운드 멤버십 묶음 · 크기 static_assert 포함) 는
-    //   SightBroadcaster.cpp — 시야 방송 조각만 부른다(게임 서버 나누기 3 단계)
-}
 
 CGameServer::CGameServer(CMonitorManager& monitor, CGameMonitor& gameMonitor)
     : _mode(ServerMode::GameServer)
@@ -198,23 +146,11 @@ void CGameServer::Stop()
 }
 
 #if USE_DB_WORKER
-// ==========================================================================
-// DB 저장 파이프라인 — 워커 띄우기·멈추기 · 저장 세 길 · 저장 대상 판정 · 쿨타임·버프 묶기·되살리기는 캐릭터 저장소 조각으로 옮겼다
-//   — CCharacterStore (CharacterStore.cpp · 게임 서버 나누기 4 단계). 입장 대기표와 불러오기 결과 처리(입장 몫)는 입장 조각 — CEntryHandler(12 단계). 여기 남은 것은 공개 입구 InitDB 하나
-// ==========================================================================
-
 // 서버의 공개 입구 — main 이 부른다(Start 전). 몸은 저장소가 든다.
 bool CGameServer::InitDB(const DBConfig& dbConfig, int savePeriodSec, int workerCount, int queueMax)
 {
     return _characterStore.Init(dbConfig, savePeriodSec, workerCount, queueMax);
 }
-
-// 입장 대기표(AdjustPendingCount · SetPendingEnter · PromotePendingEnter · TakePendingEnter) · 불러오기 결과(OnCharacterLoaded — ICharacterLoadEvents) 는
-//   입장 조각으로 옮겼다 — CEntryHandler (게임 서버 나누기 12 단계)
-
-// 불러오기 요청(RequestCharacterLoad) 은 캐릭터 저장소 조각으로 옮겼다 — CCharacterStore (게임 서버 나누기 4 단계)
-
-// 회신 꺼내기(ProcessDbResults) 는 캐릭터 저장소 조각으로 옮겼다 — 불러오기 결과는 알림(ICharacterLoadEvents)으로 입장 조각의 OnCharacterLoaded 에 온다 (게임 서버 나누기 4 · 12 단계)
 #else
 bool CGameServer::InitDB(const DBConfig&, int, int, int) { return true; }   // 토글 OFF: no-op
 #endif
@@ -405,9 +341,6 @@ void CGameServer::ProcessNetworkEvents()
     }
 }
 
-// 스폰(SpawnPlayer) · 접속(OnConnected) · 같은 계정 걷어내기(KickDuplicateAccount) · 입장 요청(RecvEnterGame) 은 입장 조각으로 옮겼다
-//   — CEntryHandler (게임 서버 나누기 12 단계)
-
 void CGameServer::OnDisconnected(int64_t sessionId)
 {
     CPlayer* player = _sessionHub.FindPlayer(sessionId);
@@ -423,10 +356,8 @@ void CGameServer::OnDisconnected(int64_t sessionId)
     _placement.LeaveGame(player);
 }
 
-// 떠나보내기(LeaveGame) · 놓기(ReleasePlayer) 는 배치 조각으로 옮겼다 — CPlayerPlacement (게임 서버 나누기 5 단계)
-
-// ── 「존에서 빠짐 · 떠남」 알림 (IPlacementEvents) ── 배치 조각(CPlayerPlacement)이 부른다 — 몸은 옮기기 전 RemoveFromZone · ReleasePlayer 의
-//   그 자리 그대로(게임 서버 나누기 5 단계 · 0-③ ⑴⑶). 받는 쪽은 게임 서버로 둔다(9 단계 결정) — 정리할 목록이 전투 조각(부활 대기열) ·
+// ── 「존에서 빠짐 · 떠남」 알림 (IPlacementEvents) ── 배치 조각(CPlayerPlacement)이 떠나보내기·놓기 안에서 부른다.
+//   받는 쪽은 게임 서버로 둔다(9 단계 결정) — 정리할 목록이 전투 조각(부활 대기열) ·
 //   지속 효과 규칙 · 파티 규칙 셋에 흩어져 있어, 한 조각이 받으면 그 조각이 남의 목록을 알게 된다. 차례(대기열 → 효과 → 파티)는 여기 한 곳.
 
 // 존에서 빠짐 — 시야 몫 뒤 · CZone::LeaveZone 앞(CPlayerPlacement::RemoveFromZone). 종류를 안 가린다(플레이어·몬스터).
@@ -561,94 +492,3 @@ bool CGameServer::RegisterRoutes()
 #endif
     return ok;
 }
-
-// ==========================================================================
-// 패킷 핸들러
-// ==========================================================================
-
-// 이동 시작·멈춤(RecvMoveStart · RecvMoveStop) 은 이동 조각으로 옮겼다 — CMoveHandler (게임 서버 나누기 11 단계)
-
-// 채팅(RecvChat) 은 채팅·운영 조각으로 옮겼다 — CChatHandler (게임 서버 나누기 13 단계)
-
-// 채팅 명령(HandleChatCommand · RunGmCommand · RunItemCommand — USE_INVENTORY) · 낱말 나누기(SplitCommandWords) · 속도 알림 조립(MakeActorSpeed) 은
-//   채팅·운영 조각으로 옮겼다 — CChatHandler (게임 서버 나누기 13 단계)
-
-// 바뀐 칸 내보내기(FlushInventory) 는 가방·땅 조각으로 옮겼다 — CItemHandler (게임 서버 나누기 6 단계)
-
-// 불러온 가방 줄 넣기(LoadInventoryRows) 는 캐릭터 저장소 조각으로 옮겼다 — CCharacterStore (게임 서버 나누기 4 단계)
-
-// 가방 전체(SendInventory) · 알림 한 줄(SendSystemMessage) 은 본인 알림 조각으로 옮겼다 — CSelfNotifier (게임 서버 나누기 2 단계)
-
-// 물약 쓰기(RecvUseItem) · 끼우기·빼기(RecvEquip · RecvUnequip · ApplyEquip) 는 가방·땅 조각으로 옮겼다 — CItemHandler (게임 서버 나누기 6 단계)
-
-// ==========================================================================
-// 패킷 전송 추상화
-// ==========================================================================
-
-// ==========================================================================
-// 계층 경계 헬퍼
-// ==========================================================================
-
-// 캐릭터 번호 발급(AllocPlayerId)은 세션 허브로 옮겼다 — CSessionHub::AllocActorId (게임 서버 나누기 1 단계)
-
-// 표시 문자 · 색 번호(CalcDisplayChar · CalcColorIndex) 는 입장 조각으로 옮겼다 — CEntryHandler (게임 서버 나누기 12 단계)
-
-// ── 패킷 전송 추상화 ──
-// 단일 플레이어에게 패킷 전송(SendPacket)은 세션 허브로 옮겼다 — CSessionHub::SendPacket (게임 서버 나누기 1 단계)
-
-// 주변 방송(BroadcastAroundSector) · 이동 알림 셋(NotifyMoveStart/Stop/Sync) · 존 알림(IZoneEvents) 은 시야 방송 조각으로 옮겼다 — CSightBroadcaster (게임 서버 나누기 3 단계)
-
-// 존 정보 · 내 캐릭터 생성 보내기(SendZoneInfo · SendCreateMyPlayer) 는 배치 조각으로 옮겼다 — CPlayerPlacement (게임 서버 나누기 5 단계)
-
-// 남의 캐릭터 생성·삭제 보내기 · 인바운드 멤버십 묶음 · 내 자리(SendSyncPosition) 는 시야 방송 조각으로 옮겼다 — CSightBroadcaster (게임 서버 나누기 3 단계)
-
-// 존 이동 요청(RecvZoneChange) · 포털 요청(RecvPortalUse) 은 입장 조각으로 옮겼다 — CEntryHandler (게임 서버 나누기 12 단계)
-
-// 방 입장(EnterRoom) · 거절 사유 → 와이어(SendRoomReject) 는 파티·방 조각으로 옮겼다 — CPartyHandler (게임 서버 나누기 7 단계)
-
-// 존에서 존으로 옮기기(TransferPlayer) 는 배치 조각으로 옮겼다 — CPlayerPlacement (게임 서버 나누기 5 단계)
-
-// 운영자 인증(고정 열쇠 ADMIN_KEY · RecvAdminLogin) 은 채팅·운영 조각으로 옮겼다 — CChatHandler (게임 서버 나누기 13 단계)
-
-// 전투(공격·스킬 요청 · 공격·시전·효과 알림 · 부활 대기열 · 스킬 거절 사유)는 전투 조각으로 옮겼다 — CCombatHandler (게임 서버 나누기 9 단계)
-
-// 몬스터 경험치 주기(GrantMonsterExp) 는 처치 보상 조각으로 옮겼다 — CRewardHandler (게임 서버 나누기 8 단계)
-
-// 방 보상(RewardRoom) 은 처치 보상 조각으로 옮겼다 — CRewardHandler (게임 서버 나누기 8 단계)
-
-// 마력 알림(SendActorMp) · 남은 쿨타임(SendActiveSkillCooldowns) 은 본인 알림 조각으로 옮겼다 — CSelfNotifier (게임 서버 나누기 2 단계)
-
-// 스탯·경험치 보내기(SendMyStats · SendExp) 는 본인 알림 조각으로 옮겼다 — CSelfNotifier (게임 서버 나누기 2 단계)
-
-// 효과 칸 보내기(SendActorBuff · SendActiveBuffs) 는 본인 알림 조각으로 옮겼다 — CSelfNotifier (게임 서버 나누기 2 단계)
-
-// 파티 요청 여섯(RecvParty*) · 주변 9섹터에서 찾기(FindPlayerAround) · 파티 알림(IPartyEvents) 은 파티·방 조각으로 옮겼다
-//   — CPartyHandler (게임 서버 나누기 7 단계)
-
-// 몬스터 틱(TickMonsters) · 관리자에 넘길 묶음(MakeMonsterContext) · 몬스터 알림(IMonsterEvents — 번호 발급 · 등장 · 사라짐) 은
-//   몬스터 조각으로 옮겼다 — CMonsterHandler (게임 서버 나누기 10 단계)
-
-// 드랍 굴림(DropLoot) 은 처치 보상 조각으로 옮겼다 — CRewardHandler (게임 서버 나누기 8 단계)
-// 땅 아이템 관리자에 넘길 묶음(MakeGroundItemContext) 은 가방·땅 조각으로 옮겼다 — CItemHandler (게임 서버 나누기 6 단계)
-
-// 땅 아이템 한 사람에게 보이기·지우기(SendGroundItemCreate · SendGroundItemDelete) 는 시야 방송 조각으로 옮겼다 — CSightBroadcaster (게임 서버 나누기 3 단계)
-
-// 땅 아이템 알림(IGroundItemEvents — 번호 발급 · 떨어짐 · 빠짐) · 수명 훑기(TickGroundItems) · 줍기(RecvPickup) 는 가방·땅 조각으로 옮겼다
-//   — CItemHandler (게임 서버 나누기 6 단계)
-
-// 존 이동 성공·실패 보내기(SendZoneChangeOk · SendZoneChangeFail) 는 배치 조각으로 옮겼다 — CPlayerPlacement (게임 서버 나누기 5 단계)
-
-// 좌표 수용 예산(ConsumeMoveBudget) 은 이동 조각으로 옮겼다 — CMoveHandler (게임 서버 나누기 11 단계)
-
-// 같은 틱 이동자에게 땅 아이템 DELETE(SendGroundItemDeleteToLateMovers) 는 시야 방송 조각으로 옮겼다 — CSightBroadcaster (게임 서버 나누기 3 단계)
-
-// 도착 차례(NotifyArrival — 존 정보 → 내 캐릭터 → 본인 상태 → 주변과 서로 생성) 는 배치 조각으로 옮겼다 — CPlayerPlacement (게임 서버 나누기 5 단계)
-
-// 존 입장·등장·퇴장 방송(BroadcastEnterZone · BroadcastSpawn · BroadcastLeaveZone) 은 시야 방송 조각으로 옮겼다 — CSightBroadcaster (게임 서버 나누기 3 단계)
-
-// 존에서 빼기(RemoveFromZone) 는 배치 조각으로 옮겼다 — CPlayerPlacement (게임 서버 나누기 5 단계)
-
-// ==========================================================================
-// 같은 틱 이동자 쌍 보정 · 섹터 변경 방송 · 멤버십 팬아웃·직송 · 섹터 묶음 · 수신섹터 digest 는 시야 방송 조각으로 옮겼다
-//   — CSightBroadcaster (SightBroadcaster.cpp · 게임 서버 나누기 3 단계)
-// ==========================================================================

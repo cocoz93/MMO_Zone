@@ -71,15 +71,8 @@
 class CSerialBuffer;
 
 // 알림 통로 하나 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
-//   (IZoneEvents — 존의 걷기·멈춤 알림 둘 — 은 시야 조각 CSightBroadcaster 가 구현한다 · 게임 서버 나누기 3 단계)
-//   (IGroundItemEvents — 땅 아이템 관리자의 알림 둘과 번호 부탁 하나 — 는 가방·땅 조각 CItemHandler 가 구현한다 · 게임 서버 나누기 6 단계)
-//   (IPartyEvents — 파티 규칙의 알림 다섯 — 은 파티·방 조각 CPartyHandler 가 구현한다 · 게임 서버 나누기 7 단계)
-//   (ICombatEvents · IBuffEvents · ISkillEvents — 공격 흐름 · 지속 효과 · 스킬 규칙의 알림 — 은 전투 조각 CCombatHandler 가 구현한다 · 게임 서버 나누기 9 단계)
-//   (IMonsterEvents — 몬스터 관리자의 알림 둘(등장·사라짐)과 번호 부탁 하나 — 는 몬스터 조각 CMonsterHandler 가 구현한다 · 게임 서버 나누기 10 단계)
-//   (ICharacterLoadEvents — 캐릭터 저장소의 불러오기 결과 하나 — 는 입장 조각 CEntryHandler 가 구현한다 · 게임 서버 나누기 12 단계)
-//   IPlacementEvents  = 배치(CPlayerPlacement)의 알림 둘(존에서 빠짐 · 떠남 — 틱 너머 목록 정리) — 게임 서버 나누기 5 단계(0-③ ⑴⑶) · 토글 없이 늘 있다
-// 기반은 늘 있는 통로(IPlacementEvents) 하나뿐이다 — 토글마다 「, 」로 붙던 통로는 전부 조각으로 갔다(게임 서버 나누기 3~12 단계).
-//   (3·4 단계 동안은 늘 있던 IZoneEvents 가 빠져 첫 통로를 고르는 #if 사다리를 뒀었다 — 5 단계에서 늘 있는 통로가 생겨 걷어냄)
+//   IPlacementEvents  = 배치(CPlayerPlacement)의 알림 둘(존에서 빠짐 · 떠남 — 틱 너머 목록 정리) · 토글 없이 늘 있다.
+//   다른 알림(존 · 땅 아이템 · 파티 · 전투 · 몬스터 · 불러오기 결과)은 그것을 받는 조각이 구현한다.
 class CGameServer
     : private IPlacementEvents
 {
@@ -122,8 +115,6 @@ public:
     // 읽은 기획 데이터 — main 이 맵 표의 줄과 INI 운영 값을 엮어 맵 설정(MapConfig)을 만들 때 읽는다.
     const CGameDataFiles& GameData() const { return _gameDataFiles; }
 
-    // 경험치·스탯 보내기(SendExp · SendMyStats)는 본인 알림 조각으로 옮겼다 — _selfNotifier (SelfNotifier.h · 게임 서버 나누기 2 단계)
-
     // 서버 시작/종료
     bool Start();
     void Stop();
@@ -137,67 +128,12 @@ private:
     void OnDisconnected(int64_t sessionId);
     void OnReceived(int64_t sessionId, CSerialBuffer* pMsg);
 
-    // 입장 배치 구조체(EnterPlacement) · 스폰(SpawnPlayer) · 접속(OnConnected)은 입장 조각 — _entryHandler (EntryHandler.h · 게임 서버 나누기 12 단계)
-
-    // 떠나보내기(LeaveGame) · 놓기(ReleasePlayer)는 배치 조각 — _placement (PlayerPlacement.h · 게임 서버 나누기 5 단계).
-    //   그 안에서 틱 너머 목록을 정리하라는 알림이 아래 둘로 온다.
-
-    // 「존에서 빠짐 · 떠남」 알림 (IPlacementEvents) — 뜻은 PlayerPlacement.h. 몸은 옮기기 전 RemoveFromZone · ReleasePlayer 의 그 자리 그대로.
+    // 「존에서 빠짐 · 떠남」 알림 (IPlacementEvents) — 배치 조각이 떠나보내기·놓기 안에서 부른다. 뜻은 PlayerPlacement.h.
     void OnLeavingZone(CCharacter* player) override;   // 부활 대기열에서 빼기 (전투)
     void OnLeavingGame(CPlayer* player) override;      // 부활 대기열 · 지속 효과 목록 · 파티원·요청 표에서 빼기 (전투 · 파티)
 
     // 「존 지우기 직전」 알림 — 빈 채널 정리(CMapManager::CleanupEmptyChannels)가 지울 존마다 부른다. 계약은 MapManager.h.
     void OnErasingZone(CZone* zone);                   // 땅 아이템 세기 · 지속 효과 목록에서 빼기 · 방 닫힘 세기 (땅 · 전투 · 파티)
-
-    // 패킷 핸들러
-    // 이동 시작·멈춤(RecvMoveStart · RecvMoveStop)은 이동 조각 — _moveHandler (MoveHandler.h · 게임 서버 나누기 11 단계)
-    // 채팅(RecvChat) · 운영자 로그인(RecvAdminLogin)은 채팅·운영 조각 — _chatHandler (ChatHandler.h · 게임 서버 나누기 13 단계)
-    // 존 이동 · 포털 요청(RecvZoneChange · RecvPortalUse)은 입장 조각 — _entryHandler (게임 서버 나누기 12 단계)
-
-    // 공격·스킬 요청 · 공격·시전·효과 알림(ICombatEvents · ISkillEvents · IBuffEvents) · 부활 대기열은 전투 조각 — _combatHandler (CombatHandler.h · 게임 서버 나누기 9 단계).
-    //   부활 자리 규칙(RespawnsToTown)은 Combat.h 의 순수 함수 — 전투 조각의 부활 틱과 입장(OnCharacterLoaded)이 같이 쓴다.
-    // 효과 칸 보내기(SendActorBuff · SendActiveBuffs)는 본인 알림 조각으로 옮겼다 — _selfNotifier (게임 서버 나누기 2 단계)
-    // 몬스터 경험치 주기(GrantMonsterExp) · 방 보상(RewardRoom)은 처치 보상 조각 — _rewardHandler (RewardHandler.h · 게임 서버 나누기 8 단계)
-
-    // 채팅 명령(HandleChatCommand · RunItemCommand · RunGmCommand — USE_INVENTORY)은 채팅·운영 조각 — _chatHandler (ChatHandler.h · 게임 서버 나누기 13 단계)
-
-    // 바뀐 칸 내보내기(FlushInventory) · 물약 쓰기 · 끼우기·빼기는 가방·땅 조각 — _itemHandler (ItemHandler.h · 게임 서버 나누기 6 단계)
-    // 가방 전체(SendInventory) · 알림 한 줄(SendSystemMessage)은 본인 알림 조각으로 옮겼다 — _selfNotifier (게임 서버 나누기 2 단계)
-    // 불러온 가방 줄 넣기(LoadInventoryRows)는 캐릭터 저장소 조각 — CharacterStore.h (게임 서버 나누기 4 단계)
-
-    // 마력(SendActorMp) · 남은 쿨타임(SendActiveSkillCooldowns)은 본인 알림 조각으로 옮겼다 — _selfNotifier (게임 서버 나누기 2 단계)
-
-    // 파티 요청 · 파티 알림(IPartyEvents) · 방 입장·거절 · 다시 들어가기 잠금은 파티·방 조각 — _partyHandler (PartyHandler.h · 게임 서버 나누기 7 단계)
-
-    // 몬스터 틱 · 관리자에 넘길 묶음 · 몬스터 알림(IMonsterEvents)은 몬스터 조각 — _monsterHandler (MonsterHandler.h · 게임 서버 나누기 10 단계)
-
-    // 드랍 굴림(DropLoot)은 처치 보상 조각 — _rewardHandler (RewardHandler.h · 게임 서버 나누기 8 단계) ·
-    //   관리자에 넘길 묶음 · 땅 아이템 알림 · 수명 훑기 틱 · 줍기는 가방·땅 조각 — _itemHandler (ItemHandler.h · 게임 서버 나누기 6 단계)
-
-#if USE_DB_WORKER
-    // DB 저장 파이프라인(저장 세 길 · 저장 대상 판정 · 쿨타임·버프 묶기·되살리기)과 불러오기 요청·회신 꺼내기는
-    //   캐릭터 저장소 조각 — _characterStore (CharacterStore.h · 게임 서버 나누기 4 단계).
-    // 불러오기 결과 알림(ICharacterLoadEvents) · 입장 대기표(EnterState · PendingEnter · 바꾸는 함수 넷)는 입장 조각 — _entryHandler (게임 서버 나누기 12 단계)
-#endif
-
-    // 입장 요청(RecvEnterGame) · 같은 계정 걷어내기(KickDuplicateAccount) · 지정 계정 번호 하한(ACCOUNT_ID_MIN — USE_LOGIN)은 입장 조각 — _entryHandler (게임 서버 나누기 12 단계)
-
-    // 섹터 변경 처리(ProcessSectorChange)·같은 틱 쌍 보정(SendSightPairFixes)은 시야 조각으로 옮겼다 — _sightBroadcaster (게임 서버 나누기 3 단계)
-
-    // 도착 종류(ArrivalKind) · 도착 차례(NotifyArrival) · 존에서 존으로 옮기기(TransferPlayer · SpawnAt) · 존에서 빼기(RemoveFromZone)는
-    //   배치 조각 — _placement (PlayerPlacement.h · 게임 서버 나누기 5 단계).
-    // 존 입장/퇴장 브로드캐스트(BroadcastEnterZone · BroadcastSpawn · BroadcastLeaveZone)는 시야 조각 — SightBroadcaster.h (게임 서버 나누기 3 단계)
-
-    // 표시 속성(CalcDisplayChar · CalcColorIndex)은 입장 조각 — _entryHandler (게임 서버 나누기 12 단계) · 캐릭터 번호 발급은 세션 허브(CSessionHub::AllocActorId)
-
-    // ── 패킷 전송 ──
-    // 한 사람에게 보내기는 세션 허브(_sessionHub.SendPacket — SessionHub.h). 주변에 보내기 · 이동 알림 · 존 알림(IZoneEvents) ·
-    //   섹터 묶음 · 수신섹터 digest · 멤버십 팬아웃·직송 · 남의 캐릭터 생성·삭제 · 내 자리(SendSyncPosition)는 시야 조각
-    //   (_sightBroadcaster — SightBroadcaster.h · 게임 서버 나누기 3 단계).
-
-    // 패킷별 전송 함수(존 정보 · 내 캐릭터 생성 · 존 이동 성공·실패)는 배치 조각 — _placement (게임 서버 나누기 5 단계)
-
-    // 좌표 수용 예산 검사(ConsumeMoveBudget)는 이동 조각 — _moveHandler (게임 서버 나누기 11 단계)
 
     // 받은 패킷의 분기 표를 채운다 — 패킷 번호마다 최소 크기와 처리기 한 줄(전에는 크기 표 GetExpectedSize 와 분기 switch 가 따로였다).
     //   Init 이 맨 앞에서 부른다. 등록이 실패하면(범위 밖 · 두 번 등록) false — 기동 거절.
@@ -225,13 +161,6 @@ private:
     std::atomic<bool> _running;
     // 틱 주기(FRAME_PER_SEC · FRAME_INTERVAL_MS)는 BuildConfig.h — 아래 층 헤더도 같이 쓰는 단위라 여기 두지 않는다.
     static constexpr int CLEANUP_INTERVAL_FRAMES = 30 * FRAME_PER_SEC;  // 30초마다 빈 채널 정리
-    // 주기적 위치 동기화 상수 둘(SYNC_*)은 시야 조각 — SightBroadcaster.h (게임 서버 나누기 3 단계)
-    // 좌표 수용 한도·예산 상수 셋(MOVE_START_ACCEPT_DIST_SQ · MOVE_BUDGET_CAP · MOVE_BUDGET_SLACK)은 이동 조각 — MoveHandler.h (게임 서버 나누기 11 단계)
-
-    // 기본 접속 맵(_defaultMapId — 맵 표 첫 줄 = 마을)은 맵 관리자 — CMapManager::GetDefaultMapId (게임 서버 나누기 14 단계)
-
-    // 땅의 아이템 번호(_nextGroundId) · 수명 훑기 세기(_groundItemScanCounter)는 가방·땅 조각 — ItemHandler.h (게임 서버 나누기 6 단계)
-    // 굴림 결과 버퍼(_lootBuffer) · 방 보상 넘침(_roomOverflow)은 처치 보상 조각 — RewardHandler.h (게임 서버 나누기 8 단계)
 
 #if USE_COMBAT
     // 스탯·레벨 규칙 — 표(_gameDataFiles)를 참조한다.
@@ -294,12 +223,9 @@ private:
                                _itemSystem, _mapManager, _gameMonitor, _gameDataFiles, _frameCount };
 #endif
 
-    // 플레이어 이동 속도 덮어쓰기(_playerSpeed)는 입장 조각 — EntryHandler.h (게임 서버 나누기 12 단계)
 #if USE_COMBAT
     // 공격 후보 버퍼는 두지 않는다 — 사거리가 걸치는 섹터의 주민 목록을 참조로 훑어 복사가 없다.
     //   (처음엔 GetAroundPlayers 의 전신이 벡터를 요구해 _attackTargetBuffer 를 뒀었다)
-
-    // 죽어서 부활을 기다리는 플레이어(_deadActors) · 마을 부활로 옮길 버퍼(_respawnTransferBuffer)는 전투 조각 — CombatHandler.h (게임 서버 나누기 9 단계)
 
     // 공격 흐름 — 알림은 전투 조각(_combatHandler · ICombatEvents)으로 간다.
     //   ★ _gameMonitor 보다 뒤에 선언해야 한다 — 멤버는 선언 순서로 세워지므로, 앞에 두면 아직 안 묶인 참조를 넘긴다.
@@ -323,8 +249,6 @@ private:
     // 파티 규칙 — 알림은 파티·방 조각(_partyHandler)으로 간다. 파티원·요청의 주소를 틱 너머로 들므로 놓기의 「떠남」 알림(OnLeavingGame)이 Forget 을 부른다.
     //   ★ _gameMonitor · _partyHandler 보다 뒤에 선언해야 한다(위 _combatSystem 주석과 같은 까닭).
     CPartySystem _partySystem{ _gameMonitor, _partyHandler };
-
-    // 방 다시 들어가기 잠금 표(_roomLocks)는 파티·방 조각 — PartyHandler.h (게임 서버 나누기 7 단계)
 #endif
 
 #if USE_COMBAT && USE_MONSTER
@@ -404,14 +328,4 @@ private:
                                _itemHandler, _gameDataFiles,
 #endif
                                _mapManager };
-
-    // 섹터 아웃박스(틱-지연 배칭 상태) · 인바운드 멤버십 수집 버퍼는 시야 조각 — SightBroadcaster.h (게임 서버 나누기 3 단계)
-
-    // 비용종류별 계측(틱 내 누적 → 틱 끝 1회 반영) — 방송 쪽 다섯은 시야 조각 · 이동 예산 거부(_tickMoveBudgetRejects)는 이동 조각(둘 다 ReportTickMetrics)
-
-#if USE_DB_WORKER
-    // DB 워커 · 저장 주기 세기 · 회신 받는 버퍼는 캐릭터 저장소 — CharacterStore.h (게임 서버 나누기 4 단계)
-
-    // 대기표(_pendingEnter)와 상태별 수 둘은 입장 조각 — EntryHandler.h (게임 서버 나누기 12 단계)
-#endif
 };
