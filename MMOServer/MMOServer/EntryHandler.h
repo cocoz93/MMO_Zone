@@ -52,7 +52,7 @@ public:
     // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(세션 허브 · 배치 · 저장소 · 파티·방 조각 · 스탯 규칙 · 맵 관리자 · 게임 지표 · 기획 데이터)보다
     //   뒤에 이것을 선언해야 한다(멤버는 선언 순서로 세워진다). 생성 중엔 쓰지 않는다.
     //   거꾸로 저장소는 이것보다 앞에 세워지며 이것의 참조를 묶기만 한다(알림 받는 쪽 — 게임 서버가 *this 를 넘기던 것과 같은 꼴).
-    //   기본 맵 번호(defaultMapId)는 빌린다 — 게임 서버의 Init 이 맵 표를 읽은 뒤 채운다(새 캐릭터 · 마을 부활 · 저장 맵 없음).
+    //   기본 맵 번호(새 캐릭터 · 마을 부활 · 저장 맵 없음)는 맵 관리자에게 묻는다(CMapManager::GetDefaultMapId — 게임 서버 나누기 14 단계 전에는 게임 서버가 들고 빌려 줬다).
     CEntryHandler(CSessionHub& sessionHub, CPlayerPlacement& placement,
 #if USE_DB_WORKER
                   CCharacterStore& characterStore,
@@ -63,7 +63,7 @@ public:
 #if USE_COMBAT
                   CStatSystem& statSystem,
 #endif
-                  CMapManager& mapManager, CGameMonitor& gameMonitor, const CGameDataFiles& gameDataFiles, const int32_t& defaultMapId)
+                  CMapManager& mapManager, CGameMonitor& gameMonitor, const CGameDataFiles& gameDataFiles)
         : _sessionHub(sessionHub), _placement(placement)
 #if USE_DB_WORKER
         , _characterStore(characterStore)
@@ -74,7 +74,7 @@ public:
 #if USE_COMBAT
         , _statSystem(statSystem)
 #endif
-        , _mapManager(mapManager), _gameMonitor(gameMonitor), _gameDataFiles(gameDataFiles), _defaultMapId(defaultMapId) {}
+        , _mapManager(mapManager), _gameMonitor(gameMonitor), _gameDataFiles(gameDataFiles) {}
 
     // 대기표 잡기 — 게임 서버 모드의 Init 이 세션 허브의 칸을 잡은 뒤 부른다(같은 크기·같은 색인). DB 를 끈 빌드는 할 일이 없다.
     void Init(int maxClients);
@@ -197,10 +197,9 @@ private:
 #if USE_COMBAT
     CStatSystem&          _statSystem;       // 레벨 정산 · 스탯 세우기 · 체력·마력 넣기
 #endif
-    CMapManager&          _mapManager;       // 채널 찾기·만들기 · 존 이동 목적지 · 방 맵 판별
+    CMapManager&          _mapManager;       // 채널 찾기·만들기 · 존 이동 목적지 · 방 맵 판별 · 기본 맵 번호(GetDefaultMapId)
     CGameMonitor&         _gameMonitor;      // 입장 · 존 이동 · 포털 지표
     const CGameDataFiles& _gameDataFiles;    // 포털 표
-    const int32_t&        _defaultMapId;     // 기본 맵(마을) 번호 — 빌린 것, 읽기만
 
     // 플레이어 이동 속도 덮어쓰기(칸/초) — 0 이면 생성자의 기본값을 그대로 쓴다(SetPlayerSpeed)
     int _playerSpeed = 0;

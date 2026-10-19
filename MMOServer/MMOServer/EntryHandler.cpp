@@ -214,7 +214,7 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
         {
             enter._deadRespawn.Inc();
             place.hp = DB_HP_MP_UNSAVED;   // 가득 — 마을이면 제자리(아래 저장된 자리 갈래)에서
-            toTown   = Combat::RespawnsToTown(result.mapId, _defaultMapId);
+            toTown   = Combat::RespawnsToTown(result.mapId, _mapManager.GetDefaultMapId());
             place.dropBuffs = true;        // 버프는 버린다(죽으면 지워지는 규칙 — 쿨타임은 죽어도 남아 되살린다)
         }
 #endif
@@ -270,7 +270,7 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
     }
 
     if (zone == nullptr)
-        zone = _mapManager.FindOrCreateChannel(_defaultMapId);
+        zone = _mapManager.FindOrCreateChannel(_mapManager.GetDefaultMapId());
 
     if (SpawnPlayer(result.sessionId, pending.actorId, pending.accountId, zone, place) == nullptr)
     {
@@ -423,7 +423,7 @@ void CEntryHandler::OnConnected(int64_t sessionId)
 #endif
 
     // DB 워커가 없으면(토글 OFF·미기동) 예전 그대로 곧바로 스폰 — 기본 맵(마을)의 여유 채널, 시작 구역.
-    CZone* zone = _mapManager.FindOrCreateChannel(_defaultMapId);
+    CZone* zone = _mapManager.FindOrCreateChannel(_mapManager.GetDefaultMapId());
     if (SpawnPlayer(sessionId, actorId, actorId, zone, EnterPlacement{}) == nullptr)
         _sessionHub.RequestDisconnect(sessionId);
 #endif

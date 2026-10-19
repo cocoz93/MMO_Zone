@@ -345,8 +345,8 @@ void CCombatHandler::TickRespawn()
         CZone* zone = _mapManager.GetZone(dead->_zoneId);
         CPlayer* player = As<CPlayer>(dead);
         CZone* town = nullptr;
-        if (zone != nullptr && player != nullptr && Combat::RespawnsToTown(zone->GetMapId(), _defaultMapId))
-            town = _mapManager.FindOrCreateChannel(_defaultMapId, player->_isAdmin);
+        if (zone != nullptr && player != nullptr && Combat::RespawnsToTown(zone->GetMapId(), _mapManager.GetDefaultMapId()))
+            town = _mapManager.FindOrCreateChannel(_mapManager.GetDefaultMapId(), player->_isAdmin);
 
         if (town != nullptr)
         {

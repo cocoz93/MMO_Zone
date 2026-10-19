@@ -219,7 +219,7 @@ private:
     // 주기적 위치 동기화 상수 둘(SYNC_*)은 시야 조각 — SightBroadcaster.h (게임 서버 나누기 3 단계)
     // 좌표 수용 한도·예산 상수 셋(MOVE_START_ACCEPT_DIST_SQ · MOVE_BUDGET_CAP · MOVE_BUDGET_SLACK)은 이동 조각 — MoveHandler.h (게임 서버 나누기 11 단계)
 
-    int32_t _defaultMapId = 0;  // 최초 접속 시 입장할 맵 = 맵 표 첫 줄 = 마을(죽으면 여기 시작 구역으로 — TickRespawn)
+    // 기본 접속 맵(_defaultMapId — 맵 표 첫 줄 = 마을)은 맵 관리자 — CMapManager::GetDefaultMapId (게임 서버 나누기 14 단계)
 
     // 땅의 아이템 번호(_nextGroundId) · 수명 훑기 세기(_groundItemScanCounter)는 가방·땅 조각 — ItemHandler.h (게임 서버 나누기 6 단계)
     // 굴림 결과 버퍼(_lootBuffer) · 방 보상 넘침(_roomOverflow)은 처치 보상 조각 — RewardHandler.h (게임 서버 나누기 8 단계)
@@ -338,7 +338,7 @@ private:
 #if USE_COMBAT
     // 전투 — 공격·스킬 요청 · 공격·시전·효과 알림(ICombatEvents · ISkillEvents · IBuffEvents) · 부활 대기열(CombatHandler.h).
     //   ★ _sessionHub · _selfNotifier · _sightBroadcaster · _placement · _rewardHandler · _combatSystem · _buffSystem · _skillSystem · _mapManager ·
-    //     _gameMonitor · _frameCount · _defaultMapId 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
+    //     _gameMonitor · _frameCount 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
     //     규칙 셋(_buffSystem · _combatSystem · _skillSystem)은 거꾸로 이것의 참조를 받는다 — 알림 받는 쪽이라 묶기만 하고 생성 중엔 안 부른다.
     CCombatHandler _combatHandler{ _sessionHub, _selfNotifier, _sightBroadcaster, _placement,
 #if USE_MONSTER
@@ -348,7 +348,7 @@ private:
 #if USE_SKILL
                                    _skillSystem,
 #endif
-                                   _mapManager, _gameMonitor, _frameCount, _defaultMapId };
+                                   _mapManager, _gameMonitor, _frameCount };
 #endif
 
 #if USE_MONSTER
@@ -370,7 +370,7 @@ private:
     CMoveHandler _moveHandler{ _sightBroadcaster, _mapManager, _gameMonitor, _frameCount };
 
     // 입장·존 이동 요청 — 접속 · 대기표 · 불러오기 결과(ICharacterLoadEvents) · 스폰 · 같은 계정 걷어내기 · 존 이동 · 포털(EntryHandler.h).
-    //   ★ _sessionHub · _placement · _characterStore · _partyHandler · _statSystem · _mapManager · _gameMonitor · _gameDataFiles · _defaultMapId
+    //   ★ _sessionHub · _placement · _characterStore · _partyHandler · _statSystem · _mapManager · _gameMonitor · _gameDataFiles
     //     보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다). 저장소(_characterStore)는 거꾸로 이것의 참조를 받는다 — 묶기만 한다.
     CEntryHandler _entryHandler{ _sessionHub, _placement,
 #if USE_DB_WORKER
@@ -382,7 +382,7 @@ private:
 #if USE_COMBAT
                                  _statSystem,
 #endif
-                                 _mapManager, _gameMonitor, _gameDataFiles, _defaultMapId };
+                                 _mapManager, _gameMonitor, _gameDataFiles };
 
     // 채팅·운영 — 채팅 · 운영자 로그인 · 채팅 명령(/item · /gm — USE_INVENTORY)(ChatHandler.h).
     //   ★ _sessionHub · _sightBroadcaster · _mapManager 와 명령이 쓰는 _selfNotifier · _itemHandler · _statSystem · _gameMonitor · _gameDataFiles

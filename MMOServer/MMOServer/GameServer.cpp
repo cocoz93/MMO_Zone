@@ -124,8 +124,7 @@ bool CGameServer::Init(ServerMode mode, int port, int maxClients,
                 return false;
         }
 
-        // 첫 번째 맵을 기본 접속 맵으로 설정
-        _defaultMapId = maps[0].mapId;
+        // 기본 접속 맵 = 처음 등록한 맵(위 차례 = 맵 표 차례) — 맵 관리자가 든다(CMapManager::GetDefaultMapId · 게임 서버 나누기 14 단계)
 
         // 프레임 재사용 컨테이너 reserve (워밍업 realloc 방지)
         // 전체 서버 범위 버퍼도 maxPerChannel 기준 — 초과 시 자연 증가 후 capacity 유지

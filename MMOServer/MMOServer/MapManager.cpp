@@ -156,6 +156,10 @@ bool CMapManager::RegisterMap(const MapConfig& config)
     if (baseZone != nullptr)
         _zoneCache[zoneId] = baseZone;
 
+    // 처음 등록에 성공한 맵 = 기본 접속 맵(실패한 등록은 위에서 지워져 개수에 안 든다). 전에는 게임 서버가 maps[0] 으로 따로 들었다.
+    if (_maps.size() == 1)
+        _defaultMapId = config.mapId;
+
     return true;
 }
 

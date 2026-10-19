@@ -2,7 +2,7 @@
 // CMapManager — 맵 컨테이너 + 맵/채널 관리
 //
 // [책임]
-//  - 맵 설정 등록 및 맵별 채널(존) 관리
+//  - 맵 설정 등록 및 맵별 채널(존) 관리 · 기본 접속 맵(처음 등록한 맵)
 //  - 채널 자동 배정 (인원 초과 시 동적 생성)
 //  - 존 이동 목적지 고르기 (지정 채널 · 자동 배정 · 무작위 맵) — 거절 사유까지 정하고, 패킷 값으로 바꾸는 건 게임 서버
 //  - 빈 동적 채널 자동 정리
@@ -138,8 +138,12 @@ public:
     explicit CMapManager(const CGameDataFiles& gameData) : _gameData(gameData) {}
     ~CMapManager() = default;
 
-    // 맵 등록 (서버 시작 시) — 기본 채널(channelIndex=0) 자동 생성
+    // 맵 등록 (서버 시작 시) — 기본 채널(channelIndex=0) 자동 생성. 처음 등록에 성공한 맵이 기본 접속 맵이 된다(GetDefaultMapId).
     bool RegisterMap(const MapConfig& config);
+
+    // 기본 접속 맵 = 처음 등록한 맵 = 맵 표 첫 줄(마을 — MapTable.h). 등록 차례가 곧 표 차례다(CGameServer::Init 이 표 순서로 부른다).
+    //   새 캐릭터 · 저장된 맵이 없을 때 · 죽은 채 저장됐을 때 · 마을 부활이 여기로 간다. 등록 전엔 0.
+    int32_t GetDefaultMapId() const { return _defaultMapId; }
 
     // 채널 자동 배정 — 여유 있는 채널 반환, 없으면 동적 생성. 방 맵은 nullptr(로그인·포털 자동 배정이 방에 안 들어가게)
     CZone* FindOrCreateChannel(int32_t mapId, bool isAdmin = false);
@@ -202,4 +206,6 @@ private:
 
     // zoneId → CZone* 플랫 캐시 (GetZone 해시 2회 → 1회 최적화, 채널 생성/삭제 시 갱신)
     std::unordered_map<int32_t, CZone*> _zoneCache;
+
+    int32_t _defaultMapId = 0;   // 기본 접속 맵 — RegisterMap 이 첫 성공 때 정한다(GetDefaultMapId)
 };

@@ -58,7 +58,7 @@ public:
     // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(세 보내기 조각 · 배치 · 처치 보상 조각 · 규칙 셋 · 맵 관리자 · 게임 지표 · 틱 번호)보다
     //   뒤에 이것을 선언해야 한다(멤버는 선언 순서로 세워진다). 생성 중엔 쓰지 않는다.
     //   거꾸로 규칙 셋은 이것보다 앞에 세워지며 이것의 참조를 묶기만 한다(알림 받는 쪽 — 게임 서버가 *this 를 넘기던 것과 같은 꼴).
-    //   기본 맵 번호(defaultMapId)는 틱 번호처럼 빌린다 — 게임 서버의 Init 이 맵 표를 읽은 뒤 채운다(마을 부활).
+    //   기본 맵 번호(마을 부활)는 맵 관리자에게 묻는다(CMapManager::GetDefaultMapId — 게임 서버 나누기 14 단계 전에는 게임 서버가 들고 빌려 줬다).
     CCombatHandler(CSessionHub& sessionHub, CSelfNotifier& selfNotifier, CSightBroadcaster& sightBroadcaster, CPlayerPlacement& placement,
 #if USE_MONSTER
                    CRewardHandler& rewardHandler,
@@ -67,7 +67,7 @@ public:
 #if USE_SKILL
                    CSkillSystem& skillSystem,
 #endif
-                   CMapManager& mapManager, CGameMonitor& gameMonitor, const uint64_t& frameCount, const int32_t& defaultMapId)
+                   CMapManager& mapManager, CGameMonitor& gameMonitor, const uint64_t& frameCount)
         : _sessionHub(sessionHub), _selfNotifier(selfNotifier), _sightBroadcaster(sightBroadcaster), _placement(placement)
 #if USE_MONSTER
         , _rewardHandler(rewardHandler)
@@ -76,7 +76,7 @@ public:
 #if USE_SKILL
         , _skillSystem(skillSystem)
 #endif
-        , _mapManager(mapManager), _gameMonitor(gameMonitor), _frameCount(frameCount), _defaultMapId(defaultMapId) {}
+        , _mapManager(mapManager), _gameMonitor(gameMonitor), _frameCount(frameCount) {}
 
     // 받은 패킷 등록 — 공격 · 스킬(USE_SKILL). 게임 서버의 등록(RegisterRoutes)이 부른다. false = 등록 실패(기동 거절).
     bool RegisterRoutes(CPacketRoutes& routes);
@@ -131,10 +131,9 @@ private:
 #if USE_SKILL
     CSkillSystem&      _skillSystem;        // 스킬 규칙 — 빌린 것
 #endif
-    CMapManager&       _mapManager;         // 존 찾기 · 방 맵 판별 · 마을 채널 고르기
+    CMapManager&       _mapManager;         // 존 찾기 · 방 맵 판별 · 마을 채널 고르기(기본 맵 번호 GetDefaultMapId)
     CGameMonitor&      _gameMonitor;        // 부활 · 방 클리어 지표
     const uint64_t&    _frameCount;         // 게임 루프의 틱 번호 — 빌린 것, 읽기만(쿨타임 · 부활 시각)
-    const int32_t&     _defaultMapId;       // 기본 맵(마을) 번호 — 빌린 것, 읽기만(마을 부활)
 
     // 죽어서 부활을 기다리는 플레이어. 여기만 틱 너머로 포인터를 든다 —
     //   퇴장 경로(배치의 「존에서 빠짐 · 떠남」 알림을 받는 게임 서버의 OnLeavingZone · OnLeavingGame)가 반드시 회수해야 한다.
