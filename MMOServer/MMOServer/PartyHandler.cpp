@@ -16,7 +16,7 @@
 #include <cassert>
 #include "PacketBuild.h" // 머리 쓰기·닫기 · 파티 사람 조각·파티원 한 줄(WritePartyPerson · WritePartyMember) — 게임 서버 나누기 0-②
 
-using namespace PacketBuild;   // 아래 조립 함수들이 머리 쓰기·닫기를 이름만으로 부른다(GameServer.cpp 와 같은 꼴)
+using namespace PacketBuild;   // 아래 조립 함수들이 머리 쓰기·닫기를 이름만으로 부른다
 
 // ==========================================================================
 // 파티 S2C 조립 — 이 조각만 부른다(GameServer.cpp 에서 옮김 · 몸·주석 그대로).

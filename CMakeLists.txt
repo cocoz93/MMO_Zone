@@ -151,6 +151,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/MonsterHandler.cpp
     ${SRV_DIR}/MoveHandler.cpp
     ${SRV_DIR}/EntryHandler.cpp
+    ${SRV_DIR}/ChatHandler.cpp
     ${SRV_DIR}/MapManager.cpp
     ${SRV_DIR}/SectorManager.cpp
     ${SRV_DIR}/Zone.cpp

@@ -24,7 +24,7 @@
 #include <cassert>
 #include "PacketBuild.h"      // 머리 쓰기·닫기 · 부활(MakeRespawn) · 체력 바뀜(MakeActorStats) — 게임 서버 나누기 0-②
 
-using namespace PacketBuild;   // 아래 조립 함수들이 머리 쓰기·닫기를 이름만으로 부른다(GameServer.cpp 와 같은 꼴)
+using namespace PacketBuild;   // 아래 조립 함수들이 머리 쓰기·닫기를 이름만으로 부른다
 
 // ==========================================================================
 // 전투·스킬 S2C 조립과 스킬 거절 사유 → 와이어 값 — 이 조각만 부른다(GameServer.cpp 에서 옮김 · 몸·주석 그대로).

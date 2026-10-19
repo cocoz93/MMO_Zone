@@ -57,6 +57,7 @@
 #include "MonsterHandler.h"   // 몬스터(몬스터 틱 · 등장·사라짐 알림 · 번호 발급 — USE_MONSTER) — 게임 서버 나누기 10 단계(C4)
 #include "MoveHandler.h"      // 이동(이동 시작·멈춤 요청 · 좌표 수용 예산 — 토글 없음) — 게임 서버 나누기 11 단계(C2)
 #include "EntryHandler.h"     // 입장·존 이동 요청(접속 · 대기표 · 불러온 캐릭터 세우기 · 중복 접속 · 포털) — 게임 서버 나누기 12 단계(C1)
+#include "ChatHandler.h"      // 채팅·운영(채팅 · 운영자 로그인 · 채팅 명령 /item · /gm — 명령만 USE_INVENTORY) — 게임 서버 나누기 13 단계(C8)
 
 class CSerialBuffer;
 
@@ -138,27 +139,19 @@ private:
 
     // 패킷 핸들러
     // 이동 시작·멈춤(RecvMoveStart · RecvMoveStop)은 이동 조각 — _moveHandler (MoveHandler.h · 게임 서버 나누기 11 단계)
-    void RecvChat(CPlayer* player, CSerialBuffer* pMsg);
+    // 채팅(RecvChat) · 운영자 로그인(RecvAdminLogin)은 채팅·운영 조각 — _chatHandler (ChatHandler.h · 게임 서버 나누기 13 단계)
     // 존 이동 · 포털 요청(RecvZoneChange · RecvPortalUse)은 입장 조각 — _entryHandler (게임 서버 나누기 12 단계)
-    void RecvAdminLogin(CPlayer* player, CSerialBuffer* pMsg);
 
     // 공격·스킬 요청 · 공격·시전·효과 알림(ICombatEvents · ISkillEvents · IBuffEvents) · 부활 대기열은 전투 조각 — _combatHandler (CombatHandler.h · 게임 서버 나누기 9 단계).
     //   부활 자리 규칙(RespawnsToTown)은 Combat.h 의 순수 함수 — 전투 조각의 부활 틱과 입장(OnCharacterLoaded)이 같이 쓴다.
     // 효과 칸 보내기(SendActorBuff · SendActiveBuffs)는 본인 알림 조각으로 옮겼다 — _selfNotifier (게임 서버 나누기 2 단계)
     // 몬스터 경험치 주기(GrantMonsterExp) · 방 보상(RewardRoom)은 처치 보상 조각 — _rewardHandler (RewardHandler.h · 게임 서버 나누기 8 단계)
 
-#if USE_INVENTORY
-    // ── 인벤토리 (USE_INVENTORY) ──
-    // '/' 로 시작하는 채팅 — 방송하지 않고 명령으로 처리한다. 답은 본인에게 S2C_ERROR 한 줄.
-    //   명령은 이름 → 처리 함수 표(GameServer.cpp HandleChatCommand). 지금 둘 다 운영자 전용이다.
-    void HandleChatCommand(CPlayer* player, const ChatChar* msg, uint16_t len);
-    void RunItemCommand(CPlayer* player, const std::vector<std::string>& words);   // /item <아이템번호> [개수] — 가방에 바로 넣기
-    void RunGmCommand(CPlayer* player, const std::vector<std::string>& words);     // /gm — GM 모드 켜고 끄기(Player.h GM 칸)
+    // 채팅 명령(HandleChatCommand · RunItemCommand · RunGmCommand — USE_INVENTORY)은 채팅·운영 조각 — _chatHandler (ChatHandler.h · 게임 서버 나누기 13 단계)
 
     // 바뀐 칸 내보내기(FlushInventory) · 물약 쓰기 · 끼우기·빼기는 가방·땅 조각 — _itemHandler (ItemHandler.h · 게임 서버 나누기 6 단계)
     // 가방 전체(SendInventory) · 알림 한 줄(SendSystemMessage)은 본인 알림 조각으로 옮겼다 — _selfNotifier (게임 서버 나누기 2 단계)
     // 불러온 가방 줄 넣기(LoadInventoryRows)는 캐릭터 저장소 조각 — CharacterStore.h (게임 서버 나누기 4 단계)
-#endif
 
     // 마력(SendActorMp) · 남은 쿨타임(SendActiveSkillCooldowns)은 본인 알림 조각으로 옮겼다 — _selfNotifier (게임 서버 나누기 2 단계)
 
@@ -387,6 +380,15 @@ private:
                                  _statSystem,
 #endif
                                  _mapManager, _gameMonitor, _gameDataFiles, _defaultMapId };
+
+    // 채팅·운영 — 채팅 · 운영자 로그인 · 채팅 명령(/item · /gm — USE_INVENTORY)(ChatHandler.h).
+    //   ★ _sessionHub · _sightBroadcaster · _mapManager 와 명령이 쓰는 _selfNotifier · _itemHandler · _statSystem · _gameMonitor · _gameDataFiles
+    //     보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
+    CChatHandler _chatHandler{ _sessionHub, _sightBroadcaster,
+#if USE_INVENTORY
+                               _selfNotifier, _itemHandler, _statSystem, _gameMonitor, _gameDataFiles,
+#endif
+                               _mapManager };
 
     // 섹터 아웃박스(틱-지연 배칭 상태) · 인바운드 멤버십 수집 버퍼는 시야 조각 — SightBroadcaster.h (게임 서버 나누기 3 단계)
 

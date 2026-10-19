@@ -1,7 +1,6 @@
 ﻿#include "GameServer.h"
 #include "Player.h"
 #include "MonsterAI.h"   // USE_MONSTER — 몬스터 표 속도 대조의 상한(MAX_SPEED)
-#include "GameDataCsv.h" // USE_INVENTORY — 채팅 명령 인자를 숫자로 읽는다(표 파서와 같은 규칙)
 #include "CooldownBuffBlob.h" // USE_DB_WORKER — 쿨타임·버프 열의 바이트 형식(토글을 안 보는 헤더)
 #include <Protocol/Protocol.h>
 #include "SerialBuffer.h"
@@ -10,13 +9,8 @@
 #include <iostream>
 #include <chrono>
 #include <algorithm>
-#include <cstddef>  // offsetof
-#include <cassert>  // 직렬화 필드 누락/폭 검증
-#include <cstring>  // strcmp — 운영 로그인 열쇠 대조 (알림 문구 memcpy 는 SelfNotifier.cpp 로 옮겼다)
+#include <cassert>  // 불변식 검증(틱 끝 이동 표시 · 받은 패킷 머리) — 직렬화 크기 검증은 조립 함수와 같이 조각들로 갔다
 #include <string>
-#include "PacketBuild.h" // 여러 조각이 같이 쓰는 조립 함수(머리 쓰기·닫기 · 등장 조각 · 파티 조각 · 부활 · 체력 바뀜) — 게임 서버 나누기 0-②
-
-using namespace PacketBuild;   // 아래 조립 함수들이 머리 쓰기·닫기를 이름만으로 부른다(옮기기 전과 같은 꼴)
 
 // ==========================================================================
 // S2C 직렬화 헬퍼 (파일 로컬)
@@ -57,40 +51,7 @@ namespace
     // 땅 아이템·줍기·쓰기·장착 거절 사유 → 와이어 값(ToGroundItemGone · ToPickupFail · ToUseItemFail · ToEquipFail) 은 ItemHandler.cpp
     //   — 가방·땅 조각만 부른다(게임 서버 나누기 6 단계)
 
-    CSerialBuffer* MakeAdminLoginOk()
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_ADMIN_LOGIN_OK::TYPE);    // 페이로드 없음 (헤더만)
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_ADMIN_LOGIN_OK));
-        return buf;
-    }
-
-    CSerialBuffer* MakeAdminLoginFail()
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_ADMIN_LOGIN_FAIL::TYPE);  // 페이로드 없음 (헤더만)
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_ADMIN_LOGIN_FAIL));
-        return buf;
-    }
-
-    // 가변 길이 — message는 고정배열/문자열이라 SetData(raw). msgLen은 null 제외 글자 수.
-    CSerialBuffer* MakeChat(int32_t playerId, uint8_t displayChar, uint8_t colorIndex,
-                             ChatChar* message, uint16_t msgLen)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_CHAT::TYPE);
-        *buf << static_cast<int>(playerId);
-        *buf << static_cast<uint8_t>(displayChar);
-        *buf << static_cast<uint8_t>(colorIndex);
-        buf->SetData(reinterpret_cast<char*>(message),
-            (msgLen + 1) * sizeof(ChatChar));              // message (가변, null 포함, raw)
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() ==
-            offsetof(MSG_S2C_CHAT, message) + (msgLen + 1) * sizeof(ChatChar));
-        return buf;
-    }
+    // MakeAdminLoginOk · MakeAdminLoginFail · MakeChat(운영자 로그인 성공·실패 · 채팅) 는 ChatHandler.cpp — 채팅·운영 조각만 부른다(게임 서버 나누기 13 단계)
 
     // MakeError(알림 한 줄) · MakeInventory(가방 전체) 는 SelfNotifier.cpp(2 단계) · MakeInventorySlot(칸 하나) · MakeUseItemFail · MakeEquipFail(쓰기·장착 거절) 는
     //   ItemHandler.cpp(6 단계) — 각각 그 조각만 부른다(게임 서버 나누기)
@@ -595,8 +556,8 @@ bool CGameServer::RegisterRoutes()
     bool ok = true;
     // 이동 시작 · 멈춤 — 이동 조각이 자기 줄을 등록한다(CMoveHandler::RegisterRoutes · 게임 서버 나누기 11 단계)
     ok &= _moveHandler.RegisterRoutes(_routes);
-    ok &= _routes.OnPlayer(MsgType::C2S_CHAT,       sizeof(MsgHeader) + sizeof(ChatChar),   // 가변 길이: 최소 1글자
-                           [this](CPlayer* p, CSerialBuffer* m) { RecvChat(p, m); });
+    // 채팅 · 운영자 로그인 — 채팅·운영 조각이 자기 줄을 등록한다(CChatHandler::RegisterRoutes · 게임 서버 나누기 13 단계)
+    ok &= _chatHandler.RegisterRoutes(_routes);
     // 존 이동 · 포털 · 입장 요청(USE_LOGIN — 끄면 크기만) — 입장 조각이 자기 줄을 등록한다(CEntryHandler::RegisterRoutes · 게임 서버 나누기 12 단계)
     ok &= _entryHandler.RegisterRoutes(_routes);
     ok &= _routes.Size(MsgType::C2S_HEARTBEAT, sizeof(MSG_C2S_HEARTBEAT));   // 처리기 없음 — 타임아웃 갱신은 IOCPServer 수신 시점
@@ -604,7 +565,6 @@ bool CGameServer::RegisterRoutes()
     // 공격 · 스킬(USE_SKILL) — 전투 조각이 자기 줄을 등록한다(CCombatHandler::RegisterRoutes · 게임 서버 나누기 9 단계)
     ok &= _combatHandler.RegisterRoutes(_routes);
 #endif
-    ok &= _routes.OnPlayer(MsgType::C2S_ADMIN_LOGIN, sizeof(MSG_C2S_ADMIN_LOGIN), [this](CPlayer* p, CSerialBuffer* m) { RecvAdminLogin(p, m); });
 #if USE_INVENTORY
     // 물약 · 끼우기·빼기(USE_EQUIP) · 줍기(USE_DROP) — 가방·땅 조각이 자기 줄을 등록한다(CItemHandler::RegisterRoutes · 게임 서버 나누기 6 단계)
     ok &= _itemHandler.RegisterRoutes(_routes);
@@ -622,265 +582,10 @@ bool CGameServer::RegisterRoutes()
 
 // 이동 시작·멈춤(RecvMoveStart · RecvMoveStop) 은 이동 조각으로 옮겼다 — CMoveHandler (게임 서버 나누기 11 단계)
 
-void CGameServer::RecvChat(CPlayer* player, CSerialBuffer* pMsg)
-{
-    CZone* zone = _mapManager.GetZone(player->_zoneId);
-    if (zone == nullptr)
-        return;
+// 채팅(RecvChat) 은 채팅·운영 조각으로 옮겼다 — CChatHandler (게임 서버 나누기 13 단계)
 
-    // 가변 길이 수신: header.size 기반으로 실제 메시지 길이 역산
-    MsgHeader header{};
-    pMsg->PeekData(reinterpret_cast<char*>(&header), sizeof(header));
-
-    uint16_t recvSize = header.size;
-    if (recvSize > sizeof(MSG_C2S_CHAT))
-        recvSize = sizeof(MSG_C2S_CHAT);  // 최대 크기 제한
-
-    MSG_C2S_CHAT recvMsg{};
-    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), recvSize);
-
-    // 메시지 길이 계산 (바이트 → wchar_t 글자 수)
-    uint16_t msgBytes = recvSize - sizeof(MsgHeader);
-    msgBytes -= msgBytes % sizeof(ChatChar);  // 문자 경계 정렬 (홀수 바이트 방어)
-    uint16_t msgLen = msgBytes / sizeof(ChatChar);
-    if (msgLen > CHAT_MSG_MAX_LEN - 1)
-        msgLen = CHAT_MSG_MAX_LEN - 1;
-    recvMsg.message[msgLen] = L'\0';  // null 종단 보장
-
-#if USE_INVENTORY
-    // '/' 로 시작하면 명령이다 — 방송하지 않는다. 운영자가 아닌 사람의 /item 이 채팅으로 새지 않게,
-    //   권한 검사보다 "방송 안 함"이 먼저다. 부하 더미의 채팅 문구에는 '/' 로 시작하는 것이 없다.
-    if (msgLen > 0 && recvMsg.message[0] == u'/')
-    {
-        HandleChatCommand(player, recvMsg.message, msgLen);
-        return;
-    }
-#endif
-
-#if USE_BROADCAST_BUNDLE
-    // [digest] 즉시 브로드캐스트 대신 보류 등록 — 틱 끝 digest에 합류 (실송신 시점은 기존과 동일한 틱 끝 flush).
-    // 소스 섹터는 수신 시점 좌표로 고정 → 기존(즉시 배포)의 AOI 의미 보존.
-    _sightBroadcaster.RegisterSectorItem(zone, player->_zoneId, player->_sectorX, player->_sectorY,
-        MakeChat(player->_actorId, player->_displayChar, player->_colorIndex,
-            recvMsg.message, msgLen));
-#else
-    // 본인 포함 브로드캐스트 (송신 함수가 소유권 소비)
-    _sightBroadcaster.BroadcastAroundSector(zone, player,
-        MakeChat(player->_actorId, player->_displayChar, player->_colorIndex,
-            recvMsg.message, msgLen), false);
-#endif
-}
-
-#if USE_INVENTORY
-// ==========================================================================
-// 채팅 명령 · 인벤토리 (USE_INVENTORY)
-// ==========================================================================
-
-namespace
-{
-    // 채팅(UTF-16) → 낱말들. 명령과 인자가 ASCII 라 그 밖의 글자는 '?' 로 바꾼다
-    //   (한글 인자를 받는 명령이 생기면 그때 UTF-8 로 옮긴다).
-    //   ★ NUL 에서 멈춘다 — 웹·콘솔 클라는 끝에 NUL 을 붙여 보내고(proto.js chat()), RecvChat 의
-    //     글자 수는 헤더 크기로 역산해 그 NUL 까지 센다. 안 멈추면 마지막 낱말이 "5\0" 이 되어 숫자로 안 읽힌다.
-    void SplitCommandWords(const ChatChar* msg, uint16_t len, std::vector<std::string>& out)
-    {
-        out.clear();
-        std::string cur;
-        for (uint16_t i = 0; i < len; ++i)
-        {
-            const ChatChar c = msg[i];
-            if (c == u'\0')
-                break;
-            if (c == u' ' || c == u'\t')
-            {
-                if (!cur.empty())
-                {
-                    out.push_back(cur);
-                    cur.clear();
-                }
-                continue;
-            }
-            cur += (c < 0x80) ? static_cast<char>(c) : '?';
-        }
-        if (!cur.empty())
-            out.push_back(cur);
-    }
-
-    // 속도 — 본인 + 주변(BroadcastAroundSector, excludeSelf=false — Protocol.h MSG_S2C_ACTOR_SPEED).
-    //   부르는 곳이 /gm 하나라 명령 구역에 둔다. 속도를 바꾸는 둘째 길(효과 등)이 생기면 위의 Make 묶음으로 옮긴다.
-    CSerialBuffer* MakeActorSpeed(int32_t actorId, int32_t speed)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_ACTOR_SPEED::TYPE);
-        *buf << static_cast<int>(actorId);
-        *buf << static_cast<int>(speed);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_ACTOR_SPEED));
-        return buf;
-    }
-}
-
-void CGameServer::HandleChatCommand(CPlayer* player, const ChatChar* msg, uint16_t len)
-{
-    CGameMonitor::InventoryCounters& counters = _gameMonitor._inventory;
-
-    // 명령은 사람이 치는 것이라 드물다 — 할당을 아끼지 않는다
-    std::vector<std::string> words;
-    SplitCommandWords(msg, len, words);
-    const std::string cmd = words.empty() ? std::string("/") : words[0];   // 첫 글자가 '/' 라 비지 않는다
-
-    // 명령 표 — 이름 → 처리 함수(if 사슬 금지 — 명령이 늘면 한 줄 더한다).
-    //   지금 명령은 전부 운영자 전용이라 권한은 표에서 찾은 뒤 한 번 본다. 누구나 쓰는 명령이 생기면 칸을 더한다.
-    using Runner = void (CGameServer::*)(CPlayer*, const std::vector<std::string>&);
-    struct Command
-    {
-        const char* name;
-        Runner      run;
-    };
-    static constexpr Command COMMANDS[] =
-    {
-        { "/item", &CGameServer::RunItemCommand },   // /item <아이템번호> [개수]
-        { "/gm",   &CGameServer::RunGmCommand   },   // /gm — GM 모드 켜고 끄기
-    };
-
-    const Command* found = nullptr;
-    for (const Command& c : COMMANDS)
-    {
-        if (cmd == c.name)
-        {
-            found = &c;
-            break;
-        }
-    }
-
-    if (found == nullptr)
-    {
-        counters._commandRejected[static_cast<int>(ChatCommandReject::UNKNOWN_COMMAND)].Inc();
-        _selfNotifier.SendSystemMessage(player, "모르는 명령입니다: " + cmd);
-        return;
-    }
-
-    if (!player->_isAdmin)
-    {
-        counters._commandRejected[static_cast<int>(ChatCommandReject::NOT_ADMIN)].Inc();
-        _selfNotifier.SendSystemMessage(player, "운영자만 쓸 수 있는 명령입니다: " + cmd);
-        return;
-    }
-
-    (this->*(found->run))(player, words);
-}
-
-// /gm — GM 모드 켜고 끄기(토글). 값과 저장하지 않는 까닭은 Player.h 의 GM 칸.
-//   켜면 속도·최대 체력·공격력을 GM 값으로 바꾸고 체력·마력을 가득 채운다. 끄면 속도를 되돌리고 스탯을 레벨 표로 다시 세운다
-//   (체력·마력은 넘는 몫만 깎는다 — RecalcStats refill=false).
-//   알림은 레벨업과 같은 셋(체력 본인+주변 · 공격력 본인 · 마력 본인)에 속도(본인+주변)를 더한다 — 남의 화면도 그 속도로 앞질러 그린다.
-void CGameServer::RunGmCommand(CPlayer* player, const std::vector<std::string>& words)
-{
-    CGameMonitor::InventoryCounters& counters = _gameMonitor._inventory;
-
-    if (words.size() != 1)
-    {
-        counters._commandRejected[static_cast<int>(ChatCommandReject::BAD_ARGS)].Inc();
-        _selfNotifier.SendSystemMessage(player, "쓰는 법: /gm (켜고 끈다 — 인자 없음)");
-        return;
-    }
-
-    // 쓰러진 채 켜면 아래 「가득 채움」이 부활 절차(마을로 보내기 · 부활 방송) 없이 되살린다 — 거절한다.
-    //   끄기도 같이 막는다(쓰러진 채로는 상태를 안 바꾼다는 한 줄 규칙 — 부활하면 그때 끄면 된다).
-    if (player->_isDead)
-    {
-        counters._commandRejected[static_cast<int>(ChatCommandReject::DEAD)].Inc();
-        _selfNotifier.SendSystemMessage(player, "쓰러진 채로는 GM 모드를 바꿀 수 없습니다");
-        return;
-    }
-
-    player->_gmMode = !player->_gmMode;
-    if (player->_gmMode)
-    {
-        player->_speedBeforeGm = player->_speed;
-        player->_speed         = CPlayer::GM_SPEED;
-    }
-    else
-    {
-        player->_speed = player->_speedBeforeGm;
-    }
-    _statSystem.RecalcStats(player, player->_gmMode);   // 켤 때만 가득 채운다
-    counters._gmToggled[player->_gmMode ? 1 : 0].Inc();
-
-    CZone* zone = _mapManager.GetZone(player->_zoneId);
-    if (zone != nullptr)
-    {
-        _sightBroadcaster.BroadcastAroundSector(zone, player, MakeActorStats(player->_actorId, player->_hp, player->_maxHp), false);
-        _sightBroadcaster.BroadcastAroundSector(zone, player, MakeActorSpeed(player->_actorId, player->_speed), false);
-    }
-    _selfNotifier.SendMyStats(player);
-#if USE_SKILL
-    _selfNotifier.SendActorMp(player);   // 켤 때 가득 채운 마력 — 끌 때는 안 바뀌지만 같은 한 벌로 보낸다
-#endif
-
-    SLOG_INFO("[GM] /gm (account={}, player={}) -> {} (speed {}, maxHp {}, attack {})",
-              player->_accountId, player->_actorId, player->_gmMode ? "on" : "off",
-              player->_speed, player->_maxHp, player->_attackPower);
-    // 웹 채팅창 한 줄(400px)에 값이 다 들어가는 길이로 — 길면 끝이 「…」로 잘려 공격력이 안 보인다(10-16 헤드리스 사진)
-    _selfNotifier.SendSystemMessage(player, std::string(player->_gmMode ? "GM 켬" : "GM 끔")
-        + " — 속도 " + std::to_string(player->_speed) + " · 체력 " + std::to_string(player->_maxHp)
-        + " · 공격력 " + std::to_string(player->_attackPower));
-}
-
-// /item <아이템번호> [개수] — 개수를 안 적으면 1. 가방에 바로 넣는다(드랍이 생기기 전까지 가방을 채우던 길).
-void CGameServer::RunItemCommand(CPlayer* player, const std::vector<std::string>& words)
-{
-    CGameMonitor::InventoryCounters& counters = _gameMonitor._inventory;
-
-    // /item <아이템번호> [개수]  — 개수를 안 적으면 1
-    int64_t itemId = 0;
-    int64_t count  = 1;
-    const bool okId    = words.size() >= 2 && GameDataCsv::ParseInt(words[1], itemId);
-    const bool okCount = words.size() < 3 || GameDataCsv::ParseInt(words[2], count);
-    if (!okId || !okCount || words.size() > 3 || count < 1 || count > 9999)
-    {
-        counters._commandRejected[static_cast<int>(ChatCommandReject::BAD_ARGS)].Inc();
-        _selfNotifier.SendSystemMessage(player, "쓰는 법: /item <아이템번호> [개수 1~9999]");
-        return;
-    }
-
-    // 번호 범위를 먼저 본다 — int32 로 줄이기 전에 걸러야 큰 값이 엉뚱한 번호로 접히지 않는다
-    const ItemDef* def = (itemId > 0 && itemId <= CItemTable::MAX_ITEM_ID)
-                       ? _gameDataFiles.Item().Find(static_cast<int32_t>(itemId))
-                       : nullptr;
-    if (def == nullptr)
-    {
-        counters._addRejected[static_cast<int>(InvAddResult::UNKNOWN_ITEM)].Inc();
-        _selfNotifier.SendSystemMessage(player, "없는 아이템 번호입니다: " + words[1]);
-        return;
-    }
-
-    const InvAddResult result = player->_inventory.TryAdd(*def, static_cast<int32_t>(count));
-    switch (result)
-    {
-    case InvAddResult::OK:
-        counters._itemsAdded.Add(count);
-        SLOG_INFO("[ITEM] /item (account={}, player={}) -> {} x{} (item {})",
-                  player->_accountId, player->_actorId, def->name, count, def->itemId);
-        _itemHandler.FlushInventory(player);
-        return;
-
-    case InvAddResult::TAB_FULL:
-        _selfNotifier.SendSystemMessage(player, std::string("가방에 자리가 없습니다 — ") + InvTabDisplayName(def->tab)
-                                  + " 탭에 " + def->name + " " + std::to_string(count) + "개를 다 둘 수 없습니다");
-        break;
-
-    case InvAddResult::UNKNOWN_ITEM:   // TryAdd 는 이 둘을 안 돌려준다 — 위에서 이미 걸렀다
-    case InvAddResult::BAD_COUNT:
-        _selfNotifier.SendSystemMessage(player, std::string("넣지 못했습니다: ") + InvAddResultName(result));
-        break;
-
-    case InvAddResult::COUNT:          // 값이 아니라 개수 표시 — 아래 배열 색인으로 쓰면 범위 밖이다
-        assert(false && "TryAdd 가 COUNT 를 돌려줄 수는 없다");
-        return;
-    }
-    counters._addRejected[static_cast<int>(result)].Inc();
-}
+// 채팅 명령(HandleChatCommand · RunGmCommand · RunItemCommand — USE_INVENTORY) · 낱말 나누기(SplitCommandWords) · 속도 알림 조립(MakeActorSpeed) 은
+//   채팅·운영 조각으로 옮겼다 — CChatHandler (게임 서버 나누기 13 단계)
 
 // 바뀐 칸 내보내기(FlushInventory) 는 가방·땅 조각으로 옮겼다 — CItemHandler (게임 서버 나누기 6 단계)
 
@@ -889,7 +594,6 @@ void CGameServer::RunItemCommand(CPlayer* player, const std::vector<std::string>
 // 가방 전체(SendInventory) · 알림 한 줄(SendSystemMessage) 은 본인 알림 조각으로 옮겼다 — CSelfNotifier (게임 서버 나누기 2 단계)
 
 // 물약 쓰기(RecvUseItem) · 끼우기·빼기(RecvEquip · RecvUnequip · ApplyEquip) 는 가방·땅 조각으로 옮겼다 — CItemHandler (게임 서버 나누기 6 단계)
-#endif // USE_INVENTORY
 
 // ==========================================================================
 // 패킷 전송 추상화
@@ -918,32 +622,7 @@ void CGameServer::RunItemCommand(CPlayer* player, const std::vector<std::string>
 
 // 존에서 존으로 옮기기(TransferPlayer) 는 배치 조각으로 옮겼다 — CPlayerPlacement (게임 서버 나누기 5 단계)
 
-// ── 운영자 인증 ──
-
-// 부하 테스트 도구용 고정 키 — 실서비스 인증 아님.
-// 와이어에 평문으로 흐르고 해시·시도 제한도 없다. admin 권한 효과는 채널 인원 제한 우회(CMapInstance::HasRoom)와
-//   다른 맵 지정 이동(CMapManager::PickZoneChangeTarget — 일반은 포털로만) 둘, 그리고 채팅 운영 명령이다.
-// 실계정 연동 단계에서 계정 DB 조회 기반 인증으로 교체한다.
-static constexpr char ADMIN_KEY[] = "admin1234";
-
-void CGameServer::RecvAdminLogin(CPlayer* player, CSerialBuffer* pMsg)
-{
-    MSG_C2S_ADMIN_LOGIN recvMsg{};
-    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
-
-    // null-terminate 보장
-    recvMsg.key[ADMIN_KEY_MAX_LEN - 1] = '\0';
-
-    if (strcmp(recvMsg.key, ADMIN_KEY) == 0)
-    {
-        player->_isAdmin = true;
-        _sessionHub.SendPacket(player, MakeAdminLoginOk());
-    }
-    else
-    {
-        _sessionHub.SendPacket(player, MakeAdminLoginFail());
-    }
-}
+// 운영자 인증(고정 열쇠 ADMIN_KEY · RecvAdminLogin) 은 채팅·운영 조각으로 옮겼다 — CChatHandler (게임 서버 나누기 13 단계)
 
 // 전투(공격·스킬 요청 · 공격·시전·효과 알림 · 부활 대기열 · 스킬 거절 사유)는 전투 조각으로 옮겼다 — CCombatHandler (게임 서버 나누기 9 단계)
 

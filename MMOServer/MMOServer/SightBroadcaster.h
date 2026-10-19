@@ -98,7 +98,7 @@ public:
 #endif
 
 #if USE_BROADCAST_BUNDLE
-    // 보류 등록 — 수신섹터 digest 로 틱 끝에 배포(아래 「수신섹터 digest 경로」). 채팅(CGameServer::RecvChat)도 이것으로 보낸다.
+    // 보류 등록 — 수신섹터 digest 로 틱 끝에 배포(아래 「수신섹터 digest 경로」). 채팅(CChatHandler::RecvChat)도 이것으로 보낸다.
     void RegisterSectorItem(CZone* zone, int32_t zoneId, int32_t sectorX, int32_t sectorY,
                             CSerialBuffer* pMsg);   // 보류 등록 (버퍼 소유권 1을 digest 배포 후 회수)
 #endif

@@ -19,7 +19,7 @@
 #include <random>             // USE_DROP — 드랍 굴림 난수
 #include "PacketBuild.h"      // 체력 바뀜(MakeActorStats — 레벨업 체력의 주변 방송) — 게임 서버 나누기 0-②
 
-using namespace PacketBuild;   // 조립 함수를 이름만으로 부른다(GameServer.cpp 와 같은 꼴)
+using namespace PacketBuild;   // 조립 함수를 이름만으로 부른다
 
 #if USE_EXP && USE_MONSTER
 void CRewardHandler::GrantMonsterExp(CZone* zone, CPlayer* killer, int32_t reward)
