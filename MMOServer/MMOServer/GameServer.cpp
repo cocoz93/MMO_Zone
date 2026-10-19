@@ -1,27 +1,17 @@
 ﻿#include "GameServer.h"
 #include "Player.h"
 #include "MonsterAI.h"   // USE_MONSTER — 몬스터 표 속도 대조의 상한(MAX_SPEED)
-#include "CooldownBuffBlob.h" // USE_DB_WORKER — 쿨타임·버프 열의 바이트 형식(토글을 안 보는 헤더)
 #include <Protocol/Protocol.h>
 #include "SerialBuffer.h"
 #include <Common/ErrorLog.h>
 #include "CoreAffinity.h"
-#include <iostream>
 #include <chrono>
-#include <algorithm>
 #include <cassert>  // 불변식 검증(틱 끝 이동 표시 · 받은 패킷 머리) — 직렬화 크기 검증은 조립 함수와 같이 조각들로 갔다
 #include <string>
 
 // ==========================================================================
-// S2C 직렬화 헬퍼 (파일 로컬)
-//
-// 와이어 = payload 영역 바이트 그대로 (WSASend가 GetReadBufferPtr()+GetDataSize()만 전송).
-// pack(1)이라 패딩이 없으므로 필드를 선언 순서/폭대로 쓰면 구조체와 바이트 동일.
-// 스칼라는 <<, 고정배열/문자열은 SetData(raw) — << 문자열 연산자는 길이접두(2B)가 끼어
-// 와이어가 깨지므로 사용 금지.
-//
-// [소유권 계약] 빌더는 RefCount=1(소유권 1개)인 버퍼를 반환하고,
-//   송신 함수(BroadcastAroundSector/SendPacket의 CSerialBuffer* 오버로드)가 이를 소비한다.
+// S2C 조립 — 이 파일에는 하나도 남지 않았다(게임 서버 나누기 0-②~13 단계에 조각들과 PacketBuild.h 로 옮김).
+//   쓰는 법(직렬화 규칙 · 소유권 계약)은 PacketBuild.h 머리로 옮겼다(14 단계). 아래는 옮긴 자리 목록이다.
 // ==========================================================================
 namespace
 {
@@ -224,7 +214,7 @@ bool CGameServer::InitDB(const DBConfig& dbConfig, int savePeriodSec, int worker
 
 // 불러오기 요청(RequestCharacterLoad) 은 캐릭터 저장소 조각으로 옮겼다 — CCharacterStore (게임 서버 나누기 4 단계)
 
-// 회신 꺼내기(ProcessDbResults) 는 캐릭터 저장소 조각으로 옮겼다 — 불러오기 결과는 알림(ICharacterLoadEvents)으로 아래 OnCharacterLoaded 에 온다 (게임 서버 나누기 4 단계)
+// 회신 꺼내기(ProcessDbResults) 는 캐릭터 저장소 조각으로 옮겼다 — 불러오기 결과는 알림(ICharacterLoadEvents)으로 입장 조각의 OnCharacterLoaded 에 온다 (게임 서버 나누기 4 · 12 단계)
 #else
 bool CGameServer::InitDB(const DBConfig&, int, int, int) { return true; }   // 토글 OFF: no-op
 #endif

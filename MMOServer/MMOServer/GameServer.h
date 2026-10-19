@@ -1,30 +1,40 @@
 ﻿// ==========================================================================
-// CGameServer — 서버 메인 컨트롤러
+// CGameServer — 서버 메인 컨트롤러: 조립 · 수명 · 게임 루프 · 이벤트 분기 (게임 서버 나누기 14 단계 뒤 — 컨텐츠는 전부 조각에 있다)
 //
 // [책임]
 //  - 서버 모드에 따라 에코 테스트 / MMO 게임 서버 동작 결정
-//  - CIOCPServer로부터 NetworkEvent를 Pop하여 게임 로직 처리
-//  - 패킷 파싱 및 타입별 핸들러 호출
-//  - 게임 루프 스레드 소유 (고정 프레임 Tick)
-//  - CMapManager를 통해 다중 존 관리
+//  - 조립 — 조각과 규칙 시스템(스탯 · 지속 효과 · 아이템 · 공격 · 스킬 · 파티)을 멤버로 들고 참조로 잇는다. 선언 순서 = 세우는 순서
+//  - 수명 — Init(분기 표 · 네트워크 · 맵 등록 · 세션 칸 · 대기표 · 시야 버퍼) · Start(네트워크 · 게임 루프 스레드) · Stop(루프 → 최종 저장 → 네트워크 → 남은 플레이어)
+//  - 게임 루프 스레드 소유 (고정 프레임 Tick) — 조각·시스템의 틱을 정한 차례로 한 줄씩 부른다(차례가 바뀌면 같은 틱 안 「먼저 일어난 일」이 바뀐다)
+//  - 네트워크 이벤트를 꺼내 분기 — 접속(입장 조각) · 끊김(플레이어가 있으면 배치의 떠나보내기 · 없으면 대기표) ·
+//    받은 패킷(분기 표 _routes 에서 최소 크기 검사 → 처리기. 처리기는 조각이 자기 줄을 등록한다)
+//  - 생애 알림 나눠 부르기 — 존에서 빠짐 · 떠남(IPlacementEvents) · 존 지우기 직전(OnErasingZone).
+//    틱 너머 목록이 여러 조각·시스템에 흩어져 있어, 한 조각이 받으면 그 조각이 남의 목록을 알게 된다 — 그래서 조립하는 쪽이 받아 차례대로 부른다
+//
+// [조각] 멤버 이름(헤더) — 기반 다섯과 컨텐츠 여덟. 존·맵은 맵 관리자(_mapManager)가 든다
+//  기반: _sessionHub(세션 칸 · 보내기) · _selfNotifier(본인 알림) · _sightBroadcaster(시야 방송) · _characterStore(저장·불러오기 — USE_DB_WORKER) ·
+//        _placement(존에 넣기·옮기기·빼기 · 도착 차례)
+//  컨텐츠: _entryHandler(입장·존 이동) · _moveHandler(이동) · _combatHandler(전투 — USE_COMBAT) · _monsterHandler(몬스터 — USE_MONSTER) ·
+//          _rewardHandler(처치 보상 — USE_COMBAT && USE_MONSTER) · _itemHandler(가방·땅 — USE_INVENTORY) · _partyHandler(파티·방 — USE_PARTY) · _chatHandler(채팅·운영)
+//
+// [모르는 것]
+//  패킷 조립(PacketBuild.h · 각 조각)과 컨텐츠 규칙. 받은 패킷의 처리기는 여기 하나도 없다.
 //
 // [사용 흐름]
 //  1. main()에서 CGameServer 생성
-//  2. Init(ServerMode, ...) → 모드에 따라 내부 구성
+//  2. LoadGameDataFiles → Init(ServerMode, ...) → 모드에 따라 내부 구성 (→ InitDB — USE_DB_WORKER)
 //  3. Start() → 네트워크 시작 + (게임 모드 시 게임 루프 시작)
 //  4. Stop() → 게임 루프 종료 + 네트워크 종료
 // ==========================================================================
 #pragma once
 
 #include <cstdint>
-#include <cassert>   // 도달불가 불변식 검증 (릴리즈에서는 사라짐)
+#include <string>    // LoadGameDataFiles 의 경로
 #include <thread>
 #include <atomic>
 #include <memory>
-#include <vector>
 #include <queue>
-#include <unordered_set>
-#include <unordered_map>
+// <cassert> · <vector> · <unordered_set> · <unordered_map> 은 그것을 쓰던 멤버·함수가 조각으로 가며 쓰임이 0 이 되어 뺐다(게임 서버 나누기 14 단계)
 
 #include "NetIoModel.h"   // 컴파일타임 I/O 모델 별칭 (IOCP/epoll) — IOCPServer.h를 여기서 흡수
 #include <Protocol/Protocol.h>   // 게임 패킷 정의 — 전에는 IOCPServer.h를 통해 딸려왔다
@@ -37,7 +47,6 @@
 #include "BuffSystem.h"    // 지속 효과 규칙 — 멤버로 들고 부른다(그 알림 IBuffEvents 는 전투 조각이 구현한다)
 #include "ItemSystem.h"    // 아이템 쓰기·장착 규칙 — 멤버로 들고 부른다
 #include "SkillSystem.h"   // 스킬 규칙 — 멤버로 든다(그 알림 ISkillEvents 는 전투 조각이 구현한다)
-#include "GroundItemManager.h" // 땅 아이템 — 여기서는 그 알림(IGroundItemEvents)을 구현한다
 #include "PartySystem.h"   // 파티 규칙 — 멤버로 든다(그 알림 IPartyEvents 는 파티·방 조각이 구현한다 — PartyHandler.h)
 #include "MonitorManager.h"
 #include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
