@@ -199,80 +199,8 @@ namespace
     // MakeSkillCooldownRemain(남은 스킬 쿨타임) · MakeActorMp(마력) 는 SelfNotifier.cpp — 본인 알림 조각만 부른다(게임 서버 나누기 2 단계)
 #endif
 
-#if USE_PARTY
-    // 파티 사람 조각·파티원 한 줄(WritePartyPerson · WritePartyMember)은 PacketBuild.h — 파티 패킷 여럿이 몸통에 끼워 쓴다
-
-    CSerialBuffer* MakePartyAsk(uint32_t requestId, PartyAskKind kind, const CPlayer* from, const CPlayer* about, uint32_t remainMs)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_PARTY_ASK::TYPE);
-        *buf << static_cast<uint32_t>(requestId);
-        *buf << static_cast<uint8_t>(kind);
-        WritePartyPerson(buf, from);
-        WritePartyPerson(buf, about);
-        *buf << static_cast<uint32_t>(remainMs);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_PARTY_ASK));
-        return buf;
-    }
-
-    CSerialBuffer* MakePartyAskEnd(uint32_t requestId, PartyNotice why)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_PARTY_ASK_END::TYPE);
-        *buf << static_cast<uint32_t>(requestId);
-        *buf << static_cast<uint8_t>(why);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_PARTY_ASK_END));
-        return buf;
-    }
-
-    CSerialBuffer* MakePartyNotice(PartyNotice code, int32_t actorId)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_PARTY_NOTICE::TYPE);
-        *buf << static_cast<uint8_t>(code);
-        *buf << static_cast<int>(actorId);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_PARTY_NOTICE));
-        return buf;
-    }
-
-    // 파티 전체는 한 장으로 간다 — 꽉 찬 파티(8명)도 한 패킷에 들어가야 한다(가방 전체와 같은 단언, 위 MakeInventory 앞).
-    static_assert(sizeof(MSG_S2C_PARTY_INFO) <= MAX_PACKET_SIZE,
-                  "꽉 찬 파티 전체가 한 패킷(MAX_PACKET_SIZE)에 안 들어간다 — 나눠 보내는 길을 만들 것");
-
-    // 파티 전체 — 가변 길이(가입 순서 줄만). party 가 nullptr 이면 파티 없음(번호·파티장 0 · 인원 0 — 머리 13B 뿐).
-    CSerialBuffer* MakePartyInfo(const Party* party)
-    {
-        const int count = (party != nullptr) ? static_cast<int>(party->members.size()) : 0;
-
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_PARTY_INFO::TYPE);
-        *buf << static_cast<int>(party != nullptr ? party->id : 0);
-        *buf << static_cast<int>(party != nullptr ? party->leader->_actorId : 0);
-        *buf << static_cast<uint8_t>(count);
-        if (party != nullptr)
-        {
-            for (const Party::Member& m : party->members)
-                WritePartyMember(buf, m.player);
-        }
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() ==
-            offsetof(MSG_S2C_PARTY_INFO, entries) + static_cast<size_t>(count) * sizeof(PartyMemberEntry));
-        return buf;
-    }
-
-    CSerialBuffer* MakePartyMember(const CPlayer* member)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_PARTY_MEMBER::TYPE);
-        WritePartyMember(buf, member);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_PARTY_MEMBER));
-        return buf;
-    }
-#endif
+    // MakePartyAsk · MakePartyAskEnd · MakePartyNotice · MakePartyInfo · MakePartyMember(파티 패킷) 는 PartyHandler.cpp
+    //   — 파티·방 조각만 부른다(게임 서버 나누기 7 단계)
 
     // MakeGroundItemCreate · MakeGroundItemDelete(땅 아이템 보이기·지우기) 는 SightBroadcaster.cpp(3 단계) · MakePickupFail(줍기 거절) 은 ItemHandler.cpp(6 단계)
 
@@ -710,12 +638,8 @@ void CGameServer::GameLoopThread()
         //   존마다 돌지 않는다 — 파티는 존을 넘는다(목록이 게임 서버에 하나, PartySystem.h [왜 따로인가]).
         _partySystem.Tick(_frameCount);
 
-        // 방 다시 들어가기 잠금 — 풀린 것 빼기(초마다). 판정은 풀리는 틱을 직접 보므로 빼기가 늦어도 결과는 같다 — 표 크기만 묶는다
-        if (_frameCount % FRAME_PER_SEC == 0)
-        {
-            _roomLocks.Sweep(_frameCount);
-            _gameMonitor._room._locks.Store(static_cast<int64_t>(_roomLocks.Size()));
-        }
+        // 방 다시 들어가기 잠금 — 초마다 풀린 것 빼기는 파티·방 조각(CPartyHandler::TickRoomLocks · 게임 서버 나누기 7 단계)
+        _partyHandler.TickRoomLocks();
 #endif
 
 #if USE_DROP
@@ -1262,15 +1186,8 @@ bool CGameServer::RegisterRoutes()
     ok &= _routes.OnPlayer(MsgType::C2S_USE_SKILL, sizeof(MSG_C2S_USE_SKILL), [this](CPlayer* p, CSerialBuffer* m) { RecvUseSkill(p, m); });
 #endif
 #if USE_PARTY
-    // 이 여섯 줄이 없으면 파티 요청이 조용히 버려진다(위 물약과 같은 함정 — 답도 로그도 없다)
-    ok &= _routes.OnPlayer(MsgType::C2S_PARTY_REQUEST, sizeof(MSG_C2S_PARTY_REQUEST), [this](CPlayer* p, CSerialBuffer* m) { RecvPartyRequest(p, m); });
-    ok &= _routes.OnPlayer(MsgType::C2S_PARTY_ANSWER,  sizeof(MSG_C2S_PARTY_ANSWER),  [this](CPlayer* p, CSerialBuffer* m) { RecvPartyAnswer(p, m); });
-    ok &= _routes.OnPlayer(MsgType::C2S_PARTY_LEAVE,   sizeof(MSG_C2S_PARTY_LEAVE),   // 몸 없음 — 헤더뿐
-                           [this](CPlayer* p, CSerialBuffer*) { RecvPartyLeave(p); });
-    ok &= _routes.OnPlayer(MsgType::C2S_PARTY_KICK,    sizeof(MSG_C2S_PARTY_KICK),    [this](CPlayer* p, CSerialBuffer* m) { RecvPartyKick(p, m); });
-    ok &= _routes.OnPlayer(MsgType::C2S_PARTY_LEADER,  sizeof(MSG_C2S_PARTY_LEADER),  [this](CPlayer* p, CSerialBuffer* m) { RecvPartyLeader(p, m); });
-    ok &= _routes.OnPlayer(MsgType::C2S_PARTY_DISBAND, sizeof(MSG_C2S_PARTY_DISBAND), // 몸 없음 — 헤더뿐
-                           [this](CPlayer* p, CSerialBuffer*) { RecvPartyDisband(p); });
+    // 파티 요청 여섯 — 파티·방 조각이 자기 줄을 등록한다(CPartyHandler::RegisterRoutes · 게임 서버 나누기 7 단계)
+    ok &= _partyHandler.RegisterRoutes(_routes);
 #endif
     return ok;
 }
@@ -1795,7 +1712,7 @@ void CGameServer::RecvPortalUse(CPlayer* player, CSerialBuffer* pMsg)
     if (_mapManager.IsRoomMap(portal->targetMapId))
     {
 #if USE_PARTY
-        EnterRoom(player, oldZone, *portal);
+        _partyHandler.EnterRoom(player, oldZone, *portal);
 #else
         // 방은 파티 위에 선다 — 파티를 끈 빌드는 방에 들어가는 길이 없다(맵 표의 방 맵은 그대로 읽힌다). 파티 알림이 없는 빌드라 「존재하지 않는 맵/채널」로 답한다
         reject(PortalReject::ROOM);
@@ -1820,73 +1737,7 @@ void CGameServer::RecvPortalUse(CPlayer* player, CSerialBuffer* pMsg)
     _placement.TransferPlayer(player, oldZone, newZone, CPlayerPlacement::ArrivalKind::ZONE_CHANGE, &at);
 }
 
-#if USE_PARTY
-// 방 맵 포털(GameServer.h 선언 주석 · Room.h). 판정은 순수 함수 하나, 와이어로 바꾸기는 SendRoomReject 한 곳.
-void CGameServer::EnterRoom(CPlayer* leader, CZone* oldZone, const PortalDef& portal)
-{
-    auto& pc = _gameMonitor._portal;
-    auto& rc = _gameMonitor._room;
-
-    const Party* party = _partySystem.FindParty(leader);
-    RoomEntryResult result = CheckRoomEntry(leader, party, _roomLocks, portal.targetMapId, _frameCount);
-
-    CZone* room = nullptr;
-    if (result.reject == RoomEntryReject::NONE)
-    {
-        room = _mapManager.CreateRoom(portal.targetMapId);
-        if (room == nullptr)
-            result.reject = RoomEntryReject::FULL;   // 번호가 다 찼다(CMapInstance::CreateRoom)
-    }
-
-    rc._entries[static_cast<int>(result.reject)].Inc();
-    if (result.reject != RoomEntryReject::NONE)
-    {
-        pc._rejected[static_cast<int>(PortalReject::ROOM)].Inc();
-        SendRoomReject(leader, result);
-        return;
-    }
-
-    // 옮길 순서 = 파티장, 그다음 가입 순서. 목록을 먼저 떠 둔다 — 옮기는 동안 파티는 안 바뀌지만(TransferPlayer 는 파티를 모른다)
-    //   돌고 있는 목록의 주인이 옮기는 쪽 밖에 있다. 판정이 「전원 같은 존」을 봤으니 옮겨지는 사람의 옛 존은 모두 oldZone 이다
-    CPlayer* order[PARTY_MAX_MEMBERS];
-    int32_t count = 0;
-    order[count++] = leader;
-    for (const Party::Member& m : party->members)
-    {
-        if (m.player != leader)
-            order[count++] = m.player;
-    }
-
-    pc._used.Inc();
-    rc._active.Inc();
-    const CPlayerPlacement::SpawnAt at{ static_cast<float>(portal.targetX), static_cast<float>(portal.targetY) };
-    for (int32_t i = 0; i < count; ++i)
-    {
-        assert(order[i]->_zoneId == oldZone->GetZoneId() && "판정이 같은 존을 봤다 — CheckRoomEntry NOT_GATHERED");
-        _placement.TransferPlayer(order[i], oldZone, room, CPlayerPlacement::ArrivalKind::ZONE_CHANGE, &at);
-        rc._moved.Inc();
-    }
-    SLOG_INFO("[Room] map {} zone {} — party {} · {} moved (leader actor {})",
-              portal.targetMapId, room->GetZoneId(), party->id, count, leader->_actorId);
-}
-
-void CGameServer::SendRoomReject(CPlayer* leader, const RoomEntryResult& result)
-{
-    const int32_t blocker = (result.blocker != nullptr) ? result.blocker->_actorId : 0;
-    switch (result.reject)
-    {
-    case RoomEntryReject::NOT_IN_PARTY: _partySystem.Notice(leader, PartyNotice::NOT_IN_PARTY, 0);            return;
-    case RoomEntryReject::NOT_LEADER:   _partySystem.Notice(leader, PartyNotice::NOT_LEADER, 0);              return;
-    case RoomEntryReject::NOT_GATHERED: _partySystem.Notice(leader, PartyNotice::ROOM_NOT_GATHERED, blocker); return;
-    case RoomEntryReject::DEAD:         _partySystem.Notice(leader, PartyNotice::ROOM_DEAD, blocker);         return;
-    case RoomEntryReject::LOCKED:       _partySystem.Notice(leader, PartyNotice::ROOM_LOCKED, blocker);       return;
-    case RoomEntryReject::FULL:         _placement.SendZoneChangeFail(leader, 1);                                        return;   // 1: 모든 채널 가득 참
-    case RoomEntryReject::NONE:
-    case RoomEntryReject::COUNT:        break;
-    }
-    assert(false && "SendRoomReject 는 거절만 받는다");
-}
-#endif
+// 방 입장(EnterRoom) · 거절 사유 → 와이어(SendRoomReject) 는 파티·방 조각으로 옮겼다 — CPartyHandler (게임 서버 나누기 7 단계)
 
 // 존에서 존으로 옮기기(TransferPlayer) 는 배치 조각으로 옮겼다 — CPlayerPlacement (게임 서버 나누기 5 단계)
 
@@ -2146,10 +1997,9 @@ void CGameServer::RewardRoom(CZone* zone, CMonster* monster)
             zone->GetGroundItemManager().Drop(_itemHandler.MakeGroundItemContext(), _roomOverflow, p->_x, p->_y, p->_accountId, _frameCount);
 #endif
 
-        _roomLocks.Lock(p->_accountId, zone->GetMapId(), lockUntil);
+        _partyHandler.LockRoomReentry(p->_accountId, zone->GetMapId(), lockUntil);   // 표 크기 게이지도 거기서(게임 서버 나누기 7 단계)
         _gameMonitor._room._rewards.Inc();
     }
-    _gameMonitor._room._locks.Store(static_cast<int64_t>(_roomLocks.Size()));
 
     SLOG_INFO("[Room] zone {} — {} 보상 {}명 (잠금 {}초)", zone->GetZoneId(), monster->_def.name, count, map != nullptr ? map->lockoutSec : 0);
 }
@@ -2315,102 +2165,8 @@ void CGameServer::RemoveFromDeadActors(CCharacter* player)
 }
 #endif // USE_COMBAT
 
-#if USE_PARTY
-// ==========================================================================
-// 파티 — 규칙은 CPartySystem(PartySystem.cpp), 여기는 받기와 알림을 패킷으로 바꿔 보내기만
-// ==========================================================================
-
-// 화면에서 누른 캐릭터 — 내 주변 9섹터에서 찾아 넘긴다(없으면 nullptr → 규칙이 NO_TARGET 으로 답한다)
-void CGameServer::RecvPartyRequest(CPlayer* player, CSerialBuffer* pMsg)
-{
-    MSG_C2S_PARTY_REQUEST recvMsg{};
-    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
-    _partySystem.Request(player, FindPlayerAround(player, recvMsg.targetId), _frameCount);
-}
-
-void CGameServer::RecvPartyAnswer(CPlayer* player, CSerialBuffer* pMsg)
-{
-    MSG_C2S_PARTY_ANSWER recvMsg{};
-    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
-    _partySystem.Answer(player, recvMsg.requestId, recvMsg.accept != 0, _frameCount);
-}
-
-void CGameServer::RecvPartyLeave(CPlayer* player)
-{
-    _partySystem.Leave(player);
-}
-
-// 내보내기·넘기기 — 대상은 우리 파티원 중에서 찾는다(맵이 달라도 된다 — 화면에서 누르지 않고 파티 창에서 고른다)
-void CGameServer::RecvPartyKick(CPlayer* player, CSerialBuffer* pMsg)
-{
-    MSG_C2S_PARTY_KICK recvMsg{};
-    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
-    _partySystem.Kick(player, recvMsg.targetId);
-}
-
-void CGameServer::RecvPartyLeader(CPlayer* player, CSerialBuffer* pMsg)
-{
-    MSG_C2S_PARTY_LEADER recvMsg{};
-    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
-    _partySystem.SetLeader(player, recvMsg.targetId);
-}
-
-void CGameServer::RecvPartyDisband(CPlayer* player)
-{
-    _partySystem.Disband(player);
-}
-
-CPlayer* CGameServer::FindPlayerAround(CPlayer* player, int32_t actorId)
-{
-    CZone* zone = _mapManager.GetZone(player->_zoneId);
-    if (zone == nullptr)
-        return nullptr;
-
-    // 어느 9칸인가(시야 규칙)는 섹터 관리자가 정한다(GetAroundSectorList) — 사람 목록만 본다(몬스터를 눌러도 NO_TARGET)
-    const CSectorManager& sectors = zone->GetSectorManager();
-    CSectorManager::SectorPos around[CSectorManager::MAX_AROUND_SECTORS];
-    int32_t aroundCount = 0;
-    sectors.GetAroundSectorList(player->_sectorX, player->_sectorY, around, aroundCount);
-    for (int32_t i = 0; i < aroundCount; ++i)
-    {
-        for (CPlayer* other : sectors.GetSectorPlayers(around[i].x, around[i].y))
-        {
-            if (other->_actorId == actorId)
-                return other;
-        }
-    }
-    return nullptr;
-}
-
-void CGameServer::OnPartyAsk(CPlayer* to, uint32_t requestId, PartyAskKind kind, const CPlayer* from, const CPlayer* about, uint32_t remainMs)
-{
-    _sessionHub.SendPacket(to, MakePartyAsk(requestId, kind, from, about, remainMs));
-    _gameMonitor._party._askSent.Inc();
-}
-
-void CGameServer::OnPartyAskEnd(CPlayer* to, uint32_t requestId, PartyNotice why)
-{
-    _sessionHub.SendPacket(to, MakePartyAskEnd(requestId, why));
-    _gameMonitor._party._askEndSent.Inc();
-}
-
-void CGameServer::OnPartyNotice(CPlayer* to, PartyNotice code, int32_t actorId)
-{
-    _sessionHub.SendPacket(to, MakePartyNotice(code, actorId));   // 세기는 규칙 쪽(CPartySystem::Notice — 번호별)
-}
-
-void CGameServer::OnPartyInfo(CPlayer* to, const Party* party)
-{
-    _sessionHub.SendPacket(to, MakePartyInfo(party));
-    _gameMonitor._party._infoSent.Inc();
-}
-
-void CGameServer::OnPartyMember(CPlayer* to, const CPlayer* member)
-{
-    _sessionHub.SendPacket(to, MakePartyMember(member));
-    _gameMonitor._party._memberSent.Inc();
-}
-#endif // USE_PARTY
+// 파티 요청 여섯(RecvParty*) · 주변 9섹터에서 찾기(FindPlayerAround) · 파티 알림(IPartyEvents) 은 파티·방 조각으로 옮겼다
+//   — CPartyHandler (게임 서버 나누기 7 단계)
 
 #if USE_MONSTER
 // ==========================================================================

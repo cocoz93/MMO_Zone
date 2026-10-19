@@ -144,7 +144,7 @@ inline const char* PartyAskKindName(PartyAskKind r)
     return "?";
 }
 
-// 방 들어가기 결과 — 판정(Room.h CheckRoomEntry)과 게임 서버(번호 다 참)가 정한다. NONE 칸 = 방을 만들어 옮김
+// 방 들어가기 결과 — 판정(Room.h CheckRoomEntry)과 파티·방 조각(번호 다 참 — CPartyHandler::EnterRoom)이 정한다. NONE 칸 = 방을 만들어 옮김
 inline const char* RoomEntryResultName(RoomEntryReject r)
 {
     static_assert(static_cast<int>(RoomEntryReject::COUNT) == 7, "RoomEntryReject 를 늘렸으면 이름도 붙일 것");
@@ -668,7 +668,7 @@ public:
 
 #if USE_PARTY
     // ══════════════════════════════════════════════════════════════
-    // 파티 (USE_PARTY) — 세는 곳은 CPartySystem 안(보내기 몫 넷만 게임 서버의 보내는 함수 한 곳씩).
+    // 파티 (USE_PARTY) — 세는 곳은 CPartySystem 안(보내기 몫 넷만 파티·방 조각 CPartyHandler 의 알림 함수 한 곳씩).
     //   ★ 등식 셋(조용해진 뒤) — 바꾸는 자리가 여럿이라 한 곳만 안 세도 영영 안 맞는다:
     //     _created = _ended + _active · _memberAdded = Σ _memberRemoved + _members · Σ _requests = Σ _requestsEnded + _pending
     // ══════════════════════════════════════════════════════════════
@@ -695,8 +695,8 @@ public:
     } _party;
 
     // ══════════════════════════════════════════════════════════════
-    // 파티 전용 방 (USE_PARTY — 방은 파티 위에 선다) — 세는 곳은 게임 서버(포털 방 갈래 EnterRoom · 빈 채널 정리 콜백 · 방 보상 RewardRoom · 잠금 훑기
-    //   · 방 클리어 OnDeath · 사라짐 OnMonsterVanish).
+    // 파티 전용 방 (USE_PARTY — 방은 파티 위에 선다) — 세는 곳은 파티·방 조각(포털 방 갈래 EnterRoom · 잠금 넣기·훑기 — CPartyHandler)과
+    //   게임 서버(빈 채널 정리 콜백 · 방 보상 RewardRoom · 방 클리어 OnDeath · 사라짐 OnMonsterVanish).
     //   ★ 등식 둘: _entries[entered] = _closed + _active · Σ _entries(entered 뺀 칸) = mmo_portal_rejected_total{reason="room"}
     // ══════════════════════════════════════════════════════════════
     struct alignas(64) RoomCounters

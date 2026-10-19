@@ -40,8 +40,7 @@
 #include "SkillSystem.h"   // 스킬 규칙 — 멤버로 들고 부르고, 그 알림(ISkillEvents)을 구현한다
 #include "MonsterManager.h" // 몬스터 — 여기서는 그 알림(IMonsterEvents)을 구현한다
 #include "GroundItemManager.h" // 땅 아이템 — 여기서는 그 알림(IGroundItemEvents)을 구현한다
-#include "PartySystem.h"   // 파티 규칙 — 멤버로 들고 부르고, 그 알림(IPartyEvents)을 구현한다
-#include "Room.h"          // 파티 전용 방 — 들어가기 판정(CheckRoomEntry)과 다시 들어가기 잠금 표(CRoomLocks)
+#include "PartySystem.h"   // 파티 규칙 — 멤버로 든다(그 알림 IPartyEvents 는 파티·방 조각이 구현한다 — PartyHandler.h)
 #include "MonitorManager.h"
 #include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
 #include "Common.h"
@@ -54,18 +53,19 @@
 #include "CharacterStore.h"   // 캐릭터 저장소(DB 워커 · 저장 세 길 · 불러오기 — USE_DB_WORKER) — 게임 서버 나누기 4 단계(B3)
 #include "PlayerPlacement.h"  // 배치(존에 넣기·옮기기·빼기·떠나보내기 · 도착 차례) — 게임 서버 나누기 5 단계(B4)
 #include "ItemHandler.h"      // 가방·땅(물약 · 장착 · 줍기 · 땅 아이템 알림 — USE_INVENTORY) — 게임 서버 나누기 6 단계(C6)
+#include "PartyHandler.h"     // 파티·방(파티 요청 · 파티 알림 · 방 입장·거절 · 다시 들어가기 잠금 — USE_PARTY) — 게임 서버 나누기 7 단계(C7)
 
 class CSerialBuffer;
 
-// 알림 통로 일곱 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
+// 알림 통로 여섯 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
 //   (IZoneEvents — 존의 걷기·멈춤 알림 둘 — 은 시야 조각 CSightBroadcaster 가 구현한다 · 게임 서버 나누기 3 단계)
 //   (IGroundItemEvents — 땅 아이템 관리자의 알림 둘과 번호 부탁 하나 — 는 가방·땅 조각 CItemHandler 가 구현한다 · 게임 서버 나누기 6 단계)
+//   (IPartyEvents — 파티 규칙의 알림 다섯 — 은 파티·방 조각 CPartyHandler 가 구현한다 · 게임 서버 나누기 7 단계)
 //   IPlacementEvents  = 배치(CPlayerPlacement)의 알림 둘(존에서 빠짐 · 떠남 — 틱 너머 목록 정리) — 게임 서버 나누기 5 단계(0-③ ⑴⑶) · 토글 없이 늘 있다
 //   ICombatEvents     = 공격 흐름(CCombatSystem)의 알림 셋 — 스킬의 피해·죽음도 이 셋으로 온다(ApplyHit)
 //   IBuffEvents       = 지속 효과 규칙(CBuffSystem)의 알림 하나(효과가 바뀜 — 걸림·되감김·만료·죽음) · 전투 토글 소유
 //   IMonsterEvents    = 몬스터 관리자(CMonsterManager)의 알림 둘(등장·사라짐)과 번호 부탁 하나
 //   ISkillEvents      = 스킬 규칙(CSkillSystem)의 알림 둘(시전 · 되살려라)
-//   IPartyEvents      = 파티 규칙(CPartySystem)의 알림 다섯(요청·요청 끝·알림 한 줄·파티 전체·파티원 한 줄)
 //   ICharacterLoadEvents = 캐릭터 저장소(CCharacterStore)의 불러오기 결과 하나(OnCharacterLoaded) — 게임 서버 나누기 4 단계(0-③ ⑷) · USE_DB_WORKER
 // 기반 목록 — 늘 있는 통로(IPlacementEvents)가 첫 줄이라 나머지는 토글마다 「, 」로 붙는다.
 //   (3·4 단계 동안은 늘 있던 IZoneEvents 가 빠져 첫 통로를 고르는 #if 사다리를 뒀었다 — 5 단계에서 늘 있는 통로가 생겨 걷어냄)
@@ -80,9 +80,6 @@ class CGameServer
 #endif
 #if USE_SKILL
     , private ISkillEvents
-#endif
-#if USE_PARTY
-    , private IPartyEvents
 #endif
 #if USE_DB_WORKER
     , private ICharacterLoadEvents
@@ -266,37 +263,7 @@ private:
     // 마력(SendActorMp) · 남은 쿨타임(SendActiveSkillCooldowns)은 본인 알림 조각으로 옮겼다 — _selfNotifier (게임 서버 나누기 2 단계)
 #endif
 
-#if USE_PARTY
-    // ── 파티 (USE_PARTY) ──
-    // 규칙(누가 무엇을 할 수 있나 · 요청 표 · 시간 지남 · 파티원 상태 비교)은 CPartySystem(_partySystem) — 여기는 받기와, 알림을 패킷으로 바꿔 보내기만.
-    //   받기 여섯 — 요청은 누른 사람을 주변 9섹터에서 찾아(FindPlayerAround) 넘기고, 나머지는 번호를 그대로 넘긴다.
-    void RecvPartyRequest(CPlayer* player, CSerialBuffer* pMsg);
-    void RecvPartyAnswer(CPlayer* player, CSerialBuffer* pMsg);
-    void RecvPartyLeave(CPlayer* player);
-    void RecvPartyKick(CPlayer* player, CSerialBuffer* pMsg);
-    void RecvPartyLeader(CPlayer* player, CSerialBuffer* pMsg);
-    void RecvPartyDisband(CPlayer* player);
-
-    // 내 주변 9섹터(시야 — 내 화면에 그려질 수 있는 곳)의 사람 중 이 번호 — 없으면 nullptr. 몬스터는 안 본다(플레이어 목록만).
-    //   서버에 번호 → 사람 표가 없어서(세션 번호로만 찾는다 — FindPlayer) 화면에서 누른 사람을 여기서 찾는다. 「화면에 보이는 사람」 검사를 겸한다.
-    CPlayer* FindPlayerAround(CPlayer* player, int32_t actorId);
-
-    // 파티 전용 방(Room.h) — RecvPortalUse 가 목적지가 방 맵이면 여기로 넘긴다(반경·생존은 이미 봤다).
-    //   판정(CheckRoomEntry) → 방 만들기(CMapManager::CreateRoom) → 파티장, 그다음 가입 순서로 전원 TransferPlayer(포털 도착 자리).
-    //   거절이면 아무도 안 옮기고 누른 사람에게만 알린다(SendRoomReject). 들어가기를 세는 곳은 여기 한 곳(_gameMonitor._room · _portal) —
-    //   방이 닫히는 것(열린 방 −1 · 닫힘)은 빈 채널 정리 콜백이 센다(게임 루프 5).
-    void EnterRoom(CPlayer* leader, CZone* oldZone, const PortalDef& portal);
-    // 거절 사유 → 와이어 — 파티 없음·파티장 아님은 파티 알림의 그 두 번호, 다른 존·쓰러짐·잠금은 방 알림 셋(막는 사람 번호),
-    //   번호 다 참은 S2C_ZONE_CHANGE_FAIL 1(「모든 채널 가득 참」). 파티 알림은 파티 규칙의 Notice 로 보낸다(번호별 계수가 거기 한 곳)
-    void SendRoomReject(CPlayer* leader, const RoomEntryResult& result);
-
-    // 파티 알림 (IPartyEvents) — 뜻은 PartySystem.h. 보내는 수는 여기서 센다(_gameMonitor._party 의 …Sent).
-    void OnPartyAsk(CPlayer* to, uint32_t requestId, PartyAskKind kind, const CPlayer* from, const CPlayer* about, uint32_t remainMs) override;
-    void OnPartyAskEnd(CPlayer* to, uint32_t requestId, PartyNotice why) override;
-    void OnPartyNotice(CPlayer* to, PartyNotice code, int32_t actorId) override;
-    void OnPartyInfo(CPlayer* to, const Party* party) override;
-    void OnPartyMember(CPlayer* to, const CPlayer* member) override;
-#endif
+    // 파티 요청 · 파티 알림(IPartyEvents) · 방 입장·거절 · 다시 들어가기 잠금은 파티·방 조각 — _partyHandler (PartyHandler.h · 게임 서버 나누기 7 단계)
 
 #if USE_MONSTER
     // ── 몬스터 (USE_MONSTER) ──
@@ -542,13 +509,16 @@ private:
 #endif
 
 #if USE_PARTY
-    // 파티 규칙 — 알림은 이 클래스(IPartyEvents)로 돌아온다. 파티원·요청의 주소를 틱 너머로 들므로 놓기의 「떠남」 알림(OnLeavingGame)이 Forget 을 부른다.
-    //   ★ _gameMonitor 보다 뒤에 선언해야 한다(위 _combatSystem 주석과 같은 까닭).
-    CPartySystem _partySystem{ _gameMonitor, *this };
+    // 파티·방 — 파티 요청 · 파티 알림(IPartyEvents) · 방 입장·거절 · 다시 들어가기 잠금 표(PartyHandler.h).
+    //   ★ _sessionHub · _placement · _mapManager · _gameMonitor · _frameCount 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
+    //   _partySystem 만 거꾸로 이 뒤다 — 그 알림 받는 쪽이 이 조각이라 이것이 먼저 세워져야 한다. 조각은 그 참조를 묶기만 하고 생성 중엔 안 쓴다.
+    CPartyHandler _partyHandler{ _sessionHub, _placement, _partySystem, _mapManager, _gameMonitor, _frameCount };
 
-    // 방 다시 들어가기 잠금(계정 · 방 맵 → 풀리는 틱) — 보상을 줄 때 넣고(OnDeath 방 갈래) 들어가기 판정이 본다. 서버 메모리만(재시작하면 풀림).
-    //   풀린 것은 파티 틱 옆에서 초마다 훑어 뺀다(게임 루프 3-2c)
-    CRoomLocks _roomLocks;
+    // 파티 규칙 — 알림은 파티·방 조각(_partyHandler)으로 간다. 파티원·요청의 주소를 틱 너머로 들므로 놓기의 「떠남」 알림(OnLeavingGame)이 Forget 을 부른다.
+    //   ★ _gameMonitor · _partyHandler 보다 뒤에 선언해야 한다(위 _combatSystem 주석과 같은 까닭).
+    CPartySystem _partySystem{ _gameMonitor, _partyHandler };
+
+    // 방 다시 들어가기 잠금 표(_roomLocks)는 파티·방 조각 — PartyHandler.h (게임 서버 나누기 7 단계)
 #endif
 
     // 섹터 아웃박스(틱-지연 배칭 상태) · 인바운드 멤버십 수집 버퍼는 시야 조각 — SightBroadcaster.h (게임 서버 나누기 3 단계)
