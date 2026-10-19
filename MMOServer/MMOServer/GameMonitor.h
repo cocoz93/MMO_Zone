@@ -695,8 +695,8 @@ public:
     } _party;
 
     // ══════════════════════════════════════════════════════════════
-    // 파티 전용 방 (USE_PARTY — 방은 파티 위에 선다) — 세는 곳은 파티·방 조각(포털 방 갈래 EnterRoom · 잠금 넣기·훑기 — CPartyHandler) ·
-    //   처치 보상 조각(방 보상 RewardRoom — CRewardHandler) · 전투 조각(방 클리어 OnDeath — CCombatHandler) · 몬스터 조각(사라짐 OnMonsterVanish — CMonsterHandler)과 게임 서버(빈 채널 정리 콜백).
+    // 파티 전용 방 (USE_PARTY — 방은 파티 위에 선다) — 세는 곳은 파티·방 조각(포털 방 갈래 EnterRoom · 방 닫힘 OnErasingZone · 잠금 넣기·훑기 — CPartyHandler) ·
+    //   처치 보상 조각(방 보상 RewardRoom — CRewardHandler) · 전투 조각(방 클리어 OnDeath — CCombatHandler) · 몬스터 조각(사라짐 OnMonsterVanish — CMonsterHandler).
     //   ★ 등식 둘: _entries[entered] = _closed + _active · Σ _entries(entered 뺀 칸) = mmo_portal_rejected_total{reason="room"}
     // ══════════════════════════════════════════════════════════════
     struct alignas(64) RoomCounters

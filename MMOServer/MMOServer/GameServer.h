@@ -137,6 +137,9 @@ private:
     void OnLeavingZone(CCharacter* player) override;   // 부활 대기열에서 빼기 (전투)
     void OnLeavingGame(CPlayer* player) override;      // 부활 대기열 · 지속 효과 목록 · 파티원·요청 표에서 빼기 (전투 · 파티)
 
+    // 「존 지우기 직전」 알림 — 빈 채널 정리(CMapManager::CleanupEmptyChannels)가 지울 존마다 부른다. 계약은 MapManager.h.
+    void OnErasingZone(CZone* zone);                   // 땅 아이템 세기 · 지속 효과 목록에서 빼기 · 방 닫힘 세기 (땅 · 전투 · 파티)
+
     // 패킷 핸들러
     // 이동 시작·멈춤(RecvMoveStart · RecvMoveStop)은 이동 조각 — _moveHandler (MoveHandler.h · 게임 서버 나누기 11 단계)
     // 채팅(RecvChat) · 운영자 로그인(RecvAdminLogin)은 채팅·운영 조각 — _chatHandler (ChatHandler.h · 게임 서버 나누기 13 단계)

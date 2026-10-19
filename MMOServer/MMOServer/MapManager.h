@@ -94,13 +94,16 @@ public:
     bool HasRoom(const CZone* zone, bool isAdmin) const;
 
     // 빈 동적 채널 정리 (channelIndex > 0이고 플레이어 0명)
-    //   onBeforeErase: 존을 실제로 지우기 직전에 부른다(비어 있으면 안 부른다).
-    //     CGameServer 가 여기서 그 존의 땅 아이템 관리자(ForgetAll)를 불러 센다(알릴 사람이 없어 세기만). 몬스터는 넘길 일이 없다 —
-    //     존의 몬스터 관리자가 몬스터를 들고 존과 같이 해제된다. "후보를 돌려주고 밖에서 지운다"로
-    //     안 하는 이유는 그러면 "빈 채널인가/기본 채널인가" 판정이 호출자 쪽에도 한 벌 더 생기기 때문이다.
+    //   onBeforeErase: 존을 실제로 지우기 직전에 부른다(비어 있으면 안 부른다). 받는 쪽은 CGameServer::OnErasingZone 하나다.
+    //   ★ 계약 — 존이 소유한 것(몬스터 관리자의 몬스터 · 땅 아이템 관리자의 목록)은 존과 함께 해제된다(Despawn 을 안 거친다).
+    //     그 주소를 존 밖에서 틱 너머로 드는 쪽은 여기서 놓아야 한다 — 안 놓으면 다음 틱이 해제된 메모리를 밟는다. 지금 그런 곳은 둘:
+    //       지속 효과 목록(CBuffSystem::ForgetZone 으로 뺀다 — 10-14 실서버에서 빠져 있던 길) ·
+    //       시야 조각의 이동 묶음(정리를 틱 끝에 두는 차례로 비어 있다 — 게임 루프의 assert 가 지킨다).
+    //     존 밖에서 세던 수(땅 아이템 수 · 열린 방 수)도 여기서 맞춘다. 새로 존 소유 객체의 주소를 밖에 드는 곳을 만들면 OnErasingZone 에 한 줄을 더한다.
+    //   "후보를 돌려주고 밖에서 지운다"로 안 하는 이유는 그러면 "빈 채널인가/기본 채널인가" 판정이 호출자 쪽에도 한 벌 더 생기기 때문이다.
     //     맵 관리자의 조회표(_zoneCache) 빼기도 같은 까닭으로 이 콜백을 거친다 — 판정은 여기 하나뿐이어야 한다.
-    //   ★ 이 인자는 USE_MONSTER 밖에 둔다 — MapManager 가 빌드 토글을 알 이유가 없다.
-    //     끄면 CGameServer 가 빈 콜백을 넘긴다.
+    //   ★ 이 인자는 빌드 토글 밖에 둔다 — MapManager 가 빌드 토글을 알 이유가 없다.
+    //     토글을 다 끈 빌드에서도 CGameServer 는 같은 콜백을 넘기고, 받는 쪽 몸만 빈다.
     void CleanupEmptyChannels(const std::function<void(CZone*)>& onBeforeErase);
 
     // 전체 채널 Tick — 섹터 변경은 존마다 대기열에 쌓인다(CZone::GetSectorChanges)
@@ -160,7 +163,8 @@ public:
     ZoneChangeTarget PickZoneChangeTarget(int32_t currentZoneId, int32_t targetMapId, int32_t targetChannelIndex, bool isAdmin);
 
     // 빈 동적 채널 정리 (channelIndex > 0이고 플레이어 0명 — 방 맵은 채널 0 이 없어 빈 방이 전부) — 판정은 CMapInstance 한 곳.
-    //   여기는 지우기 직전 알림을 가로채 조회표(_zoneCache)에서 빼고 onBeforeErase 를 이어 부른다 — 뜻은 CMapInstance 주석 참조.
+    //   여기는 지우기 직전 알림을 가로채 조회표(_zoneCache)에서 빼고 onBeforeErase 를 이어 부른다 — 뜻·계약은 CMapInstance 주석 참조.
+    //   그래서 onBeforeErase 안에서는 그 존이 GetZone 으로 안 찾아진다(nullptr) — zone 포인터와 그 번호로만 할 것.
     void CleanupEmptyChannels(const std::function<void(CZone*)>& onBeforeErase);
 
     // 존 조회 (zoneId로 직접 접근)

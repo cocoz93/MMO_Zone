@@ -4,7 +4,7 @@
 // [책임]
 //  - 받은 패킷 여섯의 처리기와 그 등록(RegisterRoutes — 요청 · 답 · 나가기 · 내보내기 · 넘기기 · 해산) — 컨텐츠 조각이 자기 줄을 등록한다
 //  - 파티 알림(IPartyEvents — 요청 · 요청 끝 · 알림 한 줄 · 파티 전체 · 파티원 한 줄)을 패킷으로 바꿔 보내기 · 보낸 수 세기
-//  - 방 입장(EnterRoom — 판정 · 방 만들기 · 전원 옮기기)과 거절 사유를 와이어 값으로(SendRoomReject)
+//  - 방 입장(EnterRoom — 판정 · 방 만들기 · 전원 옮기기)과 거절 사유를 와이어 값으로(SendRoomReject) · 방 닫힘 세기(OnErasingZone — 열린 방 수의 짝)
 //  - 방 다시 들어가기 잠금 표(_roomLocks) — 넣기(LockRoomReentry — 방 보상이 부른다) · 초마다 풀린 것 빼기(TickRoomLocks) · 표 크기 게이지
 //
 // [경계]
@@ -14,7 +14,7 @@
 //
 // [모르는 것]
 //  전투·가방. 방 보상(누가 무엇을 받나)은 처치 보상 쪽이다 — 여기는 보상 뒤 잠금 넣기만 받는다.
-//  포털의 반경·생존 검사는 포털 요청 쪽(RecvPortalUse)이 이미 했다. 방이 닫히는 것(빈 채널 정리)은 게임 루프가 센다.
+//  포털의 반경·생존 검사는 포털 요청 쪽(RecvPortalUse)이 이미 했다. 빈 방을 언제 지울지는 맵 관리자의 빈 채널 정리다 — 여기는 지우기 직전에 센다(OnErasingZone).
 // ==========================================================================
 #pragma once
 
@@ -56,8 +56,12 @@ public:
     // 파티 전용 방(Room.h) — RecvPortalUse 가 목적지가 방 맵이면 여기로 넘긴다(반경·생존은 이미 봤다).
     //   판정(CheckRoomEntry) → 방 만들기(CMapManager::CreateRoom) → 파티장, 그다음 가입 순서로 전원 TransferPlayer(포털 도착 자리).
     //   거절이면 아무도 안 옮기고 누른 사람에게만 알린다(SendRoomReject). 들어가기를 세는 곳은 여기 한 곳(_gameMonitor._room · _portal) —
-    //   방이 닫히는 것(열린 방 −1 · 닫힘)은 게임 서버의 빈 채널 정리 콜백이 센다(게임 루프 5).
+    //   방이 닫히는 것(열린 방 −1 · 닫힘)은 아래 OnErasingZone 이 센다. 열림(+1)과 닫힘이 이 조각 안이라 등식이 한 파일에서 닫힌다.
     void EnterRoom(CPlayer* leader, CZone* oldZone, const PortalDef& portal);
+
+    // 존 지우기 직전(빈 채널 정리 — CGameServer::OnErasingZone 이 부른다) — 방 맵의 존이면 열린 방 −1 · 닫힘 +1.
+    //   등식: 들어감(_entries[NONE]) = 닫힘 + 열림(GameMonitor.h _room). 방 번호는 이 뒤 다시 쓸 수 있다(CMapInstance::CreateRoom).
+    void OnErasingZone(CZone* zone);
 
     // 방 다시 들어가기 잠금 넣기 — 방 보상이 사람마다 부른다(계정 · 방 맵 → 풀리는 틱). 같은 계정·맵이 있으면 덮는다(CRoomLocks::Lock).
     //   표 크기 게이지(_gameMonitor._room._locks)도 여기서 맞춘다 — 표를 바꾸는 두 길(넣기 · 빼기)이 다 이 조각 안이라 게이지가 늘 표와 같다.

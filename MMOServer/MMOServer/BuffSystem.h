@@ -12,7 +12,7 @@
 //  목록은 게임 서버에 하나 — 존마다 두면 존을 옮길 때 옮겨 담아야 한다(효과는 존을 따라간다). 부활 대기열(_deadActors)과 같은 꼴.
 //
 // [목록은 틱 너머로 주소를 든다] 캐릭터가 사라지는 **세** 길이 반드시 뺀다 — 퇴장 CGameServer::OnLeavingGame(Forget — 배치의 놓기 CPlayerPlacement::ReleasePlayer 가 「떠남」 알림으로 부른다) ·
-//  죽음 CCombatHandler::OnDeath(ClearAll — 몬스터는 그 끝의 Despawn 해제 "앞") · 존 삭제 빈 채널 정리 콜백(ForgetZone — 존이 지워지면 그 존의
+//  죽음 CCombatHandler::OnDeath(ClearAll — 몬스터는 그 끝의 Despawn 해제 "앞") · 존 삭제 CGameServer::OnErasingZone(ForgetZone — 빈 채널 정리가 지우기 직전에 부른다 · 존이 지워지면 그 존의
 //  몬스터도 같이 해제된다). 하나라도 빠지면 다음 틱이 해제된 메모리를 밟는다.
 //  셋째 길은 몬스터에 버프가 걸리는 날(보스 격노, 10-14) 처음 생겼다 — 그 전엔 몬스터가 목록에 들어올 일이 없어 잠복해 있었다.
 //  수정 전 실서버로 본 것: 버프 걸린 보스가 있는 동적 채널이 지워진 뒤 mmo_buff_active 가 1 로 남았다(서버는 안 죽었다).

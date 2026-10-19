@@ -268,8 +268,8 @@ void CMapManager::CleanupEmptyChannels(const std::function<void(CZone*)>& onBefo
     // 「빈 동적 채널인가」 판정은 실제로 지우는 CMapInstance 한 곳뿐이다 — 여기는 지우기 직전 알림을 받아
     //   조회표(_zoneCache)에서 빼고 게임 서버의 콜백을 이어 부른다. 같은 판정을 여기서 한 번 더 돌리지 않는다
     //   (전에는 캐시 빼기용으로 조건을 한 벌 더 들고 있었다 — 10-06, 아키텍처 전수검사 5번).
-    //   순서 — 조회표에서 먼저 빼고 콜백: 콜백이 하는 일(땅의 아이템 세기 → 존의 관리자 ForgetAll)은
-    //   zone 포인터로만 하고 GetZone 을 안 거치므로 무관하다. 존 객체는 콜백이 끝난 뒤 지워진다.
+    //   순서 — 조회표에서 먼저 빼고 콜백: 콜백이 하는 일(CGameServer::OnErasingZone — 땅 아이템 세기 · 지속 효과 목록에서 빼기 · 방 닫힘 세기)은
+    //   zone 포인터와 그 번호로만 하고 GetZone 을 안 거치므로 무관하다. 존 객체는 콜백이 끝난 뒤 지워진다.
     for (auto& entry : _maps)
     {
         entry.second.CleanupEmptyChannels([&](CZone* zone)

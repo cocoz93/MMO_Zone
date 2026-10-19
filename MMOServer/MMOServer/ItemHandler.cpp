@@ -272,6 +272,12 @@ GroundItemContext CItemHandler::MakeGroundItemContext()
     return GroundItemContext{ *this, _gameMonitor };
 }
 
+// 게임 루프 5(빈 채널 정리)의 콜백에 있던 몸 그대로(게임 서버 나누기 14 단계) — 묶음은 정리 한 번에 하나 만들던 것을 존마다 만든다(참조 둘뿐이다)
+void CItemHandler::OnErasingZone(CZone* zone)
+{
+    zone->GetGroundItemManager().ForgetAll(MakeGroundItemContext());   // 땅의 아이템은 세기만 — 목록은 존과 함께 사라진다(알릴 사람이 없다)
+}
+
 // ── 땅 아이템 알림과 번호 부탁 (IGroundItemEvents) ── 패킷 조립·송신은 이 파일 것을 그대로 쓴다.
 
 int32_t CItemHandler::AllocGroundId()

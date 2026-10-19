@@ -198,6 +198,17 @@ void CPartyHandler::TickRoomLocks()
     }
 }
 
+// 게임 루프 5(빈 채널 정리)의 콜백에 있던 몸 그대로(게임 서버 나누기 14 단계)
+void CPartyHandler::OnErasingZone(CZone* zone)
+{
+    // 빈 방 — 열린 방 수를 내린다(등식: 들어감 = 닫힘 + 열림 — GameMonitor.h _room). 방 번호는 이 뒤 다시 쓸 수 있다(CMapInstance::CreateRoom)
+    if (_mapManager.IsRoomMap(zone->GetMapId()))
+    {
+        _gameMonitor._room._active.Add(-1);
+        _gameMonitor._room._closed.Inc();
+    }
+}
+
 // ==========================================================================
 // 파티 — 규칙은 CPartySystem(PartySystem.cpp), 여기는 받기와 알림을 패킷으로 바꿔 보내기만
 // ==========================================================================

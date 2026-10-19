@@ -4,7 +4,8 @@
 // [책임]
 //  - 받은 패킷 넷의 처리기와 그 등록(RegisterRoutes — 물약 · 끼우기 · 빼기 · 줍기) — 컨텐츠 조각이 자기 줄을 등록한다
 //  - 바뀐 칸 내보내기 한 곳(FlushInventory — 칸 패킷 + DB 칸 저장) · 거절 사유를 와이어 값으로(물약 · 장착 · 줍기)
-//  - 땅 아이템 알림(IGroundItemEvents — 번호 발급 · 떨어짐 · 빠짐)과 수명 훑기 틱 · 관리자에 넘길 묶음(MakeGroundItemContext)
+//  - 땅 아이템 알림(IGroundItemEvents — 번호 발급 · 떨어짐 · 빠짐)과 수명 훑기 틱 · 관리자에 넘길 묶음(MakeGroundItemContext) ·
+//    존 지우기 직전 남은 땅 아이템 세기(OnErasingZone)
 //
 // [경계]
 //  판정·적용은 규칙에 맡긴다 — 쓰기·장착은 CItemSystem, 줍기 고르기·땅 목록은 존의 CGroundItemManager. 여기는 받기와 내보내기.
@@ -75,6 +76,10 @@ public:
     // 틱 3-3 — 25틱에 한 번 존마다 관리자의 수명 훑기(TickExpire)를 부른다. 섹터 변경 대기열을 비운 뒤라
     //   "같은 틱에 섹터를 넘은 사람" 보정이 필요 없다. 땅에 아무것도 없는 존은 관리자가 바로 끝낸다(부하 시험은 늘 그렇다).
     void TickGroundItems();
+
+    // 존 지우기 직전(빈 채널 정리 — CGameServer::OnErasingZone 이 부른다) — 그 존 땅에 남은 아이템을 「치움(CLEANED)」으로 센다.
+    //   목록은 존과 함께 사라지고 알릴 사람이 없다(존이 비었다). 세는 몸은 존의 관리자(CGroundItemManager::ForgetAll).
+    void OnErasingZone(CZone* zone);
 
     static constexpr int GROUND_ITEM_SCAN_FRAMES = FRAME_PER_SEC;   // 1초에 한 번 훑는다 — 사라지는 때가 1초 늦을 수 있다
 #endif

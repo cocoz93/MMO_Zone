@@ -351,33 +351,8 @@ void CGameServer::GameLoopThread()
             //   이동 묶음은 틱 끝 송신이 비웠다. 섹터 이동 대기열은 존 안이라
             //   존과 같이 사라진다. 누가 정리를 틱 앞쪽으로 옮기면 여기서 걸린다.
             assert(!_sightBroadcaster.HasDirtyMovers());
-            // 지우기 직전 콜백 — 존 밖에서 이 존의 것을 든 곳을 정리하는 마지막 기회다. 둘 다 토글이 따로라 한 콜백에 합친다
-            //   (땅 아이템만 USE_DROP 안에 묶어 두었더니 USE_DROP 0 이면 콜백이 아예 없어 버프 목록 정리도 같이 빠졌을 것이다).
-#if USE_DROP
-            const GroundItemContext groundCtx = _itemHandler.MakeGroundItemContext();
-#endif
-#if USE_DROP || USE_COMBAT || USE_PARTY
-            _mapManager.CleanupEmptyChannels([&](CZone* zone)
-            {
-#if USE_DROP
-                zone->GetGroundItemManager().ForgetAll(groundCtx);   // 땅의 아이템은 세기만 — 목록은 존과 함께 사라진다(알릴 사람이 없다)
-#endif
-#if USE_COMBAT
-                // 효과 목록은 틱 너머로 주소를 든다 — 이 존의 몬스터가 같이 해제되니 목록에서 먼저 뺀다(BuffSystem.h 「셋째 길」). 사람은 이미 퇴장으로 빠졌다
-                _buffSystem.ForgetZone(zone->GetZoneId());
-#endif
-#if USE_PARTY
-                // 빈 방 — 열린 방 수를 내린다(등식: 들어감 = 닫힘 + 열림 — GameMonitor.h _room). 방 번호는 이 뒤 다시 쓸 수 있다(CMapInstance::CreateRoom)
-                if (_mapManager.IsRoomMap(zone->GetMapId()))
-                {
-                    _gameMonitor._room._active.Add(-1);
-                    _gameMonitor._room._closed.Inc();
-                }
-#endif
-            });
-#else
-            _mapManager.CleanupEmptyChannels(nullptr);
-#endif
+            // 지우기 직전 알림 — 존 밖에서 이 존의 것을 든 곳을 정리하는 마지막 기회다. 받는 쪽은 아래 OnErasingZone 한 곳(조각마다 한 줄)
+            _mapManager.CleanupEmptyChannels([this](CZone* zone) { OnErasingZone(zone); });
         }
 
 #if USE_DB_WORKER
@@ -492,6 +467,25 @@ void CGameServer::OnLeavingGame(CPlayer* player)
     _partySystem.Forget(player);
 #endif
     (void)player;   // 전투·파티를 다 끈 빌드엔 할 일이 없다
+}
+
+// ── 「존 지우기 직전」 알림 ── 빈 채널 정리(게임 루프 5 — CMapManager::CleanupEmptyChannels)가 지울 존마다 부른다. 계약은 MapManager.h 의 그 함수 주석.
+//   받는 쪽을 게임 서버로 두는 까닭은 위 「떠남」과 같다 — 정리할 것이 가방·땅 조각 · 지속 효과 규칙 · 파티·방 조각에 흩어져 있다. 차례(땅 → 효과 → 방)는 여기 한 곳.
+//   이 함수는 토글 없이 늘 있다 — 전에 땅 아이템 정리만 USE_DROP 안에 묶어 두었더니 USE_DROP 0 이면 콜백이 아예 없어 버프 목록 정리도 같이 빠질 뻔했다.
+//   이때 그 존은 이미 조회표에서 빠졌다(GetZone 이 nullptr) — 받는 쪽은 zone 포인터와 그 번호로만 한다.
+void CGameServer::OnErasingZone(CZone* zone)
+{
+#if USE_DROP
+    _itemHandler.OnErasingZone(zone);    // 땅의 아이템 세기(치움) — 목록은 존과 함께 사라진다
+#endif
+#if USE_COMBAT
+    // 효과 목록은 틱 너머로 주소를 든다 — 이 존의 몬스터가 같이 해제되니 목록에서 먼저 뺀다(BuffSystem.h 「셋째 길」). 사람은 이미 퇴장으로 빠졌다
+    _buffSystem.ForgetZone(zone->GetZoneId());
+#endif
+#if USE_PARTY
+    _partyHandler.OnErasingZone(zone);   // 빈 방이면 열린 방 −1 · 닫힘 +1 — 열 때(+1, EnterRoom)와 같은 조각
+#endif
+    (void)zone;   // 땅·전투·파티를 다 끈 빌드엔 할 일이 없다
 }
 
 void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
