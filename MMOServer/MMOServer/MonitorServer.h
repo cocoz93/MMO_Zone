@@ -171,6 +171,21 @@ private:
             ss << "mmo_portal_rejected_total{reason=\"" << PortalRejectName(static_cast<PortalReject>(i)) << "\"} "
                << _gameMonitor._portal._rejected[i] << "\n";
         ss << "\n";
+        // 채팅 명령 — 토글 없음(명령 틀은 늘 있고 명령 줄만 토글을 본다 — GameMonitor.h _chat). 사유 표를 돈다(늘어도 안 빠진다)
+        ss << "# HELP mmo_chat_command_rejected_total Chat commands ('/'-prefixed) refused, split by reason\n";
+        ss << "# TYPE mmo_chat_command_rejected_total counter\n";
+        for (int i = 0; i < static_cast<int>(ChatCommandReject::COUNT); ++i)
+        {
+            ss << "mmo_chat_command_rejected_total{reason=\""
+               << ChatCommandRejectName(static_cast<ChatCommandReject>(i))
+               << "\"} " << _gameMonitor._chat._commandRejected[i] << "\n";
+        }
+        ss << "\n";
+        ss << "# HELP mmo_chat_gm_toggles_total GM mode switched by /gm, split by the state after the switch\n";
+        ss << "# TYPE mmo_chat_gm_toggles_total counter\n";
+        ss << "mmo_chat_gm_toggles_total{state=\"off\"} " << _gameMonitor._chat._gmToggled[0] << "\n";
+        ss << "mmo_chat_gm_toggles_total{state=\"on\"} "  << _gameMonitor._chat._gmToggled[1] << "\n";
+        ss << "\n";
         WriteCounter(ss, "mmo_send_contention_total",
                      "Total PostSend contentions (backed off because another thread was submitting)", _monitor._sendContention);
         WriteCounter(ss, "mmo_recv_contention_total",
@@ -621,21 +636,7 @@ private:
         }
         ss << "\n";
 
-        ss << "# HELP mmo_chat_command_rejected_total Chat commands ('/'-prefixed) refused, split by reason\n";
-        ss << "# TYPE mmo_chat_command_rejected_total counter\n";
-        for (int i = 0; i < static_cast<int>(ChatCommandReject::COUNT); ++i)
-        {
-            ss << "mmo_chat_command_rejected_total{reason=\""
-               << ChatCommandRejectName(static_cast<ChatCommandReject>(i))
-               << "\"} " << inv._commandRejected[i] << "\n";
-        }
-        ss << "\n";
-
-        ss << "# HELP mmo_chat_gm_toggles_total GM mode switched by /gm, split by the state after the switch\n";
-        ss << "# TYPE mmo_chat_gm_toggles_total counter\n";
-        ss << "mmo_chat_gm_toggles_total{state=\"off\"} " << inv._gmToggled[0] << "\n";
-        ss << "mmo_chat_gm_toggles_total{state=\"on\"} "  << inv._gmToggled[1] << "\n";
-        ss << "\n";
+        // 채팅 명령 거절 · /gm 켜고 끈 수는 토글 밖으로 갔다 — 포털 뒤 채팅 묶음(_chat · 게임 서버 나누기 14 단계)
 
         WriteCounter(ss, "mmo_inv_slot_updates_sent_total",
                      "S2C_INVENTORY_SLOT packets sent (only FlushInventory sends them)",

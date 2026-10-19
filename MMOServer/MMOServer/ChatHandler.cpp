@@ -13,11 +13,13 @@
 #include <cassert>            // 직렬화 크기 검증
 #include <cstddef>            // offsetof — 채팅 크기 검증
 #include <cstring>            // strcmp — 운영 로그인 열쇠 대조
+#include "SelfNotifier.h"     // 명령 답(알림 한 줄)
+#include "GameMonitor.h"      // 명령 거절 · /gm 켜고 끈 수(_chat)
+#if USE_COMBAT
+#include "StatSystem.h"       // /gm 의 스탯 다시 세우기
+#endif
 #if USE_INVENTORY
-#include "SelfNotifier.h"
 #include "ItemHandler.h"
-#include "StatSystem.h"
-#include "GameMonitor.h"
 #include "GameDataFiles.h"
 #include "GameDataCsv.h"      // 채팅 명령 인자를 숫자로 읽는다(표 파서와 같은 규칙)
 #endif
@@ -100,15 +102,14 @@ void CChatHandler::RecvChat(CPlayer* player, CSerialBuffer* pMsg)
         msgLen = CHAT_MSG_MAX_LEN - 1;
     recvMsg.message[msgLen] = L'\0';  // null 종단 보장
 
-#if USE_INVENTORY
     // '/' 로 시작하면 명령이다 — 방송하지 않는다. 운영자가 아닌 사람의 /item 이 채팅으로 새지 않게,
     //   권한 검사보다 "방송 안 함"이 먼저다. 부하 더미의 채팅 문구에는 '/' 로 시작하는 것이 없다.
+    //   토글이 없다 — 명령이 하나도 없는 빌드에서도 가로챈다(명령 줄만 토글을 본다 · 게임 서버 나누기 14 단계 전에는 USE_INVENTORY 안).
     if (msgLen > 0 && recvMsg.message[0] == u'/')
     {
         HandleChatCommand(player, recvMsg.message, msgLen);
         return;
     }
-#endif
 
 #if USE_BROADCAST_BUNDLE
     // [digest] 즉시 브로드캐스트 대신 보류 등록 — 틱 끝 digest에 합류 (실송신 시점은 기존과 동일한 틱 끝 flush).
@@ -124,9 +125,8 @@ void CChatHandler::RecvChat(CPlayer* player, CSerialBuffer* pMsg)
 #endif
 }
 
-#if USE_INVENTORY
 // ==========================================================================
-// 채팅 명령 · 인벤토리 (USE_INVENTORY)
+// 채팅 명령 — 틀(낱말 나누기 · 표 · 권한 · 거절)은 늘 있고, 명령 줄만 토글을 본다(/item USE_INVENTORY · /gm USE_COMBAT)
 // ==========================================================================
 
 namespace
@@ -159,8 +159,9 @@ namespace
             out.push_back(cur);
     }
 
+#if USE_COMBAT
     // 속도 — 본인 + 주변(BroadcastAroundSector, excludeSelf=false — Protocol.h MSG_S2C_ACTOR_SPEED).
-    //   부르는 곳이 /gm 하나라 명령 구역에 둔다. 속도를 바꾸는 둘째 길(효과 등)이 생기면 위의 Make 묶음으로 옮긴다.
+    //   부르는 곳이 /gm 하나라 명령 구역에 둔다(/gm 과 같은 토글 — 안 쓰는 파일 안 함수로 경고가 나지 않게). 속도를 바꾸는 둘째 길(효과 등)이 생기면 위의 Make 묶음으로 옮긴다.
     CSerialBuffer* MakeActorSpeed(int32_t actorId, int32_t speed)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
@@ -171,11 +172,12 @@ namespace
         assert(buf->GetDataSize() == sizeof(MSG_S2C_ACTOR_SPEED));
         return buf;
     }
+#endif
 }
 
 void CChatHandler::HandleChatCommand(CPlayer* player, const ChatChar* msg, uint16_t len)
 {
-    CGameMonitor::InventoryCounters& counters = _gameMonitor._inventory;
+    CGameMonitor::ChatCounters& counters = _gameMonitor._chat;
 
     // 명령은 사람이 치는 것이라 드물다 — 할당을 아끼지 않는다
     std::vector<std::string> words;
@@ -190,16 +192,22 @@ void CChatHandler::HandleChatCommand(CPlayer* player, const ChatChar* msg, uint1
         const char* name;
         Runner      run;
     };
+    //   줄마다 그 명령이 기대는 토글을 본다 — 줄이 빠진 빌드에서 그 명령은 「모르는 명령」이다.
     static constexpr Command COMMANDS[] =
     {
+#if USE_INVENTORY
         { "/item", &CChatHandler::RunItemCommand },   // /item <아이템번호> [개수]
+#endif
+#if USE_COMBAT
         { "/gm",   &CChatHandler::RunGmCommand   },   // /gm — GM 모드 켜고 끄기
+#endif
+        { nullptr, nullptr },   // 빈 줄 — 명령이 하나도 없는 빌드(전투를 끈 빌드)에서도 표가 크기 0 이 되지 않게(C++ 는 크기 0 배열을 못 둔다)
     };
 
     const Command* found = nullptr;
     for (const Command& c : COMMANDS)
     {
-        if (cmd == c.name)
+        if (c.name != nullptr && cmd == c.name)
         {
             found = &c;
             break;
@@ -223,13 +231,14 @@ void CChatHandler::HandleChatCommand(CPlayer* player, const ChatChar* msg, uint1
     (this->*(found->run))(player, words);
 }
 
+#if USE_COMBAT
 // /gm — GM 모드 켜고 끄기(토글). 값과 저장하지 않는 까닭은 Player.h 의 GM 칸.
 //   켜면 속도·최대 체력·공격력을 GM 값으로 바꾸고 체력·마력을 가득 채운다. 끄면 속도를 되돌리고 스탯을 레벨 표로 다시 세운다
 //   (체력·마력은 넘는 몫만 깎는다 — RecalcStats refill=false).
 //   알림은 레벨업과 같은 셋(체력 본인+주변 · 공격력 본인 · 마력 본인)에 속도(본인+주변)를 더한다 — 남의 화면도 그 속도로 앞질러 그린다.
 void CChatHandler::RunGmCommand(CPlayer* player, const std::vector<std::string>& words)
 {
-    CGameMonitor::InventoryCounters& counters = _gameMonitor._inventory;
+    CGameMonitor::ChatCounters& counters = _gameMonitor._chat;
 
     if (words.size() != 1)
     {
@@ -279,7 +288,9 @@ void CChatHandler::RunGmCommand(CPlayer* player, const std::vector<std::string>&
         + " — 속도 " + std::to_string(player->_speed) + " · 체력 " + std::to_string(player->_maxHp)
         + " · 공격력 " + std::to_string(player->_attackPower));
 }
+#endif // USE_COMBAT
 
+#if USE_INVENTORY
 // /item <아이템번호> [개수] — 개수를 안 적으면 1. 가방에 바로 넣는다(드랍이 생기기 전까지 가방을 채우던 길).
 void CChatHandler::RunItemCommand(CPlayer* player, const std::vector<std::string>& words)
 {
@@ -292,7 +303,7 @@ void CChatHandler::RunItemCommand(CPlayer* player, const std::vector<std::string
     const bool okCount = words.size() < 3 || GameDataCsv::ParseInt(words[2], count);
     if (!okId || !okCount || words.size() > 3 || count < 1 || count > 9999)
     {
-        counters._commandRejected[static_cast<int>(ChatCommandReject::BAD_ARGS)].Inc();
+        _gameMonitor._chat._commandRejected[static_cast<int>(ChatCommandReject::BAD_ARGS)].Inc();   // 명령 거절은 채팅 묶음 — 넣기 거절과 다른 사실
         _selfNotifier.SendSystemMessage(player, "쓰는 법: /item <아이템번호> [개수 1~9999]");
         return;
     }

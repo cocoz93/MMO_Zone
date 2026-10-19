@@ -57,7 +57,7 @@
 #include "MonsterHandler.h"   // 몬스터(몬스터 틱 · 등장·사라짐 알림 · 번호 발급 — USE_MONSTER) — 게임 서버 나누기 10 단계(C4)
 #include "MoveHandler.h"      // 이동(이동 시작·멈춤 요청 · 좌표 수용 예산 — 토글 없음) — 게임 서버 나누기 11 단계(C2)
 #include "EntryHandler.h"     // 입장·존 이동 요청(접속 · 대기표 · 불러온 캐릭터 세우기 · 중복 접속 · 포털) — 게임 서버 나누기 12 단계(C1)
-#include "ChatHandler.h"      // 채팅·운영(채팅 · 운영자 로그인 · 채팅 명령 /item · /gm — 명령만 USE_INVENTORY) — 게임 서버 나누기 13 단계(C8)
+#include "ChatHandler.h"      // 채팅·운영(채팅 · 운영자 로그인 · 채팅 명령 /item · /gm — 명령 줄만 토글) — 게임 서버 나누기 13 단계(C8)
 
 class CSerialBuffer;
 
@@ -384,12 +384,15 @@ private:
 #endif
                                  _mapManager, _gameMonitor, _gameDataFiles };
 
-    // 채팅·운영 — 채팅 · 운영자 로그인 · 채팅 명령(/item · /gm — USE_INVENTORY)(ChatHandler.h).
-    //   ★ _sessionHub · _sightBroadcaster · _mapManager 와 명령이 쓰는 _selfNotifier · _itemHandler · _statSystem · _gameMonitor · _gameDataFiles
+    // 채팅·운영 — 채팅 · 운영자 로그인 · 채팅 명령(/item — USE_INVENTORY · /gm — USE_COMBAT)(ChatHandler.h).
+    //   ★ _sessionHub · _sightBroadcaster · _selfNotifier · _gameMonitor · _mapManager 와 명령이 쓰는 _statSystem · _itemHandler · _gameDataFiles
     //     보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
-    CChatHandler _chatHandler{ _sessionHub, _sightBroadcaster,
+    CChatHandler _chatHandler{ _sessionHub, _sightBroadcaster, _selfNotifier, _gameMonitor,
+#if USE_COMBAT
+                               _statSystem,
+#endif
 #if USE_INVENTORY
-                               _selfNotifier, _itemHandler, _statSystem, _gameMonitor, _gameDataFiles,
+                               _itemHandler, _gameDataFiles,
 #endif
                                _mapManager };
 

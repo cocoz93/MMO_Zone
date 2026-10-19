@@ -198,8 +198,8 @@ inline const char* PartyNoticeName(PartyNotice r)
 }
 #endif
 
-#if USE_INVENTORY
 // 채팅 명령 거절 사유 — 넣기 거절(InvAddResult)과 따로 센다. 명령이 틀린 것과 가방이 찬 것은 다른 사실이다.
+//   토글 밖 — 명령 틀(채팅·운영 조각의 명령 표)은 늘 있고 명령 줄만 토글을 본다(_chat 묶음 · 게임 서버 나누기 14 단계 전에는 USE_INVENTORY 안).
 enum class ChatCommandReject : uint8_t
 {
     NOT_ADMIN,         // 운영자가 아니다
@@ -223,6 +223,7 @@ inline const char* ChatCommandRejectName(ChatCommandReject r)
     return "?";
 }
 
+#if USE_INVENTORY
 // 불러올 때 건너뛴 줄의 사유 — DB 행이 망가졌거나 표가 바뀌어 지금 규칙에 안 맞는 줄. 평소엔 전부 0 이다.
 //   칸·아이템 번호 사유는 게임 서버(LoadInventoryRows)가, 탭·개수 사유는 가방(LoadSlot → InvLoadResult)이 정한다.
 //   두 층의 사유를 한 계수기로 세므로 라벨은 여기 두고, 가방 사유는 게임 서버가 옮긴다(10-07).
@@ -479,9 +480,8 @@ public:
     {
         Counter _itemsAdded;                                                  // 넣은 아이템 개수(칸 수가 아니라 개수)
         Counter _addRejected[static_cast<int>(InvAddResult::COUNT)];          // 넣기 거절, 사유별 ([OK] 칸은 안 쓴다)
-        Counter _commandRejected[static_cast<int>(ChatCommandReject::COUNT)]; // 채팅 명령 거절, 사유별
-        Counter _gmToggled[2];                                                // /gm 으로 바꾼 수 — [0] 끔 · [1] 켬(바뀐 뒤 상태로 센다)
-        Counter _slotUpdatesSent;                                             // 칸 패킷(S2C_INVENTORY_SLOT) 보낸 수
+        // 채팅 명령 거절 · /gm 켜고 끈 수는 채팅 묶음(_chat)으로 갔다 — 명령 틀이 토글 밖으로 나가서(게임 서버 나누기 14 단계)
+        Counter _slotUpdatesSent;                                            // 칸 패킷(S2C_INVENTORY_SLOT) 보낸 수
         Counter _snapshotsSent;                                               // 전체 목록(S2C_INVENTORY) 보낸 수 — 입장마다 1
         Counter _itemsUsed;                                                   // 쓴 아이템 개수(성공)
         Counter _useRejected[static_cast<int>(UseItemReject::COUNT)];         // 쓰기 거절, 사유별
@@ -665,6 +665,17 @@ public:
         Counter _used;                              // 포털로 옮겨 감
         Counter _rejected[PORTAL_REJECT_COUNT];     // 거절, 사유별(PortalReject)
     } _portal;
+
+    // ══════════════════════════════════════════════════════════════
+    // 채팅 명령 — 세는 곳은 채팅·운영 조각(CChatHandler — 명령 표 · /gm · /item 의 인자 거절).
+    //   토글 없음 — 명령 틀은 늘 있고 명령 줄만 토글을 본다(/item USE_INVENTORY · /gm USE_COMBAT). 줄이 빠진 빌드의 칸은 0 으로 남는다.
+    //   게임 서버 나누기 14 단계 전에는 인벤토리 묶음(_inventory) 안에 있었다 — 노출 이름(mmo_chat_*)은 그대로.
+    // ══════════════════════════════════════════════════════════════
+    struct alignas(64) ChatCounters
+    {
+        Counter _commandRejected[static_cast<int>(ChatCommandReject::COUNT)]; // 채팅 명령 거절, 사유별
+        Counter _gmToggled[2];                                                // /gm 으로 바꾼 수 — [0] 끔 · [1] 켬(바뀐 뒤 상태로 센다)
+    } _chat;
 
 #if USE_PARTY
     // ══════════════════════════════════════════════════════════════
