@@ -38,7 +38,6 @@
 #include "BuffSystem.h"    // 지속 효과 규칙 — 멤버로 들고 부른다(그 알림 IBuffEvents 는 전투 조각이 구현한다)
 #include "ItemSystem.h"    // 아이템 쓰기·장착 규칙 — 멤버로 들고 부른다
 #include "SkillSystem.h"   // 스킬 규칙 — 멤버로 든다(그 알림 ISkillEvents 는 전투 조각이 구현한다)
-#include "MonsterManager.h" // 몬스터 — 여기서는 그 알림(IMonsterEvents)을 구현한다
 #include "GroundItemManager.h" // 땅 아이템 — 여기서는 그 알림(IGroundItemEvents)을 구현한다
 #include "PartySystem.h"   // 파티 규칙 — 멤버로 든다(그 알림 IPartyEvents 는 파티·방 조각이 구현한다 — PartyHandler.h)
 #include "MonitorManager.h"
@@ -56,24 +55,22 @@
 #include "PartyHandler.h"     // 파티·방(파티 요청 · 파티 알림 · 방 입장·거절 · 다시 들어가기 잠금 — USE_PARTY) — 게임 서버 나누기 7 단계(C7)
 #include "RewardHandler.h"    // 처치 보상(몬스터 경험치 · 드랍 굴림 · 방 보상 — USE_COMBAT && USE_MONSTER) — 게임 서버 나누기 8 단계(C5)
 #include "CombatHandler.h"    // 전투(공격·스킬 요청 · 공격·시전·효과 알림 · 부활 대기열 — USE_COMBAT) — 게임 서버 나누기 9 단계(C3)
+#include "MonsterHandler.h"   // 몬스터(몬스터 틱 · 등장·사라짐 알림 · 번호 발급 — USE_MONSTER) — 게임 서버 나누기 10 단계(C4)
 
 class CSerialBuffer;
 
-// 알림 통로 셋 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
+// 알림 통로 둘 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
 //   (IZoneEvents — 존의 걷기·멈춤 알림 둘 — 은 시야 조각 CSightBroadcaster 가 구현한다 · 게임 서버 나누기 3 단계)
 //   (IGroundItemEvents — 땅 아이템 관리자의 알림 둘과 번호 부탁 하나 — 는 가방·땅 조각 CItemHandler 가 구현한다 · 게임 서버 나누기 6 단계)
 //   (IPartyEvents — 파티 규칙의 알림 다섯 — 은 파티·방 조각 CPartyHandler 가 구현한다 · 게임 서버 나누기 7 단계)
 //   (ICombatEvents · IBuffEvents · ISkillEvents — 공격 흐름 · 지속 효과 · 스킬 규칙의 알림 — 은 전투 조각 CCombatHandler 가 구현한다 · 게임 서버 나누기 9 단계)
+//   (IMonsterEvents — 몬스터 관리자의 알림 둘(등장·사라짐)과 번호 부탁 하나 — 는 몬스터 조각 CMonsterHandler 가 구현한다 · 게임 서버 나누기 10 단계)
 //   IPlacementEvents  = 배치(CPlayerPlacement)의 알림 둘(존에서 빠짐 · 떠남 — 틱 너머 목록 정리) — 게임 서버 나누기 5 단계(0-③ ⑴⑶) · 토글 없이 늘 있다
-//   IMonsterEvents    = 몬스터 관리자(CMonsterManager)의 알림 둘(등장·사라짐)과 번호 부탁 하나
 //   ICharacterLoadEvents = 캐릭터 저장소(CCharacterStore)의 불러오기 결과 하나(OnCharacterLoaded) — 게임 서버 나누기 4 단계(0-③ ⑷) · USE_DB_WORKER
 // 기반 목록 — 늘 있는 통로(IPlacementEvents)가 첫 줄이라 나머지는 토글마다 「, 」로 붙는다.
 //   (3·4 단계 동안은 늘 있던 IZoneEvents 가 빠져 첫 통로를 고르는 #if 사다리를 뒀었다 — 5 단계에서 늘 있는 통로가 생겨 걷어냄)
 class CGameServer
     : private IPlacementEvents
-#if USE_MONSTER
-    , private IMonsterEvents
-#endif
 #if USE_DB_WORKER
     , private ICharacterLoadEvents
 #endif
@@ -206,24 +203,7 @@ private:
 
     // 파티 요청 · 파티 알림(IPartyEvents) · 방 입장·거절 · 다시 들어가기 잠금은 파티·방 조각 — _partyHandler (PartyHandler.h · 게임 서버 나누기 7 단계)
 
-#if USE_MONSTER
-    // ── 몬스터 (USE_MONSTER) ──
-    // 몬스터 코드(깔기·판단·벽 앞 재판단)는 존마다 든 CMonsterManager 에 있다.
-    //   여기는 틱마다 그걸 부르고, 알림을 받아 송신·번호 발급만 한다.
-
-    // 게임 루프 1-1) — 좌표 갱신(2) 바로 앞. 존마다 관리자 Tick(처음이면 깔고, 몬스터마다 판단).
-    //   순서가 뒤면 AI 가 정한 방향이 한 틱씩 밀린다.
-    void TickMonsters();
-
-    // 관리자에 넘길 묶음 — 부를 때마다 만든다. 담긴 것이 전부 이 객체가 든 것의 참조라 만드는 값이 싸다.
-    //   (예전엔 설정값 둘 — 존당 마릿수·뱀 속도 — 이 Start() 전에 바뀌어 틱마다 만들었다. 둘 다 몬스터 표·스폰 표로 갔다)
-    MonsterContext MakeMonsterContext();
-
-    // 몬스터 알림과 번호 부탁 (IMonsterEvents) — 뜻은 MonsterManager.h.
-    int32_t AllocActorId() override;                                         // = 세션 허브의 발급기 — 번호 공간이 플레이어와 하나
-    void OnMonsterSpawn(CZone* zone, CMonster* monster) override;            // 주변에 CREATE(SPAWN) · 동기화 기준점을 지금 자리로
-    void OnMonsterVanish(CZone* zone, CMonster* monster) override;           // 방 클리어 — 효과 목록에서 빼고 존에서 뺀다(주변 DELETE) · 죽은 몬스터 지우기 앞과 같은 길
-#endif
+    // 몬스터 틱 · 관리자에 넘길 묶음 · 몬스터 알림(IMonsterEvents)은 몬스터 조각 — _monsterHandler (MonsterHandler.h · 게임 서버 나누기 10 단계)
 
     // 드랍 굴림(DropLoot)은 처치 보상 조각 — _rewardHandler (RewardHandler.h · 게임 서버 나누기 8 단계) ·
     //   관리자에 넘길 묶음 · 땅 아이템 알림 · 수명 훑기 틱 · 줍기는 가방·땅 조각 — _itemHandler (ItemHandler.h · 게임 서버 나누기 6 단계)
@@ -472,6 +452,20 @@ private:
                                    _skillSystem,
 #endif
                                    _mapManager, _gameMonitor, _frameCount, _defaultMapId };
+#endif
+
+#if USE_MONSTER
+    // 몬스터 — 존마다 몬스터 틱 · 몬스터 알림(IMonsterEvents — 번호 발급 · 등장 · 사라짐)(MonsterHandler.h).
+    //   ★ _sessionHub · _sightBroadcaster · _placement · _combatSystem · _buffSystem · _skillSystem · _mapManager · _gameMonitor · _frameCount
+    //     보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다). 알림은 틱마다 만드는 묶음에 실려 가므로 거꾸로 묶는 쪽이 없다.
+    CMonsterHandler _monsterHandler{ _sessionHub, _sightBroadcaster, _placement,
+#if USE_COMBAT
+                                     _combatSystem, _buffSystem,
+#endif
+#if USE_SKILL
+                                     _skillSystem,
+#endif
+                                     _mapManager, _gameMonitor, _frameCount };
 #endif
 
     // 섹터 아웃박스(틱-지연 배칭 상태) · 인바운드 멤버십 수집 버퍼는 시야 조각 — SightBroadcaster.h (게임 서버 나누기 3 단계)

@@ -119,7 +119,7 @@ public:
     }
 
     // ── 캐릭터 번호 발급 ──
-    //   플레이어와 몬스터가 같이 쓴다(몬스터는 CGameServer::AllocActorId — IMonsterEvents 를 거쳐 온다).
+    //   플레이어와 몬스터가 같이 쓴다(몬스터는 CMonsterHandler::AllocActorId — IMonsterEvents 를 거쳐 온다).
     //   단일 증가 카운터라 둘이 충돌하지 않는다. int32 라 2^31 위로 못 올라온다(지정 계정 번호 하한 ACCOUNT_ID_MIN 이 여기에 기댄다).
     int32_t AllocActorId() { return _nextActorId++; }
 

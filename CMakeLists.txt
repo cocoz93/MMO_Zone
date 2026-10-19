@@ -148,6 +148,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/PartyHandler.cpp
     ${SRV_DIR}/RewardHandler.cpp
     ${SRV_DIR}/CombatHandler.cpp
+    ${SRV_DIR}/MonsterHandler.cpp
     ${SRV_DIR}/MapManager.cpp
     ${SRV_DIR}/SectorManager.cpp
     ${SRV_DIR}/Zone.cpp

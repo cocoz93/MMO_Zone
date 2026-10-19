@@ -19,7 +19,7 @@
 //        스폰 표·드랍 표가 이 번호로 몬스터를 가리키고, 읽을 때 이 표와 대조한다(CGameDataFiles::LoadAll 순서).
 //
 // [겉모습] display 는 와이어의 표시 문자(displayChar) 값이다 — 클라가 그 값으로 몬스터 그림을 고른다.
-//        값은 여기 두고, 와이어에 싣는 손은 게임 서버다(CGameServer::OnMonsterSpawn). 존 층은 이 값을 안 읽는다.
+//        값은 여기 두고, 와이어에 싣는 손은 게임 서버의 몬스터 조각이다(CMonsterHandler::OnMonsterSpawn). 존 층은 이 값을 안 읽는다.
 //
 // [속도 상한은 여기서 안 본다] 판단 주기가 전제하는 상한(MonsterAI::MAX_SPEED)은 AI 사정이라
 //        게임 서버가 표를 읽은 직후 대조한다(CheckSpeed).

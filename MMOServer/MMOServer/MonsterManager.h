@@ -14,7 +14,7 @@
 //    효과가 없었고, 사람 옆에 깔려도 돌아다니던 뱀이 다가온 것과 같다. 깔 때 섹터를 훑는 일도 없어진다.
 //  - 방 클리어(RequestClear — 남은 몬스터를 사라지게)와 되살리기(RequestRevive — 죽은 만큼 다시 깔기, 10-18 뱀왕)는 표시만 세우고
 //    다음 Tick 이 한다 — 둘 다 목록을 도는 중(범위 스킬의 대상 버퍼 · 판단 순회)에 불리기 때문이다
-//  - 송신·번호 발급은 하지 않는다 — 일이 생기면 IMonsterEvents·IZoneEvents(걷기·멈춤)로 알리고, 받는 쪽(CGameServer · 걷기·멈춤은 그 시야 조각 CSightBroadcaster)이 한다
+//  - 송신·번호 발급은 하지 않는다 — 일이 생기면 IMonsterEvents·IZoneEvents(걷기·멈춤)로 알리고, 받는 쪽(몬스터 조각 CMonsterHandler · 걷기·멈춤은 시야 조각 CSightBroadcaster)이 한다
 //
 // [왜 떼어냈나]
 //  몬스터는 존이 소유하는데 몬스터를 다루는 코드는 게임 서버에 있어, 존을 지우기 전에 게임 서버가
@@ -50,7 +50,7 @@ class CCombatSystem;
 class CSkillSystem;
 #endif
 
-// 몬스터 쪽이 게임 서버에 부탁하는 것 — CGameServer 가 구현한다(세션·송신·번호 계수기가 거기 있다).
+// 몬스터 쪽이 게임 서버에 부탁하는 것 — 몬스터 조각 CMonsterHandler 가 구현한다(번호 발급기는 세션 허브 · 송신은 시야 조각 — 게임 서버 나누기 10 단계).
 //   1단계 ICombatEvents 와 같은 꼴: "패킷을 보내라"가 아니라 "무슨 일이 있었다"로 알리고, 패킷 조립은 받는 쪽이 한다.
 //   ★ 순수 가상이라 하나를 빠뜨리면 컴파일이 안 된다.
 class IMonsterEvents
