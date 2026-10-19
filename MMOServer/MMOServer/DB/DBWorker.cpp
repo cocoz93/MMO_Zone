@@ -33,7 +33,7 @@ CDBWorker::~CDBWorker()
 
 bool CDBWorker::Start(const DBConfig& config, int workerCount, int queueMax)
 {
-    assert(workerCount > 0 && queueMax > 0);   // 1 이상인지는 CGameServer::InitDB 가 봤다 — 여기에 기본값을 두지 않는다
+    assert(workerCount > 0 && queueMax > 0);   // 1 이상인지는 CCharacterStore::Init 이 봤다(CGameServer::InitDB 가 넘긴다) — 여기에 기본값을 두지 않는다
     _config      = config;
     _workerCount = workerCount;
     if (_workerCount > DBSaveCounters::MAX_WORKERS)

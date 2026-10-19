@@ -51,10 +51,11 @@
 #include "SessionHub.h"    // 세션 칸 · 플레이어 찾기 · 보내기 · 캐릭터 번호 발급 — 게임 서버 나누기 1 단계(B1)
 #include "SelfNotifier.h"  // 본인 알림(내 상태 패킷을 나에게만) — 게임 서버 나누기 2 단계(B5)
 #include "SightBroadcaster.h" // 시야 방송(섹터 바뀜 · 주변 방송 · 송신 묶음 · 존 알림) — 게임 서버 나누기 3 단계(B2)
+#include "CharacterStore.h"   // 캐릭터 저장소(DB 워커 · 저장 세 길 · 불러오기 — USE_DB_WORKER) — 게임 서버 나누기 4 단계(B3)
 
 class CSerialBuffer;
 
-// 알림 통로 여섯 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
+// 알림 통로 일곱 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
 //   (IZoneEvents — 존의 걷기·멈춤 알림 둘 — 은 시야 조각 CSightBroadcaster 가 구현한다 · 게임 서버 나누기 3 단계)
 //   ICombatEvents     = 공격 흐름(CCombatSystem)의 알림 셋 — 스킬의 피해·죽음도 이 셋으로 온다(ApplyHit)
 //   IBuffEvents       = 지속 효과 규칙(CBuffSystem)의 알림 하나(효과가 바뀜 — 걸림·되감김·만료·죽음) · 전투 토글 소유
@@ -63,9 +64,10 @@ class CSerialBuffer;
 //                       (USE_DROP 은 가방(→ 전투)과 몬스터가 다 켜져야 켜진다 — BuildConfig.h #error)
 //   ISkillEvents      = 스킬 규칙(CSkillSystem)의 알림 둘(시전 · 되살려라)
 //   IPartyEvents      = 파티 규칙(CPartySystem)의 알림 다섯(요청·요청 끝·알림 한 줄·파티 전체·파티원 한 줄)
+//   ICharacterLoadEvents = 캐릭터 저장소(CCharacterStore)의 불러오기 결과 하나(OnCharacterLoaded) — 게임 서버 나누기 4 단계(0-③ ⑷) · USE_DB_WORKER
 // 기반 목록은 첫 줄만 「:」로 시작해야 한다 — 늘 있던 통로(IZoneEvents)가 빠진 뒤로는 첫 통로를 고르는 사다리를 둔다.
-//   뿌리 토글은 셋(전투 · 몬스터 · 파티)이고 나머지(효과 · 땅 아이템 · 스킬)는 전투를 요구한다(BuildConfig.h #error) —
-//   그래서 어느 조합이든 순서는 위 표 그대로이고, 셋 다 끄면 기반이 없다. 통로가 조각으로 다 옮겨 가면(게임 서버 나누기) 사다리도 사라진다.
+//   뿌리 토글은 넷(전투 · 몬스터 · 파티 · DB)이고 나머지(효과 · 땅 아이템 · 스킬)는 전투를 요구한다(BuildConfig.h #error) —
+//   그래서 어느 조합이든 순서는 위 표 그대로이고, 넷 다 끄면 기반이 없다. 통로가 조각으로 다 옮겨 가면(게임 서버 나누기) 사다리도 사라진다.
 class CGameServer
 #if USE_COMBAT
     : private ICombatEvents
@@ -73,6 +75,8 @@ class CGameServer
     : private IMonsterEvents
 #elif USE_PARTY
     : private IPartyEvents
+#elif USE_DB_WORKER
+    : private ICharacterLoadEvents
 #endif
 #if USE_COMBAT
     , private IBuffEvents
@@ -89,6 +93,9 @@ class CGameServer
 #if USE_PARTY && (USE_COMBAT || USE_MONSTER)
     , private IPartyEvents
 #endif
+#if USE_DB_WORKER && (USE_COMBAT || USE_MONSTER || USE_PARTY)
+    , private ICharacterLoadEvents
+#endif
 {
 public:
     CGameServer(CMonitorManager& monitor, CGameMonitor& gameMonitor);
@@ -102,7 +109,7 @@ public:
               const MapConfig* maps, int32_t mapCount, int workerThreads = 0, int sendWorkers = 0,
               int rioWorkers = 0, int completionBatch = 0, int sendDepth = 1);
 
-    // DB 저장 파이프라인 초기화 (USE_DB_WORKER=0이면 no-op). Start() 전에 호출.
+    // DB 저장 파이프라인 초기화 (USE_DB_WORKER=0이면 no-op). Start() 전에 호출. 몸은 캐릭터 저장소(CCharacterStore::Init).
     bool InitDB(const DBConfig& dbConfig, int savePeriodSec, int workerCount, int queueMax);
 
     // 이벤트 큐 과부하 시 신규 accept 차단 임계 (0=끄기). Init() 뒤, Start() 전에 호출.
@@ -263,11 +270,7 @@ private:
     //   성공이면 칸 갱신 + 채운 쪽 통보(체력 물약 = 체력 주변 방송 · 마력 물약 = 마력 본인만). 판정·적용·세기는 CItemSystem 이다.
     void RecvUseItem(CPlayer* player, CSerialBuffer* pMsg);
 
-#if USE_DB_WORKER
-    // 불러온 가방 줄을 검사해 넣는다 — 칸 범위·아이템 표·탭·쌓임 한도. 안 맞는 줄은 세고 건너뛴다(깎아 넣지 않는다).
-    //   바뀐 칸 표시를 안 켠다(DB 와 같은 값) — 건너뛴 줄은 DB 에 그대로 남고, 그 칸에 새 아이템이 들어오면 덮인다.
-    void LoadInventoryRows(CPlayer* player, const DBResult& result);
-#endif
+    // 불러온 가방 줄 넣기(LoadInventoryRows)는 캐릭터 저장소 조각 — CharacterStore.h (게임 서버 나누기 4 단계)
 
 #if USE_EQUIP
     // ── 장착 (USE_EQUIP) ──
@@ -381,24 +384,11 @@ private:
 #endif
 
 #if USE_DB_WORKER
-    // DB 저장 파이프라인 (dirty flag 기반 비동기 위치 저장)
-    bool ShouldSave(const CPlayer* player) const;        // 저장 대상 판정(MOVING||dirty||레벨·경험치·체력·마력·쿨타임·버프 칸이 _dbSaved 와 다름) — 주기 저장
-    DBSaveJob MakeSaveJob(const CPlayer* player) const;  // 위치·레벨·경험치·체력·마력·쿨타임·버프 스냅샷 생성 (단건·배치 공용)
-    static void MarkSaveQueued(CPlayer* player, const DBSaveJob& job);   // 큐에 들어간 잡 기록 — dirty clear + _dbSaved 갱신 (세 저장 길 공통)
-    void EnqueuePlayerSave(CPlayer* player);   // 단건: 스냅샷 enqueue + dirty clear (나갈 때·레벨업)
-    void TickPeriodicSave();                   // 주기: 저장 대상 배치를 1회 핸드오프
-    void SaveAllPlayers();                     // 종료: 전원 최종 저장(안전망, dirty 무관)
+    // DB 저장 파이프라인(저장 세 길 · 저장 대상 판정 · 쿨타임·버프 묶기·되살리기)과 불러오기 요청·회신 꺼내기는
+    //   캐릭터 저장소 조각 — _characterStore (CharacterStore.h · 게임 서버 나누기 4 단계).
 
-    // 쿨타임·버프 ↔ DB 묶음(characters.skill_cooldowns · buffs, 형식은 CooldownBuffBlob.h). 게임 안의 시간은 틱이고 DB 는 실제 시각이다.
-    void PackCooldownsAndBuffs(const CPlayer* player, DBSaveJob& job) const;      // 저장 — 돌고 있는 칸을 틱 → 실제 시각으로 묶는다(MakeSaveJob)
-    static bool CooldownsAndBuffsChanged(const CPlayer* player);                  // 주기 판정 — 칸이 마지막 저장 때 사본(_dbSaved)과 다른가(틱끼리)
-    static void RecordSavedCooldownsAndBuffs(CPlayer* player);                    // 지금 칸을 _dbSaved 사본으로(MarkSaveQueued · 입장)
-    void RestoreCooldownsAndBuffs(CPlayer* player, const EnterPlacement& place);  // 입장 — 묶음을 풀어 실제 시각 → 틱으로 칸을 채운다(SpawnPlayer)
-
-    // DB 왕복 — 캐릭터 불러오기 (요청은 워커 큐로, 결과는 회신 큐로 돌아와 다음 틱에 꺼낸다)
-    bool RequestCharacterLoad(int64_t sessionId, int64_t accountId);   // 조회 1건 투입 + 계수. false = 거절됨(결과가 안 온다)
-    void ProcessDbResults();                                           // 틱마다: 회신 큐를 통째로 꺼내 종류별로 넘긴다
-    void OnCharacterLoaded(const DBResult& result, int64_t nowNs);     // 불러오기 결과 1건 처리 — 판정 후 스폰
+    // 불러오기 결과 알림 (ICharacterLoadEvents) — 1건 처리: 판정 후 스폰. 회신 꺼내기(CCharacterStore::ProcessDbResults)가 부른다.
+    void OnCharacterLoaded(const DBResult& result, int64_t nowNs) override;
 
     // 대기표 — 접속은 했지만 아직 게임에 못 들어온 세션. 세션은 아래 둘 중 하나이거나 "게임 중"이고,
     //   셋 중 둘일 수는 없다. sessionId == -1 이 빈 자리다(CPlayer::_sessionId 와 같은 약속).
@@ -571,6 +561,17 @@ private:
     //   ★ _sessionHub · _mapManager · _monitor · _gameMonitor 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
     CSightBroadcaster _sightBroadcaster{ _sessionHub, _mapManager, _monitor, _gameMonitor };
 
+#if USE_DB_WORKER
+    // 캐릭터 저장소 — DB 워커의 주인 · 저장 세 길 · 불러오기 요청과 회신 꺼내기(CharacterStore.h). 불러오기 결과는 이 클래스(ICharacterLoadEvents)로 온다.
+    //   ★ _sessionHub · _gameMonitor · _gameDataFiles · _buffSystem · _frameCount 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
+    //     *this 는 참조만 넘긴다(생성 중엔 부르지 않는다 — 시스템들에 *this 를 넘기는 것과 같은 규칙).
+    CCharacterStore _characterStore{ _sessionHub, _gameMonitor, _gameDataFiles,
+#if USE_COMBAT
+                                     _buffSystem,
+#endif
+                                     _frameCount, *this };
+#endif
+
     // 플레이어 이동 속도 덮어쓰기(칸/초) — 0 이면 생성자의 기본값을 그대로 쓴다(SetPlayerSpeed)
     int _playerSpeed = 0;
 #if USE_COMBAT
@@ -615,14 +616,7 @@ private:
     int64_t _tickMoveBudgetRejects = 0;   // 이동 예산 초과로 거부한 좌표 수용 수 — 틱 끝 _moveBudgetRejects로 반영
 
 #if USE_DB_WORKER
-    // DB 저장 파이프라인 (dirty flag 기반 비동기 위치 저장)
-    std::unique_ptr<CDBWorker> _dbWorker;
-    int _dbSavePeriodFrames = 0;     // SavePeriodSec × FRAME_PER_SEC (InitDB에서 설정)
-    int _dbSaveFrameCounter  = 0;
-
-    // 회신 큐에서 통째로 꺼내 받는 로컬 버퍼 (멤버 재사용 — 워커 쪽 벡터와 맞바꾸므로 양쪽 용량이 보존된다.
-    //   _localEvents 와 같은 방식). 접근은 게임 스레드 단독.
-    std::vector<DBResult> _dbResults;
+    // DB 워커 · 저장 주기 세기 · 회신 받는 버퍼는 캐릭터 저장소 — CharacterStore.h (게임 서버 나누기 4 단계)
 
     // 대기표 — 세션 허브의 칸(_sessionHub)과 같은 크기·같은 색인(해시맵 아님). Init 에서 나란히 잡는다.
     //   개수는 배열을 훑지 않으려고 상태별로 따로 센다. 접근은 게임 스레드 단독.

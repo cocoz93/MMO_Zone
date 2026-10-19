@@ -70,7 +70,7 @@ public:
     //   여기서 훑는다(MonsterManager.h 「목록을 밖에 내주는 함수는 두지 않는다」와 같은 까닭). 없으면 아무 일 없음.
     void ForgetZone(int32_t zoneId);
 
-    // 되살리기 — 입장 때 DB 저장값으로 빈 칸을 채운다(CGameServer::RestoreCooldownsAndBuffs). 반환 false = 칸이 이미 켜져 있어 안 채움
+    // 되살리기 — 입장 때 DB 저장값으로 빈 칸을 채운다(CCharacterStore::RestoreCooldownsAndBuffs). 반환 false = 칸이 이미 켜져 있어 안 채움
     //   (입장 직후라 늘 비어 있다 — 한 묶음에 같은 종류가 둘인 불량 행이면 첫 것만 쓴다).
     //   Apply 와 다른 둘 —
     //   ⑴ 스탯을 다시 세우지 않고 알리지도 않는다. 호출부가 곧 RecalcStats 로 배수까지 한 번에 세우고,

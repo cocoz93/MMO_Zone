@@ -595,7 +595,7 @@ public:
                                  //   조용해지면 동접(mmo_session_count) = _inGame + _pending + _waiting 이어야 한다.
                                  //   세션은 없는데 플레이어만 남은 것(나간 세션의 결과로 스폰된 유령)은 이 등식으로만 보인다.
 
-        // [쿨타임·버프 되살리기] 칸 단위 — 위 등식과 무관하다(행 하나에 칸이 여럿). 세는 곳은 CGameServer::RestoreCooldownsAndBuffs 한 곳.
+        // [쿨타임·버프 되살리기] 칸 단위 — 위 등식과 무관하다(행 하나에 칸이 여럿). 세는 곳은 CCharacterStore::RestoreCooldownsAndBuffs 한 곳.
         //   버프를 되살린 수는 여기가 아니라 _buff._restored 다 — 버프 등식(켜짐 = 끝남 + 지금)의 한 항이라 거기서 센다.
         //   죽은 채 저장된 행의 버프는 풀지 않고 버린다 — 칸 단위로 안 세고 행 단위 _deadRespawn 이 센다.
         Counter _cooldownRestored;   // 되살린 쿨타임 칸
