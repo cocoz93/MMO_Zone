@@ -34,7 +34,7 @@
 #include <atomic>
 #include <memory>
 #include <queue>
-// <cassert> · <vector> · <unordered_set> · <unordered_map> 은 그것을 쓰던 멤버·함수가 조각으로 가며 쓰임이 0 이 되어 뺐다(게임 서버 나누기 14 단계)
+// <cassert> · <vector> · <unordered_set> · <unordered_map> 은 이 헤더에서 쓰임이 0 이라 뺐다(게임 서버 나누기 14 단계)
 
 #include "NetIoModel.h"   // 컴파일타임 I/O 모델 별칭 (IOCP/epoll) — IOCPServer.h를 여기서 흡수
 #include <Protocol/Protocol.h>   // 게임 패킷 정의 — 전에는 IOCPServer.h를 통해 딸려왔다
