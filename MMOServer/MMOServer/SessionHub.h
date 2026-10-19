@@ -123,6 +123,11 @@ public:
     //   단일 증가 카운터라 둘이 충돌하지 않는다. int32 라 2^31 위로 못 올라온다(지정 계정 번호 하한 ACCOUNT_ID_MIN 이 여기에 기댄다).
     int32_t AllocActorId() { return _nextActorId++; }
 
+    // ── 끊기 요청 ──
+    //   세션 단위 일이라 보내기와 같은 네트워크(Init 에서 받은 것)에 넘긴다 — 입장 조각이 쓴다(접속 거절 · 불러오기 실패 · 같은 계정 걷어내기 ·
+    //   게임 서버 나누기 12 단계). 네트워크는 게임 서버의 Init 에서 생겨 조각이 생성 때 받을 수 없어 여기를 거친다. 실제 끊김은 끊김 이벤트로 돌아온다.
+    bool RequestDisconnect(int64_t sessionId) { return _network->RequestDisconnectSession(sessionId); }
+
 private:
     CMonitorManager& _monitor;        // 코어 지표 — 보낸 수·바이트(SendPacket)
     NetIoModel*      _network = nullptr;   // 빌린 것 — 주인은 CGameServer(Init 에서 받는다)
@@ -132,7 +137,7 @@ private:
     //   슬롯 재사용(ABA)은 FindPlayer의 _sessionId 일치 검사로 방어. 접근은 게임 스레드 단독.
     //   ★ 플레이어의 주인이 이 슬롯이다(unique_ptr) — 손으로 delete 하지 않는다. 게임 중인 플레이어를 놓는 길은
     //     RemovePlayer(떠나보내기 끝 — CPlayerPlacement::ReleasePlayer) 하나, 종료는 RemoveAll 이 해제한다.
-    //     입장 중 슬롯에 넣기 전까지는 CGameServer::SpawnPlayer 의 지역 unique_ptr 가 든다.
+    //     입장 중 슬롯에 넣기 전까지는 CEntryHandler::SpawnPlayer 의 지역 unique_ptr 가 든다.
     std::vector<std::unique_ptr<CPlayer>> _slots;
 
     int32_t _nextActorId = 1;  // 전역 캐릭터 번호 카운터 (싱글스레드 게임 루프)

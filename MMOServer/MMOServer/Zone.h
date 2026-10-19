@@ -71,7 +71,7 @@ public:
     bool Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHeight, int32_t sectorSize, const StartArea& start);
 
     // 캐릭터 입장 — 스폰 좌표 설정, 섹터 등록
-    // actorId 발급은 게임 서버(세션 허브 CSessionHub::AllocActorId)가 담당 — 객체를 만들고 지우는 것은 플레이어는 CGameServer(칸 주인은 세션 허브),
+    // actorId 발급은 게임 서버(세션 허브 CSessionHub::AllocActorId)가 담당 — 객체를 만들고 지우는 것은 플레이어는 입장 조각(만들기 — CEntryHandler::SpawnPlayer)과 배치(놓기 — CPlayerPlacement::ReleasePlayer · 칸 주인은 세션 허브),
     //   몬스터는 그 존의 몬스터 관리자(CMonsterManager)가 한다
     // ★ 실패가 없다 — 들어갈 수 있는지(정원·같은 존 등)는 부르는 쪽이 들어가기 "전에" 다 본다
     //   (존 이동은 CMapManager::PickZoneChangeTarget). 그래서 존 이동은 「확인 → 옛 존 나가기 → 여기」 순서이고,

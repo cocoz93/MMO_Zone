@@ -16,8 +16,8 @@
 //        섹터 목록(CCharacter*)에서 받는 쪽을 고를 때는 As<CPlayer>(Character.h) 로 확인 후 내려 바꾼다.
 class CPlayer : public CCharacter
 {
-    friend class CGameServer;  // 경계 계층만 _sessionId 접근 허용
     friend class CSessionHub;  // 세션 칸의 주인 — 칸에 넣을 때 세션을 붙이고, 찾기(재사용 가드)·보내기가 읽는다
+    friend class CEntryHandler; // 접속 세션 → 플레이어 관문 — 같은 계정 걷어내기가 옛 세션을 읽어 끊고, 존 이동 요청이 세션 없는 플레이어를 거른다(게임 서버 나누기 12 단계)
 
 public:
     CPlayer();
@@ -106,7 +106,7 @@ public:
 #endif
 
 private:
-    // 이 플레이어를 조종하는 네트워크 세션. -1 = 아직 없음 — 스폰 경로(CGameServer::SpawnPlayer)가
+    // 이 플레이어를 조종하는 네트워크 세션. -1 = 아직 없음 — 스폰 경로(CEntryHandler::SpawnPlayer)가
     //   EnterZone → 세션 부여(CSessionHub::AddPlayer) 순이라 EnterZone 시점엔 잠시 -1 이다. SendPacket 이 이 값을 검사한다.
     int64_t _sessionId = -1;
 };

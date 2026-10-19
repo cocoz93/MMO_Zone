@@ -72,7 +72,7 @@ inline const char* ZoneChangeResultName(ZoneChangeReject r)
 }
 constexpr int ZONE_CHANGE_RESULT_COUNT = static_cast<int>(ZoneChangeReject::COUNT);
 
-// 포털 사용 거절 사유 — 게임 서버(RecvPortalUse)가 정하고 계수기만 쓴다(와이어 값은 S2C_ZONE_CHANGE_FAIL 의 4·5 로 묶인다 —
+// 포털 사용 거절 사유 — 입장 조각(CEntryHandler::RecvPortalUse)이 정하고 계수기만 쓴다(와이어 값은 S2C_ZONE_CHANGE_FAIL 의 4·5 로 묶인다 —
 //   클라에겐 「없음」과 「다른 맵의 포털」이 같은 답이지만, 세는 쪽에선 갈라 둬야 클라 버그인지 사람 조작인지 읽힌다).
 enum class PortalReject : uint8_t
 {

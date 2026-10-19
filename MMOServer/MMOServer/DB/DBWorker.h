@@ -39,7 +39,7 @@ struct DBConfig
 
 // characters 의 hp·mp 열에서 「저장된 적 없음」 — 들어올 때 가득 채운다(CStatSystem::RestoreHpMp 는 음수를 이렇게 읽는다).
 //   열을 붙이기 전 행의 기본값이고(schema.sql), 새 캐릭터·전투나 스킬을 끈 빌드도 이 값을 싣는다.
-//   0 이 아닌 이유 — 체력 0 은 「죽은 채 저장됨」이라 부활 규칙을 탄다(CGameServer::OnCharacterLoaded).
+//   0 이 아닌 이유 — 체력 0 은 「죽은 채 저장됨」이라 부활 규칙을 탄다(CEntryHandler::OnCharacterLoaded).
 //   (USE_DB_WORKER 밖에 두는 이유 — 입장 판정 구조체(EnterPlacement)의 기본값이라 토글을 끈 빌드도 쓴다)
 constexpr int32_t DB_HP_MP_UNSAVED = -1;
 

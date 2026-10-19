@@ -107,7 +107,7 @@ void CStatSystem::RecalcStats(CCharacter* character, bool refill)
 // ==========================================================================
 // 입장 — 저장된 체력·마력 넣기
 //   최대치는 저장하지 않는다 — 레벨 표·장비로 다시 세우는 값이라, 표를 낮춘 패치·장비 변화 뒤엔 저장값이 최대를 넘을 수 있다.
-//   그래서 RecalcStats 가 최대치를 세운 "뒤"에 불러 넘은 몫을 깎는다(GameServer.cpp SpawnPlayer 의 순서).
+//   그래서 RecalcStats 가 최대치를 세운 "뒤"에 불러 넘은 몫을 깎는다(EntryHandler.cpp SpawnPlayer 의 순서).
 // ==========================================================================
 void CStatSystem::RestoreHpMp(CCharacter* character, int32_t hp, int32_t mp)
 {

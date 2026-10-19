@@ -39,7 +39,7 @@ RoomEntryResult CheckRoomEntry(const CPlayer* me, const Party* party, const CRoo
         if (m.player->_zoneId != me->_zoneId)
             return { RoomEntryReject::NOT_GATHERED, m.player };
     }
-    // 살았나 — 쓰러진 채 옮기면 부활 대기가 옛 존을 가리킨다(포털이 죽은 사람을 막는 까닭과 같다 — CGameServer::RecvPortalUse)
+    // 살았나 — 쓰러진 채 옮기면 부활 대기가 옛 존을 가리킨다(포털이 죽은 사람을 막는 까닭과 같다 — CEntryHandler::RecvPortalUse)
     for (const Party::Member& m : party->members)
     {
         if (m.player->_isDead)

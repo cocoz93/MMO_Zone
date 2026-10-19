@@ -85,7 +85,7 @@ namespace Combat
     void Respawn(CCharacter& actor);
 
     // 부활 자리 규칙 한 곳 — 죽은 맵이 마을(기본 맵 = 맵 표 첫 줄)이 아니면 마을 시작 구역으로, 마을이면 제자리.
-    //   부르는 곳 둘: 전투 조각의 부활 틱(CCombatHandler::TickRespawn — 죽고 3초 뒤) · 입장(CGameServer::OnCharacterLoaded — 죽은 채 저장된 행 —
+    //   부르는 곳 둘: 전투 조각의 부활 틱(CCombatHandler::TickRespawn — 죽고 3초 뒤) · 입장 조각(CEntryHandler::OnCharacterLoaded — 죽은 채 저장된 행 —
     //   나가기·부활 전 주기 저장·죽은 채 서버 다운). 두 조각이 같이 쓰는 규칙이라 서로 부르지 않게 여기 순수 함수로 둔다
     //   (게임 서버 나누기 9 단계 — 전에는 CGameServer 멤버 함수였다).
     inline bool RespawnsToTown(int32_t deathMapId, int32_t townMapId) { return deathMapId != townMapId; }

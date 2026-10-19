@@ -14,7 +14,7 @@
 //  틱 번호는 빌려서 읽기만 한다 — 「틱 ↔ 실제 시각」 환산의 「지금」이다.
 //
 // [모르는 것]
-//  입장 절차(대기표 · 어느 존에 들여보낼지 · 스폰) · 패킷. 불러오기 결과를 받는 쪽은 알림 통로 뒤에 있다(지금은 CGameServer).
+//  입장 절차(대기표 · 어느 존에 들여보낼지 · 스폰) · 패킷. 불러오기 결과를 받는 쪽은 알림 통로 뒤에 있다(입장 조각 CEntryHandler — 게임 서버 나누기 12 단계).
 //  존·세션은 값만 다룬다 — 존 번호를 맵 번호로 바꾸기(CMapManager::GetMapIdFromZoneId)만 빌려 쓰고, 세션 번호는 불러오기 열쇠로 실어 나르기만 한다.
 // ==========================================================================
 #pragma once
@@ -37,7 +37,7 @@ class CBuffSystem;
 #endif
 
 // 불러오기 결과를 넘기는 통로 — 받는 쪽이 판정(찾음·없음·실패)하고 들여보낸다(게임 서버 나누기 0-③ ⑷ — 저장소가 입장 절차를 모르게).
-//   지금은 CGameServer 가 구현한다(입장 조각 C1 을 떼면 그쪽으로). 시스템 알림(ICombatEvents 등)과 같은 꼴 — 순수 가상이라 빠뜨리면 컴파일이 안 된다.
+//   입장 조각(CEntryHandler)이 구현한다(게임 서버 나누기 12 단계 — 전에는 CGameServer). 시스템 알림(ICombatEvents 등)과 같은 꼴 — 순수 가상이라 빠뜨리면 컴파일이 안 된다.
 class ICharacterLoadEvents
 {
 public:
@@ -86,7 +86,7 @@ public:
 
     // 입장 — 묶음을 풀어 실제 시각 → 틱으로 칸을 채운다(SpawnPlayer).
     //   cooldownsAndBuffs = 불러온 행(찾음 갈래에서만 — nullptr 이면 되살릴 것 없음) · dropBuffs = 죽은 채 저장된 행이라 버프는 버린다
-    //   (전에는 입장 배치 구조체(CGameServer::EnterPlacement)를 통째로 받았다 — 저장소가 입장 구조체를 모르게 쓰는 두 칸만 받는다, 4 단계).
+    //   (전에는 입장 배치 구조체(지금 CEntryHandler::EnterPlacement)를 통째로 받았다 — 저장소가 입장 구조체를 모르게 쓰는 두 칸만 받는다, 4 단계).
     void RestoreCooldownsAndBuffs(CPlayer* player, const DBResult* cooldownsAndBuffs, bool dropBuffs);
 
     // DB 왕복 — 캐릭터 불러오기 (요청은 워커 큐로, 결과는 회신 큐로 돌아와 다음 틱에 꺼낸다)

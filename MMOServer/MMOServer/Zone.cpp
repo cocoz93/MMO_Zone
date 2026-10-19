@@ -23,7 +23,7 @@ CZone::CZone(const CGameDataFiles& gameData)
 
 CZone::~CZone()
 {
-    // 플레이어의 생명주기는 CGameServer가 관리 — 몬스터는 _monsterManager 가 멤버 소멸 때 해제한다
+    // 플레이어의 생명주기는 존 밖(세션 허브 칸이 주인 — Zone.h EnterZone 주석)이 관리 — 몬스터는 _monsterManager 가 멤버 소멸 때 해제한다
     _characterList.clear();
 }
 

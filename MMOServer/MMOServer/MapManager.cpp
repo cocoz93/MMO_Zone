@@ -23,7 +23,7 @@ bool CMapInstance::Init(const MapConfig& config)
 CZone* CMapInstance::FindOrCreateChannel(bool isAdmin)
 {
     // 방 맵은 자동 배정이 없다 — 로그인(저장된 자리가 방 맵) · 포털 · 운영자 무작위가 여기로 방에 들어가지 못하게.
-    //   부르는 쪽은 nullptr 을 「그 맵에 자리 없음」으로 이미 다룬다(로그인은 기본 맵으로 — CGameServer::OnCharacterLoaded)
+    //   부르는 쪽은 nullptr 을 「그 맵에 자리 없음」으로 이미 다룬다(로그인은 기본 맵으로 — CEntryHandler::OnCharacterLoaded)
     if (IsRoomMap())
         return nullptr;
 
@@ -230,7 +230,7 @@ ZoneChangeTarget CMapManager::PickZoneChangeTarget(int32_t currentZoneId, int32_
     {
         // ── 기존 맵 이동 (자동 채널 배정) ──
 
-        // 맵을 고르는 요청은 운영자만 — 다른 맵으로 가는 길은 포털이다(CGameServer::RecvPortalUse).
+        // 맵을 고르는 요청은 운영자만 — 다른 맵으로 가는 길은 포털이다(CEntryHandler::RecvPortalUse).
         //   「가득 차면 다음 채널」은 이 요청이 아니라 입장 때 FindOrCreateChannel 이 고른다. 채널 지정(위 갈래)은 누구나
         if (!isAdmin)
             return { nullptr, ZoneChangeReject::NOT_ALLOWED };
