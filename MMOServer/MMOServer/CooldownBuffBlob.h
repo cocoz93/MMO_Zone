@@ -28,7 +28,7 @@ namespace CooldownBuffBlob
     constexpr size_t  COOLDOWN_BYTES = 1 + 8;       // 스킬 번호 + 다시 쓸 수 있는 시각
     constexpr size_t  BUFF_BYTES     = 1 + 4 + 8;   // 종류 + 값 + 끝나는 시각
 
-    // 열의 최대 길이 — 칸이 가득 찼을 때. DB 쪽 버퍼(DBWorker.h DB_SKILL_COOLDOWNS_BYTES · DB_BUFFS_BYTES)와 대조한다(GameServer.cpp).
+    // 열의 최대 길이 — 칸이 가득 찼을 때. DB 쪽 버퍼(DBWorker.h DB_SKILL_COOLDOWNS_BYTES · DB_BUFFS_BYTES)와 대조한다(CharacterStore.cpp).
     constexpr size_t CooldownsMaxBytes(int slots) { return HEADER_BYTES + static_cast<size_t>(slots) * COOLDOWN_BYTES; }
     constexpr size_t BuffsMaxBytes(int kinds)     { return HEADER_BYTES + static_cast<size_t>(kinds) * BUFF_BYTES; }
 

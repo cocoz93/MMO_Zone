@@ -33,7 +33,7 @@
 
 // 스탯 기본값은 코드에 두지 않는다(10-06, 아키텍처 전수검사 6번 — 전에는 CHARACTER_DEFAULT_* 상수가 표의 1레벨 칸과 두 벌이었다).
 //   플레이어는 레벨 표(LevelTable.csv)가 정본이고 CStatSystem::RecalcStats 가 채운다. 몬스터는 파생 생성자가 종류 값을 넣는다.
-//   아래 멤버의 0 은 「아직 안 정해짐」이다 — 전투를 끈 빌드는 0 그대로 두고, 스냅샷도 0 을 싣는다(GameServer.cpp WriteSnapshot).
+//   아래 멤버의 0 은 「아직 안 정해짐」이다 — 전투를 끈 빌드는 0 그대로 두고, 스냅샷도 0 을 싣는다(PacketBuild.h WriteSnapshot).
 
 // 캐릭터 종류 — 위 [종류] 참조. 와이어에는 안 실린다(클라는 displayChar 로 종류를 안다).
 enum class CharacterKind : uint8_t

@@ -84,7 +84,7 @@ namespace
 
 #if USE_INVENTORY
     // ── 인벤토리 (USE_INVENTORY) ──
-    //   필드 순서는 Protocol.h 의 InventoryEntry 와 글자 그대로 같아야 한다(칸 패킷 MakeInventorySlot 은 GameServer.cpp — 같은 주의).
+    //   필드 순서는 Protocol.h 의 InventoryEntry 와 글자 그대로 같아야 한다(칸 패킷 MakeInventorySlot 은 ItemHandler.cpp — 같은 주의).
 
     // 가방 전체는 한 장으로 간다(나눠 보내는 길이 없다) — 가득 찬 가방도 한 패킷에 들어가야 한다.
     //   지금 616B(헤더 4 + 개수 2 + 10 × 61 — 가방 60 + 착용 1). 탭·착용 칸을 늘려 칸이 145개를 넘으면 여기서 컴파일이 멈춘다.

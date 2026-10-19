@@ -67,7 +67,7 @@ struct DBBytes
 };
 
 // 쿨타임·버프 열의 버퍼 크기 — 형식(CooldownBuffBlob.h)의 최대 길이와 같다(스킬 8칸 = 2 + 8×9 · 버프 1종 = 2 + 1×13).
-//   스킬·버프 종류를 늘려 형식이 커지면 GameServer.cpp 의 static_assert 가 여기를 올리라고 막는다. 열 자체는 VARBINARY(255).
+//   스킬·버프 종류를 늘려 형식이 커지면 CharacterStore.cpp 의 static_assert 가 여기를 올리라고 막는다. 열 자체는 VARBINARY(255).
 constexpr size_t DB_SKILL_COOLDOWNS_BYTES = 74;
 constexpr size_t DB_BUFFS_BYTES           = 15;
 

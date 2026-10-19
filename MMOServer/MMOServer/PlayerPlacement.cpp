@@ -124,7 +124,7 @@ void CPlayerPlacement::SendCreateMyPlayer(CPlayer* target)
     _sessionHub.SendPacket(target, MakeCreateMyPlayer(target));   // 본인 체력도 이 안에 실린다(ActorSnapshot)
 }
 
-// 존에서 존으로 옮기기 한 곳(GameServer.h 선언 주석).
+// 존에서 존으로 옮기기 한 곳(PlayerPlacement.h 선언 주석).
 void CPlayerPlacement::TransferPlayer(CPlayer* player, CZone* oldZone, CZone* newZone, ArrivalKind kind, const SpawnAt* at)
 {
     // 같은 존으로 옮기기는 부르는 쪽이 막았다 — 통과시키면 자리만 다시 뽑혀 순간이동이 된다(PickZoneChangeTarget 의 SAME_ZONE 주석)
