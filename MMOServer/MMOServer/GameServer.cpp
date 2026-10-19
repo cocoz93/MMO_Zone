@@ -109,74 +109,8 @@ namespace
         return 0;
     }
 
-#if USE_DROP
-    // 땅 아이템 쪽 사유 → 와이어 값. 사유를 정하는 건 존의 땅 아이템 관리자(GroundItem.h), 패킷 값으로 바꾸는 건 여기 —
-    //   위 ToZoneChangeFailReason 과 같은 꼴(10-06, 아키텍처 전수검사 7번). 존 층은 Protocol.h 를 모른다.
-    GroundItemGone ToGroundItemGone(GroundItemRemoval why)
-    {
-        switch (why)
-        {
-        case GroundItemRemoval::PICKED:  return GroundItemGone::PICKED;
-        case GroundItemRemoval::EXPIRED: return GroundItemGone::EXPIRED;
-        case GroundItemRemoval::CLEANED:   // 알릴 사람이 없는 사유 — 관리자가 알림을 안 보낸다
-        case GroundItemRemoval::COUNT:   break;
-        }
-        assert(false && "와이어에 안 나가는 사유를 DELETE 로 바꾸려 했다");
-        return GroundItemGone::EXPIRED;
-    }
-
-    PickupFail ToPickupFail(PickupReject reject)
-    {
-        switch (reject)
-        {
-        case PickupReject::DEAD:      return PickupFail::DEAD;
-        case PickupReject::NO_ITEM:   return PickupFail::NO_ITEM;
-        case PickupReject::NOT_OWNER: return PickupFail::NOT_OWNER;
-        case PickupReject::NONE:      break;
-        }
-        assert(false && "거절이 아닌 결과를 실패 패킷으로 바꾸려 했다");
-        return PickupFail::NO_ITEM;
-    }
-#endif
-
-#if USE_INVENTORY
-    // 쓰기·장착 거절 사유 → 와이어 값. 사유를 정하는 건 CItemSystem(ItemSystem.h), 패킷 값으로 바꾸는 건 여기 —
-    //   위 ToPickupFail 과 같은 꼴(10-08, 아키텍처 2차 검사 2번). 통과(COUNT)는 실패 패킷이 아니다.
-    UseItemFail ToUseItemFail(UseItemReject reject)
-    {
-        switch (reject)
-        {
-        case UseItemReject::BAD_SLOT:   return UseItemFail::BAD_SLOT;
-        case UseItemReject::EMPTY:      return UseItemFail::EMPTY;
-        case UseItemReject::NOT_USABLE: return UseItemFail::NOT_USABLE;
-        case UseItemReject::DEAD:       return UseItemFail::DEAD;
-        case UseItemReject::COOLDOWN:   return UseItemFail::COOLDOWN;
-        case UseItemReject::FULL_HP:    return UseItemFail::FULL_HP;
-        case UseItemReject::FULL_MP:    return UseItemFail::FULL_MP;
-        case UseItemReject::COUNT:      break;
-        }
-        assert(false && "거절이 아닌 결과를 실패 패킷으로 바꾸려 했다");
-        return UseItemFail::BAD_SLOT;
-    }
-
-#if USE_EQUIP
-    EquipFail ToEquipFail(EquipReject reject)
-    {
-        switch (reject)
-        {
-        case EquipReject::BAD_SLOT:       return EquipFail::BAD_SLOT;
-        case EquipReject::EMPTY:          return EquipFail::EMPTY;
-        case EquipReject::NOT_EQUIPPABLE: return EquipFail::NOT_EQUIPPABLE;
-        case EquipReject::DEAD:           return EquipFail::DEAD;
-        case EquipReject::COOLDOWN:       return EquipFail::COOLDOWN;
-        case EquipReject::TAB_FULL:       return EquipFail::TAB_FULL;
-        case EquipReject::COUNT:          break;
-        }
-        assert(false && "거절이 아닌 결과를 실패 패킷으로 바꾸려 했다");
-        return EquipFail::BAD_SLOT;
-    }
-#endif
-#endif
+    // 땅 아이템·줍기·쓰기·장착 거절 사유 → 와이어 값(ToGroundItemGone · ToPickupFail · ToUseItemFail · ToEquipFail) 은 ItemHandler.cpp
+    //   — 가방·땅 조각만 부른다(게임 서버 나누기 6 단계)
 
     CSerialBuffer* MakeAdminLoginOk()
     {
@@ -213,50 +147,8 @@ namespace
         return buf;
     }
 
-#if USE_INVENTORY
-    // MakeError(본인에게 알림 한 줄) 는 SelfNotifier.cpp — 본인 알림 조각만 부른다(게임 서버 나누기 2 단계)
-
-    // ── 인벤토리 (USE_INVENTORY) ──
-    //   필드 순서는 Protocol.h 의 InventoryEntry·MSG_S2C_INVENTORY_SLOT 와 글자 그대로 같아야 한다.
-
-    // MakeInventory(가방 전체 한 장 · 크기 static_assert 포함) 는 SelfNotifier.cpp — 본인 알림 조각만 부른다(게임 서버 나누기 2 단계)
-
-    CSerialBuffer* MakeInventorySlot(uint16_t slot, int32_t itemId, int32_t count)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_INVENTORY_SLOT::TYPE);
-        *buf << static_cast<uint16_t>(slot);
-        *buf << static_cast<int>(itemId);
-        *buf << static_cast<int>(count);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_INVENTORY_SLOT));
-        return buf;
-    }
-
-    CSerialBuffer* MakeUseItemFail(uint16_t slot, UseItemFail reason)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_USE_ITEM_FAIL::TYPE);
-        *buf << static_cast<uint16_t>(slot);
-        *buf << static_cast<uint8_t>(reason);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_USE_ITEM_FAIL));
-        return buf;
-    }
-
-#if USE_EQUIP
-    CSerialBuffer* MakeEquipFail(uint16_t slot, EquipFail reason)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_EQUIP_FAIL::TYPE);
-        *buf << static_cast<uint16_t>(slot);
-        *buf << static_cast<uint8_t>(reason);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_EQUIP_FAIL));
-        return buf;
-    }
-#endif
-#endif // USE_INVENTORY
+    // MakeError(알림 한 줄) · MakeInventory(가방 전체) 는 SelfNotifier.cpp(2 단계) · MakeInventorySlot(칸 하나) · MakeUseItemFail · MakeEquipFail(쓰기·장착 거절) 는
+    //   ItemHandler.cpp(6 단계) — 각각 그 조각만 부른다(게임 서버 나누기)
 
     // MakeActorBuff(지속 효과 통보 — 본인에게만) 는 SelfNotifier.cpp — 본인 알림 조각만 부른다(게임 서버 나누기 2 단계)
 
@@ -382,20 +274,7 @@ namespace
     }
 #endif
 
-#if USE_DROP
-    // MakeGroundItemCreate · MakeGroundItemDelete(땅 아이템 보이기·지우기) 는 SightBroadcaster.cpp — 시야 방송 조각만 부른다(게임 서버 나누기 3 단계)
-
-    CSerialBuffer* MakePickupFail(PickupFail reason, int32_t itemId)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_PICKUP_FAIL::TYPE);
-        *buf << static_cast<uint8_t>(reason);
-        *buf << static_cast<int32_t>(itemId);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_PICKUP_FAIL));
-        return buf;
-    }
-#endif // USE_DROP
+    // MakeGroundItemCreate · MakeGroundItemDelete(땅 아이템 보이기·지우기) 는 SightBroadcaster.cpp(3 단계) · MakePickupFail(줍기 거절) 은 ItemHandler.cpp(6 단계)
 
     // MakeSectorUpdates(섹터 묶음) · MakeCreatePlayerBatch · MakeDeletePlayerBatch(인바운드 멤버십 묶음 · 크기 static_assert 포함) 는
     //   SightBroadcaster.cpp — 시야 방송 조각만 부른다(게임 서버 나누기 3 단계)
@@ -841,7 +720,7 @@ void CGameServer::GameLoopThread()
 
 #if USE_DROP
         // 3-3) 땅의 아이템 사라지기 — 섹터 변경 대기열을 비운 뒤라 "같은 틱 이동자" 보정이 필요 없다
-        TickGroundItems();
+        _itemHandler.TickGroundItems();
 #endif
 
         auto phaseT3 = Clock::now();
@@ -888,7 +767,7 @@ void CGameServer::GameLoopThread()
             // 지우기 직전 콜백 — 존 밖에서 이 존의 것을 든 곳을 정리하는 마지막 기회다. 둘 다 토글이 따로라 한 콜백에 합친다
             //   (땅 아이템만 USE_DROP 안에 묶어 두었더니 USE_DROP 0 이면 콜백이 아예 없어 버프 목록 정리도 같이 빠졌을 것이다).
 #if USE_DROP
-            const GroundItemContext groundCtx = MakeGroundItemContext();
+            const GroundItemContext groundCtx = _itemHandler.MakeGroundItemContext();
 #endif
 #if USE_DROP || USE_COMBAT || USE_PARTY
             _mapManager.CleanupEmptyChannels([&](CZone* zone)
@@ -1375,17 +1254,8 @@ bool CGameServer::RegisterRoutes()
     ok &= _routes.Size(MsgType::C2S_ENTER_GAME, sizeof(MSG_C2S_ENTER_GAME));
 #endif
 #if USE_INVENTORY
-    // 이 줄이 없으면 물약 쓰기가 조용히 버려진다(위 C2S_ATTACK 과 같은 함정 — 답도 로그도 없다).
-    ok &= _routes.OnPlayer(MsgType::C2S_USE_ITEM, sizeof(MSG_C2S_USE_ITEM), [this](CPlayer* p, CSerialBuffer* m) { RecvUseItem(p, m); });
-#endif
-#if USE_EQUIP
-    // 이 두 줄이 없으면 끼우기·빼기가 조용히 버려진다(위 물약과 같은 함정 — 거절 패킷도 안 간다).
-    ok &= _routes.OnPlayer(MsgType::C2S_EQUIP,   sizeof(MSG_C2S_EQUIP),   [this](CPlayer* p, CSerialBuffer* m) { RecvEquip(p, m); });
-    ok &= _routes.OnPlayer(MsgType::C2S_UNEQUIP, sizeof(MSG_C2S_UNEQUIP), [this](CPlayer* p, CSerialBuffer* m) { RecvUnequip(p, m); });
-#endif
-#if USE_DROP
-    ok &= _routes.OnPlayer(MsgType::C2S_PICKUP, sizeof(MSG_C2S_PICKUP),   // 몸 없음 — 헤더뿐
-                           [this](CPlayer* p, CSerialBuffer* m) { RecvPickup(p, m); });
+    // 물약 · 끼우기·빼기(USE_EQUIP) · 줍기(USE_DROP) — 가방·땅 조각이 자기 줄을 등록한다(CItemHandler::RegisterRoutes · 게임 서버 나누기 6 단계)
+    ok &= _itemHandler.RegisterRoutes(_routes);
 #endif
 #if USE_SKILL
     // 이 줄이 없으면 스킬 요청이 조용히 버려진다(위 물약과 같은 함정 — 거절 패킷도 안 간다)
@@ -1780,7 +1650,7 @@ void CGameServer::RunItemCommand(CPlayer* player, const std::vector<std::string>
         counters._itemsAdded.Add(count);
         SLOG_INFO("[ITEM] /item (account={}, player={}) -> {} x{} (item {})",
                   player->_accountId, player->_actorId, def->name, count, def->itemId);
-        FlushInventory(player);
+        _itemHandler.FlushInventory(player);
         return;
 
     case InvAddResult::TAB_FULL:
@@ -1800,106 +1670,13 @@ void CGameServer::RunItemCommand(CPlayer* player, const std::vector<std::string>
     counters._addRejected[static_cast<int>(result)].Inc();
 }
 
-void CGameServer::FlushInventory(CPlayer* player)
-{
-    CInventory& inv = player->_inventory;
-    inv.TakeChanges([&](int index)
-    {
-        // 칸의 "최종값"을 보낸다 — 증감이 아니라서 같은 칸이 두 번 가도 결과가 같다
-        const Item& s = inv.At(index);
-        const uint16_t slotNo = CInventory::SlotNumberOf(index);
-        _sessionHub.SendPacket(player, MakeInventorySlot(slotNo, s.itemId, s.count));
-        _gameMonitor._inventory._slotUpdatesSent.Inc();
-
-#if USE_DB_WORKER
-        // 같은 최종값을 곧바로 DB 로 — 60초 주기를 안 기다린다(아이템은 잃으면 되돌릴 길이 없다).
-        //   빈 칸은 행을 지우지 않고 itemId 0 으로 덮는다(DB 계정에 DELETE 권한이 없다).
-        //   같은 계정은 같은 워커 큐라, 다시 들어올 때 불러오기가 이 저장들 뒤에 줄 선다.
-        if (_characterStore.IsRunning())
-        {
-            const DBItemSlotJob job{ player->_accountId, slotNo, s.itemId, s.count };
-            if (_characterStore.EnqueueItemSlot(job))
-                _gameMonitor._inventory._itemSavesQueued.Inc();
-            else
-            {
-                // 아이템 저장 상한 — 정상 상태에선 안 닿는다(닿았다면 DB 가 멈춘 것). 되살릴 길은 이번 범위 밖이라 세고 남긴다.
-                _gameMonitor._inventory._itemSaveRejected.Inc();
-                SLOG_ERROR("[DB] item slot save REJECTED — queue ceiling (account={}, slot={}, item={}, count={})",
-                           player->_accountId, slotNo, s.itemId, s.count);
-            }
-        }
-#endif
-    });
-}
+// 바뀐 칸 내보내기(FlushInventory) 는 가방·땅 조각으로 옮겼다 — CItemHandler (게임 서버 나누기 6 단계)
 
 // 불러온 가방 줄 넣기(LoadInventoryRows) 는 캐릭터 저장소 조각으로 옮겼다 — CCharacterStore (게임 서버 나누기 4 단계)
 
 // 가방 전체(SendInventory) · 알림 한 줄(SendSystemMessage) 은 본인 알림 조각으로 옮겼다 — CSelfNotifier (게임 서버 나누기 2 단계)
 
-void CGameServer::RecvUseItem(CPlayer* player, CSerialBuffer* pMsg)
-{
-    MSG_C2S_USE_ITEM recvMsg{};
-    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
-
-    // 판정·적용(체력·마력·개수·대기시간)·세기는 CItemSystem — 여기는 결과를 패킷으로 바꿔 내보내기만 한다
-    const ItemDef* used = nullptr;
-    const UseItemReject reject = _itemSystem.UseItem(player, recvMsg.slot, _frameCount, used);
-    if (reject != UseItemReject::COUNT)
-    {
-        _sessionHub.SendPacket(player, MakeUseItemFail(recvMsg.slot, ToUseItemFail(reject)));
-        return;
-    }
-
-    // 칸 갱신(본인) → 채운 쪽 통보. 효과마다 받는 사람이 다르다(10-11) — 한 물약 한 효과라 둘 중 하나만 간다.
-    //   체력이면 본인 + 주변(남의 머리 위 막대도 차야 한다 — 레벨업 때 체력 방송과 같은 꼴),
-    //   마력이면 본인에게만(S2C_ACTOR_MP — 남의 마력은 화면에 안 그린다).
-    //   ★ 순서가 곧 와이어 순서다 — 칸 패킷이 통보보다 앞선다(시험이 이 순서로 "이 값이 물약 몫"을 가린다).
-    FlushInventory(player);
-    if (used->healHp > 0)
-    {
-        CZone* zone = _mapManager.GetZone(player->_zoneId);
-        if (zone != nullptr)
-            _sightBroadcaster.BroadcastAroundSector(zone, player, MakeActorStats(player->_actorId, player->_hp, player->_maxHp), false);
-    }
-#if USE_SKILL
-    if (used->healMp > 0)
-        _selfNotifier.SendActorMp(player);
-#endif
-}
-
-#if USE_EQUIP
-// ==========================================================================
-// 장착 — 판정·맞바꾸기·대기시간·스탯은 CItemSystem::Equip(ItemSystem.cpp), 여기는 받기와 내보내기만
-// ==========================================================================
-void CGameServer::RecvEquip(CPlayer* player, CSerialBuffer* pMsg)
-{
-    MSG_C2S_EQUIP recvMsg{};
-    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
-    ApplyEquip(player, recvMsg.slot, false);
-}
-
-void CGameServer::RecvUnequip(CPlayer* player, CSerialBuffer* pMsg)
-{
-    MSG_C2S_UNEQUIP recvMsg{};
-    pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
-    ApplyEquip(player, recvMsg.slot, true);
-}
-
-void CGameServer::ApplyEquip(CPlayer* player, uint16_t slot, bool unequip)
-{
-    const EquipReject reject = _itemSystem.Equip(player, slot, unequip, _frameCount);
-    if (reject != EquipReject::COUNT)
-    {
-        _sessionHub.SendPacket(player, MakeEquipFail(slot, ToEquipFail(reject)));
-        return;
-    }
-
-    // 칸 패킷 둘 + DB 두 줄 → 본인에게 새 공격력(공격력은 CItemSystem::Equip 이 이미 다시 세웠다).
-    //   ★ 순서가 곧 와이어 순서다 — 칸 패킷이 MY_STATS 보다 앞선다(클라가 무기 칸을 먼저 알고 숫자를 채운다).
-    FlushInventory(player);
-    _selfNotifier.SendMyStats(player);
-}
-#endif // USE_EQUIP
+// 물약 쓰기(RecvUseItem) · 끼우기·빼기(RecvEquip · RecvUnequip · ApplyEquip) 는 가방·땅 조각으로 옮겼다 — CItemHandler (게임 서버 나누기 6 단계)
 #endif // USE_INVENTORY
 
 // ==========================================================================
@@ -2364,9 +2141,9 @@ void CGameServer::RewardRoom(CZone* zone, CMonster* monster)
                 _selfNotifier.SendSystemMessage(p, "가방이 차서 발밑에 — " + def->name + " ×" + std::to_string(it.count));
             }
         }
-        FlushInventory(p);   // 칸 패킷 + 곧바로 DB 저장(줍기와 같은 길) — 바뀐 칸이 없으면 아무것도 안 간다
+        _itemHandler.FlushInventory(p);   // 칸 패킷 + 곧바로 DB 저장(줍기와 같은 길) — 바뀐 칸이 없으면 아무것도 안 간다
         if (!_roomOverflow.empty())
-            zone->GetGroundItemManager().Drop(MakeGroundItemContext(), _roomOverflow, p->_x, p->_y, p->_accountId, _frameCount);
+            zone->GetGroundItemManager().Drop(_itemHandler.MakeGroundItemContext(), _roomOverflow, p->_x, p->_y, p->_accountId, _frameCount);
 #endif
 
         _roomLocks.Lock(p->_accountId, zone->GetMapId(), lockUntil);
@@ -2713,10 +2490,7 @@ void CGameServer::OnMonsterVanish(CZone* zone, CMonster* monster)
 //   여기는 굴림·관리자 부르기·알림을 받아 송신·번호 발급·줍기의 가방과 저장만 한다.
 // ==========================================================================
 
-GroundItemContext CGameServer::MakeGroundItemContext()
-{
-    return GroundItemContext{ *this, _gameMonitor };
-}
+// 땅 아이템 관리자에 넘길 묶음(MakeGroundItemContext) 은 가방·땅 조각으로 옮겼다 — CItemHandler (게임 서버 나누기 6 단계)
 
 void CGameServer::DropLoot(CZone* zone, CPlayer* killer, CMonster* monster)
 {
@@ -2729,89 +2503,14 @@ void CGameServer::DropLoot(CZone* zone, CPlayer* killer, CMonster* monster)
         return;
 
     // 땅에 놓기는 존의 관리자가 — 아이템마다 OnGroundItemDrop 으로 돌아와 주변에 CREATE(DROP)
-    zone->GetGroundItemManager().Drop(MakeGroundItemContext(), _lootBuffer, monster->_x, monster->_y,
+    zone->GetGroundItemManager().Drop(_itemHandler.MakeGroundItemContext(), _lootBuffer, monster->_x, monster->_y,
                                       killer->_accountId, _frameCount);
 }
 
 // 땅 아이템 한 사람에게 보이기·지우기(SendGroundItemCreate · SendGroundItemDelete) 는 시야 방송 조각으로 옮겼다 — CSightBroadcaster (게임 서버 나누기 3 단계)
 
-// ── 땅 아이템 알림과 번호 부탁 (IGroundItemEvents) ── 패킷 조립·송신은 이 파일 것을 그대로 쓴다.
-
-int32_t CGameServer::AllocGroundId()
-{
-    return _nextGroundId++;
-}
-
-void CGameServer::OnGroundItemDrop(CZone* zone, const CGroundItem& item, int32_t sectorX, int32_t sectorY)
-{
-    _sightBroadcaster.BroadcastGroundItemCreate(zone, item, sectorX, sectorY);   // 주변에 CREATE(DROP) — 몸은 시야 조각으로 옮겼다(3 단계)
-}
-
-void CGameServer::OnGroundItemGone(CZone* zone, int32_t sectorX, int32_t sectorY,
-                                   int32_t groundId, GroundItemRemoval why, int32_t pickerId)
-{
-    const GroundItemGone wire = ToGroundItemGone(why);   // 사유 → 와이어 값은 여기서 — 관리자는 패킷을 모른다
-
-    // 주변 + 같은 틱 이동자에게 DELETE — 몸은 시야 조각으로 옮겼다(3 단계)
-    _sightBroadcaster.BroadcastGroundItemDelete(zone, sectorX, sectorY, groundId, wire, pickerId);
-}
-
-void CGameServer::TickGroundItems()
-{
-    if (++_groundItemScanCounter < GROUND_ITEM_SCAN_FRAMES)
-        return;
-    _groundItemScanCounter = 0;
-
-    // 훑기는 존마다 관리자가 — 땅에 아무것도 없는 존은 거기서 바로 끝난다
-    const GroundItemContext ctx = MakeGroundItemContext();
-    _mapManager.ForEachZone([&](CZone* zone)
-    {
-        zone->GetGroundItemManager().TickExpire(ctx, _frameCount);
-    });
-}
-
-void CGameServer::RecvPickup(CPlayer* player, CSerialBuffer* /*pMsg*/)   // 몸이 없다 — 헤더뿐
-{
-    CZone* zone = _mapManager.GetZone(player->_zoneId);
-    if (zone == nullptr)
-        return;
-
-    CGroundItemManager& groundItems = zone->GetGroundItemManager();
-    CGroundItemManager::PickupTarget at;
-    const PickupReject reject = groundItems.FindPickup(player, _frameCount, at);   // 존의 판정(그 층의 어휘)
-    PickupFail fail = (reject == PickupReject::NONE) ? PickupFail::COUNT : ToPickupFail(reject);   // 와이어 값으로는 여기서
-    int32_t failItemId = 0;
-
-    if (reject == PickupReject::NONE)
-    {
-        const CGroundItem& g = groundItems.GetSectorItems(at.sectorX, at.sectorY)[at.index];
-        const ItemDef* def = _gameDataFiles.Item().Find(g.item.itemId);
-        if (def == nullptr)
-        {
-            assert(false && "드랍 표 로드가 아이템 표에 없는 번호를 막는다");
-            return;
-        }
-
-        // ★ 가방 넣기가 먼저, 땅에서 빼기가 나중 — 반대면 가득 찬 가방에서 아이템이 사라진다
-        const InvAddResult r = player->_inventory.TryAdd(*def, g.item.count);
-        if (r == InvAddResult::OK)
-        {
-            _gameMonitor._inventory._itemsAdded.Add(g.item.count);   // /item 과 같은 계수기 — 가방에 들어간 개수
-            groundItems.Remove(MakeGroundItemContext(), at.sectorX, at.sectorY, at.index,
-                               GroundItemRemoval::PICKED, player->_actorId);
-            FlushInventory(player);   // 칸 패킷 + 곧바로 DB 저장(지금 경로 그대로)
-            return;
-        }
-
-        // 드랍 아이템은 표에 있고 개수 1 이상이라 TryAdd 가 돌려줄 거절은 가득(TAB_FULL)뿐이다
-        _gameMonitor._inventory._addRejected[static_cast<int>(r)].Inc();
-        fail = PickupFail::TAB_FULL;
-        failItemId = g.item.itemId;   // 클라가 어느 탭이 찼는지 안다
-    }
-
-    _gameMonitor._drop._pickupRejected[static_cast<int>(fail)].Inc();
-    _sessionHub.SendPacket(player, MakePickupFail(fail, failItemId));
-}
+// 땅 아이템 알림(IGroundItemEvents — 번호 발급 · 떨어짐 · 빠짐) · 수명 훑기(TickGroundItems) · 줍기(RecvPickup) 는 가방·땅 조각으로 옮겼다
+//   — CItemHandler (게임 서버 나누기 6 단계)
 #endif // USE_DROP
 
 // 존 이동 성공·실패 보내기(SendZoneChangeOk · SendZoneChangeFail) 는 배치 조각으로 옮겼다 — CPlayerPlacement (게임 서버 나누기 5 단계)

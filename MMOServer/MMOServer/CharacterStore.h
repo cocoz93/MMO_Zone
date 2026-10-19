@@ -76,7 +76,7 @@ public:
     void TickPeriodicSave();                   // 주기: 저장 대상 배치를 1회 핸드오프
 
 #if USE_INVENTORY
-    // 가방 칸 하나 저장 요청 — 받으면 true(셈은 부르는 쪽 · CGameServer::FlushInventory). 저장 플랜 C 가 한 행 저장으로 합칠 길이다.
+    // 가방 칸 하나 저장 요청 — 받으면 true(셈은 부르는 쪽 · CItemHandler::FlushInventory). 저장 플랜 C 가 한 행 저장으로 합칠 길이다.
     bool EnqueueItemSlot(const DBItemSlotJob& job) { return _dbWorker->EnqueueItemSlot(job); }
 
     // 불러온 가방 줄을 검사해 넣는다 — 칸 범위·아이템 표·탭·쌓임 한도. 안 맞는 줄은 세고 건너뛴다(깎아 넣지 않는다).

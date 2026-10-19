@@ -418,7 +418,7 @@ void CSightBroadcaster::SendGroundItemDelete(CPlayer* target, int32_t groundId, 
     _sessionHub.SendPacket(target, MakeGroundItemDelete(groundId, reason, pickerId));
 }
 
-// 땅의 아이템이 떨어졌다 — 주변에 CREATE(DROP). 몸은 CGameServer::OnGroundItemDrop 에서 옮긴 그대로.
+// 땅의 아이템이 떨어졌다 — 주변에 CREATE(DROP). 몸은 땅 아이템 알림(3 단계 당시 CGameServer · 지금 CItemHandler::OnGroundItemDrop)에서 옮긴 그대로.
 void CSightBroadcaster::BroadcastGroundItemCreate(CZone* zone, const CGroundItem& item, int32_t sectorX, int32_t sectorY)
 {
     _eventAroundBuffer.clear();
@@ -427,7 +427,7 @@ void CSightBroadcaster::BroadcastGroundItemCreate(CZone* zone, const CGroundItem
         SendGroundItemCreate(other, item, GroundItemAppear::DROP);
 }
 
-// 땅의 아이템이 빠졌다 — 주변 + 같은 틱 이동자에게 DELETE. 몸은 CGameServer::OnGroundItemGone 에서 옮긴 그대로(와이어 사유 변환은 거기 남음).
+// 땅의 아이템이 빠졌다 — 주변 + 같은 틱 이동자에게 DELETE. 몸은 땅 아이템 알림(3 단계 당시 CGameServer · 지금 CItemHandler::OnGroundItemGone)에서 옮긴 그대로(와이어 사유 변환은 거기 남음).
 void CSightBroadcaster::BroadcastGroundItemDelete(CZone* zone, int32_t sectorX, int32_t sectorY,
                                                   int32_t groundId, GroundItemGone wire, int32_t pickerId)
 {

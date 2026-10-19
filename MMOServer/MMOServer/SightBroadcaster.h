@@ -90,9 +90,9 @@ public:
     void SendSyncPosition(CPlayer* target);
 
 #if USE_DROP
-    // 땅의 아이템이 떨어졌다 — 주변에 CREATE(DROP). 땅 아이템 알림(CGameServer::OnGroundItemDrop)이 부른다.
+    // 땅의 아이템이 떨어졌다 — 주변에 CREATE(DROP). 땅 아이템 알림(CItemHandler::OnGroundItemDrop)이 부른다.
     void BroadcastGroundItemCreate(CZone* zone, const CGroundItem& item, int32_t sectorX, int32_t sectorY);
-    // 땅의 아이템이 빠졌다 — 주변 + 같은 틱 이동자에게 DELETE. 와이어 사유로 바꾸는 것은 부르는 쪽(CGameServer::OnGroundItemGone).
+    // 땅의 아이템이 빠졌다 — 주변 + 같은 틱 이동자에게 DELETE. 와이어 사유로 바꾸는 것은 부르는 쪽(CItemHandler::OnGroundItemGone).
     void BroadcastGroundItemDelete(CZone* zone, int32_t sectorX, int32_t sectorY,
                                    int32_t groundId, GroundItemGone wire, int32_t pickerId);
 #endif

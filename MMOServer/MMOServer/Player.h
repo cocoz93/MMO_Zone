@@ -89,7 +89,7 @@ public:
 #if USE_INVENTORY
     // ── 가방 ──
     // 사람만 갖는다(몬스터가 떨어뜨리는 것은 몬스터의 가방이 아니라 종류별 기획 값이 된다).
-    //   칸을 바꾼 자리는 반드시 CGameServer::FlushInventory 를 불러야 클라·DB 에 나간다.
+    //   칸을 바꾼 자리는 반드시 CItemHandler::FlushInventory 를 불러야 클라·DB 에 나간다.
     //   ★ 맨 끝에 두는 이유 — 칸 61개(가방 60 + 무기 칸, 약 500B)라 앞에 끼우면 이동 쪽 필드들이 캐시 줄 여러 개 뒤로 밀린다.
     //     가방은 명령·물약 때만 본다.
     CInventory _inventory;

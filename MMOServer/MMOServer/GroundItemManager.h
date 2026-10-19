@@ -6,7 +6,7 @@
 //    시야 송신(입장·섹터 이동)이 칸 단위로 읽는다(GetSectorItems). 넣고 빼는 자리는 이 클래스 안뿐이다
 //  - 땅 아이템의 규칙 — 놓을 자리·주인·수명 정하기(Drop) · 빼기(Remove) · 수명 훑기(TickExpire) ·
 //    주울 것 고르기(FindPickup) · 이 존에 있는 수 세기(_count, 채널 정리 때 ForgetAll)
-//  - 송신·번호 발급은 하지 않는다 — 일이 생기면 IGroundItemEvents 로 알리고, 받는 쪽(CGameServer)이 한다
+//  - 송신·번호 발급은 하지 않는다 — 일이 생기면 IGroundItemEvents 로 알리고, 받는 쪽(가방·땅 조각 CItemHandler)이 한다
 //
 // [왜 떼어냈나]
 //  땅은 아이템이 있을 수 있는 그릇 중 하나다(가방·장비 칸과 같은 층) — 그릇이 자기 물건과 규칙을 함께 든다
@@ -40,7 +40,7 @@ class CGameMonitor;
 // 사유 enum(GroundItemRemoval·PickupReject)은 GroundItem.h — 이 층의 어휘다. 와이어 enum(Protocol.h GroundItemGone·PickupFail)은
 //   여기서 모른다. 바꾸는 건 게임 서버(10-06 — 전에는 이 관리자가 Protocol.h 를 포함하고 변환까지 했다).
 
-// 땅 아이템 쪽이 게임 서버에 부탁하는 것 — CGameServer 가 구현한다(세션·송신·번호 계수기가 거기 있다).
+// 땅 아이템 쪽이 게임 서버에 부탁하는 것 — 가방·땅 조각(CItemHandler)이 구현한다(번호 계수기가 거기 있고, 송신은 시야 조각에 맡긴다).
 //   IMonsterEvents 와 같은 꼴: "패킷을 보내라"가 아니라 "무슨 일이 있었다"로 알리고, 패킷 조립은 받는 쪽이 한다.
 //   ★ 순수 가상이라 하나를 빠뜨리면 컴파일이 안 된다.
 class IGroundItemEvents
@@ -105,7 +105,7 @@ public:
     void ForgetAll(const GroundItemContext& ctx);
 
     // 줍기 판정 — DEAD → NO_ITEM → NOT_OWNER 순으로 보고 먼저 걸린 하나. 통과면 PickupReject::NONE 과 고른 것의 자리.
-    //   TAB_FULL 은 판정이 아니라 가방 넣기의 결과다(CGameServer::RecvPickup). 사유가 넷이라 값을 돌려주는 함수로 뺐다(CheckUseItem 과 같은 꼴).
+    //   TAB_FULL 은 판정이 아니라 가방 넣기의 결과다(CItemHandler::RecvPickup). 사유가 넷이라 값을 돌려주는 함수로 뺐다(CheckUseItem 과 같은 꼴).
     //   돌려주는 건 이 층의 어휘(GroundItem.h) — 와이어 PickupFail 로 바꾸는 건 게임 서버.
     struct PickupTarget { int32_t sectorX = 0; int32_t sectorY = 0; size_t index = 0; };
     PickupReject FindPickup(const CPlayer* player, uint64_t frame, PickupTarget& out) const;

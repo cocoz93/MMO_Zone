@@ -21,7 +21,7 @@
 // ==========================================================================
 struct CGroundItem
 {
-    int32_t  groundId        = 0;     // 땅의 아이템 번호 — 캐릭터 번호와 따로 센다(CGameServer::_nextGroundId)
+    int32_t  groundId        = 0;     // 땅의 아이템 번호 — 캐릭터 번호와 따로 센다(CItemHandler::_nextGroundId)
     Item     item;                    // 무엇이 몇 개 — 가방 칸과 같은 타입이라 줍기가 이것을 그대로 옮긴다
     float    x               = 0.0f;
     float    y               = 0.0f;

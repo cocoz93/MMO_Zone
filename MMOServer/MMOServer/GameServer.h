@@ -53,17 +53,17 @@
 #include "SightBroadcaster.h" // 시야 방송(섹터 바뀜 · 주변 방송 · 송신 묶음 · 존 알림) — 게임 서버 나누기 3 단계(B2)
 #include "CharacterStore.h"   // 캐릭터 저장소(DB 워커 · 저장 세 길 · 불러오기 — USE_DB_WORKER) — 게임 서버 나누기 4 단계(B3)
 #include "PlayerPlacement.h"  // 배치(존에 넣기·옮기기·빼기·떠나보내기 · 도착 차례) — 게임 서버 나누기 5 단계(B4)
+#include "ItemHandler.h"      // 가방·땅(물약 · 장착 · 줍기 · 땅 아이템 알림 — USE_INVENTORY) — 게임 서버 나누기 6 단계(C6)
 
 class CSerialBuffer;
 
-// 알림 통로 여덟 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
+// 알림 통로 일곱 — 꽂는 것은 이 클래스 자신뿐이라 비공개 상속.
 //   (IZoneEvents — 존의 걷기·멈춤 알림 둘 — 은 시야 조각 CSightBroadcaster 가 구현한다 · 게임 서버 나누기 3 단계)
+//   (IGroundItemEvents — 땅 아이템 관리자의 알림 둘과 번호 부탁 하나 — 는 가방·땅 조각 CItemHandler 가 구현한다 · 게임 서버 나누기 6 단계)
 //   IPlacementEvents  = 배치(CPlayerPlacement)의 알림 둘(존에서 빠짐 · 떠남 — 틱 너머 목록 정리) — 게임 서버 나누기 5 단계(0-③ ⑴⑶) · 토글 없이 늘 있다
 //   ICombatEvents     = 공격 흐름(CCombatSystem)의 알림 셋 — 스킬의 피해·죽음도 이 셋으로 온다(ApplyHit)
 //   IBuffEvents       = 지속 효과 규칙(CBuffSystem)의 알림 하나(효과가 바뀜 — 걸림·되감김·만료·죽음) · 전투 토글 소유
 //   IMonsterEvents    = 몬스터 관리자(CMonsterManager)의 알림 둘(등장·사라짐)과 번호 부탁 하나
-//   IGroundItemEvents = 땅 아이템 관리자(CGroundItemManager)의 알림 둘과 번호 부탁 하나
-//                       (USE_DROP 은 가방(→ 전투)과 몬스터가 다 켜져야 켜진다 — BuildConfig.h #error)
 //   ISkillEvents      = 스킬 규칙(CSkillSystem)의 알림 둘(시전 · 되살려라)
 //   IPartyEvents      = 파티 규칙(CPartySystem)의 알림 다섯(요청·요청 끝·알림 한 줄·파티 전체·파티원 한 줄)
 //   ICharacterLoadEvents = 캐릭터 저장소(CCharacterStore)의 불러오기 결과 하나(OnCharacterLoaded) — 게임 서버 나누기 4 단계(0-③ ⑷) · USE_DB_WORKER
@@ -77,9 +77,6 @@ class CGameServer
 #endif
 #if USE_MONSTER
     , private IMonsterEvents
-#endif
-#if USE_DROP
-    , private IGroundItemEvents
 #endif
 #if USE_SKILL
     , private ISkillEvents
@@ -249,29 +246,9 @@ private:
     void RunItemCommand(CPlayer* player, const std::vector<std::string>& words);   // /item <아이템번호> [개수] — 가방에 바로 넣기
     void RunGmCommand(CPlayer* player, const std::vector<std::string>& words);     // /gm — GM 모드 켜고 끄기(Player.h GM 칸)
 
-    // 바뀐 칸을 내보낸다 — 칸 패킷 하나씩(+ 4단계에서 DB 저장 하나씩). 세는 것도 여기 한 곳이다.
-    //   ★ 칸을 바꾼 자리는 반드시 부른다. 넣기·쓰기·드랍 어느 길이든 내보내는 길은 이것 하나다.
-    void FlushInventory(CPlayer* player);
-
+    // 바뀐 칸 내보내기(FlushInventory) · 물약 쓰기 · 끼우기·빼기는 가방·땅 조각 — _itemHandler (ItemHandler.h · 게임 서버 나누기 6 단계)
     // 가방 전체(SendInventory) · 알림 한 줄(SendSystemMessage)은 본인 알림 조각으로 옮겼다 — _selfNotifier (게임 서버 나누기 2 단계)
-
-    // 아이템 쓰기(지금은 물약만) — CItemSystem::UseItem 을 불러, 거절이면 사유를 본인에게(와이어 값으로 바꿔),
-    //   성공이면 칸 갱신 + 채운 쪽 통보(체력 물약 = 체력 주변 방송 · 마력 물약 = 마력 본인만). 판정·적용·세기는 CItemSystem 이다.
-    void RecvUseItem(CPlayer* player, CSerialBuffer* pMsg);
-
     // 불러온 가방 줄 넣기(LoadInventoryRows)는 캐릭터 저장소 조각 — CharacterStore.h (게임 서버 나누기 4 단계)
-
-#if USE_EQUIP
-    // ── 장착 (USE_EQUIP) ──
-    // 끼우기(가방 칸 → 무기 칸, 차 있으면 맞바꿈) · 빼기(무기 칸 → 장비 탭 첫 빈 칸).
-    //   성공 = (CItemSystem: 칸 둘 맞바꾸기 → 대기시간 → RecalcStats) → FlushInventory(칸 패킷 둘 + DB 두 줄) → S2C_MY_STATS.
-    //   성공 알림은 따로 없다. 거절 = S2C_EQUIP_FAIL(요청 칸 번호, 사유) — 아무것도 안 바뀐다.
-    void RecvEquip(CPlayer* player, CSerialBuffer* pMsg);
-    void RecvUnequip(CPlayer* player, CSerialBuffer* pMsg);
-
-    // 받기 둘의 몸 — CItemSystem::Equip → 거절 답 또는 내보내기. 끼우기·빼기가 같은 길을 탄다.
-    void ApplyEquip(CPlayer* player, uint16_t slot, bool unequip);
-#endif
 #endif
 
 #if USE_SKILL
@@ -350,26 +327,8 @@ private:
     //   주인 = 막타 친 계정 — 굴림은 잡은 사람에게 주는 보상이라 경험치와 같은 이 자리에서 한다.
     void DropLoot(CZone* zone, CPlayer* killer, CMonster* monster);
 
-    // 관리자에 넘길 묶음 — 부를 때마다 만든다(MakeMonsterContext 와 같은 꼴).
-    GroundItemContext MakeGroundItemContext();
-
-    // 땅 아이템 알림과 번호 부탁 (IGroundItemEvents) — 뜻은 GroundItemManager.h.
-    int32_t AllocGroundId() override;                                         // _nextGroundId — 존을 넘어 번호 공간이 하나
-    void OnGroundItemDrop(CZone* zone, const CGroundItem& item,
-                          int32_t sectorX, int32_t sectorY) override;         // 주변에 CREATE(DROP)
-    void OnGroundItemGone(CZone* zone, int32_t sectorX, int32_t sectorY,
-                          int32_t groundId, GroundItemRemoval why, int32_t pickerId) override;   // 주변 + 같은 틱 이동자에게 DELETE — 와이어 값 변환은 여기
-    //   두 알림의 보내기(주변 · 같은 틱 이동자 · 한 사람에게 보이기·지우기)는 시야 조각(_sightBroadcaster) — 게임 서버 나누기 3 단계
-
-    // 틱 3-3 — 25틱에 한 번 존마다 관리자의 수명 훑기(TickExpire)를 부른다. 섹터 변경 대기열을 비운 뒤라
-    //   "같은 틱에 섹터를 넘은 사람" 보정이 필요 없다. 땅에 아무것도 없는 존은 관리자가 바로 끝낸다(부하 시험은 늘 그렇다).
-    void TickGroundItems();
-
-    // 줍기 — Z 한 번에 2칸 안에서 내가 주울 수 있는 가장 가까운 것 하나(고르는 건 서버 — 존의 관리자 FindPickup).
-    //   가방 넣기(TryAdd)가 먼저, 땅에서 빼기가 나중 — 반대면 가득 찬 가방에서 아이템이 사라진다.
-    void RecvPickup(CPlayer* player, CSerialBuffer* pMsg);
-
-    static constexpr int GROUND_ITEM_SCAN_FRAMES = FRAME_PER_SEC;   // 1초에 한 번 훑는다 — 사라지는 때가 1초 늦을 수 있다
+    // 관리자에 넘길 묶음(MakeGroundItemContext) · 땅 아이템 알림(IGroundItemEvents) · 수명 훑기 틱 · 줍기는 가방·땅 조각
+    //   — _itemHandler (ItemHandler.h · 게임 서버 나누기 6 단계). 굴림(위 DropLoot)만 여기 남았다(처치 보상 몫).
 #endif
 
 #if USE_DB_WORKER
@@ -488,12 +447,11 @@ private:
     int32_t _defaultMapId = 0;  // 최초 접속 시 입장할 맵 = 맵 표 첫 줄 = 마을(죽으면 여기 시작 구역으로 — TickRespawn)
 
 #if USE_DROP
-    int32_t _nextGroundId = 1;       // 땅의 아이템 번호 — 캐릭터 번호와 따로 센다(1초에 하나씩 떨어져도 68년)
+    // 땅의 아이템 번호(_nextGroundId) · 수명 훑기 세기(_groundItemScanCounter)는 가방·땅 조각 — ItemHandler.h (게임 서버 나누기 6 단계)
     std::vector<Item> _lootBuffer;   // 한 마리분 굴림 결과 (멤버 재사용 — 죽을 때마다 할당하지 않게)
 #if USE_PARTY
     std::vector<Item> _roomOverflow; // 방 보상 중 가방이 차서 못 넣은 것 — 그 사람 발밑 땅으로(RewardRoom · 멤버 재사용)
 #endif
-    int     _groundItemScanCounter = 0;   // TickGroundItems 의 25틱 세기
 #endif
 
 #if USE_COMBAT
@@ -544,6 +502,17 @@ private:
                                  _characterStore,
 #endif
                                  _mapManager, _gameMonitor, *this };
+
+#if USE_INVENTORY
+    // 가방·땅 — 물약·장착·줍기 요청 · 바뀐 칸 내보내기 · 땅 아이템 알림(IGroundItemEvents) · 수명 훑기(ItemHandler.h).
+    //   ★ _sessionHub · _selfNotifier · _sightBroadcaster · _characterStore · _itemSystem · _mapManager · _gameMonitor · _gameDataFiles · _frameCount
+    //     보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
+    CItemHandler _itemHandler{ _sessionHub, _selfNotifier, _sightBroadcaster,
+#if USE_DB_WORKER
+                               _characterStore,
+#endif
+                               _itemSystem, _mapManager, _gameMonitor, _gameDataFiles, _frameCount };
+#endif
 
     // 플레이어 이동 속도 덮어쓰기(칸/초) — 0 이면 생성자의 기본값을 그대로 쓴다(SetPlayerSpeed)
     int _playerSpeed = 0;

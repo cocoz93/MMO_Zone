@@ -55,7 +55,7 @@ constexpr bool IsWornIndex(int index) { return index >= WORN_BASE_INDEX && index
 //        넣기(TryAdd)는 아이템 탭의 구간만 돌아 착용 칸에 저절로 안 들어간다.
 //
 // [바뀐 칸] 가방이 스스로 적어 둔다(칸 61개 비트 — 착용 칸 포함). 넣기든 쓰기든 끼우기든 같다.
-//        내보내기(칸 패킷·DB 저장)는 CGameServer::FlushInventory 한 곳이다 — 칸을 바꾸는 길이
+//        내보내기(칸 패킷·DB 저장)는 CItemHandler::FlushInventory 한 곳이다 — 칸을 바꾸는 길이
 //        늘어나도 패킷·저장을 따로 안 짠다. 빠뜨릴 수 있는 것은 그 호출 하나뿐이다.
 //
 // [모르는 것] 패킷도 DB 도 모른다. 아이템 정의는 부르는 쪽이 표에서 찾아 건넨다.
@@ -92,7 +92,7 @@ public:
     static uint16_t SlotNumberOf(int index);   // 배열 색인 → 칸 번호
     int CountNonEmpty() const;
 
-    // 바뀐 칸마다 fn(index) 를 부르고 표시를 지운다 — CGameServer::FlushInventory 만 부른다.
+    // 바뀐 칸마다 fn(index) 를 부르고 표시를 지운다 — CItemHandler::FlushInventory 만 부른다.
     template <class Fn>
     void TakeChanges(Fn&& fn)
     {
