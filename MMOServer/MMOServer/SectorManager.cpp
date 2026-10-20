@@ -1,14 +1,30 @@
 ﻿#include "SectorManager.h"
-#include "Player.h"   // As<CPlayer> — 종류로 목록을 고르는 자리(AddCharacter·RemoveCharacter)
+#include "Player.h"   // As<CPlayer> — 목록을 고르는 자리(AddCharacter·RemoveCharacter)
 #include <algorithm>
 #include <cassert>   // 도달불가 불변식 검증 (릴리즈에서는 사라짐)
 
 const std::vector<CPlayer*>    CSectorManager::EMPTY_PLAYERS;
-const std::vector<CCharacter*> CSectorManager::EMPTY_OTHERS;
+const std::vector<CCharacter*> CSectorManager::EMPTY_CHARACTERS;
 
 namespace
 {
-    // 한 목록에 넣기/빼기 — 플레이어 목록과 나머지 목록이 같은 꼴이라 한 벌만 둔다.
+    // 어느 목록인가 — 갈래가 셋이라 값을 돌려주고 부르는 쪽이 switch 로 가른다(if/else 면 셋째가 둘째에 삼켜져도 안 보인다).
+    //   사람인가(받을 수 있나) → 체력 부품이 있나(맞을 수 있나). 종류·부품은 생성 뒤 안 바뀌므로 넣을 때와 뺄 때 같은 답이다.
+    enum class SectorList : uint8_t
+    {
+        PLAYERS,
+        HITTABLES,
+        NON_HITTABLES,
+    };
+
+    SectorList ListOf(const CCharacter* c)
+    {
+        if (As<CPlayer>(c) != nullptr)
+            return SectorList::PLAYERS;
+        return (c->Health() != nullptr) ? SectorList::HITTABLES : SectorList::NON_HITTABLES;
+    }
+
+    // 한 목록에 넣기/빼기 — 세 목록이 같은 꼴이라 한 벌만 둔다.
     template <typename T>
     void PushTo(std::vector<T*>& list, T* c)
     {
@@ -26,7 +42,7 @@ namespace
         //   (Zone::LeaveZone·Zone::Tick, CMoveHandler::RecvMoveStart·RecvMoveStop)은 모두 직전까지
         //   등록돼 있던 캐릭터를 그 등록 섹터 좌표로 넘기고, 중복 호출 경로도 없다
         //   (LeaveZone 호출은 RemoveFromZone 단 한 곳, 그 뒤엔 슬롯이 비거나 새 존에 재등록된다).
-        //   어느 목록인지는 RemoveCharacter 가 AddCharacter 와 같은 기준(_kind)으로 고른다.
+        //   어느 목록인지는 RemoveCharacter 가 AddCharacter 와 같은 기준(ListOf — 종류·부품)으로 고른다.
         assert(idx >= 0 && idx < static_cast<int32_t>(list.size()) && list[idx] == c);
 
         T* back = list.back();
@@ -57,9 +73,10 @@ bool CSectorManager::Init(int32_t mapWidth, int32_t mapHeight, int32_t sectorSiz
     _sectorCountX = (mapWidth + sectorSize - 1) / sectorSize;
     _sectorCountY = (mapHeight + sectorSize - 1) / sectorSize;
 
-    // 2D 그리드 할당 (평탄화) — 목록 둘이 같은 칸 번호를 쓴다
+    // 2D 그리드 할당 (평탄화) — 목록 셋이 같은 칸 번호를 쓴다
     _players.resize(_sectorCountY * _sectorCountX);
-    _others.resize(_sectorCountY * _sectorCountX);
+    _hittables.resize(_sectorCountY * _sectorCountX);
+    _nonHittables.resize(_sectorCountY * _sectorCountX);
 
     return true;
 }
@@ -89,11 +106,13 @@ void CSectorManager::AddCharacter(CCharacter* character, int32_t sectorX, int32_
     if (!IsValidSector(sectorX, sectorY))
         return;
 
-    // 종류로 목록을 고른다 — 여기와 RemoveCharacter 둘뿐이다. _kind 는 생성자 뒤 안 바뀌므로 둘이 어긋날 길이 없다.
-    if (CPlayer* p = As<CPlayer>(character))
-        PushTo(PlayersAt(sectorY, sectorX), p);
-    else
-        PushTo(OthersAt(sectorY, sectorX), character);
+    // 목록을 고른다 — 여기와 RemoveCharacter 둘뿐이다. 종류·부품은 생성자 뒤 안 바뀌므로 둘이 어긋날 길이 없다.
+    switch (ListOf(character))
+    {
+    case SectorList::PLAYERS:       PushTo(PlayersAt(sectorY, sectorX), As<CPlayer>(character)); break;
+    case SectorList::HITTABLES:     PushTo(HittablesAt(sectorY, sectorX), character);            break;
+    case SectorList::NON_HITTABLES: PushTo(NonHittablesAt(sectorY, sectorX), character);         break;
+    }
 }
 
 void CSectorManager::RemoveCharacter(CCharacter* character, int32_t sectorX, int32_t sectorY)
@@ -101,10 +120,12 @@ void CSectorManager::RemoveCharacter(CCharacter* character, int32_t sectorX, int
     if (!IsValidSector(sectorX, sectorY))
         return;
 
-    if (CPlayer* p = As<CPlayer>(character))
-        PopFrom(PlayersAt(sectorY, sectorX), p);
-    else
-        PopFrom(OthersAt(sectorY, sectorX), character);
+    switch (ListOf(character))
+    {
+    case SectorList::PLAYERS:       PopFrom(PlayersAt(sectorY, sectorX), As<CPlayer>(character)); break;
+    case SectorList::HITTABLES:     PopFrom(HittablesAt(sectorY, sectorX), character);            break;
+    case SectorList::NON_HITTABLES: PopFrom(NonHittablesAt(sectorY, sectorX), character);         break;
+    }
 }
 
 const std::vector<CPlayer*>& CSectorManager::GetSectorPlayers(int32_t sectorX, int32_t sectorY) const
@@ -115,12 +136,20 @@ const std::vector<CPlayer*>& CSectorManager::GetSectorPlayers(int32_t sectorX, i
     return PlayersAt(sectorY, sectorX);
 }
 
-const std::vector<CCharacter*>& CSectorManager::GetSectorOthers(int32_t sectorX, int32_t sectorY) const
+const std::vector<CCharacter*>& CSectorManager::GetSectorHittables(int32_t sectorX, int32_t sectorY) const
 {
     if (!IsValidSector(sectorX, sectorY))
-        return EMPTY_OTHERS;
+        return EMPTY_CHARACTERS;
 
-    return OthersAt(sectorY, sectorX);
+    return HittablesAt(sectorY, sectorX);
+}
+
+const std::vector<CCharacter*>& CSectorManager::GetSectorNonHittables(int32_t sectorX, int32_t sectorY) const
+{
+    if (!IsValidSector(sectorX, sectorY))
+        return EMPTY_CHARACTERS;
+
+    return NonHittablesAt(sectorY, sectorX);
 }
 
 void CSectorManager::GetAroundPlayers(int32_t sectorX, int32_t sectorY,

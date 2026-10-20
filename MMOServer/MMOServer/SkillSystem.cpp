@@ -125,11 +125,11 @@ SkillReject CSkillSystem::SelectTargets(CZone* zone, CCharacter* caster, const S
     _targets.clear();
 
     // 후보는 시전자 종류로 고른다 — 일반 공격(CombatSystem.cpp PerformAttack 의 3) 대상 고르기)과 같은 식.
-    //   사람이 쓰면 나머지 목록(지금은 몬스터뿐 — 사람은 사람의 스킬에 안 맞는다),
+    //   사람이 쓰면 맞을 수 있는 나머지 목록(지금은 몬스터뿐 — 사람은 사람의 스킬에 안 맞는다),
     //   몬스터가 쓰면 플레이어 목록(몬스터는 몬스터를 못 때린다 — 빠뜨리면 일반 공격에서 실제로 났던 뱀→뱀 결함이 스킬로 다시 난다).
     //   몬스터 쪽(PLAYERS)은 CMonsterManager::Think 가 부르는 보스 스킬이 탄다(10-13).
     const bool byMonster = IsMonsterCaster(caster);
-    const CCombatSystem::CandidateList which = byMonster ? CCombatSystem::CandidateList::PLAYERS : CCombatSystem::CandidateList::OTHERS;
+    const CCombatSystem::CandidateList which = byMonster ? CCombatSystem::CandidateList::PLAYERS : CCombatSystem::CandidateList::HITTABLES;
 
     switch (def.target)
     {

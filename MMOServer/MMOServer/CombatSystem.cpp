@@ -39,13 +39,13 @@ namespace
                     fn(candidate);
                 break;
 
-            case CCombatSystem::CandidateList::OTHERS:
-                for (CCharacter* candidate : sectors.GetSectorOthers(sx, sy))
+            case CCombatSystem::CandidateList::HITTABLES:
+                for (CCharacter* candidate : sectors.GetSectorHittables(sx, sy))
                     fn(candidate);
                 break;
 
-            case CCombatSystem::CandidateList::ALL:
-                sectors.ForEachInSector(sx, sy, fn);
+            case CCombatSystem::CandidateList::ALL_HITTABLE:
+                sectors.ForEachHittableInSector(sx, sy, fn);   // 「그 밖」(체력 부품 없음)은 안 돈다 — 아래 HealthOf 가 기대는 보장
                 break;
             }
         });
@@ -127,7 +127,7 @@ void CCombatSystem::PerformAttack(CZone* zone, CCharacter* player, uint64_t fram
     //     AI 의 대상 찾기(FindAITarget)도 플레이어 목록만 돈다 — AI 는 "누구를 쫓을까"를 정할 뿐이고,
     //     실제로 무는 대상은 여기서 다시 고르므로 두 자리가 다 플레이어 목록이어야 한다.
     //   플레이어가 때릴 때는 보이는 것 전부(플레이어·몬스터)가 후보다
-    const CandidateList which = byMonster ? CandidateList::PLAYERS : CandidateList::ALL;
+    const CandidateList which = byMonster ? CandidateList::PLAYERS : CandidateList::ALL_HITTABLE;
     bool sawDeadInRange = false;   // 사거리 안에 있긴 했는데 시체였다 — "아무도 없었다"와 다르다
     CCharacter* target = FindFrontTarget(zone, player, which, sawDeadInRange);
 

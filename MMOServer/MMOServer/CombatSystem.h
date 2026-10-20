@@ -60,12 +60,13 @@ public:
     //   frame 은 CGameServer::_frameCount — 쿨타임과 죽은 프레임의 기준.
     void PerformAttack(CZone* zone, CCharacter* attacker, uint64_t frame);
 
-    // 대상 찾기(앞 한 칸 · 범위)에 넣을 후보 — 섹터의 어느 목록을 보나(SectorManager.h [목록 둘])
+    // 대상 찾기(앞 한 칸 · 범위)에 넣을 후보 — 섹터의 어느 목록을 보나(SectorManager.h [목록 셋]).
+    //   어느 갈래든 「그 밖」 목록(체력 부품 없음 — NPC)은 안 본다 — 맞을 수 없는 것은 후보가 아니다.
     enum class CandidateList : uint8_t
     {
-        PLAYERS,   // 플레이어 목록만 — 몬스터가 때리거나 스킬을 쓸 때(몬스터는 몬스터를 못 때린다)
-        OTHERS,    // 나머지 목록만(지금은 몬스터뿐) — 사람이 쓰는 스킬(사람은 안 맞는다)
-        ALL,       // 둘 다 — 사람이 일반 공격할 때(보이는 것 전부)
+        PLAYERS,        // 플레이어 목록만 — 몬스터가 때리거나 스킬을 쓸 때(몬스터는 몬스터를 못 때린다)
+        HITTABLES,      // 맞을 수 있는 나머지만(지금은 몬스터뿐) — 사람이 쓰는 스킬(사람은 안 맞는다)
+        ALL_HITTABLE,   // 플레이어 + 맞을 수 있는 나머지 — 사람이 일반 공격할 때(맞을 수 있는 것 전부)
     };
 
     // 앞 한 칸에서 대상 하나 — 사거리·정면 안에서 살아 있는 것 중 가장 가까운 것. 없으면 nullptr.

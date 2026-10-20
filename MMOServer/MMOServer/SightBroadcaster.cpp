@@ -467,7 +467,7 @@ void CSightBroadcaster::BroadcastEnterZone(CZone* zone, CPlayer* player, SpawnRe
     for (CPlayer* other : _eventAroundBuffer)
         SendCreateOtherPlayer(other, player, reason);   // 기존 플레이어에게 신규 플레이어 생성
 
-    // 나 → 주변 전부(플레이어·몬스터)를 본다 (인바운드) — 섹터 변경의 인바운드와 같은 도우미로 두 목록을 돈다
+    // 나 → 주변 전부(플레이어·몬스터)를 본다 (인바운드) — 섹터 변경의 인바운드와 같은 도우미로 세 목록을 돈다
     CSectorManager::SectorPos around[CSectorManager::MAX_AROUND_SECTORS];
     int32_t aroundCount = 0;
     sectors.GetAroundSectorList(player->_sectorX, player->_sectorY, around, aroundCount);
