@@ -35,6 +35,13 @@
 //   플레이어는 레벨 표(LevelTable.csv)가 정본이고 CStatSystem::RecalcStats 가 채운다. 몬스터는 파생 생성자가 종류 값을 넣는다.
 //   아래 멤버의 0 은 「아직 안 정해짐」이다 — 전투를 끈 빌드는 0 그대로 두고, 스냅샷도 0 을 싣는다(PacketBuild.h WriteSnapshot).
 
+// 부품(CharacterParts.h) — 여기는 가리키기만 하므로 선언만. 값으로 드는 파생(Player.h · Monster.h)이 정의를 포함한다.
+class CHealthPart;
+class CAttackPart;
+#if USE_COMBAT
+class CBuffPart;
+#endif
+
 // 캐릭터 종류 — 위 [종류] 참조. 와이어에는 안 실린다(클라는 displayChar 로 종류를 안다).
 enum class CharacterKind : uint8_t
 {
@@ -96,6 +103,38 @@ public:
     //   스킬 토글 소유다 — 마력을 쓰는 곳이 스킬뿐이라서. 여기 있는 까닭은 위 쿨타임 배열과 같다.
     int32_t _mp    = 0;   // 현재 마력
     int32_t _maxMp = 0;   // 최대 마력
+#endif
+
+    // ── 부품 자리 ── 능력은 부품이 든다(CharacterParts.h). 여기는 가리키기만 한다 — 없으면 null.
+    //   부품은 파생이 값으로 들고 생성자 몸에서 AttachParts 로 한 번 붙인다. 생성 뒤 안 바뀐다(_kind 와 같은 전제).
+    //   꺼내기는 CCharacter* 로 받은 자리 전용 — 사람·몬스터를 다루는 코드는 값 멤버(_health · _attack)를 바로 쓴다.
+    CHealthPart*       Health()       { return _healthPart; }
+    const CHealthPart* Health() const { return _healthPart; }
+    CAttackPart*       Attack()       { return _attackPart; }
+    const CAttackPart* Attack() const { return _attackPart; }
+#if USE_COMBAT
+    CBuffPart*         Buffs()        { return _buffPart; }
+    const CBuffPart*   Buffs() const  { return _buffPart; }
+#endif
+
+    // 복사·옮김 금지 — 부품 자리가 자기 멤버를 가리키므로 복사본은 옛 물체의 부품을 가리키게 된다.
+    //   물체는 unique_ptr 로 만들어진 자리에서 안 움직인다(CSessionHub · CMonsterManager) — 그 성질을 타입이 지킨다.
+    CCharacter(const CCharacter&) = delete;
+    CCharacter& operator=(const CCharacter&) = delete;
+
+protected:
+    // 파생 생성자 몸에서 한 번 — 몸이 돌 때는 파생의 멤버(부품)가 이미 만들어져 있다.
+#if USE_COMBAT
+    void AttachParts(CHealthPart* health, CAttackPart* attack, CBuffPart* buffs);
+#else
+    void AttachParts(CHealthPart* health, CAttackPart* attack);
+#endif
+
+private:
+    CHealthPart* _healthPart = nullptr;
+    CAttackPart* _attackPart = nullptr;
+#if USE_COMBAT
+    CBuffPart*   _buffPart   = nullptr;
 #endif
 };
 

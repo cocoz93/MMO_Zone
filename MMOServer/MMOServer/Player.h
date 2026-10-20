@@ -5,6 +5,7 @@
 #include <random>
 
 #include "Character.h"   // CCharacter ← CActor · Direction · MoveState
+#include "CharacterParts.h"   // 부품을 값으로 든다
 #include "Inventory.h"   // USE_INVENTORY — 헤더 안에서 스스로 토글을 본다
 
 // CPlayer — 사람이 조종하는 캐릭터.
@@ -25,6 +26,11 @@ public:
 
     // As<CPlayer> 판정 — Character.h As
     static bool IsA(const CCharacter& c) { return c._kind == CharacterKind::PLAYER; }
+
+    // ── 부품 — 체력·공격(CharacterParts.h). 생성자 몸에서 CCharacter 부품 자리에 붙인다 ──
+    //   효과 부품은 옛 효과 칸(CCharacter::_buffs)을 옮길 때 같은 이름으로 붙인다 — 그때까지 AttachParts 에 null.
+    CHealthPart _health;
+    CAttackPart _attack;
 
     bool _isAdmin;        // 운영자 여부
 

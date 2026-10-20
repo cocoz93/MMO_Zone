@@ -7,6 +7,7 @@
 #if USE_MONSTER
 
 #include "Character.h"
+#include "CharacterParts.h"   // 부품을 값으로 든다
 
 struct MonsterDef;   // MonsterTable.h — 종류별 사양(몬스터 표의 한 행)
 
@@ -49,6 +50,11 @@ public:
 
     // As<CMonster> 판정 — Character.h As
     static bool IsA(const CCharacter& c) { return c._kind == CharacterKind::MONSTER; }
+
+    // ── 부품 — 체력·공격(CharacterParts.h). 생성자 몸에서 CCharacter 부품 자리에 붙인다 ──
+    //   효과 부품은 옛 효과 칸(CCharacter::_buffs)을 옮길 때 같은 이름으로 붙인다 — 그때까지 AttachParts 에 null.
+    CHealthPart _health;
+    CAttackPart _attack;
 
     // 무슨 몬스터냐 — 몬스터 표의 한 행 (CCharacter::_kind 는 "몬스터냐"다).
     //   번호(드랍 표 찾기)·경험치(잡은 사람)·겉모습(와이어)은 여기서 읽는다. 표는 기동 뒤 안 바뀌어 가리킨 행이 안 흔들린다.
