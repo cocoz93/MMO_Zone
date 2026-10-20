@@ -227,6 +227,10 @@ private:
                      "Total DB save failures", _gameMonitor._db._failedJobs);
         WriteCounter(ss, "mmo_db_dropped_total",
                      "Total jobs dropped by backpressure (slot queue full)", _gameMonitor._db._droppedJobs);
+        WriteCounter(ss, "mmo_db_save_retried_total",
+                     "Save bundles retried whole after a reconnect (success or not)", _gameMonitor._db._saveRetried);
+        WriteCounter(ss, "mmo_db_save_slot_rows_total",
+                     "Bag slot rows written inside committed save bundles", _gameMonitor._db._saveSlotRows);
         if (_gameMonitor._db._workerCount > 0)
         {
             ss << "# HELP mmo_db_queue_depth Jobs pulled in last drain, per DB worker (sustained growth = worker falling behind)\n";

@@ -457,14 +457,20 @@ void CCharacterStore::ProcessDbResults()
     if (!_dbWorker)
         return;
 
-    // _dbResults 는 직전 틱에 모두 소비되어 비어 있다 — 빈 벡터를 워커 쪽과 맞바꾼다(락 1회).
-    _dbWorker->SwapOutResults(_dbResults);
+    // 둘 다 직전 틱에 모두 소비되어 비어 있다 — 빈 벡터를 워커 쪽과 맞바꾼다(락 1회 · 저장 회신과 불러오기 결과를 같이).
+    _dbWorker->SwapOutResults(_dbResults, _dbSaveReplies);
+
+    // 저장 회신 먼저 — 아직 저장 묶음을 넣는 곳이 없다(저장 플랜 C 단계 2 가 회신 처리로 바꾼다). 오면 결함이라 남긴다.
+    for (const DBSaveReply& reply : _dbSaveReplies)
+        SLOG_ERROR("[DB] unexpected save reply (account={}, bundle={})", reply.accountId, reply.bundleNo);
+    _dbSaveReplies.clear();
+
     if (_dbResults.empty())
         return;
 
     const int64_t nowNs = SteadyNowNs();
 
-    static_assert(DB_JOB_KIND_COUNT == (USE_INVENTORY ? 3 : 2), "DBJobKind 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
+    static_assert(DB_JOB_KIND_COUNT == (USE_INVENTORY ? 4 : 3), "DBJobKind 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
     for (const DBResult& result : _dbResults)
     {
         switch (result.kind)
@@ -477,6 +483,7 @@ void CCharacterStore::ProcessDbResults()
 #if USE_INVENTORY
         case DBJobKind::SAVE_ITEM_SLOT:  // 칸 저장도 편도 — 성공·실패는 워커가 _dbItem 에 센다
 #endif
+        case DBJobKind::SAVE_BUNDLE:     // 저장 묶음의 회신은 저장 회신 목록으로 온다 — 불러오기 결과 목록에 오면 결함
         case DBJobKind::COUNT:
             SLOG_ERROR("[DB] unexpected result kind {}", static_cast<int>(result.kind));
             break;

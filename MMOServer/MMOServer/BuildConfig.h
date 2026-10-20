@@ -88,6 +88,16 @@
 #define USE_DB_WORKER 1
 #endif
 
+// DB 실패 주입 — 시험 빌드 전용 스위치(기능이 아니다). 저장 묶음의 실패 갈래(오류 · 끊김 · DB 죽음 · 늦음)를 시험이 만든다.
+//   시험 계정(game_server)은 SELECT·INSERT·UPDATE 뿐이라 DB 쪽에서 실패를 만들 수 없고, 「묶음 둘째 문장 뒤」 같은 자리는
+//   바깥에서 시각을 맞출 수도 없어서 코드 안에 둔다(save-unify-plan.md 「실패 주입」).
+//   1: DB 워커가 기동 때 환경 변수 MMO_DB_FAULT 를 한 번 읽어 그대로 주입 — 시험 묶음이 이 줄을 바꿔 빌드하고 끝에 되돌린다
+//   0: 주입 코드가 컴파일에서 빠짐 [기본 — 서버 빌드는 늘 0]
+#define USE_DB_FAULT_INJECT 0
+#if USE_DB_FAULT_INJECT && !USE_DB_WORKER
+	#error "USE_DB_FAULT_INJECT requires USE_DB_WORKER=1"
+#endif
+
 // 전투 컨텐츠 — HP·공격·피해·죽음·부활 (판정은 서버, 클라는 그리기만)
 //   CActor 계층 위에 얹는 첫 컨텐츠. 웹 클라와 언리얼 클라가 같은 패킷을 그대로 받아쓴다.
 //   1: 전투 활성 — C2S_ATTACK 처리 + S2C_ATTACK/DAMAGE/DEATH/RESPAWN/ACTOR_STATS 송신 [기본]

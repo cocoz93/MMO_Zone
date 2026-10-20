@@ -121,6 +121,7 @@ private:
     // 회신 큐에서 통째로 꺼내 받는 로컬 버퍼 (멤버 재사용 — 워커 쪽 벡터와 맞바꾸므로 양쪽 용량이 보존된다.
     //   _localEvents 와 같은 방식). 접근은 게임 스레드 단독.
     std::vector<DBResult> _dbResults;
+    std::vector<DBSaveReply> _dbSaveReplies;   // 저장 회신 — 위와 같은 맞바꿈 버퍼(한 락에 같이 꺼낸다)
 };
 
 #endif // USE_DB_WORKER
