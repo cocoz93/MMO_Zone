@@ -355,15 +355,6 @@ inline const char* EquipRejectName(EquipReject r)
     }
     return "?";
 }
-
-// 아이템 저장 계수기 — DB 워커 스레드가 센다(DBWorker.h 가 앞 선언으로 가리킨다).
-//   ★ 게임 스레드가 세는 _inventory 와 따로 둔다 — 두 스레드가 같은 캐시 줄을 번갈아 쓰지 않게(alignas(64)).
-struct alignas(64) DBItemSaveCounters
-{
-    Counter _saved;     // 칸 저장 성공
-    Counter _failed;    // 재연결 뒤 다시 해 봐도 실패 — 0 이어야 한다(0 이 아니면 그 칸은 다음 변화 전까지 DB 와 다르다)
-    Counter _retried;   // 재연결하고 다시 써 본 수(성공·실패 무관) — DB 가 한 번 끊겼다 살아난 흔적
-};
 #endif
 
 #if USE_COMBAT
@@ -415,7 +406,7 @@ inline const char* SkillRejectName(SkillReject r)
 }
 #endif
 
-// DB 저장 파이프라인 지표 — DB 워커 스레드가 센다(CDBWorker 가 생성자로 참조를 받는다). 위 DBItemSaveCounters 와 같은 쪽.
+// DB 저장 파이프라인 지표 — DB 워커 스레드가 센다(CDBWorker 가 생성자로 참조를 받는다). 게임 스레드 몫은 CGameMonitor::_save.
 //   10-06 코어(CMonitorManager::_db*)에서 옮김 — DB 워커는 게임 프로젝트 구성요소라 그릇도 게임 쪽이어야 한다
 //   (아키텍처 전수검사 8번). 노출 이름(mmo_db_*)은 그대로다 — 기존 게이트(mmo_db_dropped_total 0 · queue_depth 지속 상승)가 안 흐려진다.
 //   USE_DB_WORKER=0 이어도 남겨 0 으로 노출된다(입장 지표와 같은 이유).
@@ -557,15 +548,10 @@ public:
         Counter _itemsUsed;                                                   // 쓴 아이템 개수(성공)
         Counter _useRejected[static_cast<int>(UseItemReject::COUNT)];         // 쓰기 거절, 사유별
 
-        // ── 4단계: DB (USE_DB_WORKER) — 게임 스레드가 센다. 워커 쪽은 아래 _dbItem ──
-        //   등식(조용해진 뒤): _itemSavesQueued = _dbItem._saved + _dbItem._failed
-        Counter _itemSavesQueued;                                             // 칸 저장을 워커 큐에 넣은 수(FlushInventory)
-        Counter _itemSaveRejected;                                            // 아이템 저장 상한에 걸려 못 넣은 수 — 0 이어야 한다
+        // ── DB 불러오기 (USE_DB_WORKER) — 게임 스레드가 센다. 칸 저장은 저장 묶음 지표(_save · _db)가 센다 ──
         Counter _loadedSlots;                                                 // 불러와 가방에 넣은 칸 수
         Counter _loadSkipped[static_cast<int>(InvLoadSkip::COUNT)];           // 불러올 때 건너뛴 줄, 사유별 — 평소 0
     } _inventory;
-
-    DBItemSaveCounters _dbItem;   // 워커 스레드 몫 — 위 등식의 오른쪽
 
 #if USE_EQUIP
     // ══════════════════════════════════════════════════════════════

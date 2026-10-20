@@ -19,7 +19,7 @@
 
 #include <Common/ErrorLog.h>
 #include "CoreAffinity.h"
-#include "GameMonitor.h"    // DBSaveCounters · DBItemSaveCounters — 저장 지표의 그릇(게임 쪽). 코어 그릇(CMonitorManager)은 안 본다(10-06)
+#include "GameMonitor.h"    // DBSaveCounters — 저장 지표의 그릇(게임 쪽). 코어 그릇(CMonitorManager)은 안 본다(10-06)
 
 #pragma comment(lib, "libmysql.lib")
 
@@ -73,8 +73,6 @@ bool CDBWorker::Start(const DBConfig& config, int workerCount, int queueMax)
         _workers.push_back(std::move(slot));
     }
 
-    _perWorker.assign(_workerCount, {});
-    _perWorkerIdx.assign(_workerCount, {});
     _counters._workerCount.Store(_workerCount);   // 지표 노출 상한
 
     // 커넥션 확보 후 워커 스레드 시작 (각 슬롯 커넥션은 해당 워커만 단독 사용)
@@ -131,88 +129,6 @@ bool CDBWorker::Connect(void*& outMysql)
     return true;
 }
 
-size_t CDBWorker::PushToSlot(DBWorkerSlot& slot, const DBJob* jobs, size_t count)
-{
-    if (count == 0)
-        return 0;
-
-    size_t take = 0;
-    {
-        std::lock_guard<std::mutex> lk(slot.mutex);
-        const size_t cur  = slot.queue.size();
-        const size_t cap  = static_cast<size_t>(_queueMax);
-        const size_t room = (cur < cap) ? (cap - cur) : 0;
-        take = (count <= room) ? count : room;    // 백프레셔: 여유만큼만 수용
-        if (take > 0)
-            slot.queue.insert(slot.queue.end(), jobs, jobs + take);
-    }
-
-    if (take > 0)
-        slot.cv.notify_one();                     // 실제로 넣었을 때만 기상
-
-    const size_t dropped = count - take;
-    if (dropped > 0)
-    {
-        _counters._droppedJobs.Add(static_cast<int64_t>(dropped));
-        SLOG_ERROR("[DB] backpressure drop — worker={} dropped={} (queue full, max={})",
-                   slot.index, dropped, _queueMax);
-    }
-
-    return take;
-}
-
-bool CDBWorker::Enqueue(const DBSaveJob& job)
-{
-    const DBJob wrapped = DBJob::Save(job);
-    return PushToSlot(*_workers[SlotIndex(job.accountId)], &wrapped, 1) == 1;
-}
-
-void CDBWorker::EnqueueBatch(const std::vector<DBSaveJob>& batch,
-                             std::vector<size_t>* outDropped)
-{
-    if (outDropped != nullptr)
-        outDropped->clear();
-    if (batch.empty())
-        return;
-
-    // 단일 워커: 분류 생략 (K=1 fast path). 큐 원소(DBJob)로 바꿔 담는 일만 락 밖에서 하고 통째 push.
-    if (_workerCount == 1)
-    {
-        std::vector<DBJob>& wrapped = _perWorker[0];
-        wrapped.clear();
-        wrapped.reserve(batch.size());
-        for (const DBSaveJob& job : batch)
-            wrapped.push_back(DBJob::Save(job));
-
-        const size_t take = PushToSlot(*_workers[0], wrapped.data(), wrapped.size());
-        if (outDropped != nullptr)
-            for (size_t i = take; i < batch.size(); ++i)   // 앞에서부터 수용 → 드롭분은 꼬리
-                outDropped->push_back(i);
-        return;
-    }
-
-    // K>1: accountId%K로 워커별 분류 후 슬롯당 1회 핸드오프
-    for (auto& v : _perWorker)
-        v.clear();
-    for (auto& v : _perWorkerIdx)
-        v.clear();
-    for (size_t i = 0; i < batch.size(); ++i)
-    {
-        const int slot = SlotIndex(batch[i].accountId);
-        _perWorker[slot].push_back(DBJob::Save(batch[i]));
-        _perWorkerIdx[slot].push_back(i);   // 원본 인덱스를 나란히 보존 (드롭 피드백용)
-    }
-    for (int i = 0; i < _workerCount; ++i)
-    {
-        if (_perWorker[i].empty())
-            continue;
-        const size_t take = PushToSlot(*_workers[i], _perWorker[i].data(), _perWorker[i].size());
-        if (outDropped != nullptr)
-            for (size_t k = take; k < _perWorkerIdx[i].size(); ++k)   // 앞에서부터 수용 → 드롭분은 꼬리
-                outDropped->push_back(_perWorkerIdx[i][k]);
-    }
-}
-
 bool CDBWorker::EnqueueLoad(const DBLoadJob& job)
 {
     DBWorkerSlot& slot = *_workers[SlotIndex(job.accountId)];   // 저장과 같은 슬롯 — 계정별 순서 보장
@@ -230,26 +146,6 @@ bool CDBWorker::EnqueueLoad(const DBLoadJob& job)
     slot.cv.notify_one();
     return true;
 }
-
-#if USE_INVENTORY
-bool CDBWorker::EnqueueItemSlot(const DBItemSlotJob& job)
-{
-    DBWorkerSlot& slot = *_workers[SlotIndex(job.accountId)];   // 저장·불러오기와 같은 슬롯 — 계정별 순서 보장
-
-    {
-        std::lock_guard<std::mutex> lk(slot.mutex);
-        // 저장 상한(queue.size() 기준)은 보지 않는다 — 위치 저장이 큐를 채워도 아이템 저장은 들어간다.
-        //   아이템 저장끼리만 센 수로 같은 상한을 건다. 정상 상태에선 안 닿는 값이다(닿았다면 DB 가 멈춘 것).
-        if (slot.itemCount >= static_cast<size_t>(_queueMax))
-            return false;
-        slot.queue.push_back(DBJob::Item(job));
-        ++slot.itemCount;
-    }
-
-    slot.cv.notify_one();
-    return true;
-}
-#endif
 
 // 묶음 하나를 슬롯 큐에(락을 쥔 채) — 묶음끼리 센 수로 상한. 칸 줄은 큐 옆 줄 벡터 끝에 붙이고 시작 자리를 머리에 적는다.
 bool CDBWorker::PushBundleLocked(DBWorkerSlot& slot, DBSaveBundle head, const DBInvRow* rows, int rowCount)
@@ -371,9 +267,6 @@ void CDBWorker::WorkerThread(int idx)
             localRows.swap(slot.rows);    // 같은 락 안에서 — 묶음 머리와 칸 줄이 어긋나지 않게
             slot.loadCount = 0;           // 큐를 통째로 가져왔으므로 큐에 든 불러오기도 0 (EnqueueLoad 의 상한 기준)
             slot.bundleCount = 0;         // 같은 이유 — 저장 묶음 상한(EnqueueSave)의 기준
-#if USE_INVENTORY
-            slot.itemCount = 0;           // 같은 이유 — 아이템 저장 상한(EnqueueItemSlot)의 기준
-#endif
         }
 
         // 배치 처리 전 — 커넥션이 끊겨 있으면 재연결 1회 시도.
@@ -403,18 +296,11 @@ void CDBWorker::WorkerThread(int idx)
 
         _counters._queueDepth[idx].Store(static_cast<int64_t>(local.size()));  // 워커별 게이지
 
-        static_assert(DB_JOB_KIND_COUNT == (USE_INVENTORY ? 4 : 3), "DBJobKind 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
+        static_assert(DB_JOB_KIND_COUNT == 2, "DBJobKind 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
         for (const DBJob& job : local)
         {
             switch (job.kind)
             {
-            case DBJobKind::SAVE_POSITION:
-                if (ExecSave(slot, job.save))   // 유실 시 ExecSave가 stmt/mysql을 null로 만듦
-                    _counters._savedJobs.Inc();
-                else
-                    _counters._failedJobs.Inc();
-                break;
-
             case DBJobKind::LOAD_CHARACTER:
             {
                 // 저장 지표(_counters._savedJobs·_failedJobs)는 건드리지 않는다 — 그 둘은 "저장"만 세는 기존 게이트다.
@@ -425,13 +311,6 @@ void CDBWorker::WorkerThread(int idx)
                 PushResult(result);   // 묶음 끝까지 기다리지 않고 바로 — 뒤에 저장 수천 건이 있어도 입장이 안 밀린다
                 break;
             }
-
-#if USE_INVENTORY
-            case DBJobKind::SAVE_ITEM_SLOT:
-                // 저장 지표(_counters._savedJobs·_failedJobs)는 "위치 저장"만 센다 — 아이템은 _itemCounters 로 따로(ExecItemSave)
-                ExecItemSave(slot, job.item, reconnectFailedThisBatch);
-                break;
-#endif
 
             case DBJobKind::SAVE_BUNDLE:
             {
@@ -529,26 +408,26 @@ struct DbColumn
       SameTypeSize<decltype(SaveT::member), decltype(LoadT::member)>(), isKey,                 \
       BytesCap<decltype(SaveT::member)>::value }
 
-// characters 행 — 저장 DBSaveJob · 결과 DBResult
+// characters 행 — 저장 DBCharRow · 결과 DBResult
 static constexpr DbColumn kCharColumns[] = {
-    DB_COL(DBSaveJob, DBResult, x,      x,     false),
-    DB_COL(DBSaveJob, DBResult, y,      y,     false),
-    DB_COL(DBSaveJob, DBResult, map_id, mapId, false),
-    DB_COL(DBSaveJob, DBResult, level,  level, false),
-    DB_COL(DBSaveJob, DBResult, exp,    exp,   false),
-    DB_COL(DBSaveJob, DBResult, hp,     hp,    false),
-    DB_COL(DBSaveJob, DBResult, mp,     mp,    false),
-    DB_COL(DBSaveJob, DBResult, skill_cooldowns, skillCooldowns, false),   // 바이트 열 — 형식은 CooldownBuffBlob.h
-    DB_COL(DBSaveJob, DBResult, buffs,           buffs,          false),
+    DB_COL(DBCharRow, DBResult, x,      x,     false),
+    DB_COL(DBCharRow, DBResult, y,      y,     false),
+    DB_COL(DBCharRow, DBResult, map_id, mapId, false),
+    DB_COL(DBCharRow, DBResult, level,  level, false),
+    DB_COL(DBCharRow, DBResult, exp,    exp,   false),
+    DB_COL(DBCharRow, DBResult, hp,     hp,    false),
+    DB_COL(DBCharRow, DBResult, mp,     mp,    false),
+    DB_COL(DBCharRow, DBResult, skill_cooldowns, skillCooldowns, false),   // 바이트 열 — 형식은 CooldownBuffBlob.h
+    DB_COL(DBCharRow, DBResult, buffs,           buffs,          false),
 };
 static constexpr int kCharColCount = static_cast<int>(sizeof(kCharColumns) / sizeof(kCharColumns[0]));
 
 #if USE_INVENTORY
-// inventory 행 — 저장 DBItemSlotJob · 결과 DBInvRow(한 줄). slot 은 기본 키 (account_id, slot) 의 일부라 UPDATE 에 안 들어간다
+// inventory 행 — 저장 DBInvRowBuf · 결과 DBInvRow(한 줄). slot 은 기본 키 (account_id, slot) 의 일부라 UPDATE 에 안 들어간다
 static constexpr DbColumn kInvColumns[] = {
-    DB_COL(DBItemSlotJob, DBInvRow, slot,    slot,   true),
-    DB_COL(DBItemSlotJob, DBInvRow, item_id, itemId, false),
-    DB_COL(DBItemSlotJob, DBInvRow, count,   count,  false),
+    DB_COL(DBInvRowBuf, DBInvRow, slot,    slot,   true),
+    DB_COL(DBInvRowBuf, DBInvRow, item_id, itemId, false),
+    DB_COL(DBInvRowBuf, DBInvRow, count,   count,  false),
 };
 static constexpr int kInvColCount = static_cast<int>(sizeof(kInvColumns) / sizeof(kInvColumns[0]));
 #endif
@@ -654,7 +533,7 @@ static void CopyColumns(void* dst, const void* loadBuf, const DbColumn* cols, in
         memcpy(static_cast<char*>(dst) + cols[i].loadOff, static_cast<const char*>(loadBuf) + cols[i].saveOff, cols[i].size);
 }
 
-// ── 위치 저장 ─────────────────────────────────────────────────────────────
+// ── 캐릭터 행 저장 ─────────────────────────────────────────────────────────────
 static bool BindPositionParams(MYSQL_STMT* st, DBWorkerSlot& slot)
 {
     // ? = account_id + 열 n개 + UPDATE 열 n개 (key 열이 없는 표 — 지금 아홉 열이라 19개)
@@ -775,33 +654,6 @@ void CDBWorker::DropConnection(DBWorkerSlot& slot)
     }
 }
 
-bool CDBWorker::ExecSave(DBWorkerSlot& slot, const DBSaveJob& job)
-{
-    if (slot.mysql == nullptr || slot.stmt[kSaveIdx] == nullptr)
-        return false;   // 커넥션/stmt 없음(재연결 대기 중) — 즉시 실패, 무한 대기 없음
-
-    // 바인딩 버퍼에 이번 잡 값 복사 (stmt는 이 버퍼의 멤버 주소를 이미 가리킴 → execute만 하면 됨)
-    slot.bSave = job;
-
-    MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmt[kSaveIdx]);
-    if (mysql_stmt_execute(st) == 0)
-        return true;
-
-    // 저장 실패 — 커넥션 유실인지, 단순 오류(제약 위반 등)인지 구분
-    const unsigned int err = mysql_stmt_errno(st);
-    if (err == CR_SERVER_GONE_ERROR || err == CR_SERVER_LOST)
-    {
-        // 커넥션이 죽음 → stmt·커넥션 닫고 null로. 재연결은 WorkerThread가 다음 배치 시작 때 시도(백오프).
-        SLOG_WARN("[DB] connection lost (errno={}) — will reconnect next batch", err);
-        DropConnection(slot);
-    }
-    else
-    {
-        SLOG_ERROR("[DB] save failed (account={}): {}", job.accountId, mysql_stmt_error(st));
-    }
-    return false;
-}
-
 CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out)
 {
     MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmt[kLoadIdx]);
@@ -917,63 +769,6 @@ CDBWorker::LoadOutcome CDBWorker::RunInventoryLoad(DBWorkerSlot& slot, const DBL
     mysql_stmt_free_result(st);
     return LoadOutcome::FOUND;   // 줄이 0 이어도 성공 — "가방이 비었다"는 사실이다
 }
-
-CDBWorker::LoadOutcome CDBWorker::RunItemSaveOnce(DBWorkerSlot& slot, const DBItemSlotJob& job)
-{
-    MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmt[kItemIdx]);
-    slot.bItem = job;   // 잡과 버퍼가 같은 꼴이라 통째로 (stmt 는 이 버퍼의 멤버 주소를 이미 가리킨다)
-    if (mysql_stmt_execute(st) == 0)
-        return LoadOutcome::FOUND;   // 성공
-    return ClassifyStmtError(st, "save item slot", job.accountId);
-}
-
-void CDBWorker::ExecItemSave(DBWorkerSlot& slot, const DBItemSlotJob& job, bool& reconnectFailedThisBatch)
-{
-    // 위치 저장(ExecSave)과 다르게 "버리지 않는" 쪽 규칙 — 불러오기(ExecLoad)와 같은 재연결을 쓴다.
-    //   커넥션이 없거나(앞선 잡이 유실을 밟아 내렸다) 도중에 죽으면 그 자리에서 한 번 살려 보고 다시 쓴다.
-    //   칸의 최종값이라 두 번 써도 결과가 같다. 이 묶음에서 재연결이 이미 실패했으면 곧바로 실패로 센다
-    //   (죽은 DB 에 잡마다 접속 제한 시간을 쓰며 큐를 막지 않는다 — TryReconnectForLoad).
-    bool retried = false;
-    LoadOutcome r = LoadOutcome::CONNECTION_LOST;
-
-    if (slot.mysql == nullptr || slot.stmt[kItemIdx] == nullptr)
-    {
-        DropConnection(slot);
-        if (TryReconnectForLoad(slot, reconnectFailedThisBatch))
-        {
-            retried = true;
-            r = RunItemSaveOnce(slot, job);
-        }
-    }
-    else
-    {
-        r = RunItemSaveOnce(slot, job);
-        if (r == LoadOutcome::CONNECTION_LOST)
-        {
-            DropConnection(slot);
-            if (TryReconnectForLoad(slot, reconnectFailedThisBatch))
-            {
-                retried = true;
-                r = RunItemSaveOnce(slot, job);
-            }
-        }
-    }
-    if (r == LoadOutcome::CONNECTION_LOST)
-        DropConnection(slot);   // 다시 해 본 것까지 죽었다 — 다음 묶음 머리가 다시 붙는다
-
-    if (_itemCounters != nullptr)
-    {
-        if (retried)
-            _itemCounters->_retried.Inc();
-        if (r == LoadOutcome::FOUND)
-            _itemCounters->_saved.Inc();
-        else
-            _itemCounters->_failed.Inc();
-    }
-    if (r != LoadOutcome::FOUND)
-        SLOG_ERROR("[DB] item slot save LOST (account={}, slot={}, item={}, count={}) — 이 칸은 다음에 바뀔 때 다시 써진다",
-                   job.accountId, job.slot, job.itemId, job.count);
-}
 #endif
 
 bool CDBWorker::TryReconnectForLoad(DBWorkerSlot& slot, bool& reconnectFailedThisBatch)
@@ -1024,7 +819,7 @@ void CDBWorker::ExecLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out
 
     // 읽기는 멱등이라 두 번 해도 안전하다 → 커넥션이 없거나 도중에 죽으면 그 자리에서 재연결해 본다.
     //   노는 커넥션은 MySQL 이 끊는다(wait_timeout). 서버를 밤새 켜 두면 아침 첫 접속이 여기에 걸리는데,
-    //   다시 해 보지 않으면 그 사람이 영문 없이 튕긴다. 저장(ExecSave)의 재연결 동작은 건드리지 않는다.
+    //   다시 해 보지 않으면 그 사람이 영문 없이 튕긴다. 저장 묶음(ExecBundle)도 같은 규칙이다.
     //
     // 커넥션이 없는 채로 들어오는 경우는 둘이다.
     //   (가) 묶음 머리의 재연결이 실패했다(DB 가 죽어 있다) → 플래그가 서 있어 아래가 곧바로 false → 즉시 실패
@@ -1146,7 +941,7 @@ CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSave
     MYSQL_STMT* stItem = static_cast<MYSQL_STMT*>(slot.stmt[kItemIdx]);
     for (int i = 0; i < b.slotCount; ++i)
     {
-        slot.bItem = DBItemSlotJob{ b.row.accountId, rows[i].slot, rows[i].itemId, rows[i].count };
+        slot.bItem = DBInvRowBuf{ b.row.accountId, rows[i].slot, rows[i].itemId, rows[i].count };
         if (mysql_stmt_execute(stItem) != 0)
             return fail(mysql_stmt_errno(stItem), "slot row", mysql_stmt_error(stItem));
         ++stmtNo;
@@ -1185,7 +980,7 @@ bool CDBWorker::ExecBundle(DBWorkerSlot& slot, const DBSaveBundle& b, const DBIn
     }
 #endif
 
-    // 불러오기·칸 저장과 같은 재연결 규칙(ExecItemSave 와 같은 꼴) — 없으면 그 자리 재연결, 도중에 끊기면 재연결 뒤 묶음째 한 번 더.
+    // 불러오기와 같은 재연결 규칙(ExecLoad 와 같은 꼴) — 없으면 그 자리 재연결, 도중에 끊기면 재연결 뒤 묶음째 한 번 더.
     //   이 묶음 처리에서 재연결이 이미 실패했으면 곧바로 실패로(죽은 DB 에 묶음마다 접속 제한 시간을 쓰지 않는다 — TryReconnectForLoad).
     bool retried = false;
     SaveOutcome r = SaveOutcome::CONNECTION_LOST;

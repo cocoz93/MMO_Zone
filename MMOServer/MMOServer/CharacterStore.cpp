@@ -33,9 +33,6 @@ bool CCharacterStore::Init(const DBConfig& dbConfig, int savePeriodSec, int work
     }
 
     _dbWorker = std::make_unique<CDBWorker>(_gameMonitor._db);   // 저장 파이프라인 지표는 게임 그릇(10-06 코어에서 옮김)
-#if USE_INVENTORY
-    _dbWorker->SetItemSaveCounters(&_gameMonitor._dbItem);   // Start 전에 — 워커 스레드가 뜨기 전에 자리를 알려 둔다
-#endif
     if (!_dbWorker->Start(dbConfig, workerCount, queueMax))
     {
         SLOG_ERROR("[DB] InitDB failed - check MySQL connection/config");
@@ -109,51 +106,43 @@ bool CCharacterStore::ShouldSave(const CPlayer* player) const
         return true;
 #endif
 
-    // 저장할 값과 같은 식으로 견준다(MakeSaveJob) — 토글을 끈 빌드의 「모름(-1)」도 똑같이 나와 헛저장이 없다.
-    const DBSaveJob now = MakeSaveJob(player);
+    // 저장할 값과 같은 식으로 견준다(MakeCharRow) — 토글을 끈 빌드의 「모름(-1)」도 똑같이 나와 헛저장이 없다.
+    const DBCharRow now = MakeCharRow(player);
     const CPlayer::DbSavedValues& saved = player->_dbSaved;
     return now.level != saved.level || now.exp != saved.exp || now.hp != saved.hp || now.mp != saved.mp;
 }
 
-DBSaveJob CCharacterStore::MakeSaveJob(const CPlayer* player) const
+DBCharRow CCharacterStore::MakeCharRow(const CPlayer* player) const
 {
-    DBSaveJob job;
-    job.accountId = player->_accountId;
-    job.x         = player->_x;
-    job.y         = player->_y;
-    job.mapId     = CMapManager::GetMapIdFromZoneId(player->_zoneId);
-    job.level     = player->_level;
-    job.exp       = player->_exp;
+    DBCharRow row;
+    row.accountId = player->_accountId;
+    row.x         = player->_x;
+    row.y         = player->_y;
+    row.mapId     = CMapManager::GetMapIdFromZoneId(player->_zoneId);
+    row.level     = player->_level;
+    row.exp       = player->_exp;
     // 체력·마력 — 값을 세우는 코드가 없는 빌드에선 「모름」을 싣는다. 0 을 실으면 다음 입장이 죽은 채 저장된 행으로 읽는다.
 #if USE_COMBAT
-    job.hp        = player->_health.Hp();
+    row.hp        = player->_health.Hp();
 #else
-    job.hp        = DB_HP_MP_UNSAVED;
+    row.hp        = DB_HP_MP_UNSAVED;
 #endif
 #if USE_SKILL
-    job.mp        = player->_attack.Mp();
+    row.mp        = player->_attack.Mp();
 #else
-    job.mp        = DB_HP_MP_UNSAVED;
+    row.mp        = DB_HP_MP_UNSAVED;
 #endif
-    PackCooldownsAndBuffs(player, job);   // 쿨타임·버프 — 토글을 끈 빌드는 빈 값
-    return job;
+    PackCooldownsAndBuffs(player, row);   // 쿨타임·버프 — 토글을 끈 빌드는 빈 값
+    return row;
 }
 
-void CCharacterStore::MarkSaveQueued(CPlayer* player, const DBSaveJob& job)
-{
-    // 큐에 들어간 잡을 기록한다 — 다음 주기 판정(ShouldSave)이 이 값과 견준다.
-    //   백프레셔로 버려지면 부르는 쪽이 _dbDirty 를 되살린다(TickPeriodicSave) — dirty 가 서 있으면 값 비교와 무관하게 다시 실린다.
-    player->_dbDirty = false;
-    RecordSaved(player, job);
-}
-
-void CCharacterStore::RecordSaved(CPlayer* player, const DBSaveJob& job)
+void CCharacterStore::RecordSaved(CPlayer* player, const DBCharRow& row)
 {
     // 「마지막으로 실은 값」 사본 — 다음 판정(ShouldSave)이 이 값과 견준다(Player.h _dbSaved).
-    player->_dbSaved.level   = job.level;
-    player->_dbSaved.exp     = job.exp;
-    player->_dbSaved.hp      = job.hp;
-    player->_dbSaved.mp      = job.mp;
+    player->_dbSaved.level   = row.level;
+    player->_dbSaved.exp     = row.exp;
+    player->_dbSaved.hp      = row.hp;
+    player->_dbSaved.mp      = row.mp;
     // 쿨타임·버프는 잡의 바이트가 아니라 칸(틱)을 사본으로 남긴다 — 같은 틱에 만든 잡이라 내용은 같다(까닭은 CooldownsAndBuffsChanged)
     RecordSavedCooldownsAndBuffs(player);
 }
@@ -162,10 +151,10 @@ void CCharacterStore::RecordSaved(CPlayer* player, const DBSaveJob& job)
 //   칸은 틱으로 들고(공격 부품 _skillReadyFrame · 효과 부품 _slots), DB 엔 실제 시각으로 묶어 넣는다(CooldownBuffBlob.h).
 //   저장 = 돌고 있는 칸만 「끝나는 실제 시각」으로 · 입장 = 지난 것은 버리고 남은 몫을 틱으로.
 
-void CCharacterStore::PackCooldownsAndBuffs(const CPlayer* player, DBSaveJob& job) const
+void CCharacterStore::PackCooldownsAndBuffs(const CPlayer* player, DBCharRow& row) const
 {
-    job.skillCooldowns.len = 0;
-    job.buffs.len          = 0;
+    row.skillCooldowns.len = 0;
+    row.buffs.len          = 0;
 #if USE_SKILL || USE_COMBAT
     const int64_t nowMs = WallNowMs();
 #endif
@@ -181,8 +170,8 @@ void CCharacterStore::PackCooldownsAndBuffs(const CPlayer* player, DBSaveJob& jo
             continue;
         cooldowns[nCooldown++] = { static_cast<uint8_t>(id), nowMs + FramesToMs(ready - _frameCount) };
     }
-    job.skillCooldowns.len = static_cast<unsigned long>(
-        CooldownBuffBlob::PackCooldowns(cooldowns, nCooldown, job.skillCooldowns.data, sizeof(job.skillCooldowns.data)));
+    row.skillCooldowns.len = static_cast<unsigned long>(
+        CooldownBuffBlob::PackCooldowns(cooldowns, nCooldown, row.skillCooldowns.data, sizeof(row.skillCooldowns.data)));
 #endif
 
 #if USE_COMBAT
@@ -196,8 +185,8 @@ void CCharacterStore::PackCooldownsAndBuffs(const CPlayer* player, DBSaveJob& jo
             continue;
         buffs[nBuff++] = { static_cast<uint8_t>(k), slot.value, nowMs + FramesToMs(slot.expireFrame - _frameCount) };
     }
-    job.buffs.len = static_cast<unsigned long>(
-        CooldownBuffBlob::PackBuffs(buffs, nBuff, job.buffs.data, sizeof(job.buffs.data)));
+    row.buffs.len = static_cast<unsigned long>(
+        CooldownBuffBlob::PackBuffs(buffs, nBuff, row.buffs.data, sizeof(row.buffs.data)));
 #endif
 
     (void)player;
@@ -374,45 +363,6 @@ void CCharacterStore::RestoreCooldownsAndBuffs(CPlayer* player, const DBResult* 
     RecordSavedCooldownsAndBuffs(player);
 }
 
-void CCharacterStore::EnqueuePlayerSave(CPlayer* player)
-{
-    // 수용된 경우에만 dirty 해제 — 백프레셔로 드롭됐는데 지워버리면 그 변경은 복원 통로가 없다.
-    const DBSaveJob job = MakeSaveJob(player);
-    if (_dbWorker->Enqueue(job))
-        MarkSaveQueued(player, job);
-}
-
-void CCharacterStore::TickPeriodicSave()
-{
-    if (++_dbSaveFrameCounter < _dbSavePeriodFrames)
-        return;
-    _dbSaveFrameCounter = 0;
-
-    // 서버 메모리 = 진실. 저장 대상(ShouldSave)만 배치에 모아 워커에 1회 핸드오프.
-    //   thread_local 재사용으로 매 주기 할당 회피 (게임 스레드 단독 접근).
-    thread_local std::vector<DBSaveJob> batch;
-    thread_local std::vector<CPlayer*>  owners;    // batch와 나란한 소유자 (드롭 시 dirty 복원용)
-    thread_local std::vector<size_t>    dropped;
-    batch.clear();
-    owners.clear();
-    _sessionHub.ForEachPlayer([&](CPlayer* player)
-    {
-        if (ShouldSave(player))
-        {
-            batch.push_back(MakeSaveJob(player));
-            owners.push_back(player);
-            MarkSaveQueued(player, batch.back());   // 저장 요청 후 리셋 (드롭되면 아래에서 되돌림)
-        }
-    });
-    _dbWorker->EnqueueBatch(batch, &dropped);   // lock 1회 + notify 1회
-
-    // 백프레셔로 버려진 잡은 dirty를 되살려 다음 주기에 재시도한다.
-    //   되돌리지 않으면 정지(IDLE) 상태 플레이어의 변경은 ShouldSave 대상에서 빠져 영영 유실된다.
-    //   호출은 전부 게임 스레드 단독이라 owners 포인터는 이 시점에 유효하다.
-    for (size_t idx : dropped)
-        owners[idx]->_dbDirty = true;
-}
-
 void CCharacterStore::SaveAllPlayers()
 {
     // 종료는 유실 방지 우선 — dirty/MOVING 무관하게 전원 최종 저장(안전망).
@@ -422,7 +372,7 @@ void CCharacterStore::SaveAllPlayers()
     _sessionHub.ForEachPlayer([&](CPlayer* player)
     {
         DBSaveBundle head{};
-        head.row       = MakeSaveJob(player);
+        head.row       = MakeCharRow(player);
         head.sessionId = 0;
         std::vector<DBInvRow> rows;
         FillFinalRows(player, rows);
@@ -489,7 +439,7 @@ void CCharacterStore::PrepareBundle(CPlayer* player, DBSaveBundle& head, std::ve
     assert(f.bundleNo == 0 && "비행 중 묶음은 캐릭터당 하나 — 부르는 쪽이 먼저 본다");
 
     head           = DBSaveBundle{};
-    head.row       = MakeSaveJob(player);
+    head.row       = MakeCharRow(player);
     head.sessionId = player->_sessionId;
     head.bundleNo  = f.nextNo;
     f.nextNo = (f.nextNo == UINT32_MAX) ? 1 : f.nextNo + 1;   // 0 은 「비행 없음」이라 안 쓴다
@@ -647,7 +597,7 @@ void CCharacterStore::SaveOnLeave(CPlayer* player)
 {
     // 나갈 때 — 판정 없이 늘 쓴다(안전망 · 지금과 같음). 바로 큐에 — 같은 계정 재접속의 불러오기가 이 뒤에 줄 선다.
     DBSaveBundle head{};
-    head.row       = MakeSaveJob(player);
+    head.row       = MakeCharRow(player);
     head.sessionId = 0;   // 주인 = 떠난 기록(회신은 계정 번호로 찾는다)
     std::vector<DBInvRow> rows;
     FillFinalRows(player, rows);
@@ -802,7 +752,7 @@ void CCharacterStore::ProcessDbResults()
 
     const int64_t nowNs = SteadyNowNs();
 
-    static_assert(DB_JOB_KIND_COUNT == (USE_INVENTORY ? 4 : 3), "DBJobKind 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
+    static_assert(DB_JOB_KIND_COUNT == 2, "DBJobKind 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
     for (const DBResult& result : _dbResults)
     {
         switch (result.kind)
@@ -822,10 +772,6 @@ void CCharacterStore::ProcessDbResults()
             _loadEvents.OnCharacterLoaded(result, nowNs);   // 받는 쪽이 판정·스폰한다(알림 — 게임 서버 나누기 0-③ ⑷)
             break;
 
-        case DBJobKind::SAVE_POSITION:   // 저장은 편도 — 결과를 돌려주지 않는다. 여기 오면 워커 쪽 결함이다
-#if USE_INVENTORY
-        case DBJobKind::SAVE_ITEM_SLOT:  // 칸 저장도 편도 — 성공·실패는 워커가 _dbItem 에 센다
-#endif
         case DBJobKind::SAVE_BUNDLE:     // 저장 묶음의 회신은 저장 회신 목록으로 온다 — 불러오기 결과 목록에 오면 결함
         case DBJobKind::COUNT:
             SLOG_ERROR("[DB] unexpected result kind {}", static_cast<int>(result.kind));

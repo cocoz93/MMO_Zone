@@ -3,11 +3,13 @@
 //
 // [책임]
 //  - DB 워커(CDBWorker)의 주인 — 띄우기(Init) · 멈추기(Shutdown: 전원 최종 저장 → 드레인 → 종료)
-//  - 저장 세 길: 주기(TickPeriodicSave — 저장 대상만) · 즉시(EnqueuePlayerSave — 나갈 때·레벨업) · 종료(전원)
+//  - 저장 — 바뀐 자리는 표시만 하고, 계기 넷(주기 · 틱 끝 요청 · 나갈 때 · 종료)이 묶음 하나(캐릭터 행 + 저장 안 된 칸)를 만든다.
+//    표시는 DB 확정 회신 때만 지운다(실을 때 비행 기록으로 옮기고 실패면 되살림) · 캐릭터당 비행 중 묶음은 하나 ·
+//    나간 사람의 묶음은 떠난 기록으로 들고 확정될 때까지 다시 싣는다(저장 플랜 C — save-unify-plan.md)
 //    저장 대상 판정과 「마지막으로 실은 값」 사본(_dbSaved)도 여기서 다룬다
-//  - 불러오기 요청 · 회신 꺼내기(ProcessDbResults) — 결과는 알림(ICharacterLoadEvents)으로 넘긴다(누가 어떻게 들여보낼지는 모른다)
+//  - 불러오기 요청 · 회신 꺼내기(ProcessDbResults) — 저장 회신을 먼저 처리하고, 불러오기 결과는 알림(ICharacterLoadEvents)으로 넘긴다
+//    (누가 어떻게 들여보낼지는 모른다 · 그 계정의 떠난 기록이 확정 전이면 실패로 넘긴다)
 //  - 불러온 행을 캐릭터 칸으로 — 쿨타임·버프 묶음 풀기(실제 시각 → 틱) · 가방 줄 넣기(검사하고 안 맞는 줄은 세고 건너뜀)
-//  - 가방 칸 하나 즉시 저장 요청(EnqueueItemSlot — 저장 플랜 C 가 없앨 길)
 //
 // [경계]
 //  게임 중인 플레이어를 도는 것은 세션 허브(CSessionHub::ForEachPlayer)로 한다. 지속 효과 칸 채우기는 효과 규칙(CBuffSystem::Restore)에 맡긴다.
@@ -25,7 +27,7 @@
 #include <vector>
 
 #include "BuildConfig.h"   // USE_DB_WORKER · USE_COMBAT · USE_INVENTORY — 안 읽으면 아래 #if 가 조용히 0 이 된다
-#include "DB/DBWorker.h"   // CDBWorker · DBConfig · DBSaveJob · DBLoadJob · DBResult · DBItemSlotJob
+#include "DB/DBWorker.h"   // CDBWorker · DBConfig · DBCharRow · DBSaveBundle · DBSaveReply · DBInvRow · DBLoadJob · DBResult
 
 #if USE_DB_WORKER
 
@@ -82,14 +84,7 @@ public:
     //   나갈 때 — 마지막 묶음(행 + 표시 칸 ∪ 비행 칸)을 떠난 기록으로 바로 큐에. 부른 뒤 플레이어가 해제된다(ReleasePlayer).
     void SaveOnLeave(CPlayer* player);
 
-    // DB 저장 파이프라인 (dirty flag 기반 비동기 위치 저장) — 옛 길(저장 플랜 C 단계 3 이 지운다)
-    void EnqueuePlayerSave(CPlayer* player);   // 단건: 스냅샷 enqueue + dirty clear (나갈 때·레벨업)
-    void TickPeriodicSave();                   // 주기: 저장 대상 배치를 1회 핸드오프
-
 #if USE_INVENTORY
-    // 가방 칸 하나 저장 요청 — 받으면 true(셈은 부르는 쪽 · CItemHandler::FlushInventory). 저장 플랜 C 가 한 행 저장으로 합칠 길이다.
-    bool EnqueueItemSlot(const DBItemSlotJob& job) { return _dbWorker->EnqueueItemSlot(job); }
-
     // 불러온 가방 줄을 검사해 넣는다 — 칸 범위·아이템 표·탭·쌓임 한도. 안 맞는 줄은 세고 건너뛴다(깎아 넣지 않는다).
     //   바뀐 칸 표시를 안 켠다(DB 와 같은 값) — 건너뛴 줄은 DB 에 그대로 남고, 그 칸에 새 아이템이 들어오면 덮인다.
     void LoadInventoryRows(CPlayer* player, const DBResult& result);
@@ -105,11 +100,10 @@ public:
     void ProcessDbResults();                                           // 틱마다: 회신 큐를 통째로 꺼내 종류별로 넘긴다(불러오기 → _loadEvents)
 
 private:
-    bool ShouldSave(const CPlayer* player) const;        // 저장 대상 판정(MOVING||dirty||레벨·경험치·체력·마력·쿨타임·버프 칸이 _dbSaved 와 다름) — 주기 저장
-    DBSaveJob MakeSaveJob(const CPlayer* player) const;  // 위치·레벨·경험치·체력·마력·쿨타임·버프 스냅샷 생성 (단건·배치 공용)
-    static void MarkSaveQueued(CPlayer* player, const DBSaveJob& job);   // 큐에 들어간 잡 기록 — dirty clear + _dbSaved 갱신 (옛 세 저장 길 공통 — 단계 3 이 지운다)
-    static void RecordSaved(CPlayer* player, const DBSaveJob& job);      // 「마지막으로 실은 값」 사본(_dbSaved) 갱신 — 묶음과 옛 길 공용
-    void SaveAllPlayers();                     // 종료: 전원 최종 저장(안전망, dirty 무관)
+    bool ShouldSave(const CPlayer* player) const;        // 저장 대상 판정(MOVING||dirty||레벨·경험치·체력·마력·쿨타임·버프 칸이 _dbSaved 와 다름||저장 안 된 가방 칸) — 주기·틱 끝
+    DBCharRow MakeCharRow(const CPlayer* player) const;  // 캐릭터 행 값 — 위치·레벨·경험치·체력·마력·쿨타임·버프 스냅샷(묶음 머리 · 판정 공용)
+    static void RecordSaved(CPlayer* player, const DBCharRow& row);      // 「마지막으로 실은 값」 사본(_dbSaved) 갱신 — 묶음을 만들 때
+    void SaveAllPlayers();                     // 종료: 전원 최종 저장(안전망, dirty 무관) — 떠난 기록으로
 
     // ── 저장 묶음 · 비행 기록 · 떠난 기록 ──
     //   묶음 하나를 만든다 — 표시를 비행 기록으로 옮기고 머리·칸 줄을 채운다(넣기 전). 넣기가 거절되면 AbortBundle 이 되돌린다.
@@ -133,9 +127,9 @@ private:
     void SendLeaveRecord(LeaveRecord& rec, SaveTrigger trigger);
 
     // 쿨타임·버프 ↔ DB 묶음(characters.skill_cooldowns · buffs, 형식은 CooldownBuffBlob.h). 게임 안의 시간은 틱이고 DB 는 실제 시각이다.
-    void PackCooldownsAndBuffs(const CPlayer* player, DBSaveJob& job) const;      // 저장 — 돌고 있는 칸을 틱 → 실제 시각으로 묶는다(MakeSaveJob)
+    void PackCooldownsAndBuffs(const CPlayer* player, DBCharRow& row) const;      // 저장 — 돌고 있는 칸을 틱 → 실제 시각으로 묶는다(MakeCharRow)
     static bool CooldownsAndBuffsChanged(const CPlayer* player);                  // 주기 판정 — 칸이 마지막 저장 때 사본(_dbSaved)과 다른가(틱끼리)
-    static void RecordSavedCooldownsAndBuffs(CPlayer* player);                    // 지금 칸을 _dbSaved 사본으로(MarkSaveQueued · 입장)
+    static void RecordSavedCooldownsAndBuffs(CPlayer* player);                    // 지금 칸을 _dbSaved 사본으로(RecordSaved · 입장)
 
     CSessionHub&          _sessionHub;      // 게임 중인 플레이어 돌기(주기·종료 저장)
     CGameMonitor&         _gameMonitor;     // 입장(불러오기·되살리기) · 가방 불러오기 · DB 지표 그릇
