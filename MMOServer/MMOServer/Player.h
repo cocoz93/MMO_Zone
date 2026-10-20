@@ -19,6 +19,7 @@ class CPlayer : public CCharacter
 {
     friend class CSessionHub;  // 세션 칸의 주인 — 칸에 넣을 때 세션을 붙이고, 찾기(재사용 가드)·보내기가 읽는다
     friend class CEntryHandler; // 접속 세션 → 플레이어 관문 — 같은 계정 걷어내기가 옛 세션을 읽어 끊고, 존 이동 요청이 세션 없는 플레이어를 거른다(게임 서버 나누기 12 단계)
+    friend class CCharacterStore; // 캐릭터 저장소 — 저장 묶음에 주인(세션)을 적고, 회신과 틱 끝 목록이 그 세션으로 주인을 찾는다(저장 플랜 C)
 
 public:
     CPlayer();
@@ -72,6 +73,23 @@ public:
 #endif
     };
     DbSavedValues _dbSaved;
+
+    // USE_DB_WORKER: 비행 기록 — 워커에 넘겼고 회신을 아직 못 받은 저장 묶음(캐릭터당 하나). 저장소(CCharacterStore)만 읽고 쓴다.
+    //   「표시는 DB 확정 회신 때만 지운다」를 이 칸으로 지킨다 — 실을 때 표시를 여기로 옮기고, 성공 회신에 버리고,
+    //   실패 회신에 되살린다(save-unify-plan.md 「비행 기록」 · 상태 전이 표).
+    struct DbFlight
+    {
+        uint32_t      nextNo      = 1;       // 다음 묶음 번호(캐릭터마다 1 부터)
+        uint32_t      bundleNo    = 0;       // 비행 중 묶음 번호 · 0 = 비행 없음
+        bool          again       = false;   // 비행 중에 계기가 와서 판정이 참이었다 = 다시 필요(성공 회신 뒤 틱 끝에 다시)
+        bool          listed      = false;   // 이번 틱 끝 목록에 올라 있다(목록 중복 막기)
+        bool          posDirty    = false;   // 실을 때의 _dbDirty — 실패면 되살린다
+        DbSavedValues savedBefore;           // 실을 때의 _dbSaved(싣기 전 값) — 실패면 되돌린다
+#if USE_INVENTORY
+        CInventory::SlotBits slots;          // 실은 가방 칸 — 실패면 가방 저장 표시로 되살리고, 나갈 때·종료 묶음엔 표시와 합쳐 싣는다
+#endif
+    };
+    DbFlight _dbFlight;
 
     // ── 레벨과 경험치 ──
     // 사람만 쌓는다. CCharacter 에 안 올리는 이유 — 몬스터가 레벨을 쓸 자리가 아직 없고,

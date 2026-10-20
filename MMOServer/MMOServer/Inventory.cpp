@@ -136,7 +136,7 @@ InvAddResult CInventory::TryAdd(const ItemDef& def, int32_t count)
         const int32_t put = (def.maxStack - s.count < left) ? def.maxStack - s.count : left;
         s.count += put;
         left    -= put;
-        _changed.set(static_cast<size_t>(i));
+        MarkChanged(i);
     }
 
     // ⑶ 남으면 빈 칸(칸 번호 순)에 새로 놓는다
@@ -149,7 +149,7 @@ InvAddResult CInventory::TryAdd(const ItemDef& def, int32_t count)
         s.itemId = def.itemId;
         s.count  = put;
         left    -= put;
-        _changed.set(static_cast<size_t>(i));
+        MarkChanged(i);
     }
 
     assert(left == 0);   // ⑴ 에서 자리를 셌으므로 반드시 다 들어간다
@@ -166,7 +166,7 @@ void CInventory::ConsumeOne(int index)
         s.itemId = 0;   // 마지막 한 개 — 칸을 비운다. 칸 패킷은 itemId 0 으로 나간다
         s.count  = 0;
     }
-    _changed.set(static_cast<size_t>(index));
+    MarkChanged(index);
 }
 
 void CInventory::SwapSlots(int a, int b)
@@ -175,8 +175,8 @@ void CInventory::SwapSlots(int a, int b)
     const Item t = _slots[a];
     _slots[a] = _slots[b];
     _slots[b] = t;
-    _changed.set(static_cast<size_t>(a));
-    _changed.set(static_cast<size_t>(b));
+    MarkChanged(a);
+    MarkChanged(b);
 }
 
 int CInventory::FirstEmptyInTab(InvTab tab) const

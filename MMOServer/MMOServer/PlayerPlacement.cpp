@@ -103,7 +103,7 @@ void CPlayerPlacement::ReleasePlayer(CPlayer* player)
     //   ★ 아래 Forget 보다 「앞」이다 — Forget 이 버프 칸을 비우므로 뒤에서 찍으면 걸려 있던 버프가 저장에 안 실린다
     //     (나갔다 들어오면 버프가 늘 사라진다 — 컴파일도 화면도 멀쩡하고 DB 의 buffs 열만 비어 있다).
     if (_characterStore.IsRunning())
-        _characterStore.EnqueuePlayerSave(player);
+        _characterStore.SaveOnLeave(player);   // 떠난 기록으로 — 확정될 때까지 저장소가 들고 다시 싣는다
 #endif
 
     // 「떠남」 — 틱 너머 목록(부활 대기열 · 지속 효과 · 파티)을 든 쪽이 뺀다(받는 쪽 몸·까닭 주석은 CGameServer::OnLeavingGame).

@@ -179,26 +179,15 @@ void CItemHandler::FlushInventory(CPlayer* player)
         const uint16_t slotNo = CInventory::SlotNumberOf(index);
         _sessionHub.SendPacket(player, MakeInventorySlot(slotNo, s.itemId, s.count));
         _gameMonitor._inventory._slotUpdatesSent.Inc();
+    });
 
 #if USE_DB_WORKER
-        // 같은 최종값을 곧바로 DB 로 — 60초 주기를 안 기다린다(아이템은 잃으면 되돌릴 길이 없다).
-        //   빈 칸은 행을 지우지 않고 itemId 0 으로 덮는다(DB 계정에 DELETE 권한이 없다).
-        //   같은 계정은 같은 워커 큐라, 다시 들어올 때 불러오기가 이 저장들 뒤에 줄 선다.
-        if (_characterStore.IsRunning())
-        {
-            const DBItemSlotJob job{ player->_accountId, slotNo, s.itemId, s.count };
-            if (_characterStore.EnqueueItemSlot(job))
-                _gameMonitor._inventory._itemSavesQueued.Inc();
-            else
-            {
-                // 아이템 저장 상한 — 정상 상태에선 안 닿는다(닿았다면 DB 가 멈춘 것). 되살릴 길은 이번 범위 밖이라 세고 남긴다.
-                _gameMonitor._inventory._itemSaveRejected.Inc();
-                SLOG_ERROR("[DB] item slot save REJECTED — queue ceiling (account={}, slot={}, item={}, count={})",
-                           player->_accountId, slotNo, s.itemId, s.count);
-            }
-        }
+    // DB 는 이 틱 끝에 — 가방이 스스로 켠 저장 표시(CInventory::HasUnsaved)를 저장소가 캐릭터 행과 한 묶음으로 싣는다.
+    //   같은 요청에서 바뀐 체력·경험치도 같은 묶음이라 강제 종료 뒤에도 같은 순간으로 돌아온다(물약 · 방 보상 — 저장 플랜 C).
+    //   빈 칸은 행을 지우지 않고 itemId 0 으로 덮는다(DB 계정에 DELETE 권한이 없다).
+    if (_characterStore.IsRunning() && inv.HasUnsaved())
+        _characterStore.RequestSave(player, SaveReason::BAG);
 #endif
-    });
 }
 
 void CItemHandler::RecvUseItem(CPlayer* player, CSerialBuffer* pMsg)

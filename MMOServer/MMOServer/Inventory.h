@@ -92,7 +92,7 @@ public:
     static uint16_t SlotNumberOf(int index);   // 배열 색인 → 칸 번호
     int CountNonEmpty() const;
 
-    // 바뀐 칸마다 fn(index) 를 부르고 표시를 지운다 — CItemHandler::FlushInventory 만 부른다.
+    // 바뀐 칸마다 fn(index) 를 부르고 표시를 지운다 — CItemHandler::FlushInventory 만 부른다(화면용 표시).
     template <class Fn>
     void TakeChanges(Fn&& fn)
     {
@@ -107,9 +107,24 @@ public:
     }
     bool HasChanges() const { return _changed.any(); }
 
+    // 저장 안 된 칸 — 화면용 표시(_changed)와 따로 든다. 저장소가 묶음에 실을 때 가져가고(TakeUnsaved),
+    //   DB 가 실패를 회신하면 되돌려 놓는다(MarkUnsaved). 화면 패킷이 나갔다고 저장된 것이 아니다(save-unify-plan.md 「표시」).
+    using SlotBits = std::bitset<INVENTORY_ALL_SLOTS>;
+    SlotBits TakeUnsaved() { const SlotBits b = _unsaved; _unsaved.reset(); return b; }
+    void MarkUnsaved(const SlotBits& bits) { _unsaved |= bits; }
+    bool HasUnsaved() const { return _unsaved.any(); }
+
 private:
+    // 칸이 바뀌었다 — 화면용·저장용 표시를 같이 켠다. 칸을 바꾸는 함수는 이것만 부른다(둘 중 하나를 빠뜨릴 길을 없앤다).
+    void MarkChanged(int index)
+    {
+        _changed.set(static_cast<size_t>(index));
+        _unsaved.set(static_cast<size_t>(index));
+    }
+
     Item _slots[INVENTORY_ALL_SLOTS];            // 가방 60 + 착용 칸(색인 WORN_BASE_INDEX~)
-    std::bitset<INVENTORY_ALL_SLOTS> _changed;
+    std::bitset<INVENTORY_ALL_SLOTS> _changed;   // 화면에 아직 안 보낸 칸(FlushInventory 가 지움)
+    SlotBits                         _unsaved;   // DB 에 아직 확정 안 된 칸(저장소가 묶음에 실을 때 가져감)
 };
 
 #endif // USE_INVENTORY

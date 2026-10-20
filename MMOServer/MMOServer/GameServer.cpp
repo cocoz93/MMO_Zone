@@ -284,8 +284,8 @@ void CGameServer::GameLoopThread()
         }
 
 #if USE_DB_WORKER
-        // 5-1) DB 주기 저장 — dirty(또는 MOVING) 플레이어만 워커에 enqueue (틱 임계경로 밖 I/O)
-        _characterStore.TickPeriodicSave();
+        // 5-1) DB 저장 — 주기(그 틱이면) → 틱 끝 목록(가방·레벨업·다시 필요). 틱의 마지막 일이라 이번 틱의 변화가 다 실린다
+        _characterStore.TickSaves();
 #endif
 
         // 6) Tick 시간 기록 + 프레임 제한

@@ -57,10 +57,10 @@ void CRewardHandler::GrantMonsterExp(CZone* zone, CPlayer* killer, int32_t rewar
 #endif
 
 #if USE_DB_WORKER
-            // 레벨업은 바로 저장한다 — 주기(60초) 전에 서버가 죽어도 오른 레벨이 되돌아가지 않게.
-            //   한 행 통째(자리·맵·레벨·경험치·체력·마력)라 그 순간 값이 전부 남는다.
+            // 레벨업은 이 틱 끝에 저장한다 — 주기(60초) 전에 서버가 죽어도 오른 레벨이 되돌아가지 않게.
+            //   한 행 통째(자리·맵·레벨·경험치·체력·마력)라 그 순간 값이 전부 남고, 같은 틱의 방 보상 칸도 같은 묶음에 실린다.
             if (_characterStore.IsRunning())
-                _characterStore.EnqueuePlayerSave(killer);
+                _characterStore.RequestSave(killer, SaveReason::LEVELUP);
 #endif
         }
     }

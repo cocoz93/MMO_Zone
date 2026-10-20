@@ -223,6 +223,75 @@ inline const char* ChatCommandRejectName(ChatCommandReject r)
     return "?";
 }
 
+// 저장 묶음의 계기 — 묶음마다 꼭 하나(계기 칸 합 = 묶음 수). 저장소(CCharacterStore)가 묶음을 만드는 자리에서 정한다.
+//   토글 밖 — 저장 지표는 USE_DB_WORKER=0 이어도 0 으로 노출된다(입장 지표와 같은 이유).
+enum class SaveTrigger : uint8_t
+{
+    PERIOD,     // 60초 주기(판정 참인 전원)
+    TICK_END,   // 틱 끝 요청(가방 · 레벨업 · 다시 필요) — 목록의 사람 중 판정 참
+    LEAVE,      // 나갈 때 — 떠난 기록의 첫 묶음 · 그 기록을 다시 실은 묶음
+    SHUTDOWN,   // 종료 — 전원 + 확정 안 된 떠난 기록
+    COUNT
+};
+
+inline const char* SaveTriggerName(SaveTrigger t)
+{
+    static_assert(static_cast<int>(SaveTrigger::COUNT) == 4, "SaveTrigger 를 늘렸으면 이름도 붙일 것");
+    switch (t)
+    {
+    case SaveTrigger::PERIOD:   return "period";
+    case SaveTrigger::TICK_END: return "tick_end";
+    case SaveTrigger::LEAVE:    return "leave";
+    case SaveTrigger::SHUTDOWN: return "shutdown";
+    case SaveTrigger::COUNT:    break;
+    }
+    return "?";
+}
+
+// 틱 끝 요청의 사유 — 같은 틱에 한 사람이 여럿 올라와도 목록엔 한 번(그 중복은 안 센다).
+enum class SaveReason : uint8_t
+{
+    BAG,       // 가방이 바뀌었다(FlushInventory)
+    LEVELUP,   // 레벨이 올랐다(GrantMonsterExp)
+    AGAIN,     // 비행 중에 계기가 와서 다시 필요가 섰다 — 성공 회신 때
+    COUNT
+};
+
+inline const char* SaveReasonName(SaveReason r)
+{
+    static_assert(static_cast<int>(SaveReason::COUNT) == 3, "SaveReason 을 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case SaveReason::BAG:     return "bag";
+    case SaveReason::LEVELUP: return "levelup";
+    case SaveReason::AGAIN:   return "again";
+    case SaveReason::COUNT:   break;
+    }
+    return "?";
+}
+
+// 저장 회신을 받은 결과 — 주인(살아 있는 사람 · 떠난 기록)을 찾아 성공·실패로, 못 찾으면 주인 없음.
+enum class SaveReplyResult : uint8_t
+{
+    OK,
+    FAILED,
+    ORPHAN,    // 주인 없음 — 나간 사람의 비행 중이던 묶음 · 같은 계정 재접속 전의 묶음(번호가 안 맞음)
+    COUNT
+};
+
+inline const char* SaveReplyResultName(SaveReplyResult r)
+{
+    static_assert(static_cast<int>(SaveReplyResult::COUNT) == 3, "SaveReplyResult 를 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case SaveReplyResult::OK:     return "ok";
+    case SaveReplyResult::FAILED: return "failed";
+    case SaveReplyResult::ORPHAN: return "orphan";
+    case SaveReplyResult::COUNT:  break;
+    }
+    return "?";
+}
+
 #if USE_INVENTORY
 // 불러올 때 건너뛴 줄의 사유 — DB 행이 망가졌거나 표가 바뀌어 지금 규칙에 안 맞는 줄. 평소엔 전부 0 이다.
 //   칸·아이템 번호 사유는 게임 서버(LoadInventoryRows)가, 탭·개수 사유는 가방(LoadSlot → InvLoadResult)이 정한다.
@@ -627,6 +696,21 @@ public:
             _latencySumUs.Add(us);
         }
     } _enter;
+
+    // ══════════════════════════════════════════════════════════════
+    // 저장 묶음 — 게임 스레드 몫(저장소 CCharacterStore 가 센다). 워커 몫(성공·실패·재시도·칸 줄)은 아래 _db.
+    //   등식(조용해진 뒤) — Σ txn = _db._savedJobs + _db._failedJobs = Σ reply(모든 묶음이 회신을 받는다).
+    //   USE_DB_WORKER=0 이어도 0 으로 노출된다(위 _enter 와 같은 이유).
+    // ══════════════════════════════════════════════════════════════
+    struct alignas(64) SaveCounters
+    {
+        Counter _txn[static_cast<int>(SaveTrigger::COUNT)];          // 큐가 받은 묶음, 계기별 — 묶음마다 하나
+        Counter _request[static_cast<int>(SaveReason::COUNT)];       // 틱 끝 요청(목록에 올린 수), 사유별
+        Counter _reply[static_cast<int>(SaveReplyResult::COUNT)];    // 받은 회신, 결과별
+        Counter _inflight;       // [게이지] 비행 중 묶음이 있는 살아 있는 캐릭터 수 — 접속자 수에 붙어 안 내려가면 DB 가 못 따라간다
+        Counter _pendingLeave;   // [게이지] 확정 안 된 떠난 기록 수 — 조용해지면 0
+        Counter _lost;           // 종료 때 끝내 못 쓴 묶음(드레인 뒤 마지막 꺼내기에서 실패 · 회신 없음) — 0 이어야 한다
+    } _save;
 
     // ══════════════════════════════════════════════════════════════
     // 섹터·존 — 이 게임의 규칙 이름이 든 지표. 10-06 코어 GameLoopCounters 에서 옮김(아키텍처 전수검사 8번).

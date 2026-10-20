@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include "BuildConfig.h"   // USE_DB_WORKER · USE_COMBAT · USE_INVENTORY — 안 읽으면 아래 #if 가 조용히 0 이 된다
@@ -32,6 +33,8 @@ class CPlayer;
 class CSessionHub;
 class CGameMonitor;
 class CGameDataFiles;
+enum class SaveReason : uint8_t;    // 틱 끝 요청의 사유 · 묶음의 계기 — 정의는 지표 라벨과 같이 GameMonitor.h
+enum class SaveTrigger : uint8_t;
 #if USE_COMBAT
 class CBuffSystem;
 #endif
@@ -71,7 +74,15 @@ public:
     // 워커가 떠 있나 — 띄우기 전·실패·멈춘 뒤는 false. 저장·불러오기를 부르는 쪽이 먼저 본다.
     bool IsRunning() const { return _dbWorker != nullptr; }
 
-    // DB 저장 파이프라인 (dirty flag 기반 비동기 위치 저장)
+    // ── 저장 — 바뀐 자리는 표시만, 계기 넷이 묶음 하나(캐릭터 행 + 저장 안 된 칸)를 만든다(save-unify-plan.md) ──
+    //   틱 끝 요청 — 목록에 올리기만 한다(세션 번호로 · 같은 틱 중복은 한 번). 같은 틱 끝 TickSaves 가 판정해 묶음을 넣는다.
+    void RequestSave(CPlayer* player, SaveReason reason);
+    //   틱 끝 — 주기(그 틱이면 판정 참인 전원 · 실패한 떠난 기록 다시 싣기) → 목록. GameServer 틱의 마지막 일.
+    void TickSaves();
+    //   나갈 때 — 마지막 묶음(행 + 표시 칸 ∪ 비행 칸)을 떠난 기록으로 바로 큐에. 부른 뒤 플레이어가 해제된다(ReleasePlayer).
+    void SaveOnLeave(CPlayer* player);
+
+    // DB 저장 파이프라인 (dirty flag 기반 비동기 위치 저장) — 옛 길(저장 플랜 C 단계 3 이 지운다)
     void EnqueuePlayerSave(CPlayer* player);   // 단건: 스냅샷 enqueue + dirty clear (나갈 때·레벨업)
     void TickPeriodicSave();                   // 주기: 저장 대상 배치를 1회 핸드오프
 
@@ -96,8 +107,30 @@ public:
 private:
     bool ShouldSave(const CPlayer* player) const;        // 저장 대상 판정(MOVING||dirty||레벨·경험치·체력·마력·쿨타임·버프 칸이 _dbSaved 와 다름) — 주기 저장
     DBSaveJob MakeSaveJob(const CPlayer* player) const;  // 위치·레벨·경험치·체력·마력·쿨타임·버프 스냅샷 생성 (단건·배치 공용)
-    static void MarkSaveQueued(CPlayer* player, const DBSaveJob& job);   // 큐에 들어간 잡 기록 — dirty clear + _dbSaved 갱신 (세 저장 길 공통)
+    static void MarkSaveQueued(CPlayer* player, const DBSaveJob& job);   // 큐에 들어간 잡 기록 — dirty clear + _dbSaved 갱신 (옛 세 저장 길 공통 — 단계 3 이 지운다)
+    static void RecordSaved(CPlayer* player, const DBSaveJob& job);      // 「마지막으로 실은 값」 사본(_dbSaved) 갱신 — 묶음과 옛 길 공용
     void SaveAllPlayers();                     // 종료: 전원 최종 저장(안전망, dirty 무관)
+
+    // ── 저장 묶음 · 비행 기록 · 떠난 기록 ──
+    //   묶음 하나를 만든다 — 표시를 비행 기록으로 옮기고 머리·칸 줄을 채운다(넣기 전). 넣기가 거절되면 AbortBundle 이 되돌린다.
+    void PrepareBundle(CPlayer* player, DBSaveBundle& head, std::vector<DBInvRow>& rows);
+    void AbortBundle(CPlayer* player);                                   // 넣기 거절 — 비행 기록을 표시로 되돌림
+    void CommitBundle(CPlayer* player, const DBSaveBundle& head, SaveTrigger trigger);   // 넣기 받음 — 비행 중으로
+    bool SendBundle(CPlayer* player, SaveTrigger trigger);               // 주기·틱 끝 하나 — 비행 중이면 다시 필요만. 반환 = 큐가 받았나
+    void OnSaveReply(const DBSaveReply& reply);                          // 회신 하나 — 살아 있는 사람 · 떠난 기록 · 주인 없음
+    void FillFinalRows(CPlayer* player, std::vector<DBInvRow>& rows);    // 나갈 때·종료 — 표시 칸 ∪ 비행 칸(최종값)
+    void SetInflight(int delta);                                          // 비행 중 게이지
+
+    // 떠난 기록 — 나간 사람의 마지막 묶음. 플레이어가 해제되므로 저장소가 계정 열쇠로 든다(계정당 하나).
+    //   비행(큐에 있음) / 실패(다음 주기 · 같은 계정 불러오기 앞에 다시 싣는다). 성공 회신에 지운다.
+    struct LeaveRecord
+    {
+        DBSaveBundle          head{};
+        std::vector<DBInvRow> rows;
+        bool                  inFlight = false;
+    };
+    void PutLeaveRecord(DBSaveBundle head, std::vector<DBInvRow>&& rows, SaveTrigger trigger);
+    void SendLeaveRecord(LeaveRecord& rec, SaveTrigger trigger);
 
     // 쿨타임·버프 ↔ DB 묶음(characters.skill_cooldowns · buffs, 형식은 CooldownBuffBlob.h). 게임 안의 시간은 틱이고 DB 는 실제 시각이다.
     void PackCooldownsAndBuffs(const CPlayer* player, DBSaveJob& job) const;      // 저장 — 돌고 있는 칸을 틱 → 실제 시각으로 묶는다(MakeSaveJob)
@@ -122,6 +155,16 @@ private:
     //   _localEvents 와 같은 방식). 접근은 게임 스레드 단독.
     std::vector<DBResult> _dbResults;
     std::vector<DBSaveReply> _dbSaveReplies;   // 저장 회신 — 위와 같은 맞바꿈 버퍼(한 락에 같이 꺼낸다)
+
+    // 저장 묶음 — 접근은 게임 스레드 단독(종료 때는 게임 스레드 join 뒤 메인 스레드 단독)
+    std::vector<int64_t>                       _tickEndSessions;   // 이번 틱 끝 목록(세션 번호 — 같은 틱에 나간 사람은 틱 끝에 못 찾아 건너뜀)
+    std::unordered_map<int64_t, LeaveRecord>   _leaveRecords;      // 계정 → 떠난 기록
+    uint32_t                                   _leaveSeq = 0;      // 떠난 기록 묶음 번호(실을 때마다 새로 — 늦게 온 옛 회신이 새 시도를 확정하지 않게)
+    int64_t                                    _inflightCount = 0; // 비행 중 묶음이 있는 살아 있는 캐릭터 수(게이지의 원본)
+    std::vector<DBSaveBundle>                  _batchHeads;        // 주기·종료 묶음 머리 — 멤버 재사용(매 주기 할당 회피)
+    std::vector<DBInvRow>                      _batchRows;         // 그 칸 줄(머리의 slotBegin 이 가리킨다)
+    std::vector<CPlayer*>                      _batchOwners;       // _batchHeads 와 나란한 주인(거절 때 되돌릴 사람)
+    std::vector<size_t>                        _batchRefused;      // 거절된 색인
 };
 
 #endif // USE_DB_WORKER

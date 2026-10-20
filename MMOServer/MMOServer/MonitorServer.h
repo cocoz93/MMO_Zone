@@ -231,6 +231,33 @@ private:
                      "Save bundles retried whole after a reconnect (success or not)", _gameMonitor._db._saveRetried);
         WriteCounter(ss, "mmo_db_save_slot_rows_total",
                      "Bag slot rows written inside committed save bundles", _gameMonitor._db._saveSlotRows);
+        {
+            // 저장 묶음 — 게임 스레드 몫(저장소). 등식(조용해진 뒤): sum(txn) = saved + failed = sum(reply)
+            const auto& sv = _gameMonitor._save;
+            ss << "# HELP mmo_db_save_txn_total Save bundles accepted by the DB queue, split by trigger (one per bundle)\n";
+            ss << "# TYPE mmo_db_save_txn_total counter\n";
+            for (int i = 0; i < static_cast<int>(SaveTrigger::COUNT); ++i)
+                ss << "mmo_db_save_txn_total{trigger=\"" << SaveTriggerName(static_cast<SaveTrigger>(i)) << "\"} " << sv._txn[i] << "\n";
+            ss << "\n";
+            ss << "# HELP mmo_db_save_request_total Tick-end save requests listed, split by reason (duplicates in one tick not counted)\n";
+            ss << "# TYPE mmo_db_save_request_total counter\n";
+            for (int i = 0; i < static_cast<int>(SaveReason::COUNT); ++i)
+                ss << "mmo_db_save_request_total{reason=\"" << SaveReasonName(static_cast<SaveReason>(i)) << "\"} " << sv._request[i] << "\n";
+            ss << "\n";
+            ss << "# HELP mmo_db_save_reply_total Save replies taken by the game thread, split by result\n";
+            ss << "# TYPE mmo_db_save_reply_total counter\n";
+            for (int i = 0; i < static_cast<int>(SaveReplyResult::COUNT); ++i)
+                ss << "mmo_db_save_reply_total{result=\"" << SaveReplyResultName(static_cast<SaveReplyResult>(i)) << "\"} " << sv._reply[i] << "\n";
+            ss << "\n";
+            ss << "# HELP mmo_db_save_inflight Live characters with a save bundle in flight (stuck near player count = DB falling behind)\n";
+            ss << "# TYPE mmo_db_save_inflight gauge\n";
+            ss << "mmo_db_save_inflight " << sv._inflight << "\n\n";
+            ss << "# HELP mmo_db_save_pending_leave Leave records not yet confirmed by the DB (0 when quiet)\n";
+            ss << "# TYPE mmo_db_save_pending_leave gauge\n";
+            ss << "mmo_db_save_pending_leave " << sv._pendingLeave << "\n\n";
+            WriteCounter(ss, "mmo_db_save_lost_total",
+                         "Save bundles still unconfirmed after the shutdown drain (0 expected)", sv._lost);
+        }
         if (_gameMonitor._db._workerCount > 0)
         {
             ss << "# HELP mmo_db_queue_depth Jobs pulled in last drain, per DB worker (sustained growth = worker falling behind)\n";

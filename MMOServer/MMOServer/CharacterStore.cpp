@@ -99,10 +99,15 @@ bool CCharacterStore::ShouldSave(const CPlayer* player) const
     //   MOVING   = 위치가 계속 변하는 중 → 저장 후 dirty가 리셋돼도 매 주기 재저장 필요
     //   _dbDirty = 정지/접속/존변경/클램프로 생긴 미저장 변경(일회성, 저장 후 리셋)
     //   값 비교  = 레벨·경험치·체력·마력·쿨타임·버프 칸이 마지막으로 실은 값(_dbSaved)과 다름 — 바뀌는 자리마다 켜지 않고 여기서 본다(Player.h)
+    //   가방     = 저장 안 된 칸이 있다(CInventory::HasUnsaved — 가방이 스스로 켠다)
     if (player->_moveState == MoveState::MOVING || player->_dbDirty)
         return true;
     if (CooldownsAndBuffsChanged(player))
         return true;
+#if USE_INVENTORY
+    if (player->_inventory.HasUnsaved())   // 저장 안 된 가방 칸(화면용 표시와 따로 — Inventory.h)
+        return true;
+#endif
 
     // 저장할 값과 같은 식으로 견준다(MakeSaveJob) — 토글을 끈 빌드의 「모름(-1)」도 똑같이 나와 헛저장이 없다.
     const DBSaveJob now = MakeSaveJob(player);
@@ -138,7 +143,13 @@ void CCharacterStore::MarkSaveQueued(CPlayer* player, const DBSaveJob& job)
 {
     // 큐에 들어간 잡을 기록한다 — 다음 주기 판정(ShouldSave)이 이 값과 견준다.
     //   백프레셔로 버려지면 부르는 쪽이 _dbDirty 를 되살린다(TickPeriodicSave) — dirty 가 서 있으면 값 비교와 무관하게 다시 실린다.
-    player->_dbDirty         = false;
+    player->_dbDirty = false;
+    RecordSaved(player, job);
+}
+
+void CCharacterStore::RecordSaved(CPlayer* player, const DBSaveJob& job)
+{
+    // 「마지막으로 실은 값」 사본 — 다음 판정(ShouldSave)이 이 값과 견준다(Player.h _dbSaved).
     player->_dbSaved.level   = job.level;
     player->_dbSaved.exp     = job.exp;
     player->_dbSaved.hp      = job.hp;
@@ -406,26 +417,340 @@ void CCharacterStore::SaveAllPlayers()
 {
     // 종료는 유실 방지 우선 — dirty/MOVING 무관하게 전원 최종 저장(안전망).
     // 주기 저장(ShouldSave 필터)과 목적이 다름: 여기선 dirty 추적을 신뢰하지 않고 무조건 다 씀.
-    std::vector<DBSaveJob> batch;
-    batch.reserve(_sessionHub.SlotCount());
+    //   전원을 떠난 기록으로 넘긴다(나갈 때와 같은 마지막 묶음 — 행 + 표시 칸 ∪ 비행 칸) → 드레인 뒤 Shutdown 이
+    //   회신을 꺼내 확정 안 된 기록을 「잃음」으로 센다. 실패 중이던 떠난 기록도 한 번 더 싣는다.
     _sessionHub.ForEachPlayer([&](CPlayer* player)
     {
-        batch.push_back(MakeSaveJob(player));
-        MarkSaveQueued(player, batch.back());
+        DBSaveBundle head{};
+        head.row       = MakeSaveJob(player);
+        head.sessionId = 0;
+        std::vector<DBInvRow> rows;
+        FillFinalRows(player, rows);
+        if (player->_dbFlight.bundleNo != 0)
+        {
+            player->_dbFlight.bundleNo = 0;   // 비행 중이던 묶음의 회신은 주인 없음으로 떨어진다 — 칸은 위 마지막 묶음에 실렸다
+            SetInflight(-1);
+        }
+        PutLeaveRecord(head, std::move(rows), SaveTrigger::SHUTDOWN);
     });
-    _dbWorker->EnqueueBatch(batch);   // 배치 1회 핸드오프
+    for (auto& kv : _leaveRecords)
+    {
+        if (!kv.second.inFlight)
+            SendLeaveRecord(kv.second, SaveTrigger::SHUTDOWN);
+    }
 }
 
-// 멈추기 — 몸은 CGameServer::Stop 의 DB 블록에서 옮긴 그대로(부르는 자리도 그대로 — 게임 스레드를 join 한 뒤).
+// 멈추기 — 부르는 자리는 CGameServer::Stop 의 DB 블록 그대로(게임 스레드를 join 한 뒤).
 void CCharacterStore::Shutdown()
 {
-    // 게임 스레드 종료 후(단일 스레드 시점) 전원 최종 저장 → 드레인 → 워커 종료
+    // 게임 스레드 종료 후(단일 스레드 시점) 전원 최종 저장 → 드레인 → 마지막 꺼내기 → 워커 종료
     if (_dbWorker)
     {
         SaveAllPlayers();
         _dbWorker->Shutdown(0);
+
+        // 마지막 꺼내기 — 드레인이 끝나 회신이 다 들어와 있다. 확정된 떠난 기록을 지우고, 남은 것은 잃음.
+        //   불러오기 결과는 버린다(게임 스레드가 이미 끝나 들여보낼 데가 없다 — 전에도 버려졌다).
+        _dbWorker->SwapOutResults(_dbResults, _dbSaveReplies);
+        for (const DBSaveReply& reply : _dbSaveReplies)
+            OnSaveReply(reply);
+        _dbSaveReplies.clear();
+        _dbResults.clear();
+        for (const auto& kv : _leaveRecords)
+        {
+            SLOG_ERROR("[DB] save LOST at shutdown (account={}, rows={}) — DB 가 마지막 묶음을 확정하지 않았다",
+                       kv.first, kv.second.rows.size());
+        }
+        _gameMonitor._save._lost.Add(static_cast<int64_t>(_leaveRecords.size()));
+        _leaveRecords.clear();
+        _gameMonitor._save._pendingLeave.Store(0);
+
         _dbWorker.reset();
     }
+}
+
+// ==========================================================================
+// 저장 묶음 — 계기 넷 · 비행 기록 · 떠난 기록 (save-unify-plan.md 「목표 구조」)
+//   바뀐 자리는 표시만 한다(자리 _dbDirty · 값 비교 _dbSaved · 가방 _unsaved). 계기가 오면 표시를 비행 기록으로 옮겨
+//   묶음 하나(캐릭터 행 + 저장 안 된 칸)를 넣고, 회신이 확정(성공)하거나 되살린다(실패). 캐릭터당 비행 중 묶음은 하나.
+//   나간 사람의 묶음은 떠난 기록이 주인 — 실패하면 다음 주기에 다시 싣고, 확정 전엔 같은 계정 불러오기를 실패로 돌린다.
+// ==========================================================================
+
+void CCharacterStore::SetInflight(int delta)
+{
+    _inflightCount += delta;
+    assert(_inflightCount >= 0);
+    _gameMonitor._save._inflight.Store(_inflightCount);
+}
+
+void CCharacterStore::PrepareBundle(CPlayer* player, DBSaveBundle& head, std::vector<DBInvRow>& rows)
+{
+    CPlayer::DbFlight& f = player->_dbFlight;
+    assert(f.bundleNo == 0 && "비행 중 묶음은 캐릭터당 하나 — 부르는 쪽이 먼저 본다");
+
+    head           = DBSaveBundle{};
+    head.row       = MakeSaveJob(player);
+    head.sessionId = player->_sessionId;
+    head.bundleNo  = f.nextNo;
+    f.nextNo = (f.nextNo == UINT32_MAX) ? 1 : f.nextNo + 1;   // 0 은 「비행 없음」이라 안 쓴다
+
+    // 표시 → 비행 기록(지우지 않고 옮긴다 — 실패 회신이면 되살린다)
+    f.savedBefore    = player->_dbSaved;
+    f.posDirty       = player->_dbDirty;
+    player->_dbDirty = false;
+    RecordSaved(player, head.row);
+
+    head.slotBegin = static_cast<uint32_t>(rows.size());
+    head.slotCount = 0;
+#if USE_INVENTORY
+    f.slots = player->_inventory.TakeUnsaved();
+    for (int i = 0; i < INVENTORY_ALL_SLOTS; ++i)
+    {
+        if (!f.slots.test(static_cast<size_t>(i)))
+            continue;
+        const Item& s = player->_inventory.At(i);   // 칸의 최종값 — 빈 칸은 item 0 으로 덮는다(DB 계정에 DELETE 권한이 없다)
+        rows.push_back(DBInvRow{ static_cast<int32_t>(CInventory::SlotNumberOf(i)), s.itemId, s.count });
+        ++head.slotCount;
+    }
+#endif
+}
+
+void CCharacterStore::AbortBundle(CPlayer* player)
+{
+    // 되살림 셋 — 자리 표시 · 값 비교 기준 · 가방 칸. 판정이 다시 참이 되어 다음 계기에 실린다.
+    CPlayer::DbFlight& f = player->_dbFlight;
+    player->_dbSaved = f.savedBefore;
+    if (f.posDirty)
+        player->_dbDirty = true;
+#if USE_INVENTORY
+    player->_inventory.MarkUnsaved(f.slots);
+    f.slots.reset();
+#endif
+}
+
+void CCharacterStore::CommitBundle(CPlayer* player, const DBSaveBundle& head, SaveTrigger trigger)
+{
+    CPlayer::DbFlight& f = player->_dbFlight;
+    f.bundleNo = head.bundleNo;
+    f.again    = false;
+    SetInflight(+1);
+    _gameMonitor._save._txn[static_cast<int>(trigger)].Inc();
+}
+
+bool CCharacterStore::SendBundle(CPlayer* player, SaveTrigger trigger)
+{
+    CPlayer::DbFlight& f = player->_dbFlight;
+    if (f.bundleNo != 0)
+    {
+        f.again = true;   // 비행 중 — 회신 뒤 틱 끝에 다시(상태 표 C·E2 → D)
+        return false;
+    }
+    DBSaveBundle head;
+    _batchRows.clear();   // 주기 묶음은 이미 넣었다(TickSaves 차례 주기 → 목록) — 같은 버퍼를 다시 쓴다
+    PrepareBundle(player, head, _batchRows);
+    if (!_dbWorker->EnqueueSave(head, _batchRows.empty() ? nullptr : _batchRows.data(), head.slotCount))
+    {
+        AbortBundle(player);   // 큐 거절(dropped 는 워커가 셌다) — 표시가 남아 다음 계기에
+        return false;
+    }
+    CommitBundle(player, head, trigger);
+    return true;
+}
+
+void CCharacterStore::RequestSave(CPlayer* player, SaveReason reason)
+{
+    CPlayer::DbFlight& f = player->_dbFlight;
+    if (f.listed)
+        return;   // 이번 틱 끝에 이미 판정한다 — 사유가 여럿이어도 묶음은 하나
+    f.listed = true;
+    _tickEndSessions.push_back(player->_sessionId);
+    _gameMonitor._save._request[static_cast<int>(reason)].Inc();
+}
+
+void CCharacterStore::TickSaves()
+{
+    // ① 주기 — 판정 참인 전원을 한 번에(슬롯당 락 1회). 비행 중이면 다시 필요만.
+    //   목록보다 먼저 — 주기가 목록의 사람까지 실어, 목록 차례에선 판정이 거짓이라 헛 묶음이 없다.
+    if (++_dbSaveFrameCounter >= _dbSavePeriodFrames)
+    {
+        _dbSaveFrameCounter = 0;
+        _batchHeads.clear();
+        _batchRows.clear();
+        _batchOwners.clear();
+        _sessionHub.ForEachPlayer([&](CPlayer* player)
+        {
+            if (!ShouldSave(player))
+                return;
+            if (player->_dbFlight.bundleNo != 0)
+            {
+                player->_dbFlight.again = true;
+                return;
+            }
+            DBSaveBundle head;
+            PrepareBundle(player, head, _batchRows);
+            _batchHeads.push_back(head);
+            _batchOwners.push_back(player);
+        });
+        _dbWorker->EnqueueSaveBatch(_batchHeads, _batchRows, &_batchRefused);
+        for (size_t idx : _batchRefused)   // 거절된 묶음 — 그 자리에서 되살린다(상태 표 B·E2 거절)
+        {
+            AbortBundle(_batchOwners[idx]);
+            _batchOwners[idx] = nullptr;
+        }
+        for (size_t i = 0; i < _batchOwners.size(); ++i)
+        {
+            if (_batchOwners[i] != nullptr)
+                CommitBundle(_batchOwners[i], _batchHeads[i], SaveTrigger::PERIOD);
+        }
+
+        // 실패한 떠난 기록 다시 싣기 — 살아 있는 사람과 같은 간격(주기). 죽은 DB 를 틱마다 두드리지 않는다.
+        for (auto& kv : _leaveRecords)
+        {
+            if (!kv.second.inFlight)
+                SendLeaveRecord(kv.second, SaveTrigger::LEAVE);
+        }
+    }
+
+    // ② 틱 끝 목록 — 세션 번호로 찾는다(같은 틱에 나간 사람은 없다 — 표시는 나갈 때 묶음이 실었다)
+    for (int64_t sessionId : _tickEndSessions)
+    {
+        CPlayer* player = _sessionHub.FindPlayer(sessionId);
+        if (player == nullptr)
+            continue;
+        player->_dbFlight.listed = false;
+        if (ShouldSave(player))
+            SendBundle(player, SaveTrigger::TICK_END);
+    }
+    _tickEndSessions.clear();
+}
+
+void CCharacterStore::FillFinalRows(CPlayer* player, std::vector<DBInvRow>& rows)
+{
+#if USE_INVENTORY
+    // 표시 칸 ∪ 비행 중 칸 — 비행 중이던 묶음이 나중에 실패해도 그 칸이 빠지지 않게(최종값이라 두 번 써도 같다)
+    const CInventory::SlotBits bits = player->_inventory.TakeUnsaved() | player->_dbFlight.slots;
+    player->_dbFlight.slots.reset();
+    for (int i = 0; i < INVENTORY_ALL_SLOTS; ++i)
+    {
+        if (!bits.test(static_cast<size_t>(i)))
+            continue;
+        const Item& s = player->_inventory.At(i);
+        rows.push_back(DBInvRow{ static_cast<int32_t>(CInventory::SlotNumberOf(i)), s.itemId, s.count });
+    }
+#else
+    (void)player;
+    (void)rows;
+#endif
+}
+
+void CCharacterStore::SaveOnLeave(CPlayer* player)
+{
+    // 나갈 때 — 판정 없이 늘 쓴다(안전망 · 지금과 같음). 바로 큐에 — 같은 계정 재접속의 불러오기가 이 뒤에 줄 선다.
+    DBSaveBundle head{};
+    head.row       = MakeSaveJob(player);
+    head.sessionId = 0;   // 주인 = 떠난 기록(회신은 계정 번호로 찾는다)
+    std::vector<DBInvRow> rows;
+    FillFinalRows(player, rows);
+    if (player->_dbFlight.bundleNo != 0)
+    {
+        player->_dbFlight.bundleNo = 0;   // 비행 중이던 묶음의 회신은 주인 없음으로 떨어진다 — 칸은 위 마지막 묶음에 실렸다
+        SetInflight(-1);
+    }
+    PutLeaveRecord(head, std::move(rows), SaveTrigger::LEAVE);
+}
+
+void CCharacterStore::PutLeaveRecord(DBSaveBundle head, std::vector<DBInvRow>&& rows, SaveTrigger trigger)
+{
+    const int64_t accountId = head.row.accountId;
+    auto it = _leaveRecords.find(accountId);
+    if (it != _leaveRecords.end())
+    {
+        // 있을 수 없다 — 확정 전엔 같은 계정 불러오기를 실패로 돌려(ProcessDbResults) 그 계정이 다시 들어와 나갈 수 없다.
+        //   생기면 새 것으로 덮는다(최종값이라 새 것이 맞다).
+        SLOG_ERROR("[DB] leave record overwritten (account={}, old bundle={})", accountId, it->second.head.bundleNo);
+    }
+    LeaveRecord& rec = _leaveRecords[accountId];
+    rec.head           = head;
+    rec.rows           = std::move(rows);
+    rec.head.slotCount = static_cast<int32_t>(rec.rows.size());
+    rec.inFlight       = false;
+    SendLeaveRecord(rec, trigger);
+    _gameMonitor._save._pendingLeave.Store(static_cast<int64_t>(_leaveRecords.size()));
+}
+
+void CCharacterStore::SendLeaveRecord(LeaveRecord& rec, SaveTrigger trigger)
+{
+    // 실을 때마다 새 번호 — 늦게 온 옛 시도의 회신이 새 시도를 확정하지 않게
+    if (++_leaveSeq == 0)
+        _leaveSeq = 1;
+    rec.head.bundleNo  = _leaveSeq;
+    rec.head.slotBegin = 0;
+    if (_dbWorker->EnqueueSave(rec.head, rec.rows.empty() ? nullptr : rec.rows.data(), rec.head.slotCount))
+    {
+        rec.inFlight = true;
+        _gameMonitor._save._txn[static_cast<int>(trigger)].Inc();
+    }
+    else
+    {
+        rec.inFlight = false;   // 큐 거절 — 기록이 남아 다음 주기(또는 같은 계정 불러오기 앞)에 다시
+    }
+}
+
+void CCharacterStore::OnSaveReply(const DBSaveReply& reply)
+{
+    CGameMonitor::SaveCounters& counters = _gameMonitor._save;
+
+    if (reply.sessionId != 0)
+    {
+        // 살아 있는 사람 — 세션 번호 전체 + 계정 + 비행 번호가 다 맞아야 주인이다
+        CPlayer* player = _sessionHub.FindPlayer(reply.sessionId);
+        if (player == nullptr || player->_accountId != reply.accountId || player->_dbFlight.bundleNo != reply.bundleNo)
+        {
+            counters._reply[static_cast<int>(SaveReplyResult::ORPHAN)].Inc();   // 나간 사람 · 같은 계정 재접속 전의 묶음
+            return;
+        }
+        CPlayer::DbFlight& f = player->_dbFlight;
+        f.bundleNo = 0;
+        SetInflight(-1);
+        if (reply.ok)
+        {
+#if USE_INVENTORY
+            f.slots.reset();   // 그 칸은 DB 에 확정됐다
+#endif
+            counters._reply[static_cast<int>(SaveReplyResult::OK)].Inc();
+            if (f.again)
+            {
+                f.again = false;
+                RequestSave(player, SaveReason::AGAIN);   // 비행 중에 선 다시 필요 — 이번 틱 끝에
+            }
+        }
+        else
+        {
+            AbortBundle(player);   // 되살림 — 곧바로 다시 안 보낸다(다음 계기에 · 죽은 DB 를 틱마다 두드리지 않게)
+            f.again = false;
+            counters._reply[static_cast<int>(SaveReplyResult::FAILED)].Inc();
+        }
+        return;
+    }
+
+    // 떠난 기록 — 계정 + 번호
+    auto it = _leaveRecords.find(reply.accountId);
+    if (it == _leaveRecords.end() || !it->second.inFlight || it->second.head.bundleNo != reply.bundleNo)
+    {
+        counters._reply[static_cast<int>(SaveReplyResult::ORPHAN)].Inc();
+        return;
+    }
+    if (reply.ok)
+    {
+        _leaveRecords.erase(it);
+        counters._reply[static_cast<int>(SaveReplyResult::OK)].Inc();
+    }
+    else
+    {
+        it->second.inFlight = false;   // 다음 주기 · 같은 계정 불러오기 앞에 다시 싣는다
+        counters._reply[static_cast<int>(SaveReplyResult::FAILED)].Inc();
+    }
+    counters._pendingLeave.Store(static_cast<int64_t>(_leaveRecords.size()));
 }
 
 static int64_t SteadyNowNs()
@@ -440,6 +765,12 @@ bool CCharacterStore::RequestCharacterLoad(int64_t sessionId, int64_t accountId)
     job.accountId = accountId;
     job.sessionId = sessionId;       // 결과가 돌아왔을 때 주인을 찾는 열쇠 — 세션 번호 "전체"
     job.requestNs = SteadyNowNs();
+
+    // 그 계정의 떠난 기록이 실패 중이면 먼저 다시 싣는다 — 같은 슬롯 큐라 이 불러오기가 그 뒤에 줄 서서, 성공하면 새 값을 읽는다.
+    //   비행 중이면 그대로 둔다(이미 앞에 있다). 확정 전에 온 불러오기 결과는 ProcessDbResults 가 실패로 돌린다.
+    auto leave = _leaveRecords.find(accountId);
+    if (leave != _leaveRecords.end() && !leave->second.inFlight)
+        SendLeaveRecord(leave->second, SaveTrigger::LEAVE);
 
     // 거절되면 결과가 오지 않는다 → requested 에 넣지 않고 따로 센다(등식이 안 흐려지게).
     //   호출부는 false 를 받으면 그 세션을 끊어야 한다 — 매달아 두면 영영 안 들어온다.
@@ -460,9 +791,10 @@ void CCharacterStore::ProcessDbResults()
     // 둘 다 직전 틱에 모두 소비되어 비어 있다 — 빈 벡터를 워커 쪽과 맞바꾼다(락 1회 · 저장 회신과 불러오기 결과를 같이).
     _dbWorker->SwapOutResults(_dbResults, _dbSaveReplies);
 
-    // 저장 회신 먼저 — 아직 저장 묶음을 넣는 곳이 없다(저장 플랜 C 단계 2 가 회신 처리로 바꾼다). 오면 결함이라 남긴다.
+    // ★ 저장 회신 먼저 — 같은 계정의 묶음 회신은 뒤 불러오기 결과보다 먼저 들어온다(같은 큐 차례 · 묶음마다 곧바로 회신).
+    //   회신을 다 처리한 뒤 불러오기 결과를 보면, 그 계정의 떠난 기록이 확정됐는지 이미 안다(아래 불러오기 차례).
     for (const DBSaveReply& reply : _dbSaveReplies)
-        SLOG_ERROR("[DB] unexpected save reply (account={}, bundle={})", reply.accountId, reply.bundleNo);
+        OnSaveReply(reply);
     _dbSaveReplies.clear();
 
     if (_dbResults.empty())
@@ -476,6 +808,17 @@ void CCharacterStore::ProcessDbResults()
         switch (result.kind)
         {
         case DBJobKind::LOAD_CHARACTER:
+            // 불러오기 차례 — 그 계정의 떠난 기록이 아직 확정 안 됐으면 이 결과는 옛 값일 수 있다 → 실패로 돌려 끊는다
+            //   (받는 쪽 FAILED 갈래 그대로 — 클라가 다시 접속하는 것이 재시도다). 옛 값으로 들여보내면 아이템이 되돌아간다.
+            if (result.code != DBResultCode::FAILED && _leaveRecords.count(result.accountId) != 0)
+            {
+                SLOG_WARN("[DB] load blocked — leave record not confirmed yet (account={}, session={})",
+                          result.accountId, result.sessionId);
+                DBResult blocked = result;
+                blocked.code = DBResultCode::FAILED;
+                _loadEvents.OnCharacterLoaded(blocked, nowNs);
+                break;
+            }
             _loadEvents.OnCharacterLoaded(result, nowNs);   // 받는 쪽이 판정·스폰한다(알림 — 게임 서버 나누기 0-③ ⑷)
             break;
 
