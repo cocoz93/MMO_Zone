@@ -45,7 +45,7 @@ public:
     // 맞혔다 — 피해를 적용한 뒤에 온다. remainHp 는 적용 뒤 체력(0 이면 곧이어 OnDeath). → S2C_DAMAGE
     virtual void OnHit(CZone* zone, CCharacter* attacker, CCharacter* target, int32_t damage, int32_t remainHp) = 0;
 
-    // 죽었다 — 죽음 필드(_isDead·_deathFrame·_moveState)와 죽음 계수를 적은 뒤에 온다.
+    // 죽었다 — 죽음 표시(체력 부품 TakeDamage — 생사·죽은 프레임)·걷기 멈춤(_moveState)과 죽음 계수를 적은 뒤에 온다.
     //   받는 쪽 몫: 플레이어 죽은 목록 넣기 → S2C_DEATH → 보상(경험치·드랍) → 몬스터면 지우기, 이 순서.
     //   ★ 몬스터면 이 호출 안에서 해제된다 — 부른 쪽은 이 뒤로 target 을 쓰지 말 것(ApplyHit 은 여기가 마지막 줄이다).
     virtual void OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target) = 0;

@@ -22,7 +22,7 @@ CMonster::CMonster(const MonsterDef& def)
     //   플레이어(CalcDisplayChar)와 같은 자리.
     _colorIndex  = 0;   // 뱀 한 종류라 색을 가를 일이 없다
 
-    // 스탯 — 내 종류의 표 값으로 CCharacter 기본값(플레이어 기준 100/10)을 덮는다
+    // 스탯 — 내 종류의 표 값을 부품에 넣는다(부품 칸의 0 = 아직 안 정해짐 — Character.h)
     _health.SetMaxHp(def.maxHp);
     _health.FillToMax();
     _attack._attackPower = def.attack;

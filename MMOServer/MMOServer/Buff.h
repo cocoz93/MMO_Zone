@@ -21,7 +21,7 @@
 
 constexpr int BUFF_KIND_COUNT = static_cast<int>(BuffKind::COUNT);
 
-// 종류 하나의 칸 — CCharacter::_buffs[종류]. 사람 것은 DB 에 저장한다(characters.buffs, 10-13 — 그 전엔 접속을 끊으면 사라졌다).
+// 종류 하나의 칸 — 효과 부품 CBuffPart::_slots[종류](CharacterParts.h). 사람 것은 DB 에 저장한다(characters.buffs, 10-13 — 그 전엔 접속을 끊으면 사라졌다).
 struct BuffSlot
 {
     int32_t  value       = 0;   // 종류마다 뜻이 다르다 — ATTACK_MUL 은 배수

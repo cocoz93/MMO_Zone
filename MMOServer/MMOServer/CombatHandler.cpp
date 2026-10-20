@@ -176,7 +176,7 @@ void CCombatHandler::OnHit(CZone* zone, CCharacter* attacker, CCharacter* target
 
 // 죽었다 — 플레이어 죽은 목록 → 죽음 방송 → 경험치 → 드랍, 이 순서다.
 //   ★ 순서를 바꾸면 레벨업 체력(ACTOR_STATS)이 죽음(DEATH)보다 먼저 가 화면이 뒤집힌다.
-//   죽음 필드(_isDead·_deathFrame·_moveState)와 죽음 계수는 CCombatSystem 이 이미 적었다.
+//   죽음 표시(체력 부품 TakeDamage — 생사·죽은 프레임)·걷기 멈춤(_moveState)과 죽음 계수는 CCombatSystem 이 이미 적었다.
 //   죽은 몬스터는 시체로 남는다(되살리지 않는다) — 죽은 목록은 플레이어 것만 든다.
 void CCombatHandler::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
 {

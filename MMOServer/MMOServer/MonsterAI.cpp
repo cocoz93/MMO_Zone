@@ -74,7 +74,7 @@ namespace
     //   ⑶ 대상이 거리 안인가 — 제곱끼리 견준다(루트 안 씀). 규칙의 maxDist 는 두 몸의 가장자리 사이 거리라 중심 사이로는 두 반지름을 더해 본다
     //      (표 읽기의 FRONT·SHAPE 상한이 가장자리 사이 거리로 대조되므로 닿지 않는 거리를 뽑지 않는다 — MonsterSkillTable.h maxDist)
     //   ⑷ 되살리기 줄이면 되살릴 빈 점이 있나 — 없으면 건너뛴다(Think 선언 주석의 vacancy)
-    //   쿨타임 칸은 캐릭터 것이다(CCharacter::_skillReadyFrame — 사람과 같은 칸). 비용·대상·효과는 여기서 안 본다 — 그건 CSkillSystem 의 일이다.
+    //   쿨타임 칸은 캐릭터 것이다(공격 부품 CAttackPart::_skillReadyFrame — 사람과 같은 부품). 비용·대상·효과는 여기서 안 본다 — 그건 CSkillSystem 의 일이다.
     int32_t PickSkill(const CMonster& monster, const CCharacter& target, uint64_t frame, const SkillRules& rules, const RuleVacancy& vacancy)
     {
         if (rules.empty())

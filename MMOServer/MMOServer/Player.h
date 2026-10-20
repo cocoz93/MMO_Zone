@@ -65,10 +65,10 @@ public:
         int32_t hp    = 0;
         int32_t mp    = 0;
 #if USE_SKILL
-        uint64_t skillReadyFrame[MAX_SKILL_ID + 1] = {};   // CCharacter::_skillReadyFrame 사본
+        uint64_t skillReadyFrame[MAX_SKILL_ID + 1] = {};   // _attack._skillReadyFrame 사본
 #endif
 #if USE_COMBAT
-        BuffSlot buffs[BUFF_KIND_COUNT];                    // CCharacter::_buffs 사본
+        BuffSlot buffs[BUFF_KIND_COUNT];                    // _buffs._slots 사본
 #endif
     };
     DbSavedValues _dbSaved;
