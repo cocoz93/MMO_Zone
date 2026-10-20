@@ -89,9 +89,9 @@ namespace
         for (size_t i = 0; i < rules.size(); ++i)
         {
             const MonsterSkillRule& r = rules[i];
-            if (frame < monster._skillReadyFrame[r.skillId])
+            if (frame < monster._attack._skillReadyFrame[r.skillId])
                 continue;
-            if (static_cast<int64_t>(monster._hp) * 100 > static_cast<int64_t>(monster._maxHp) * r.hpBelowPct)
+            if (static_cast<int64_t>(monster._health.Hp()) * 100 > static_cast<int64_t>(monster._health.MaxHp()) * r.hpBelowPct)
                 continue;
             const float reach = r.maxDist + monster._bodyRadius + target._bodyRadius;
             if (distSq > reach * reach)
@@ -152,7 +152,7 @@ Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame
     //   바뀌어 시체가 하나라도 남는 날 걸어 다니지 않게 남겨 둔다. 예전엔 시체가 남아 이 검사가 실제로 일했다
     //   (공격 본체가 죽는 순간 IDLE 로 세워도, 이 검사가 없으면 0.4초 뒤 판단이 다시 MOVING 으로 돌렸다).
     //   대상도 비운다 — 시체가 누군가를 쫓는 중으로 남지 않게.
-    if (monster._isDead)
+    if (monster._health.IsDead())
     {
         d.nextState     = AIState::IDLE;
         d.moveState     = MoveState::IDLE;
@@ -308,7 +308,7 @@ Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame
         //   판단 주기(10틱)가 쿨타임(12틱)보다 짧다고 공격이 안 밀리는 게 아니다 —
         //   그냥 때리면 0틱 성공 → 10틱 거부 → 20틱 성공이라 실효 주기가 20틱(0.8초)이 된다.
         //   쿨타임이 차는 시점으로 다음 판단을 당겨 잡으면 12틱마다 정확히 문다.
-        if (Combat::CanAttack(monster, frame) == Combat::AttackReject::NONE)
+        if (Combat::CanAttack(monster._health, monster._attack, frame) == Combat::AttackReject::NONE)
         {
             d.attack         = true;
             d.nextThinkFrame = frame + Combat::ATTACK_COOLDOWN_FRAMES;
@@ -316,7 +316,7 @@ Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame
         else
         {
             // 아직 쿨타임 — 찰 때까지 기다렸다가 다시 본다 (거부당할 시도를 아예 안 한다)
-            d.nextThinkFrame = monster._lastAttackFrame + Combat::ATTACK_COOLDOWN_FRAMES;
+            d.nextThinkFrame = monster._attack._lastAttackFrame + Combat::ATTACK_COOLDOWN_FRAMES;
         }
 #else
         // 전투를 끄면 물지 않는다 — 곁에 서서 기본 주기로 다시 본다(대상이 걸어 나가면 위 InReach 로 다시 쫓는다)

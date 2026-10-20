@@ -7,12 +7,22 @@
 #include "SectorManager.h"   // 사거리가 걸치는 섹터 훑기
 #include "Player.h"          // GetSectorPlayers 가 CPlayer* 를 돌려준다 — CCharacter* 로 넘기려면 완전한 타입이 필요
 #include "GameMonitor.h"     // 공격·죽음 계수기
+#include "CharacterParts.h"  // 체력·공격 부품 — 입구에서 꺼내 쓴다
+#include <cassert>
 #if USE_MONSTER
 #include "Monster.h"         // 죽음을 몬스터·플레이어로 갈라 셀 때 As<CMonster> — 완전한 타입이 필요
 #endif
 
 namespace
 {
+    // 체력 부품 꺼내기 — 전투 후보·대상은 「맞을 수 있는 것」 목록에서만 온다(사람 · 맞을 수 있는 나머지). 그래서 늘 있다.
+    //   부품 없는 것(NPC)이 여기 오면 후보를 고르는 쪽(ForEachCandidate)의 잘못이다.
+    CHealthPart& HealthOf(CCharacter* c)
+    {
+        assert(c->Health() != nullptr && "체력 부품 없는 것이 전투 후보·대상 — 후보 목록이 잘못됐다");
+        return *c->Health();
+    }
+
     // 후보 훑기 — 「어느 섹터를 도나」는 섹터 관리자(ForEachSectorInRange — 반경이 걸치는 칸만),
     //   「그 섹터의 어느 목록을 보나」(which)는 여기 한 곳이다. 후보를 훑는 자리가 늘어도 목록 고르기는 이 하나로 —
     //   한쪽 목록을 빠뜨리면 컴파일이 아니라 화면에서 드러나므로 빠뜨릴 자리를 줄인다(SectorManager.h ForEachInSector 와 같은 까닭).
@@ -63,8 +73,13 @@ void CCombatSystem::PerformAttack(CZone* zone, CCharacter* player, uint64_t fram
     constexpr bool byMonster = false;
 #endif
 
+    // 때리는 쪽의 부품 — 부르는 쪽이 사람 요청 처리 · 몬스터 관리자라 둘 다 든다(사람·몬스터 = 체력 + 공격)
+    assert(player->Health() != nullptr && player->Attack() != nullptr && "부품 없는 것이 휘두름 — 부르는 쪽이 사람·몬스터가 아니다");
+    const CHealthPart& selfHealth = *player->Health();
+    CAttackPart&       selfAttack = *player->Attack();
+
     // ── 1) 휘두를 수 있나 (쿨타임·자기 생사) ──
-    const Combat::AttackReject reject = Combat::CanAttack(*player, frame);
+    const Combat::AttackReject reject = Combat::CanAttack(selfHealth, selfAttack, frame);
     if (reject != Combat::AttackReject::NONE)
     {
 #if USE_MONSTER
@@ -91,7 +106,7 @@ void CCombatSystem::PerformAttack(CZone* zone, CCharacter* player, uint64_t fram
         }
     }
 
-    player->_lastAttackFrame = frame;
+    selfAttack._lastAttackFrame = frame;
 
     // ── 2) 휘두른 모션은 대상 유무와 무관하게 보낸다 (헛스윙도 그려야 한다) ──
     //   그래서 _attacksTotal은 "맞힌 수"가 아니라 "휘두른 수"다. 헛스윙은 여기서도 오르고
@@ -134,7 +149,7 @@ void CCombatSystem::PerformAttack(CZone* zone, CCharacter* player, uint64_t fram
 
     // ── 4)·5) 피해·죽음 (ApplyHit) — 스킬과 같이 쓰는 한 곳 ──
     //   ★ 마지막 줄이어야 한다 — 몬스터면 이 안에서 target 이 해제된다
-    ApplyHit(zone, player, target, player->_attackPower, frame);
+    ApplyHit(zone, player, target, selfAttack._attackPower, frame);
 }
 
 // 앞 한 칸에서 대상 하나 — 일반 공격(PerformAttack 3)과 스킬이 같이 쓴다. 후보 목록만 부른 쪽이 고른다.
@@ -174,7 +189,7 @@ CCharacter* CCombatSystem::FindFrontTarget(CZone* zone, CCharacter* attacker, Ca
         }
 #endif
 
-        if (candidate->_isDead)
+        if (HealthOf(candidate).IsDead())
         {
             outSawDeadInRange = true;
             return;
@@ -207,7 +222,7 @@ void CCombatSystem::CollectCandidates(CZone* zone, float x, float y, float range
 #endif
     ForEachCandidate(zone->GetSectorManager(), x, y, range, which, [&](CCharacter* candidate)
     {
-        if (candidate == exclude || candidate->_isDead)
+        if (candidate == exclude || HealthOf(candidate).IsDead())
             return;   // 본인 · 시체는 안 맞는다
 #if USE_PARTY
         // 같은 파티는 대상이 아니다 — FindFrontTarget 과 같은 판정. 모양 판정 전이라 훑은 반경 안의 파티원을 센다(지금 사람 스킬은 몬스터 목록만 봐서 늘 0 — 그래도 둔다, MyDocs/claude-plans/party-plan.md ③).
@@ -227,13 +242,16 @@ void CCombatSystem::ApplyHit(CZone* zone, CCharacter* attacker, CCharacter* targ
     // ── 4) 피해 적용 ──
     //   ★ 한 번 센 값을 적용에도 방송에도 쓴다 — 두 자리가 따로 세면 깎인 체력과 화면의 숫자가 갈릴 수 있다.
     //   최소 1 로 올린 타격은 때린 쪽 종류와 무관하게 센다(뱀이 방어력 높은 사람을 문 것도 여기로 온다).
+    CHealthPart& targetHealth = HealthOf(target);   // 대상 = 후보 목록에서 고른 것(맞을 수 있는 것만 — 위 후보 훑기)
     bool floored = false;
-    const int32_t damage = Combat::CalcDamage(attackValue, target->_defense, floored);
+    const int32_t damage = Combat::CalcDamage(attackValue, targetHealth.Defense(), floored);
     if (floored)
         _gameMonitor._combat._damageFloored.Inc();
 
-    int32_t remainHp = 0;
-    const bool died = Combat::ApplyDamage(*target, damage, remainHp);
+    // 체력 0 이 되면 죽음 표시(생사·죽은 프레임)까지 체력 부품이 같이 적는다 — 아래 OnHit 이 불릴 때 이미 서 있다
+    //   (OnHit 받는 쪽은 그 칸을 안 읽는다 — CCombatHandler::OnHit 은 피해 방송만).
+    const bool died = targetHealth.TakeDamage(damage, frame);
+    const int32_t remainHp = targetHealth.Hp();
 
     _events.OnHit(zone, attacker, target, damage, remainHp);
 
@@ -241,8 +259,6 @@ void CCombatSystem::ApplyHit(CZone* zone, CCharacter* attacker, CCharacter* targ
         return;
 
     // ── 5) 죽음 ──
-    target->_isDead     = true;
-    target->_deathFrame = frame;
     target->_moveState  = MoveState::IDLE;   // 시체가 계속 걸어가지 않게
 
     // ★ 죽음은 "당한 쪽"으로 가른다 — 때린 쪽으로 가르면

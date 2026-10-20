@@ -78,8 +78,8 @@ bool CPartySystem::HasSent(const CPlayer* p) const
 Party::Sent CPartySystem::SnapshotOf(const CPlayer* p)
 {
     Party::Sent s;
-    s.hp    = p->_hp;
-    s.maxHp = p->_maxHp;
+    s.hp    = p->_health.Hp();
+    s.maxHp = p->_health.MaxHp();
     s.level = p->_level;
     s.mapId = CMapManager::GetMapIdFromZoneId(p->_zoneId);
     return s;

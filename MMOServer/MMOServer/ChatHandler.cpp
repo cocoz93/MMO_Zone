@@ -249,7 +249,7 @@ void CChatHandler::RunGmCommand(CPlayer* player, const std::vector<std::string>&
 
     // 쓰러진 채 켜면 아래 「가득 채움」이 부활 절차(마을로 보내기 · 부활 방송) 없이 되살린다 — 거절한다.
     //   끄기도 같이 막는다(쓰러진 채로는 상태를 안 바꾼다는 한 줄 규칙 — 부활하면 그때 끄면 된다).
-    if (player->_isDead)
+    if (player->_health.IsDead())
     {
         counters._commandRejected[static_cast<int>(ChatCommandReject::DEAD)].Inc();
         _selfNotifier.SendSystemMessage(player, "쓰러진 채로는 GM 모드를 바꿀 수 없습니다");
@@ -272,7 +272,7 @@ void CChatHandler::RunGmCommand(CPlayer* player, const std::vector<std::string>&
     CZone* zone = _mapManager.GetZone(player->_zoneId);
     if (zone != nullptr)
     {
-        _sightBroadcaster.BroadcastAroundSector(zone, player, MakeActorStats(player->_actorId, player->_hp, player->_maxHp), false);
+        _sightBroadcaster.BroadcastAroundSector(zone, player, MakeActorStats(player->_actorId, player->_health.Hp(), player->_health.MaxHp()), false);
         _sightBroadcaster.BroadcastAroundSector(zone, player, MakeActorSpeed(player->_actorId, player->_speed), false);
     }
     _selfNotifier.SendMyStats(player);
@@ -282,11 +282,11 @@ void CChatHandler::RunGmCommand(CPlayer* player, const std::vector<std::string>&
 
     SLOG_INFO("[GM] /gm (account={}, player={}) -> {} (speed {}, maxHp {}, attack {})",
               player->_accountId, player->_actorId, player->_gmMode ? "on" : "off",
-              player->_speed, player->_maxHp, player->_attackPower);
+              player->_speed, player->_health.MaxHp(), player->_attack._attackPower);
     // 웹 채팅창 한 줄(400px)에 값이 다 들어가는 길이로 — 길면 끝이 「…」로 잘려 공격력이 안 보인다(10-16 헤드리스 사진)
     _selfNotifier.SendSystemMessage(player, std::string(player->_gmMode ? "GM 켬" : "GM 끔")
-        + " — 속도 " + std::to_string(player->_speed) + " · 체력 " + std::to_string(player->_maxHp)
-        + " · 공격력 " + std::to_string(player->_attackPower));
+        + " — 속도 " + std::to_string(player->_speed) + " · 체력 " + std::to_string(player->_health.MaxHp())
+        + " · 공격력 " + std::to_string(player->_attack._attackPower));
 }
 #endif // USE_COMBAT
 

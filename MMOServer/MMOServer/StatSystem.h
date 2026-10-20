@@ -27,6 +27,8 @@
 
 class CCharacter;
 class CPlayer;
+class CHealthPart;
+class CAttackPart;
 class CGameDataFiles;
 class CGameMonitor;
 
@@ -49,7 +51,8 @@ public:
     // 입장 — DB 에서 불러온 체력·마력을 넣는다. ★ RecalcStats 뒤에 부를 것 — 최대치(레벨 표·장비)가 서 있어야 넘은 몫을 깎는다.
     //   체력 0 이하·마력 음수 = 가득. 음수는 「저장된 적 없음」(DB_HP_MP_UNSAVED)이고, 죽은 채 저장된 체력 0 은
     //   부르는 쪽(CEntryHandler::OnCharacterLoaded)이 부활 규칙대로 이미 바꿔 넘긴다. 마력 0 은 그대로다(다 쓰고 나간 값).
-    void RestoreHpMp(CCharacter* character, int32_t hp, int32_t mp);
+    //   규칙(0·음수·최대 초과)은 부품이 든다(CHealthPart::RestoreHp · CAttackPart::RestoreMp) — 여기는 차례(RecalcStats 뒤)를 지키는 입구다.
+    void RestoreHpMp(CHealthPart& health, CAttackPart& attack, int32_t hp, int32_t mp);
 
 #if USE_EXP
     // 경험치를 더하고, 올라갈 만큼 올린다. 레벨이 올랐으면 true(스탯도 다시 세우고 레벨업 수를 센다).

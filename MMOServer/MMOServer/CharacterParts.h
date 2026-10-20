@@ -55,17 +55,29 @@ private:
 };
 
 // ── 공격 부품 — 때리는 쪽 ──
-//   공격력은 "최종값"이다 — CStatSystem::RecalcStats 가 「바탕 + 착용 장비 → 지속 효과 배수」 순서로 세운다(Character.h 주석).
+//   공격력·방어력(방어력은 체력 부품)은 "최종값"이다 — CStatSystem::RecalcStats 가 「바탕(플레이어 = 레벨 표 · 몬스터 = 몬스터 표) + 착용 장비(플레이어)
+//   → 지속 효과 배수(효과 부품)」 순서로 세운다. 몬스터는 생성자가 표 값을 먼저 넣고, 효과가 걸리면 같은 함수가 표 값에서 다시 세운다.
+//   때릴 때마다 다시 세지 않는다(바뀌는 자리가 입장·레벨업·끼우기·빼기·효과 걸림·풀림뿐이라 때리는 경로는 필드만 읽는다).
+//   피해 = Combat::CalcDamage(때린 쪽 _attackPower, 맞는 쪽 Defense()) — 최소 1.
 //   마력은 스킬만 쓰므로 스킬 쿨타임과 같이 여기 둔다 — 체력과 같은 꼴의 규칙(채우기 · 최대 맞추기 · 저장)이라 함수 이름도 같은 꼴이다.
 class CAttackPart
 {
 public:
     int32_t  _attackPower     = 0;   // 공격력 (최종값)
-    uint64_t _lastAttackFrame = 0;   // 마지막 일반 공격 프레임 (쿨타임 판정 — 틱 번호 기준). 0 = 아직 한 번도 안 휘둘렀다
+    uint64_t _lastAttackFrame = 0;   // 마지막 공격 프레임 (쿨타임 판정 — 틱 번호 기준). 0 = 아직 한 번도 안 휘둘렀다
 
 #if USE_SKILL
     // 스킬마다 다시 쓸 수 있는 프레임 — 색인 = 스킬 번호(1~MAX_SKILL_ID, [0] 칸은 안 쓴다). 0 = 바로 쓸 수 있다.
+    //   성공했을 때만 앞으로 민다(CSkillSystem::UseSkill — 거절은 쿨타임을 안 건다).
+    //   사람 것은 DB 에 저장한다(characters.skill_cooldowns — 접속을 끊어도 실제 시각으로 계속 돈다 · CCharacterStore::PackCooldownsAndBuffs).
+    //   일반 공격 쿨타임(_lastAttackFrame)과 따로 센다 — 스킬을 써도 일반 공격은 안 막힌다(10-10 기본값).
+    //   몬스터·보스도 스킬을 쓴다(10-11) — 그래서 사람·몬스터가 같은 부품을 든다. 시전자는 CCharacter 다(SkillSystem.h).
     uint64_t _skillReadyFrame[MAX_SKILL_ID + 1] = {};
+
+    // 마력 — 스킬 비용(SkillDef::costMp)으로 쓰고 마력 물약으로만 찬다(자연 회복 없음 — 체력과 같다, 10-01).
+    //   플레이어는 CStatSystem::RecalcStats 가 레벨 표 maxMp 로 세운다. 몬스터는 0 이다(몬스터 스킬은 비용 0 만 허용 — 마력 칸은 몬스터 표에 없다).
+    //   부활해도 그대로다(Combat::Respawn 은 체력만 채운다). 체력과 같이 DB 에 저장한다(characters.mp — 들어올 때 CStatSystem::RestoreHpMp).
+    //   스킬 토글 소유다 — 마력을 쓰는 곳이 스킬뿐이라서.
 
     int32_t Mp() const    { return _mp; }
     int32_t MaxMp() const { return _maxMp; }

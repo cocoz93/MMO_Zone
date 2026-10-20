@@ -23,10 +23,10 @@ CMonster::CMonster(const MonsterDef& def)
     _colorIndex  = 0;   // 뱀 한 종류라 색을 가를 일이 없다
 
     // 스탯 — 내 종류의 표 값으로 CCharacter 기본값(플레이어 기준 100/10)을 덮는다
-    _hp          = def.maxHp;
-    _maxHp       = def.maxHp;
-    _attackPower = def.attack;
-    _defense     = def.defense;
+    _health.SetMaxHp(def.maxHp);
+    _health.FillToMax();
+    _attack._attackPower = def.attack;
+    _health.SetDefense(def.defense);
     _bodyRadius  = def.bodyRadius;
 
     // 속도는 CActor 가 0 으로 두고 파생이 정한다(CPlayer 와 같은 규칙)

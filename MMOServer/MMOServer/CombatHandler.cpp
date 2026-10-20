@@ -271,7 +271,7 @@ void CCombatHandler::OnCast(CZone* zone, CCharacter* caster, const SkillDef& def
 
     // 체력을 뗐으면 본인과 주변에 — 남의 머리 위 막대도 줄어야 한다(물약·레벨업 때 체력 방송과 같은 꼴)
     if (def.costHpPct > 0)
-        _sightBroadcaster.BroadcastAroundSector(zone, caster, MakeActorStats(caster->_actorId, caster->_hp, caster->_maxHp), false);
+        _sightBroadcaster.BroadcastAroundSector(zone, caster, MakeActorStats(caster->_actorId, caster->Health()->Hp(), caster->Health()->MaxHp()), false);
 
     // 마력을 뗐으면 시전자 본인에게만 — 남의 마력은 화면에 안 그린다(주변 방송 금지, Protocol.h MSG_S2C_ACTOR_MP).
     //   시전자가 사람일 때만이다 — 몬스터는 받을 세션이 없다(몬스터 시전도 이 함수를 지나지만 몬스터 스킬은 마력이 0 이라 여기 안 온다).
@@ -327,7 +327,7 @@ void CCombatHandler::TickRespawn()
         CCharacter* dead = _deadActors[i];
         assert(dead->_kind == CharacterKind::PLAYER);   // 몬스터는 OnDeath 가 안 넣는다 — 되살리지 않는다
 
-        if (!Combat::IsRespawnDue(*dead, _frameCount))
+        if (!Combat::IsRespawnDue(*dead->Health(), _frameCount))
         {
             ++i;
             continue;
@@ -360,7 +360,7 @@ void CCombatHandler::TickRespawn()
             {
                 // 제자리 — 본인 포함. 자기 부활을 자기가 알아야 클라가 조작을 다시 연다
                 _sightBroadcaster.BroadcastAroundSector(zone, dead,
-                    MakeRespawn(dead->_actorId, dead->_x, dead->_y, dead->_hp), false);
+                    MakeRespawn(dead->_actorId, dead->_x, dead->_y, dead->Health()->Hp()), false);
             }
         }
 

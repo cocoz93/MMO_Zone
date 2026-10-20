@@ -385,7 +385,7 @@ CPlayer* CEntryHandler::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t 
     //   ★ NotifyArrival 보다 앞이다(위 레벨 정산 주석과 같은 이유 — CREATE 가 최대 체력을, ACTOR_MP 가 마력을 싣는다).
     //   USE_EXP 밖인 이유는 RecalcStats 선언 주석(StatSystem.h).
     _statSystem.RecalcStats(player, false);
-    _statSystem.RestoreHpMp(player, place.hp, place.mp);
+    _statSystem.RestoreHpMp(player->_health, player->_attack, place.hp, place.mp);
 #endif
 
     // 본인에게 존·내 캐릭터·숫자·가방·스탯 → 주변과 서로 생성 (순서와 「접속만 보내는 것」은 NotifyArrival 한 곳)
@@ -579,7 +579,7 @@ uint8_t CEntryHandler::CalcColorIndex(int32_t playerId)
 void CEntryHandler::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
 {
 #if USE_COMBAT
-    if (player->_isDead)
+    if (player->_health.IsDead())
         return;   // 죽은 채로 존을 옮기면 부활 대기열이 옛 존을 가리킨 채 남는다
 #endif
 
@@ -623,7 +623,7 @@ void CEntryHandler::RecvPortalUse(CPlayer* player, CSerialBuffer* pMsg)
     auto reject = [&](PortalReject why) { pc._rejected[static_cast<int>(why)].Inc(); };
 
 #if USE_COMBAT
-    if (player->_isDead)
+    if (player->_health.IsDead())
     {
         reject(PortalReject::DEAD);   // 죽은 채로 존을 옮기면 부활 대기열이 옛 존을 가리킨 채 남는다(RecvZoneChange 와 같은 까닭)
         return;

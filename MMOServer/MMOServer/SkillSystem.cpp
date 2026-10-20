@@ -10,7 +10,9 @@
 #include "Combat.h"          // MAX_BODY_RADIUS — 범위 스킬 후보 반경에 쓰는 맞는 쪽 반지름 상한
 #include "CombatSystem.h"    // FindFrontTarget · CollectCandidates · ApplyHit — 일반 공격과 같이 쓴다
 #include "BuffSystem.h"      // Apply — 지속 효과 걸기(효과 축 BUFF_ATTACK_MUL)
-#include "Character.h"       // 종류·생사·체력·쿨타임 필드 — 시전자는 CCharacter 다
+#include "Character.h"       // 종류 · 부품 자리 — 시전자는 CCharacter 다
+#include "CharacterParts.h"  // 체력·공격 부품 — 생사·체력·마력·쿨타임
+#include <cassert>
 
 namespace
 {
@@ -42,10 +44,15 @@ SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skil
     const bool byMonster = IsMonsterCaster(caster);
     auto& counters = _gameMonitor._skill;
 
+    // 시전자의 부품 — 부르는 쪽이 사람 요청 처리 · 몬스터 관리자라 둘 다 든다(사람·몬스터 = 체력 + 공격)
+    assert(caster->Health() != nullptr && caster->Attack() != nullptr && "부품 없는 것이 스킬을 씀 — 부르는 쪽이 사람·몬스터가 아니다");
+    CHealthPart& health = *caster->Health();
+    CAttackPart& attack = *caster->Attack();
+
     // ── 1) 시전자 검사 — 번호·생사·쿨타임·체력·마력. 뗄 체력은 여기서 세고 4) 가 그대로 뗀다 ──
     const SkillDef* def = nullptr;
     int32_t hpCost = 0;
-    SkillReject reject = CheckCaster(caster, skillId, frame, def, hpCost);
+    SkillReject reject = CheckCaster(caster, health, attack, skillId, frame, def, hpCost);
 
     // ── 2) 대상 고르기 — 없으면 NO_TARGET. 아직 아무것도 안 뗐다 ──
     if (reject == SkillReject::COUNT)
@@ -58,12 +65,12 @@ SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skil
     }
 
     // ── 3) 시전 전 체력 — 피해 식의 바탕이라 떼기 전에 잡아 둔다 ──
-    const int32_t hpBefore = caster->_hp;
+    const int32_t hpBefore = health.Hp();
 
     // ── 4) 떼기 — 여기까지 왔으면 효과가 반드시 난다(모든 검사를 지났다) ──
-    caster->_hp -= hpCost;
-    caster->_mp -= def->costMp;   // 모자라지 않음은 1) 의 LOW_MP 검사가 이미 봤다
-    caster->_skillReadyFrame[def->skillId] = frame + def->cooldownFrames;   // 성공했을 때만 — 거절은 쿨타임을 안 건다
+    health.SpendHp(hpCost);       // 「떼고 1 이상」은 1) 의 LOW_HP 검사가 이미 봤다
+    attack.SpendMp(def->costMp);  // 모자라지 않음은 1) 의 LOW_MP 검사가 이미 봤다
+    attack._skillReadyFrame[def->skillId] = frame + def->cooldownFrames;   // 성공했을 때만 — 거절은 쿨타임을 안 건다
     (byMonster ? counters._monsterCast : counters._cast)[def->skillId].Inc();
 
     // ── 5) 시전 알림 — 방송과 시전자 체력·마력 알림은 받는 쪽(게임 서버) ──
@@ -74,7 +81,8 @@ SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skil
     return SkillReject::COUNT;
 }
 
-SkillReject CSkillSystem::CheckCaster(const CCharacter* caster, int32_t skillId, uint64_t frame, const SkillDef*& outDef, int32_t& outHpCost) const
+SkillReject CSkillSystem::CheckCaster(const CCharacter* caster, const CHealthPart& health, const CAttackPart& attack,
+                                      int32_t skillId, uint64_t frame, const SkillDef*& outDef, int32_t& outHpCost) const
 {
     // SkillReject 의 순서 그대로 본다 — 여럿이 겹치면 먼저 걸린 하나로 답한다(열거 순서가 곧 확인 순서).
     //   번호 0 · 상한 밖 · 표에 없는 번호는 Find 가 다 nullptr 이다 — 그래서 아래 배열 색인은 늘 1~MAX_SKILL_ID 다.
@@ -87,26 +95,26 @@ SkillReject CSkillSystem::CheckCaster(const CCharacter* caster, int32_t skillId,
     if (outDef->user != who)
         return SkillReject::NOT_FOR_CASTER;
 
-    if (caster->_isDead)
+    if (health.IsDead())
         return SkillReject::DEAD;
 
-    if (frame < caster->_skillReadyFrame[outDef->skillId])
+    if (frame < attack._skillReadyFrame[outDef->skillId])
         return SkillReject::COOLDOWN;
 
     // 체력 비용 — 현재 체력 × % 를 내림, 소모가 있는 스킬이면 최소 1
     outHpCost = 0;
     if (outDef->costHpPct > 0)
     {
-        const int64_t cost = static_cast<int64_t>(caster->_hp) * outDef->costHpPct / 100;
+        const int64_t cost = static_cast<int64_t>(health.Hp()) * outDef->costHpPct / 100;
         outHpCost = (cost < 1) ? 1 : static_cast<int32_t>(cost);
     }
 
     // 자기 스킬로는 안 죽는다 — 떼고 나서 1 미만이면 거절(아무것도 안 뗀다)
-    if (caster->_hp - outHpCost < 1)
+    if (health.Hp() - outHpCost < 1)
         return SkillReject::LOW_HP;
 
     // 마력 비용 — 표 값 그대로(고정). 딱 맞으면 쓴다(0 까지 쓸 수 있다 — 체력과 달리 0 이 죽음이 아니다)
-    if (caster->_mp < outDef->costMp)
+    if (attack.Mp() < outDef->costMp)
         return SkillReject::LOW_MP;
 
     return SkillReject::COUNT;   // 통과
@@ -179,7 +187,7 @@ void CSkillSystem::ApplyEffect(CZone* zone, CCharacter* caster, const SkillDef& 
     case SkillEffect::DAMAGE_ATK:
         // 공격값 = 시전자 공격력(최종값) × power% (내림) — 체력이 식에 안 들어간다(몬스터·보스가 체력이 줄어도 같은 힘으로 친다).
         //   공격력 최종값은 RecalcStats 가 세운 칸이라 효과(이중공격)가 걸려 있으면 그 값이다. 방어력은 ApplyHit 가 뺀다
-        HitTargets(zone, caster, def, static_cast<int32_t>(static_cast<int64_t>(caster->_attackPower) * def.power / 100), frame);
+        HitTargets(zone, caster, def, static_cast<int32_t>(static_cast<int64_t>(caster->Attack()->_attackPower) * def.power / 100), frame);
         break;
 
     case SkillEffect::BUFF_ATTACK_MUL:

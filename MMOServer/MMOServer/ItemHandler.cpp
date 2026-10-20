@@ -224,7 +224,7 @@ void CItemHandler::RecvUseItem(CPlayer* player, CSerialBuffer* pMsg)
     {
         CZone* zone = _mapManager.GetZone(player->_zoneId);
         if (zone != nullptr)
-            _sightBroadcaster.BroadcastAroundSector(zone, player, MakeActorStats(player->_actorId, player->_hp, player->_maxHp), false);
+            _sightBroadcaster.BroadcastAroundSector(zone, player, MakeActorStats(player->_actorId, player->_health.Hp(), player->_health.MaxHp()), false);
     }
 #if USE_SKILL
     if (used->healMp > 0)

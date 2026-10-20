@@ -29,7 +29,7 @@ void CMoveHandler::ReportTickMetrics()
 void CMoveHandler::RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg)
 {
 #if USE_COMBAT
-    if (player->_isDead)
+    if (player->_health.IsDead())
         return;   // 시체는 안 움직인다 — 부활 전까지 조작을 막는다
 #endif
 

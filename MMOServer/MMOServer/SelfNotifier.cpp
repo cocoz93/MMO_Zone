@@ -167,7 +167,7 @@ void CSelfNotifier::SendExp(CPlayer* player)
 #if USE_COMBAT
 void CSelfNotifier::SendMyStats(CPlayer* player)
 {
-    _sessionHub.SendPacket(player, MakeMyStats(player->_attackPower, player->_defense));
+    _sessionHub.SendPacket(player, MakeMyStats(player->_attack._attackPower, player->_health.Defense()));
     _gameMonitor._combat._myStatsSent.Inc();
 }
 
@@ -207,7 +207,7 @@ void CSelfNotifier::SendActiveBuffs(CPlayer* player)
 // 되살아남을 본인에게 — 마을 부활(도착 차례 2-1). 지금 자리·체력(되살린 뒤 값)을 싣는다.
 void CSelfNotifier::SendRespawn(CPlayer* player)
 {
-    _sessionHub.SendPacket(player, MakeRespawn(player->_actorId, player->_x, player->_y, player->_hp));
+    _sessionHub.SendPacket(player, MakeRespawn(player->_actorId, player->_x, player->_y, player->_health.Hp()));
 }
 #endif // USE_COMBAT
 
@@ -229,7 +229,7 @@ void CSelfNotifier::SendSystemMessage(CPlayer* player, const std::string& utf8)
 // 마력 알림 — 그 사람 자신의 마력을 그 사람에게만. 세는 곳도 여기 한 곳(SendMyStats 와 같은 꼴).
 void CSelfNotifier::SendActorMp(CPlayer* player)
 {
-    _sessionHub.SendPacket(player, MakeActorMp(player->_actorId, player->_mp, player->_maxMp));
+    _sessionHub.SendPacket(player, MakeActorMp(player->_actorId, player->_attack.Mp(), player->_attack.MaxMp()));
     _gameMonitor._skill._actorMpSent.Inc();
 }
 
@@ -239,7 +239,7 @@ void CSelfNotifier::SendActiveSkillCooldowns(CPlayer* player)
 {
     for (int id = 1; id <= MAX_SKILL_ID; ++id)
     {
-        const uint64_t ready = player->_skillReadyFrame[id];
+        const uint64_t ready = player->_attack._skillReadyFrame[id];
         if (ready <= _frameCount)
             continue;
         const uint32_t remainMs = static_cast<uint32_t>((ready - _frameCount) * FRAME_INTERVAL_MS);   // 표 상한 1시간 → 360만 ms, u32 안

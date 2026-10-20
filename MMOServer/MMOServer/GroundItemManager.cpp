@@ -144,7 +144,7 @@ void CGroundItemManager::ForgetAll(const GroundItemContext& ctx)
 
 PickupReject CGroundItemManager::FindPickup(const CPlayer* player, uint64_t frame, PickupTarget& out) const
 {
-    if (player->_isDead)
+    if (player->_health.IsDead())
         return PickupReject::DEAD;
 
     // 반경이 걸치는 섹터만 참조로 훑는다(공격 대상 찾기와 같은 꼴 — 복사 0).

@@ -187,7 +187,7 @@ CCharacter* CMonsterManager::FindAITarget(CMonster* monster) const
     {
         for (CPlayer* candidate : sectors.GetSectorPlayers(sx, sy))   // 플레이어만 — 몬스터끼리 싸우지 않고, 자기 자신도 여기 없다
         {
-            if (candidate->_isDead)
+            if (candidate->_health.IsDead())
                 continue;   // 시체는 쫓지 않는다
 
             float distSq = 0.0f;

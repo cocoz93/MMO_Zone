@@ -35,18 +35,20 @@ void CStatSystem::RecalcStats(CCharacter* character, bool refill)
     {
         CPlayer* player = As<CPlayer>(character);
         const CLevelTable& table = _tables.Level();
-        player->_maxHp       = table.MaxHp(player->_level);
-        player->_attackPower = table.AttackPower(player->_level);
-        player->_defense     = table.Defense(player->_level);
+        CHealthPart& health = player->_health;
+        CAttackPart& attack = player->_attack;
+        health.SetMaxHp(table.MaxHp(player->_level));
+        attack._attackPower = table.AttackPower(player->_level);
+        health.SetDefense(table.Defense(player->_level));
         // GM 모드(운영자 /gm) — 최대 체력·공격력의 바탕만 GM 값으로 바꾼다. 방어력·마력은 레벨 표 그대로,
         //   장비 몫·효과 배수는 아래에서 그 위에 그대로 얹는다(끼우거나 효과가 걸려도 GM 이 안 풀린다).
         if (player->_gmMode)
         {
-            player->_maxHp       = CPlayer::GM_MAX_HP;
-            player->_attackPower = CPlayer::GM_ATTACK;
+            health.SetMaxHp(CPlayer::GM_MAX_HP);
+            attack._attackPower = CPlayer::GM_ATTACK;
         }
 #if USE_SKILL
-        player->_maxMp       = table.MaxMp(player->_level);   // 장비 몫은 없다 — 마력을 올리는 아이템이 아직 없다
+        attack.SetMaxMp(table.MaxMp(player->_level));   // 장비 몫은 없다 — 마력을 올리는 아이템이 아직 없다
 #endif
 
 #if USE_EQUIP
@@ -58,7 +60,7 @@ void CStatSystem::RecalcStats(CCharacter* character, bool refill)
             if (worn.itemId == 0)
                 continue;
             if (const ItemDef* def = _tables.Item().Find(worn.itemId))
-                player->_attackPower += def->attack;
+                attack._attackPower += def->attack;
         }
 #endif
         break;
@@ -69,10 +71,11 @@ void CStatSystem::RecalcStats(CCharacter* character, bool refill)
 #if USE_MONSTER
         // 몬스터 표 행 — 생성자가 넣은 것과 같은 값(Monster.cpp 생성자와 서로 가리킨다). 마력은 안 건드린다(몬스터는 마력 0 — 몬스터 스킬은 비용 0 만 허용한다, MonsterSkillTable.h).
         //   보스의 자기 버프(격노)가 이 갈래를 탄다 — 효과가 걸리면 이 바탕에서 다시 세우고 배수를 곱한다(공격력 10 → 20 → 풀리면 10, 10-14 실서버로 확인).
-        const MonsterDef& def = As<CMonster>(character)->_def;
-        character->_maxHp       = def.maxHp;
-        character->_attackPower = def.attack;
-        character->_defense     = def.defense;
+        CMonster* monster = As<CMonster>(character);
+        const MonsterDef& def = monster->_def;
+        monster->_health.SetMaxHp(def.maxHp);
+        monster->_attack._attackPower = def.attack;
+        monster->_health.SetDefense(def.defense);
 #else
         assert(false && "몬스터를 끈 빌드에 몬스터가 있을 수 없다");
 #endif
@@ -80,29 +83,33 @@ void CStatSystem::RecalcStats(CCharacter* character, bool refill)
     }
     }
 
+    // 공통 꼬리의 부품 — 스탯을 세우는 것은 사람·몬스터뿐이라 부품 셋이 늘 있다(부르는 쪽 = 입장 · 레벨업 · 장비 · GM · 효과 걸림·풀림)
+    assert(character->Health() != nullptr && character->Attack() != nullptr && "부품 없는 것의 스탯을 세움");
+    CHealthPart& health = *character->Health();
+    CAttackPart& attack = *character->Attack();
+
     // ── 2) 지속 효과 배수 — 바탕 + 장비 "뒤". 칸은 CBuffSystem 만 켜고 끈다(CharacterParts.h CBuffPart) ──
     {
-        // 스탯을 세우는 것은 사람·몬스터뿐이라 효과 부품이 늘 있다(부르는 쪽 = 입장 · 레벨업 · 장비 · GM · 효과 걸림·풀림)
         assert(character->Buffs() != nullptr && "효과 부품 없는 것의 스탯을 세움");
         const BuffSlot& mul = character->Buffs()->_slots[static_cast<int>(BuffKind::ATTACK_MUL)];
         if (mul.IsActive())
-            character->_attackPower *= mul.value;
+            attack._attackPower *= mul.value;
     }
 
     // ── 3) 체력·마력 맞추기 ──
     // 레벨이 올랐을 때만 채운다. 입장은 false 로 최대치만 세우고, DB 가 들고 있던 체력·마력은 RestoreHpMp 가 넣는다.
     //   효과 걸림·풀림도 false(최대치만 맞춘다 — 효과가 최대 체력을 안 바꿔 지금은 아무 일 없다).
     if (refill)
-        character->_hp = character->_maxHp;
-    else if (character->_hp > character->_maxHp)
-        character->_hp = character->_maxHp;   // 표를 낮춘 패치 뒤엔 들고 있던 체력이 최대를 넘을 수 있다
+        health.FillToMax();
+    else
+        health.ClampToMax();   // 표를 낮춘 패치 뒤엔 들고 있던 체력이 최대를 넘을 수 있다
 
 #if USE_SKILL
     // 마력도 같은 줄 — 레벨업만 채우고, 입장·끼우기·빼기는 최대치만 맞춘다(입장 값은 RestoreHpMp). 몬스터는 둘 다 0 이라 아무 일 없다
     if (refill)
-        character->_mp = character->_maxMp;
-    else if (character->_mp > character->_maxMp)
-        character->_mp = character->_maxMp;
+        attack.FillMpToMax();
+    else
+        attack.ClampMpToMax();
 #endif
 }
 
@@ -111,15 +118,16 @@ void CStatSystem::RecalcStats(CCharacter* character, bool refill)
 //   최대치는 저장하지 않는다 — 레벨 표·장비로 다시 세우는 값이라, 표를 낮춘 패치·장비 변화 뒤엔 저장값이 최대를 넘을 수 있다.
 //   그래서 RecalcStats 가 최대치를 세운 "뒤"에 불러 넘은 몫을 깎는다(EntryHandler.cpp SpawnPlayer 의 순서).
 // ==========================================================================
-void CStatSystem::RestoreHpMp(CCharacter* character, int32_t hp, int32_t mp)
+void CStatSystem::RestoreHpMp(CHealthPart& health, CAttackPart& attack, int32_t hp, int32_t mp)
 {
     // 체력 — 0 이하는 가득. 음수는 「저장된 적 없음」, 0(죽은 채 저장)은 부르는 쪽이 부활 규칙으로 이미 바꿨다(헤더 주석).
-    character->_hp = (hp <= 0 || hp > character->_maxHp) ? character->_maxHp : hp;
+    health.RestoreHp(hp);
 
 #if USE_SKILL
     // 마력 — 음수만 가득. 0 은 다 쓰고 나간 값이라 그대로 둔다(체력과 다르다 — 마력 0 은 살아 있다).
-    character->_mp = (mp < 0 || mp > character->_maxMp) ? character->_maxMp : mp;
+    attack.RestoreMp(mp);
 #else
+    (void)attack;
     (void)mp;
 #endif
 }
@@ -170,7 +178,7 @@ bool CStatSystem::GainExp(CPlayer* player, int64_t amount)
 
     // 오르면 체력·마력을 가득 채운다 — 쓰러져 있으면 안 채운다. 방 보상(CRewardHandler::RewardRoom)은 부활을 기다리는 사람에게도 가는데,
     //   채우면 「쓰러졌는데 체력이 있다」가 되고 그 채로 저장되면 「죽은 채 저장 = 체력 0」 규칙(입장 때 부활 판정)이 깨진다. 부활이 채운다
-    RecalcStats(player, !player->_isDead);
+    RecalcStats(player, !player->_health.IsDead());
     _gameMonitor._exp._levelUps.Inc();
     return true;
 }

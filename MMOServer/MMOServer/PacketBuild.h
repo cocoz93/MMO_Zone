@@ -23,6 +23,7 @@
 #include <Protocol/Protocol.h>
 #include "SerialBuffer.h"
 #include "Character.h"     // WriteSnapshot · WriteCreateEntry 가 캐릭터 칸을 읽는다
+#include "CharacterParts.h" // WriteSnapshot — 체력 부품(없으면 0/0)
 #if USE_PARTY
 #include "Player.h"        // 파티 조각 — 레벨(_level)은 플레이어 칸
 #include "MapManager.h"    // 파티원 한 줄 — 존 번호를 맵 번호로 푼다
@@ -61,8 +62,9 @@ namespace PacketBuild
     CREATE_FORCEINLINE void WriteSnapshot(CSerialBuffer* buf, const CCharacter* ch)
     {
 #if USE_COMBAT
-        *buf << static_cast<int>(ch->_hp);
-        *buf << static_cast<int>(ch->_maxHp);
+        const CHealthPart* health = ch->Health();   // 체력 부품이 없으면 0/0 — 클라는 최대 체력 0 이면 막대를 안 그린다(Protocol.h ActorSnapshot)
+        *buf << static_cast<int>(health != nullptr ? health->Hp() : 0);
+        *buf << static_cast<int>(health != nullptr ? health->MaxHp() : 0);
 #else
         (void)ch;
         *buf << static_cast<int>(0);
@@ -132,8 +134,8 @@ namespace PacketBuild
     {
         WritePartyPerson(buf, p);
 #if USE_COMBAT
-        *buf << static_cast<int>(p->_hp);
-        *buf << static_cast<int>(p->_maxHp);
+        *buf << static_cast<int>(p->_health.Hp());
+        *buf << static_cast<int>(p->_health.MaxHp());
 #else
         *buf << static_cast<int>(0);
         *buf << static_cast<int>(0);

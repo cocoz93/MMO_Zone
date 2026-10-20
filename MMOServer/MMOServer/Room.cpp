@@ -42,7 +42,7 @@ RoomEntryResult CheckRoomEntry(const CPlayer* me, const Party* party, const CRoo
     // 살았나 — 쓰러진 채 옮기면 부활 대기가 옛 존을 가리킨다(포털이 죽은 사람을 막는 까닭과 같다 — CEntryHandler::RecvPortalUse)
     for (const Party::Member& m : party->members)
     {
-        if (m.player->_isDead)
+        if (m.player->_health.IsDead())
             return { RoomEntryReject::DEAD, m.player };
     }
     // 잠금 — 계정마다(다시 접속해도 이어진다)

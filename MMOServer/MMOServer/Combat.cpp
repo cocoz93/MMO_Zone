@@ -1,20 +1,22 @@
 ﻿#include "Combat.h"
 
+#include <cassert>
+
 #if USE_COMBAT
 
 namespace Combat
 {
 
-AttackReject CanAttack(const CCharacter& attacker, uint64_t frame)
+AttackReject CanAttack(const CHealthPart& attackerHealth, const CAttackPart& attackerAttack, uint64_t frame)
 {
-    if (attacker._isDead)
+    if (attackerHealth.IsDead())
         return AttackReject::DEAD_SELF;
 
     // _lastAttackFrame == 0 은 "아직 한 번도 안 휘둘렀다"는 뜻이다.
     //   프레임 번호는 1부터 증가하므로(CGameServer가 틱 머리에서 ++) 실제 값으로 0이 될 일은 없다.
     //   이 검사를 빼면 첫 공격이 0과 비교돼 쿨타임에 걸린다.
-    if (attacker._lastAttackFrame != 0 &&
-        frame - attacker._lastAttackFrame < ATTACK_COOLDOWN_FRAMES)
+    if (attackerAttack._lastAttackFrame != 0 &&
+        frame - attackerAttack._lastAttackFrame < ATTACK_COOLDOWN_FRAMES)
         return AttackReject::COOLDOWN;
 
     return AttackReject::NONE;
@@ -48,29 +50,18 @@ int32_t CalcDamage(int32_t attack, int32_t defense, bool& outFloored)
     return outFloored ? MIN_DAMAGE : raw;
 }
 
-bool ApplyDamage(CCharacter& target, int32_t damage, int32_t& outRemainHp)
+bool IsRespawnDue(const CHealthPart& health, uint64_t frame)
 {
-    target._hp -= damage;
-    if (target._hp < 0)
-        target._hp = 0;   // 와이어로 음수 HP가 나가면 클라 막대가 뒤집힌다
-
-    outRemainHp = target._hp;
-    return target._hp == 0;
-}
-
-bool IsRespawnDue(const CCharacter& actor, uint64_t frame)
-{
-    if (!actor._isDead)
+    if (!health.IsDead())
         return false;
 
-    return (frame - actor._deathFrame) >= RESPAWN_DELAY_FRAMES;
+    return (frame - health.DeathFrame()) >= RESPAWN_DELAY_FRAMES;
 }
 
 void Respawn(CCharacter& actor)
 {
-    actor._hp = actor._maxHp;
-    actor._isDead = false;
-    actor._deathFrame = 0;
+    assert(actor.Health() != nullptr && "체력 부품 없는 것을 되살림 — 죽을 수 없는 것이다");
+    actor.Health()->Revive();
 
     // 죽을 때 IDLE 로 세웠어도 여기서 한 번 더 못 박는다 —
     //   살아난 직후 MOVING 으로 남아 있으면 틱이 클라가 모르는 방향으로 끌고 간다.

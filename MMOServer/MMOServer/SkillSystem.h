@@ -35,6 +35,8 @@
 
 class CZone;
 class CCharacter;
+class CHealthPart;
+class CAttackPart;
 class CGameDataFiles;
 class CGameMonitor;
 class CCombatSystem;
@@ -88,7 +90,9 @@ public:
 private:
     // 1) 시전자 — 번호·생사·쿨타임·체력·마력. 통과면 COUNT 이고 outDef 에 스킬, outHpCost 에 뗄 체력(4) 가 그대로 뗀다).
     //    뗄 마력은 표 값 그대로(SkillDef::costMp)라 따로 돌려주지 않는다.
-    SkillReject CheckCaster(const CCharacter* caster, int32_t skillId, uint64_t frame, const SkillDef*& outDef, int32_t& outHpCost) const;
+    //    시전자의 부품(체력·공격)은 UseSkill 이 입구에서 한 번 꺼내 넘긴다 — 시전자 자체는 종류(사람·몬스터)를 가르려고 받는다.
+    SkillReject CheckCaster(const CCharacter* caster, const CHealthPart& health, const CAttackPart& attack,
+                            int32_t skillId, uint64_t frame, const SkillDef*& outDef, int32_t& outHpCost) const;
 
     // 2) 대상 축 — _targets 를 채운다. 하나도 없으면 NO_TARGET, 있으면 COUNT.
     SkillReject SelectTargets(CZone* zone, CCharacter* caster, const SkillDef& def);

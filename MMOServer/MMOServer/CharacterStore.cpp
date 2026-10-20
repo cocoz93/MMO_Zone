@@ -121,12 +121,12 @@ DBSaveJob CCharacterStore::MakeSaveJob(const CPlayer* player) const
     job.exp       = player->_exp;
     // 체력·마력 — 값을 세우는 코드가 없는 빌드에선 「모름」을 싣는다. 0 을 실으면 다음 입장이 죽은 채 저장된 행으로 읽는다.
 #if USE_COMBAT
-    job.hp        = player->_hp;
+    job.hp        = player->_health.Hp();
 #else
     job.hp        = DB_HP_MP_UNSAVED;
 #endif
 #if USE_SKILL
-    job.mp        = player->_mp;
+    job.mp        = player->_attack.Mp();
 #else
     job.mp        = DB_HP_MP_UNSAVED;
 #endif
@@ -165,7 +165,7 @@ void CCharacterStore::PackCooldownsAndBuffs(const CPlayer* player, DBSaveJob& jo
     int nCooldown = 0;
     for (int id = 1; id <= MAX_SKILL_ID; ++id)
     {
-        const uint64_t ready = player->_skillReadyFrame[id];
+        const uint64_t ready = player->_attack._skillReadyFrame[id];
         if (ready <= _frameCount)
             continue;
         cooldowns[nCooldown++] = { static_cast<uint8_t>(id), nowMs + FramesToMs(ready - _frameCount) };
@@ -202,7 +202,7 @@ bool CCharacterStore::CooldownsAndBuffsChanged(const CPlayer* player)
 #if USE_SKILL
     for (int id = 1; id <= MAX_SKILL_ID; ++id)
     {
-        if (player->_skillReadyFrame[id] != player->_dbSaved.skillReadyFrame[id])
+        if (player->_attack._skillReadyFrame[id] != player->_dbSaved.skillReadyFrame[id])
             return true;
     }
 #endif
@@ -223,7 +223,7 @@ void CCharacterStore::RecordSavedCooldownsAndBuffs(CPlayer* player)
 {
 #if USE_SKILL
     for (int id = 0; id <= MAX_SKILL_ID; ++id)
-        player->_dbSaved.skillReadyFrame[id] = player->_skillReadyFrame[id];
+        player->_dbSaved.skillReadyFrame[id] = player->_attack._skillReadyFrame[id];
 #endif
 #if USE_COMBAT
     for (int k = 0; k < BUFF_KIND_COUNT; ++k)
@@ -279,7 +279,7 @@ void CCharacterStore::RestoreCooldownsAndBuffs(CPlayer* player, const DBResult* 
                 {
                     const int32_t   id  = items[i].skillId;
                     const SkillDef* def = _gameDataFiles.Skill().Find(id);
-                    if (def == nullptr || player->_skillReadyFrame[id] != 0)   // 표에 없는 번호(패치로 지움) · 같은 칸이 둘(불량)
+                    if (def == nullptr || player->_attack._skillReadyFrame[id] != 0)   // 표에 없는 번호(패치로 지움) · 같은 칸이 둘(불량)
                     {
                         enter._timerSkipped.Inc();
                         rewrite = true;
@@ -300,7 +300,7 @@ void CCharacterStore::RestoreCooldownsAndBuffs(CPlayer* player, const DBResult* 
                         enter._timerExpired.Inc();   // 쿨타임 0 인 스킬(표를 고친 패치) — 돌 것이 없다
                         continue;
                     }
-                    player->_skillReadyFrame[id] = _frameCount + frames;
+                    player->_attack._skillReadyFrame[id] = _frameCount + frames;
                     enter._cooldownRestored.Inc();
                 }
             }

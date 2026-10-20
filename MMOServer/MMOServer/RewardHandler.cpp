@@ -46,7 +46,7 @@ void CRewardHandler::GrantMonsterExp(CZone* zone, CPlayer* killer, int32_t rewar
             // 늘어난 체력을 본인과 주변에 다시 알린다 — 막대가 옛 최대치로 남지 않게.
             //   excludeSelf=false 라 본인에게도 간다(부활 방송과 같은 꼴).
             _sightBroadcaster.BroadcastAroundSector(zone, killer,
-                MakeActorStats(killer->_actorId, killer->_hp, killer->_maxHp), false);
+                MakeActorStats(killer->_actorId, killer->_health.Hp(), killer->_health.MaxHp()), false);
 
             // 오른 공격력·방어력은 본인에게만 — 남의 공격력은 화면에 안 쓴다(S2C_MY_STATS 는 본인 전용)
             _selfNotifier.SendMyStats(killer);

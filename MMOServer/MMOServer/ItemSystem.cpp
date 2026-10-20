@@ -35,7 +35,7 @@ UseItemReject CItemSystem::CheckUseItem(const CPlayer* player, uint16_t slot, ui
     if (outDef == nullptr || !outDef->IsUsable())
         return UseItemReject::NOT_USABLE;
 
-    if (player->_isDead)
+    if (player->_health.IsDead())
         return UseItemReject::DEAD;
 
     if (frame < player->_itemUseReadyFrame)
@@ -43,10 +43,10 @@ UseItemReject CItemSystem::CheckUseItem(const CPlayer* player, uint16_t slot, ui
 
     // 가득이면 안 줄인다 — 물약만 날리게 두지 않는다. 가득 판정은 그 물약이 채우는 쪽만 본다(한 물약 한 효과 — 표 읽기가 막는다).
     //   예전엔 종류를 안 보고 체력만 봐서, 만피일 때 마력 물약까지 FULL_HP 로 막혔을 자리다(10-10 플랜).
-    if (outDef->healHp > 0 && player->_hp >= player->_maxHp)
+    if (outDef->healHp > 0 && player->_health.Hp() >= player->_health.MaxHp())
         return UseItemReject::FULL_HP;
 #if USE_SKILL
-    if (outDef->healMp > 0 && player->_mp >= player->_maxMp)
+    if (outDef->healMp > 0 && player->_attack.Mp() >= player->_attack.MaxMp())
         return UseItemReject::FULL_MP;
 #endif
 
@@ -69,14 +69,12 @@ UseItemReject CItemSystem::UseItem(CPlayer* player, uint16_t slot, uint64_t fram
     //   std::min 은 윈도 헤더의 min 매크로에 먹힌다
     if (def->healHp > 0)
     {
-        const int32_t healed = player->_hp + def->healHp;
-        player->_hp = (healed < player->_maxHp) ? healed : player->_maxHp;
+        player->_health.Heal(def->healHp);   // 최대 넘으면 최대 — 규칙은 체력 부품
     }
 #if USE_SKILL
     if (def->healMp > 0)   // 스킬을 끈 빌드에선 여기 안 온다 — IsUsable 이 NOT_USABLE 로 막는다
     {
-        const int32_t filled = player->_mp + def->healMp;
-        player->_mp = (filled < player->_maxMp) ? filled : player->_maxMp;
+        player->_attack.GainMp(def->healMp);   // 최대 넘으면 최대 — 규칙은 공격 부품
     }
 #endif
     player->_inventory.ConsumeOne(index);
@@ -116,7 +114,7 @@ EquipReject CItemSystem::CheckEquip(const CPlayer* player, uint16_t slot, bool u
             return EquipReject::NOT_EQUIPPABLE;
     }
 
-    if (player->_isDead)
+    if (player->_health.IsDead())
         return EquipReject::DEAD;
 
     if (frame < player->_equipReadyFrame)
