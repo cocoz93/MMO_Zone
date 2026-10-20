@@ -6,7 +6,7 @@
 //  - 장착: 끼울·뺄 수 있나(판정) → 칸 둘 맞바꾸기·대기시간·스탯 다시 세우기(CStatSystem)
 //  - 그 과정에서 정한 것(성공·거절 사유)을 지표(CGameMonitor)로 센다 — CCombatSystem 과 같은 꼴
 //  - 보내기·저장은 하지 않는다 — 바뀐 칸은 가방이 스스로 표시해 두고(CInventory), 부르는 쪽(CGameServer)이
-//    FlushInventory(칸 패킷 + DB)·체력 방송·S2C_MY_STATS·거절 패킷을 낸다
+//    FlushInventory(칸 패킷 + 틱 끝 저장 요청)·체력 방송·S2C_MY_STATS·거절 패킷을 낸다
 //
 // [왜 떼어냈나]
 //  StatSystem.h 와 같은 까닭 — 입력이 CPlayer·가방·표뿐인 규칙이 CGameServer 멤버라, 게임 서버가 부르는 쪽은
@@ -74,7 +74,7 @@ public:
     // 끼우기(가방 칸 → 무기 칸, 차 있으면 맞바꿈) · 빼기(무기 칸 → 장비 탭 첫 빈 칸). 통과면 COUNT.
     //   unequip = false 면 끼우기(slot = 가방 칸), true 면 빼기(slot = 착용 칸).
     //   성공 = 칸 둘 맞바꾸기 → 대기시간 → 스탯 다시 세우기(체력은 그대로).
-    //   부르는 쪽이 FlushInventory(칸 패킷 둘 + DB 두 줄) → S2C_MY_STATS 순으로 내보낸다.
+    //   부르는 쪽이 FlushInventory(칸 패킷 둘 + 틱 끝 저장 요청) → S2C_MY_STATS 순으로 내보낸다.
     EquipReject Equip(CPlayer* player, uint16_t slot, bool unequip, uint64_t frame);
 #endif
 

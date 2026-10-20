@@ -94,7 +94,7 @@ private:
     CSelfNotifier&        _selfNotifier;       // 경험치 · 스탯 · 마력 · 알림 줄(본인에게)
     CSightBroadcaster&    _sightBroadcaster;   // 레벨업 체력을 주변에
 #if USE_DB_WORKER
-    CCharacterStore&      _characterStore;     // 레벨업 즉시 저장
+    CCharacterStore&      _characterStore;     // 레벨업 틱 끝 저장 요청
 #endif
 #if USE_DROP
     CItemHandler&         _itemHandler;        // 바뀐 칸 내보내기 · 땅 아이템 묶음

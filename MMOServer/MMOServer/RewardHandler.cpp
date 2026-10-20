@@ -4,7 +4,7 @@
 
 #include "SelfNotifier.h"
 #include "SightBroadcaster.h"
-#include "CharacterStore.h"   // USE_DB_WORKER — 레벨업 즉시 저장
+#include "CharacterStore.h"   // USE_DB_WORKER — 레벨업 틱 끝 저장 요청
 #include "ItemHandler.h"      // USE_INVENTORY — 바뀐 칸 내보내기 · 땅 아이템 묶음
 #include "PartyHandler.h"     // USE_PARTY — 방 다시 들어가기 잠금 넣기
 #include "StatSystem.h"
@@ -130,7 +130,7 @@ void CRewardHandler::RewardRoom(CZone* zone, CMonster* monster)
                 _selfNotifier.SendSystemMessage(p, "가방이 차서 발밑에 — " + def->name + " ×" + std::to_string(it.count));
             }
         }
-        _itemHandler.FlushInventory(p);   // 칸 패킷 + 곧바로 DB 저장(줍기와 같은 길) — 바뀐 칸이 없으면 아무것도 안 간다
+        _itemHandler.FlushInventory(p);   // 칸 패킷 + 그 틱 끝 저장 요청(줍기와 같은 길 · 레벨업과 같은 묶음) — 바뀐 칸이 없으면 아무것도 안 간다
         if (!_roomOverflow.empty())
             zone->GetGroundItemManager().Drop(_itemHandler.MakeGroundItemContext(), _roomOverflow, p->_x, p->_y, p->_accountId, _frameCount);
 #endif

@@ -57,7 +57,7 @@
 #include "SessionHub.h"    // 세션 칸 · 플레이어 찾기 · 보내기 · 캐릭터 번호 발급 — 게임 서버 나누기 1 단계(B1)
 #include "SelfNotifier.h"  // 본인 알림(내 상태 패킷을 나에게만) — 게임 서버 나누기 2 단계(B5)
 #include "SightBroadcaster.h" // 시야 방송(섹터 바뀜 · 주변 방송 · 송신 묶음 · 존 알림) — 게임 서버 나누기 3 단계(B2)
-#include "CharacterStore.h"   // 캐릭터 저장소(DB 워커 · 저장 세 길 · 불러오기 — USE_DB_WORKER) — 게임 서버 나누기 4 단계(B3)
+#include "CharacterStore.h"   // 캐릭터 저장소(DB 워커 · 저장 계기 넷과 묶음 · 불러오기 — USE_DB_WORKER) — 게임 서버 나누기 4 단계(B3)
 #include "PlayerPlacement.h"  // 배치(존에 넣기·옮기기·빼기·떠나보내기 · 도착 차례) — 게임 서버 나누기 5 단계(B4)
 #include "ItemHandler.h"      // 가방·땅(물약 · 장착 · 줍기 · 땅 아이템 알림 — USE_INVENTORY) — 게임 서버 나누기 6 단계(C6)
 #include "PartyHandler.h"     // 파티·방(파티 요청 · 파티 알림 · 방 입장·거절 · 다시 들어가기 잠금 — USE_PARTY) — 게임 서버 나누기 7 단계(C7)
@@ -193,7 +193,7 @@ private:
     CSightBroadcaster _sightBroadcaster{ _sessionHub, _mapManager, _monitor, _gameMonitor };
 
 #if USE_DB_WORKER
-    // 캐릭터 저장소 — DB 워커의 주인 · 저장 세 길 · 불러오기 요청과 회신 꺼내기(CharacterStore.h). 불러오기 결과는 입장 조각(_entryHandler · ICharacterLoadEvents)으로 간다.
+    // 캐릭터 저장소 — DB 워커의 주인 · 저장 계기 넷과 묶음 · 불러오기 요청과 회신 꺼내기(CharacterStore.h). 불러오기 결과는 입장 조각(_entryHandler · ICharacterLoadEvents)으로 간다.
     //   ★ _sessionHub · _gameMonitor · _gameDataFiles · _buffSystem · _frameCount 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
     //     _entryHandler 는 한참 뒤에 선언된다 — 참조만 넘긴다(생성 중엔 부르지 않는다 — 규칙 셋이 전투 조각을 받는 것과 같은 규칙).
     CCharacterStore _characterStore{ _sessionHub, _gameMonitor, _gameDataFiles,

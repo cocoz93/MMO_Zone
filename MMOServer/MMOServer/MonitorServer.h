@@ -220,7 +220,9 @@ private:
                      "C2S_MOVE_START coordinate accepts rejected by move budget (0 expected for honest clients)",
                      _gameMonitor._sector._moveBudgetRejects);
 
-        // ── DB 저장 파이프라인 (USE_DB_WORKER) — dirty flag 비동기 저장. 그릇은 게임 쪽(CGameMonitor::_db, 10-06), 이름은 그대로 ──
+        // ── DB 저장 파이프라인 (USE_DB_WORKER) — 저장 묶음(트랜잭션 하나). 그릇은 게임 쪽(CGameMonitor::_db · _save, 10-06), 옛 이름은 그대로 ──
+        //   saved·failed 는 이제 묶음 수(묶음마다 캐릭터 행 하나) · dropped 는 살아 있는 캐릭터가 비행 중 묶음 하나라 구조상 0 에 묶인다
+        //   — DB 가 못 따라가는 것은 mmo_db_save_inflight(접속자 수에 붙어 안 내려감) · mmo_db_save_pending_leave · queue_depth 로 본다(저장 플랜 C).
         WriteCounter(ss, "mmo_db_saved_total",
                      "Total player rows saved (UPSERT ok)", _gameMonitor._db._savedJobs);
         WriteCounter(ss, "mmo_db_failed_total",

@@ -5,7 +5,7 @@
 #include "SessionHub.h"
 #include "SelfNotifier.h"
 #include "SightBroadcaster.h"
-#include "CharacterStore.h"   // USE_DB_WORKER — 칸 즉시 저장
+#include "CharacterStore.h"   // USE_DB_WORKER — 가방이 바뀐 틱 끝 저장 요청
 #include "ItemSystem.h"
 #include "MapManager.h"
 #include "Zone.h"
@@ -248,7 +248,7 @@ void CItemHandler::ApplyEquip(CPlayer* player, uint16_t slot, bool unequip)
         return;
     }
 
-    // 칸 패킷 둘 + DB 두 줄 → 본인에게 새 공격력(공격력은 CItemSystem::Equip 이 이미 다시 세웠다).
+    // 칸 패킷 둘(DB 는 틱 끝 묶음 하나) → 본인에게 새 공격력(공격력은 CItemSystem::Equip 이 이미 다시 세웠다).
     //   ★ 순서가 곧 와이어 순서다 — 칸 패킷이 MY_STATS 보다 앞선다(클라가 무기 칸을 먼저 알고 숫자를 채운다).
     FlushInventory(player);
     _selfNotifier.SendMyStats(player);
@@ -331,7 +331,7 @@ void CItemHandler::RecvPickup(CPlayer* player, CSerialBuffer* /*pMsg*/)   // 몸
             _gameMonitor._inventory._itemsAdded.Add(g.item.count);   // /item 과 같은 계수기 — 가방에 들어간 개수
             groundItems.Remove(MakeGroundItemContext(), at.sectorX, at.sectorY, at.index,
                                GroundItemRemoval::PICKED, player->_actorId);
-            FlushInventory(player);   // 칸 패킷 + 곧바로 DB 저장(지금 경로 그대로)
+            FlushInventory(player);   // 칸 패킷 + 그 틱 끝 저장 요청
             return;
         }
 

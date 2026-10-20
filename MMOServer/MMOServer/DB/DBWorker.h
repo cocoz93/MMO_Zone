@@ -1,20 +1,21 @@
 ﻿#pragma once
 
 // ==========================================================================
-// CDBWorker — dirty flag 기반 비동기 위치 저장 (1단계: 저장 파이프라인)
+// CDBWorker — DB 실행기: 저장 묶음과 불러오기를 실행하고 결과를 돌려준다
 //
 // [모델] 서버 메모리 = 진실, DB = 저장소.
-//        게임루프가 "바뀐 플레이어"의 값 스냅샷만 큐에 넣으면,
-//        전용 워커 스레드 1개가 MySQL에 UPSERT 한다. 게임 틱은 막지 않는다.
+//        게임루프(캐릭터 저장소)가 바뀐 캐릭터의 「묶음」(캐릭터 행 + 저장 안 된 가방 칸)을 큐에 넣으면,
+//        전용 워커 스레드가 MySQL 에 쓴다(칸이 있으면 트랜잭션 하나). 게임 틱은 막지 않는다.
 //
 // [설계] 송신 워커(CIOCPServer::SendWorker) 패턴을 그대로 복제:
 //        게임스레드 push(lock+notify) / 워커스레드 swap-out 배치 처리.
 //        잡은 값 타입 스냅샷이라 플레이어 삭제 후 실행돼도 안전(수명 무관).
 //
-// [왕복] 저장은 던지고 끝(편도)이지만 불러오기는 답이 돌아와야 한다(왕복).
-//        가는 길은 저장과 "같은 큐"를 쓴다 — 같은 계정은 같은 워커를 타고 큐는 앞에서부터
-//        실행되므로 "옛 접속의 마지막 저장 → 새 접속의 불러오기" 순서가 공짜로 지켜진다.
-//        오는 길은 회신 큐 하나다 — 워커가 넣고, 게임 루프가 틱마다 통째로 꺼낸다.
+// [왕복] 저장도 불러오기도 답이 돌아온다 — 저장은 회신(성공·실패), 불러오기는 결과.
+//        무엇을 다시 실을지·불러오기를 들여보낼지는 받는 쪽(캐릭터 저장소)이 정한다 — 워커는 주인을 모르고 실행·회신만 한다.
+//        가는 길은 「같은 큐」 — 같은 계정은 같은 워커를 타고 큐는 앞에서부터 실행되므로
+//        "옛 접속의 마지막 저장 → 새 접속의 불러오기" 차례가 지켜진다(그 저장이 실패했는지는 회신을 먼저 보는 받는 쪽이 가린다).
+//        오는 길은 회신 상자 하나(저장 회신 · 불러오기 결과) — 워커가 넣고, 게임 루프가 틱마다 통째로 꺼낸다.
 // ==========================================================================
 
 #include "BuildConfig.h"
@@ -222,8 +223,8 @@ struct DBResult
     DBBytes<DB_SKILL_COOLDOWNS_BYTES> skillCooldowns;   // 바이트 그대로 — 검사·풀기는 게임 스레드(SpawnPlayer). len > 버퍼 = 잘림(불량)
     DBBytes<DB_BUFFS_BYTES>           buffs;
 #if USE_INVENTORY
-    // ↓ FOUND·NOT_FOUND 둘 다 유효 — 캐릭터 행이 없어도 가방은 읽는다(가방은 바뀌자마자 쓰고 캐릭터 행은
-    //   주기·로그아웃에 쓰므로, 첫 저장 전에 서버가 죽으면 가방 행만 있는 계정이 생긴다).
+    // ↓ FOUND·NOT_FOUND 둘 다 유효 — 캐릭터 행이 없어도 가방은 읽는다(지금은 칸을 쓰는 묶음이 캐릭터 행도 같이 쓰지만,
+    //   저장 묶음 전의 칸 즉시 저장 시절에 생긴 「가방 행만 있는 계정」이 DB 에 남아 있을 수 있다).
     //   가방 조회가 실패하면 code 는 FAILED 다 — 빈 가방으로 들여보내면 첫 아이템이 진짜 행을 덮는다.
     int32_t      invCount;     // inv 에 실린 줄 수
     int32_t      invOverflow;  // DB_INV_MAX_ROWS 를 넘어 못 실은 줄 수 (정상이면 0)
@@ -254,7 +255,8 @@ struct DBWorkerSlot
 };
 
 // K개 워커 스레드 + 커넥션. accountId % K 고정 분배(같은 유저=같은 워커=UPSERT 순서 보장).
-//   백프레셔: 슬롯 큐가 queueMax 도달 시 초과분 드롭(카운터+ERROR). DB는 관대(다음 주기/종료가 커버).
+//   백프레셔: 저장 묶음끼리 센 수가 queueMax 에 닿으면 거절(카운터+ERROR) — 부르는 쪽이 표시를 되살리거나 떠난 기록을 남겨
+//   다음 계기에 다시 싣는다. 살아 있는 캐릭터는 비행 중 묶음이 하나라 정상 상태에선 안 닿는다.
 class CDBWorker
 {
 public:
@@ -272,7 +274,7 @@ public:
     bool EnqueueLoad(const DBLoadJob& job);
 
     // 게임루프 전용 — 저장 묶음 1건(캐릭터 행 + 칸 줄 n). 같은 계정 = 같은 슬롯 큐(accountId%K) — 불러오기와 차례가 맞물린다.
-    //   묶음끼리 센 수로 QueueMax 를 건다(불러오기 loadCount 와 같은 꼴 · 위치 저장처럼 남의 원소까지 세지 않는다).
+    //   묶음끼리 센 수로 QueueMax 를 건다(불러오기 loadCount 와 같은 꼴 · 남의 원소까지 세지 않는다).
     //   반환 false = 거절(dropped 를 센다). 묶음은 버려지지만 부르는 쪽이 표시를 되살리거나 기록을 남겨 다음 계기에 다시 싣는다.
     bool EnqueueSave(const DBSaveBundle& head, const DBInvRow* rows, int rowCount);
 
@@ -314,7 +316,7 @@ private:
     bool TryReconnectForLoad(DBWorkerSlot& slot, bool& reconnectFailedThisBatch);
     void PushResult(const DBResult& result);  // 워커 스레드 → 회신 큐
 
-    // 저장 묶음 — 불러오기·칸 저장과 같은 재연결 규칙(없으면 그 자리 재연결 · 도중에 끊기면 재연결 뒤 묶음째 한 번 더).
+    // 저장 묶음 — 불러오기와 같은 재연결 규칙(없으면 그 자리 재연결 · 도중에 끊기면 재연결 뒤 묶음째 한 번 더).
     //   반환 = 성공. 회신은 부르는 쪽(WorkerThread)이 곧바로 넣는다.
     enum class SaveOutcome : uint8_t { OK, QUERY_ERROR, CONNECTION_LOST };
     bool ExecBundle(DBWorkerSlot& slot, const DBSaveBundle& b, const DBInvRow* rows, bool& reconnectFailedThisBatch);

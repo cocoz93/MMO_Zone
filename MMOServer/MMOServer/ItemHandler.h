@@ -3,7 +3,7 @@
 //
 // [책임]
 //  - 받은 패킷 넷의 처리기와 그 등록(RegisterRoutes — 물약 · 끼우기 · 빼기 · 줍기) — 컨텐츠 조각이 자기 줄을 등록한다
-//  - 바뀐 칸 내보내기 한 곳(FlushInventory — 칸 패킷 + DB 칸 저장) · 거절 사유를 와이어 값으로(물약 · 장착 · 줍기)
+//  - 바뀐 칸 내보내기 한 곳(FlushInventory — 칸 패킷 + 그 틱 끝 저장 요청) · 거절 사유를 와이어 값으로(물약 · 장착 · 줍기)
 //  - 땅 아이템 알림(IGroundItemEvents — 번호 발급 · 떨어짐 · 빠짐)과 수명 훑기 틱 · 관리자에 넘길 묶음(MakeGroundItemContext) ·
 //    존 지우기 직전 남은 땅 아이템 세기(OnErasingZone)
 //
@@ -92,7 +92,7 @@ private:
 #if USE_EQUIP
     // ── 장착 (USE_EQUIP) ──
     // 끼우기(가방 칸 → 무기 칸, 차 있으면 맞바꿈) · 빼기(무기 칸 → 장비 탭 첫 빈 칸).
-    //   성공 = (CItemSystem: 칸 둘 맞바꾸기 → 대기시간 → RecalcStats) → FlushInventory(칸 패킷 둘 + DB 두 줄) → S2C_MY_STATS.
+    //   성공 = (CItemSystem: 칸 둘 맞바꾸기 → 대기시간 → RecalcStats) → FlushInventory(칸 패킷 둘 + 틱 끝 저장 요청) → S2C_MY_STATS.
     //   성공 알림은 따로 없다. 거절 = S2C_EQUIP_FAIL(요청 칸 번호, 사유) — 아무것도 안 바뀐다.
     void RecvEquip(CPlayer* player, CSerialBuffer* pMsg);
     void RecvUnequip(CPlayer* player, CSerialBuffer* pMsg);
@@ -119,7 +119,7 @@ private:
     CSelfNotifier&        _selfNotifier;       // 마력 물약 · 장착 뒤 스탯
     CSightBroadcaster&    _sightBroadcaster;   // 체력 물약 주변 방송 · 땅 아이템 보이기·지우기
 #if USE_DB_WORKER
-    CCharacterStore&      _characterStore;     // 칸 즉시 저장
+    CCharacterStore&      _characterStore;     // 가방이 바뀐 틱 끝 저장 요청
 #endif
     CItemSystem&          _itemSystem;         // 쓰기·장착 규칙
     CMapManager&          _mapManager;         // 존 찾기 · 존마다 돌기

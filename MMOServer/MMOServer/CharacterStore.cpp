@@ -19,7 +19,7 @@
 // ==========================================================================
 
 // ==========================================================================
-// DB 저장 파이프라인 (dirty flag 기반 비동기 위치 저장)
+// DB 저장 파이프라인 — 바뀐 자리는 표시만, 계기가 묶음 하나를 워커에(저장 플랜 C · 아래 「저장 묶음」 절)
 // ==========================================================================
 
 bool CCharacterStore::Init(const DBConfig& dbConfig, int savePeriodSec, int workerCount, int queueMax)
@@ -92,7 +92,7 @@ static bool IsRestorableBuffValue(BuffKind kind, int32_t value)
 
 bool CCharacterStore::ShouldSave(const CPlayer* player) const
 {
-    // 저장 대상 판정(주기 저장만 — 나갈 때·종료는 이 판정 없이 쓴다):
+    // 저장 대상 판정(주기·틱 끝 — 나갈 때·종료는 이 판정 없이 쓴다):
     //   MOVING   = 위치가 계속 변하는 중 → 저장 후 dirty가 리셋돼도 매 주기 재저장 필요
     //   _dbDirty = 정지/접속/존변경/클램프로 생긴 미저장 변경(일회성, 저장 후 리셋)
     //   값 비교  = 레벨·경험치·체력·마력·쿨타임·버프 칸이 마지막으로 실은 값(_dbSaved)과 다름 — 바뀌는 자리마다 켜지 않고 여기서 본다(Player.h)

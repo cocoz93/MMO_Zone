@@ -140,7 +140,7 @@ private:
     const uint64_t&       _frameCount;      // 게임 루프의 틱 번호 — 빌린 것, 읽기만(틱 ↔ 실제 시각 환산의 「지금」)
     ICharacterLoadEvents& _loadEvents;      // 불러오기 결과를 받는 쪽
 
-    // DB 저장 파이프라인 (dirty flag 기반 비동기 위치 저장)
+    // DB 저장 파이프라인 — 워커(실행기)와 주기 계수
     std::unique_ptr<CDBWorker> _dbWorker;
     int _dbSavePeriodFrames = 0;     // SavePeriodSec × FRAME_PER_SEC (InitDB에서 설정)
     int _dbSaveFrameCounter  = 0;

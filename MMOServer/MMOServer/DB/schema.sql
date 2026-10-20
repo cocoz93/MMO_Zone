@@ -11,7 +11,8 @@
 --   than running with bags that silently never save).
 --
 -- Model: server memory is the source of truth, DB is a store.
---        The server flushes only "dirty" (changed) players periodically.
+--        The server writes only changed players: every 60 s, and at the end of a
+--        tick in which the bag changed or the level went up (one bundle per character).
 -- ==========================================================================
 
 CREATE DATABASE IF NOT EXISTS gamedb DEFAULT CHARACTER SET utf8mb4;
@@ -36,15 +37,16 @@ CREATE TABLE IF NOT EXISTS characters (
 --   -1 = never saved (rows from before these columns) -> full on enter.
 --    0 = saved while dead (hp only) -> the server applies its respawn rule on enter
 --        (outside the town -> town start area, full HP), so nobody logs in dead.
---   Saved with position/level/exp (every 60 s if changed, on logout, on shutdown),
---   not on every hit - losing up to one period of HP on a crash is acceptable.
+--   Saved with the whole row (every 60 s if changed, at the end of a tick in which the
+--   bag changed or the level went up, on logout, on shutdown), not on every hit - losing
+--   up to one period of HP on a crash is acceptable when the bag did not change.
 -- skill_cooldowns / buffs = packed bytes, one format per column (CooldownBuffBlob.h,
 --   version byte first). A character owns several of each, but they are short-lived and
 --   always read and written whole with the row, never searched -> one column each, not a table.
 --   Empty = nothing running. Times inside are UTC milliseconds, so they keep running while
 --   the player is offline. A bad or unknown value is dropped on enter (that cooldown or buff
 --   just ends) - it never blocks the login.
---   Saved with the rest of the row (every 60 s if changed, on logout, on shutdown, on level-up).
+--   Saved with the rest of the row (the same moments as hp/mp above).
 
 -- ==========================================================================
 -- Upgrades for a database created before the column existed.
@@ -104,8 +106,10 @@ PREPARE s FROM @add_buffs; EXECUTE s; DEALLOCATE PREPARE s;
 --   slot = slot number from Protocol.h INV_TAB_RANGES (equip 0.., use 100.., etc 200..).
 --   item_id 0 = empty slot. Rows are never deleted - the game account has no DELETE
 --   privilege, and one UPSERT covers add / use / empty alike.
---   The server writes the slot's final value the moment it changes (not every 60 s),
---   so writing the same row twice gives the same result and a retry is safe.
+--   The server writes the slot's final value at the end of the tick it changed in,
+--   together with the character row in ONE transaction (a "save bundle"), so a crash
+--   never leaves a potion used without its heal, or a weapon in two slots / none.
+--   Final values: writing the same row twice gives the same result and a retry is safe.
 -- ==========================================================================
 CREATE TABLE IF NOT EXISTS inventory (
     account_id BIGINT      NOT NULL,
@@ -118,14 +122,16 @@ CREATE TABLE IF NOT EXISTS inventory (
 ) ENGINE=InnoDB;
 
 -- Queries used by CDBWorker (numeric-only params -> no injection surface):
---   Save (UPSERT):
---     INSERT INTO characters (account_id,x,y,map_id,level,exp) VALUES (?,?,?,?,?,?)
---     ON DUPLICATE KEY UPDATE x=?, y=?, map_id=?, level=?, exp=?
---   Load:
---     SELECT x,y,map_id,level,exp FROM characters WHERE account_id=?
---   Inventory slot save (UPSERT, the moment a slot changes):
+--   (the column lists are built from one column table in DBWorker.cpp - kCharColumns / kInvColumns)
+--   Save bundle = character row UPSERT + one slot UPSERT per changed slot.
+--     With slots it is wrapped in START TRANSACTION ... COMMIT (ROLLBACK on error);
+--     a bundle with no slots is the single row statement (autocommit).
+--     INSERT INTO characters (account_id,x,y,map_id,level,exp,hp,mp,skill_cooldowns,buffs)
+--       VALUES (?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE x=?,y=?,map_id=?,level=?,exp=?,hp=?,mp=?,skill_cooldowns=?,buffs=?
 --     INSERT INTO inventory (account_id,slot,item_id,count) VALUES (?,?,?,?)
---     ON DUPLICATE KEY UPDATE item_id=?, count=?
+--       ON DUPLICATE KEY UPDATE item_id=?, count=?
+--   Load:
+--     SELECT x,y,map_id,level,exp,hp,mp,skill_cooldowns,buffs FROM characters WHERE account_id=?
 --   Inventory load (second statement of the same load job, run even when the
 --   character row is missing - see DBWorker.cpp RunLoadOnce):
 --     SELECT slot,item_id,count FROM inventory WHERE account_id=? AND item_id<>0 ORDER BY slot

@@ -79,9 +79,9 @@
 	#error "USE_MEMBERSHIP_DIGEST requires USE_BROADCAST_BUNDLE=1 && USE_MEMBERSHIP_FANOUT_DEDUP=1"
 #endif
 
-// DB 저장 파이프라인 실험 — dirty flag 기반 비동기 위치 저장 (존 서버 관점)
-//   서버 메모리 = 진실, DB = 저장소. 바뀐 플레이어만 주기적으로 전용 워커 스레드가 MySQL에 UPSERT.
-//   목적: 전량 저장 부담을 dirty flag로 줄이고, 저장 I/O를 게임 틱 임계경로에서 떼어낸다.
+// DB 저장 파이프라인 — 더티 표시 + 묶음 하나 = 트랜잭션 하나 (존 서버 관점 · 저장 플랜 C)
+//   서버 메모리 = 진실, DB = 저장소. 바뀐 자리는 표시만 하고, 계기(주기 · 틱 끝 · 나갈 때 · 종료)에 캐릭터 행 + 저장 안 된 칸을
+//   묶음 하나로 전용 워커 스레드가 MySQL 에 쓴다. 목적: 전량 저장 부담을 표시로 줄이고, 저장 I/O 를 게임 틱 임계경로에서 떼어낸다.
 //   1: DB 워커 활성 (MySQL 필요, 지표 mmo_db_*) [실험]
 //   0: DB 없이 기존 동작 그대로 (회귀 기준선) [기본]
 #ifndef USE_DB_WORKER            // 빌드 시스템이 먼저 정하면 그 값을 따른다(리눅스 검증용)

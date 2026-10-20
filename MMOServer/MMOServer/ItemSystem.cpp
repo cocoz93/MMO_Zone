@@ -87,8 +87,8 @@ UseItemReject CItemSystem::UseItem(CPlayer* player, uint16_t slot, uint64_t fram
 #if USE_EQUIP
 // ==========================================================================
 // 장착 — 끼우기·빼기는 "칸 둘 맞바꾸기" 하나다(CInventory::SwapSlots).
-//   저장은 지금 가방 길 그대로(부르는 쪽의 FlushInventory — 칸마다 DB 한 줄). ★ 두 줄은 따로 쓴다 — 두 문장 사이에
-//   서버가 죽으면 무기 하나를 잃거나 복제될 수 있다(여러 칸 넣기와 같은 틈, 플랜 ㉯ — 거래 때 트랜잭션 레인으로).
+//   저장은 가방 길 그대로(부르는 쪽의 FlushInventory → 그 틱 끝 묶음). 두 칸은 한 묶음 = 트랜잭션 하나라 함께 써지거나
+//   함께 안 써진다 — 사이에 서버가 죽어도 무기를 잃거나 복제하지 않는다(저장 플랜 C — 예전엔 칸마다 문장 하나라 틈이 있었다).
 // ==========================================================================
 EquipReject CItemSystem::CheckEquip(const CPlayer* player, uint16_t slot, bool unequip, uint64_t frame, int& outFrom, int& outTo) const
 {
