@@ -180,7 +180,7 @@ void CSelfNotifier::SendMyStats(CPlayer* player)
 //     될 수 있어 그때는 1ms 로 올린다(다음 틱의 만료가 곧 0 을 보낸다).
 void CSelfNotifier::SendActorBuff(CPlayer* player, BuffKind kind)
 {
-    const BuffSlot& slot = player->_buffs[static_cast<int>(kind)];
+    const BuffSlot& slot = player->_buffs._slots[static_cast<int>(kind)];
     uint32_t remainMs = 0;
     if (slot.IsActive())
     {
@@ -199,7 +199,7 @@ void CSelfNotifier::SendActiveBuffs(CPlayer* player)
 {
     for (int k = 0; k < BUFF_KIND_COUNT; ++k)
     {
-        if (player->_buffs[k].IsActive())
+        if (player->_buffs._slots[k].IsActive())
             SendActorBuff(player, static_cast<BuffKind>(k));
     }
 }

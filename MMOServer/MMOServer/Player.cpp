@@ -8,7 +8,7 @@ CPlayer::CPlayer()
 
     // 부품 붙이기 — 몸이 돌 때는 멤버 부품이 이미 만들어져 있다(Character.h AttachParts)
 #if USE_COMBAT
-    AttachParts(&_health, &_attack, nullptr);
+    AttachParts(&_health, &_attack, &_buffs);
 #else
     AttachParts(&_health, &_attack);
 #endif

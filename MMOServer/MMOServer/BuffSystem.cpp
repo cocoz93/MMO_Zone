@@ -5,7 +5,8 @@
 #include <algorithm>   // remove — 목록에서 빼기
 #include <cassert>
 
-#include "Character.h"     // _buffs 칸
+#include "Character.h"     // 효과 부품 자리(Buffs)
+#include "CharacterParts.h" // 효과 부품(CBuffPart) — 칸과 AnyActive
 #include "StatSystem.h"    // 바뀐 칸을 스탯에 반영
 #include "GameMonitor.h"   // 걸림·끝남·게이지 지표
 
@@ -16,14 +17,15 @@ CBuffSystem::CBuffSystem(CGameMonitor& gameMonitor, CStatSystem& statSystem, IBu
 {
 }
 
-bool CBuffSystem::HasAnyActive(const CCharacter* c)
+namespace
 {
-    for (const BuffSlot& slot : c->_buffs)
+    // 효과 부품 꺼내기 — 효과가 걸리는 것은 사람·몬스터뿐이라 늘 있다(거는 길 = 스킬 효과의 시전자·대상 · 입장 복원 · 죽음 · 퇴장).
+    //   효과 목록(_buffed)에 든 것도 Apply·Restore 가 넣은 것이라 같다. 부품 없는 것(NPC)이 여기 오면 거는 쪽의 잘못이다.
+    CBuffPart& BuffsOf(CCharacter* c)
     {
-        if (slot.IsActive())
-            return true;
+        assert(c->Buffs() != nullptr && "효과 부품이 없는 것에 효과를 다룸 — 거는 쪽이 대상을 잘못 골랐다");
+        return *c->Buffs();
     }
-    return false;
 }
 
 // 순서가 뜻을 갖지 않는 목록이라 remove 로 당긴다. 없으면 아무 일 없음 — 플래그와 목록이 어긋나는 길이 나중에 생겨도 조용히 새지 않게
@@ -38,7 +40,8 @@ void CBuffSystem::RemoveFromList(CCharacter* c)
 void CBuffSystem::Apply(CCharacter* target, BuffKind kind, int32_t value, uint64_t durationFrames, uint64_t frame)
 {
     assert(durationFrames > 0 && "지속 0 은 비어 있는 칸과 구별이 안 된다 — 표 읽기가 막는다");
-    BuffSlot& slot = target->_buffs[static_cast<int>(kind)];
+    CBuffPart& buffs = BuffsOf(target);
+    BuffSlot& slot = buffs._slots[static_cast<int>(kind)];
     auto& m = _gameMonitor._buff;
 
     if (slot.IsActive())
@@ -47,7 +50,7 @@ void CBuffSystem::Apply(CCharacter* target, BuffKind kind, int32_t value, uint64
     }
     else
     {
-        if (!HasAnyActive(target))   // 첫 칸이 켜진다 — 목록에 들어온다(칸을 채우기 전에 봐야 한다)
+        if (!buffs.AnyActive())   // 첫 칸이 켜진다 — 목록에 들어온다(칸을 채우기 전에 봐야 한다)
             _buffed.push_back(target);
         m._applied[static_cast<int>(kind)].Inc();
         m._active.Inc();
@@ -68,12 +71,13 @@ void CBuffSystem::Tick(uint64_t frame)
     for (size_t i = 0; i < _buffed.size(); )
     {
         CCharacter* c = _buffed[i];
+        CBuffPart& buffs = BuffsOf(c);
         bool expired[BUFF_KIND_COUNT] = {};
         bool any = false;
 
         for (int k = 0; k < BUFF_KIND_COUNT; ++k)
         {
-            BuffSlot& slot = c->_buffs[k];
+            BuffSlot& slot = buffs._slots[k];
             if (!slot.IsActive() || frame < slot.expireFrame)
                 continue;
             slot = BuffSlot{};
@@ -98,7 +102,7 @@ void CBuffSystem::Tick(uint64_t frame)
         }
 
         // 마지막 칸이 꺼졌으면 목록에서 — 뒤엣것과 바꿔치기로 O(1) 제거, i 는 안 올린다(방금 당겨온 것을 아직 안 봤다). TickRespawn 꼴
-        if (!HasAnyActive(c))
+        if (!buffs.AnyActive())
         {
             _buffed[i] = _buffed.back();
             _buffed.pop_back();
@@ -112,11 +116,12 @@ void CBuffSystem::Tick(uint64_t frame)
 
 void CBuffSystem::ClearAll(CCharacter* target)
 {
+    CBuffPart& buffs = BuffsOf(target);
     bool cleared[BUFF_KIND_COUNT] = {};
     bool any = false;
     for (int k = 0; k < BUFF_KIND_COUNT; ++k)
     {
-        BuffSlot& slot = target->_buffs[k];
+        BuffSlot& slot = buffs._slots[k];
         if (!slot.IsActive())
             continue;
         slot = BuffSlot{};
@@ -141,11 +146,12 @@ void CBuffSystem::ClearAll(CCharacter* target)
 bool CBuffSystem::Restore(CCharacter* target, BuffKind kind, int32_t value, uint64_t remainFrames, uint64_t frame)
 {
     assert(remainFrames > 0 && "남은 틱 0 은 비어 있는 칸과 구별이 안 된다 — 호출부가 지난 항목을 거른다");
-    BuffSlot& slot = target->_buffs[static_cast<int>(kind)];
+    CBuffPart& buffs = BuffsOf(target);
+    BuffSlot& slot = buffs._slots[static_cast<int>(kind)];
     if (slot.IsActive())
         return false;
 
-    if (!HasAnyActive(target))   // 첫 칸이 켜진다 — 목록에 들어온다(칸을 채우기 전에 봐야 한다 — Apply 와 같은 순서)
+    if (!buffs.AnyActive())   // 첫 칸이 켜진다 — 목록에 들어온다(칸을 채우기 전에 봐야 한다 — Apply 와 같은 순서)
         _buffed.push_back(target);
     _gameMonitor._buff._restored[static_cast<int>(kind)].Inc();
     _gameMonitor._buff._active.Inc();
@@ -157,9 +163,10 @@ bool CBuffSystem::Restore(CCharacter* target, BuffKind kind, int32_t value, uint
 
 void CBuffSystem::EndSlotsAsLeave(CCharacter* c)
 {
+    CBuffPart& buffs = BuffsOf(c);
     for (int k = 0; k < BUFF_KIND_COUNT; ++k)
     {
-        BuffSlot& slot = c->_buffs[k];
+        BuffSlot& slot = buffs._slots[k];
         if (!slot.IsActive())
             continue;
         slot = BuffSlot{};

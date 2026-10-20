@@ -80,9 +80,11 @@ void CStatSystem::RecalcStats(CCharacter* character, bool refill)
     }
     }
 
-    // ── 2) 지속 효과 배수 — 바탕 + 장비 "뒤". 칸은 CBuffSystem 만 켜고 끈다(Character.h _buffs) ──
+    // ── 2) 지속 효과 배수 — 바탕 + 장비 "뒤". 칸은 CBuffSystem 만 켜고 끈다(CharacterParts.h CBuffPart) ──
     {
-        const BuffSlot& mul = character->_buffs[static_cast<int>(BuffKind::ATTACK_MUL)];
+        // 스탯을 세우는 것은 사람·몬스터뿐이라 효과 부품이 늘 있다(부르는 쪽 = 입장 · 레벨업 · 장비 · GM · 효과 걸림·풀림)
+        assert(character->Buffs() != nullptr && "효과 부품 없는 것의 스탯을 세움");
+        const BuffSlot& mul = character->Buffs()->_slots[static_cast<int>(BuffKind::ATTACK_MUL)];
         if (mul.IsActive())
             character->_attackPower *= mul.value;
     }

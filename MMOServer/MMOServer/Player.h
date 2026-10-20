@@ -27,10 +27,12 @@ public:
     // As<CPlayer> 판정 — Character.h As
     static bool IsA(const CCharacter& c) { return c._kind == CharacterKind::PLAYER; }
 
-    // ── 부품 — 체력·공격(CharacterParts.h). 생성자 몸에서 CCharacter 부품 자리에 붙인다 ──
-    //   효과 부품은 옛 효과 칸(CCharacter::_buffs)을 옮길 때 같은 이름으로 붙인다 — 그때까지 AttachParts 에 null.
+    // ── 부품 — 사람은 셋을 다 든다(CharacterParts.h). 생성자 몸에서 CCharacter 부품 자리에 붙인다 ──
     CHealthPart _health;
     CAttackPart _attack;
+#if USE_COMBAT
+    CBuffPart   _buffs;
+#endif
 
     bool _isAdmin;        // 운영자 여부
 

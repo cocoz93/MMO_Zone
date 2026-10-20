@@ -80,7 +80,6 @@ public:
     bool Restore(CCharacter* target, BuffKind kind, int32_t value, uint64_t remainFrames, uint64_t frame);
 
 private:
-    static bool HasAnyActive(const CCharacter* c);
     void RemoveFromList(CCharacter* c);
     // 살아 있는 칸을 전부 비우고 「끝남(LEAVE)」으로 센다 — Forget · ForgetZone 이 같이 쓴다(끝나는 자리를 한 곳에서 세야 등식이 안 어긋난다)
     void EndSlotsAsLeave(CCharacter* c);

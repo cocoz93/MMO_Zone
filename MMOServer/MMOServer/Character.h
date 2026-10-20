@@ -77,14 +77,6 @@ public:
     //   몬스터는 생성자가 몬스터 표의 bodyRadius 를 복사하고, 사람은 0 으로 둔다. 웹의 그림 크기(MON_META.scale)와는 따로 사는 값이다.
     float _bodyRadius = 0.0f;
 
-#if USE_COMBAT
-    // 지속 효과 칸 — 종류마다 하나(Buff.h BuffSlot · 색인 = BuffKind). 비우는 자리는 CBuffSystem(만료·죽음·퇴장)뿐 — 여기서 직접 손대지 않는다.
-    //   공격력 최종값은 위 주석대로 RecalcStats 가 이 칸을 읽어 곱한다. 몬스터도 같은 칸이다(보스가 스킬로 자기에게 거는 버프 — MonsterAI 가 고르고 CMonsterManager 가 CSkillSystem 을 부른다).
-    //   전투 토글 소유다 — 거는 쪽이 스킬만이 아니라서(아이템도 걸 수 있는 틀).
-    //   사람 것은 DB 에 저장한다(characters.buffs — 실제 시각으로 묶어 접속하지 않은 동안에도 흐른다 · CCharacterStore::PackCooldownsAndBuffs).
-    BuffSlot _buffs[BUFF_KIND_COUNT];
-#endif
-
     bool     _isDead = false;        // 죽은 상태 (이동·공격 거부, 공격 대상에서 제외)
     uint64_t _lastAttackFrame = 0;   // 마지막 공격 프레임 (쿨타임 판정 — CGameServer::_frameCount 기준)
     uint64_t _deathFrame = 0;        // 죽은 프레임 (부활 시점 판정 기준)

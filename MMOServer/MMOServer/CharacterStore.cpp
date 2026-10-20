@@ -180,7 +180,7 @@ void CCharacterStore::PackCooldownsAndBuffs(const CPlayer* player, DBSaveJob& jo
     int nBuff = 0;
     for (int k = 0; k < BUFF_KIND_COUNT; ++k)
     {
-        const BuffSlot& slot = player->_buffs[k];
+        const BuffSlot& slot = player->_buffs._slots[k];
         if (!slot.IsActive() || slot.expireFrame <= _frameCount)
             continue;
         buffs[nBuff++] = { static_cast<uint8_t>(k), slot.value, nowMs + FramesToMs(slot.expireFrame - _frameCount) };
@@ -209,7 +209,7 @@ bool CCharacterStore::CooldownsAndBuffsChanged(const CPlayer* player)
 #if USE_COMBAT
     for (int k = 0; k < BUFF_KIND_COUNT; ++k)
     {
-        const BuffSlot& now   = player->_buffs[k];
+        const BuffSlot& now   = player->_buffs._slots[k];
         const BuffSlot& saved = player->_dbSaved.buffs[k];
         if (now.expireFrame != saved.expireFrame || now.value != saved.value)
             return true;
@@ -227,7 +227,7 @@ void CCharacterStore::RecordSavedCooldownsAndBuffs(CPlayer* player)
 #endif
 #if USE_COMBAT
     for (int k = 0; k < BUFF_KIND_COUNT; ++k)
-        player->_dbSaved.buffs[k] = player->_buffs[k];
+        player->_dbSaved.buffs[k] = player->_buffs._slots[k];
 #endif
     (void)player;
 }

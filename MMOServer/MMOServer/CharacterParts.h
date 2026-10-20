@@ -85,7 +85,10 @@ private:
 
 #if USE_COMBAT
 // ── 효과 부품 — 지속 효과를 받는 쪽 ──
-//   종류마다 칸 하나(Buff.h BuffSlot · 색인 = BuffKind). 켜고 끄는 쪽은 CBuffSystem 뿐이다(만료·죽음·퇴장) — 여기서 직접 손대지 않는다.
+//   지속 효과 칸 — 종류마다 하나(Buff.h BuffSlot · 색인 = BuffKind). 비우는 자리는 CBuffSystem(만료·죽음·퇴장)뿐 — 여기서 직접 손대지 않는다.
+//   공격력 최종값은 RecalcStats 가 이 칸을 읽어 곱한다. 몬스터도 같은 칸이다(보스가 스킬로 자기에게 거는 버프 — MonsterAI 가 고르고 CMonsterManager 가 CSkillSystem 을 부른다).
+//   전투 토글 소유다 — 거는 쪽이 스킬만이 아니라서(아이템도 걸 수 있는 틀).
+//   사람 것은 DB 에 저장한다(characters.buffs — 실제 시각으로 묶어 접속하지 않은 동안에도 흐른다 · CCharacterStore::PackCooldownsAndBuffs).
 class CBuffPart
 {
 public:
