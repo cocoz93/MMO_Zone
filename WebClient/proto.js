@@ -72,6 +72,9 @@
   const BUFF_KIND = ['attack_mul'];
   // 맵 이동 실패 사유 — Protocol.h MSG_S2C_ZONE_CHANGE_FAIL 의 reason 주석 순서 그대로(존 이동 요청 · 포털 공통)
   const ZONE_FAIL = ['NOT_FOUND','FULL','SAME_ZONE','NOT_ALLOWED','TOO_FAR','NO_PORTAL'];
+  // 표시 문자의 부류 값 — Protocol.h DISPLAY_MONSTER · DISPLAY_NPC 사본. 0x20 미만이면 사람이 아니고, 어느 몬스터·NPC 인지는 등장 엔트리의 defId
+  const DISPLAY_MONSTER = 0x01;
+  const DISPLAY_NPC     = 0x02;
   const NAME =Object.fromEntries(Object.entries(MSG).map(([k,v])=>[v,k]));
   const DIR = { NONE:0, UP:1, DOWN:2, LEFT:3, RIGHT:4 };  // Player.h
   const MOVE = { IDLE:0, MOVING:1 };
@@ -79,15 +82,16 @@
   const U16LE = new TextDecoder('utf-16le');
   const U8 = new TextDecoder('utf-8');
 
-  // 등장 상태 조각 — Protocol.h ActorSnapshot(CREATE 셋의 맨 끝). 필드를 늘리면 여기와 아래 묶음 보폭을 같이 고칠 것
+  // 등장 상태 조각 — Protocol.h ActorSnapshot(CREATE_MY 는 맨 끝 · 엔트리는 defId 앞). 필드를 늘리면 여기와 아래 묶음 보폭을 같이 고칠 것
   function readSnap(dv, o) { return { hp:dv.getInt32(o,true), maxHp:dv.getInt32(o+4,true) }; }
-  const CREATE_ENTRY_BYTES = 29;   // Protocol.h CreatePlayerEntry = 몸통 21 + ActorSnapshot 8
+  const CREATE_ENTRY_BYTES = 31;   // Protocol.h CreatePlayerEntry = 몸통 21 + ActorSnapshot 8 + defId 2
   // 남의 캐릭터 한 명분 — Protocol.h CreatePlayerEntry. CREATE_OTHER 의 몸통이자 묶음 엔트리라 둘이 이것 하나를 부른다
+  //   defId = 몬스터 번호(MonsterTable.csv) · NPC 번호(NpcTable.csv) · 사람 0 — 어느 표인지는 displayChar 의 부류(DISPLAY_*)
   function readCreateEntry(dv, o) {
     return { playerId:dv.getInt32(o,true), direction:dv.getUint8(o+4), moveState:dv.getUint8(o+5),
       displayChar:dv.getUint8(o+6), colorIndex:dv.getUint8(o+7), spawnReason:dv.getUint8(o+8),
       x:dv.getFloat32(o+9,true), y:dv.getFloat32(o+13,true), speed:dv.getInt32(o+17,true),
-      ...readSnap(dv, o+21) };
+      ...readSnap(dv, o+21), defId:dv.getUint16(o+29,true) };
   }
   // 파티 사람 조각 — Protocol.h PartyPerson 10B = actorId i32 · displayChar u8 · colorIndex u8 · level i32
   function readPartyPerson(dv, o) {
@@ -352,7 +356,7 @@
   };
 
   const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, EQUIP_SLOT, USE_FAIL, EQUIP_FAIL, SKILL_FAIL, BUFF_KIND, ZONE_FAIL, GROUND_APPEAR, GROUND_GONE, PICKUP_FAIL,
-                PARTY_ASK_KIND, PARTY_NOTICE, PARTY_MAX_MEMBERS, decodePacket, Reassembler, enc };
+                PARTY_ASK_KIND, PARTY_NOTICE, PARTY_MAX_MEMBERS, DISPLAY_MONSTER, DISPLAY_NPC, CREATE_ENTRY_BYTES, decodePacket, Reassembler, enc };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else global.Proto = API;
 })(typeof window !== 'undefined' ? window : globalThis);

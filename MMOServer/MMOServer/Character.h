@@ -64,8 +64,11 @@ public:
     CharacterKind _kind;
 
     // ── 표시 ── 클라가 그리는 데 쓰는 것. CREATE 패킷에 실린다.
-    uint8_t _displayChar;   // 표시 문자 (ASCII: A-Z, a-z, 0-9)
+    uint8_t _displayChar;   // 표시 문자 (ASCII: A-Z, a-z, 0-9) · 사람이 아니면 부류(Protocol.h DISPLAY_MONSTER · DISPLAY_NPC)
     uint8_t _colorIndex;    // 색상 인덱스 (0-6)
+    // 정의 번호 — 몬스터 = monsterId · NPC = npcId · 사람 = 0. 등장 엔트리 끝에 실린다(Protocol.h CreatePlayerEntry::defId).
+    //   표시 문자와 같이 와이어 값이라 존 층은 안 넣는다 — 등장 알림을 받는 게임 서버 조각이 넣는다(CMonsterHandler::OnMonsterSpawn).
+    uint16_t _defId = 0;
 
     // 몸 반지름(타일) — 사거리를 잴 때 중심 거리에서 몸 크기만큼 뺀다. 0 = 점(사람·작은 몬스터).
     //   몬스터는 생성자가 몬스터 표의 bodyRadius 를 복사하고, 사람은 0 으로 둔다. 웹의 그림 크기(MON_META.scale)와는 따로 사는 값이다.

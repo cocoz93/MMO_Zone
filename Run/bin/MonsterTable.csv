@@ -4,7 +4,7 @@
 #   maxHp / attack / defense : copied into the monster when it is born. damage = attack - defense (at least 1).
 #   speed   : tiles/second, 1..15. Above 15 the server refuses to start - the AI think interval assumes it (MonsterAI.h MAX_SPEED).
 #   exp     : given to the player who lands the last hit (a room boss: to everyone in the room - see boss below).
-#   display : displayChar sent on the wire; clients pick the sprite by it. 1..15 (0x01..0x0F) = monster (Protocol.h).
+#   sprite  : the web sprite name (WebClient/assets/monsters.js MON_META key). The server skips it - the wire carries monsterId as defId (Protocol.h CreatePlayerEntry).
 #   bodyRadius : body radius in tiles, 0..4 (optional - a blank or missing cell is 0 = a point). Attack range is measured between body edges.
 #                The web sprite size (MON_META.scale in WebClient/assets/monsters.js) is a separate value - set the two together.
 #   boss    : 1 = a room boss (optional - a blank or missing cell is 0). Killing it in a room (instance map) clears the room: everyone in it is
@@ -16,15 +16,15 @@
 #   (snake values come from the plan monster-snake.md decision 9; speed was 15 in code and 5 via MMOServerConfig.ini [Game] until 10-08 - 5 is what ran)
 #   guryungi (2026-10-15 boss; a field monster since 2026-10-18): maxHp 300 / attack 10 = the snake x10 hp, x2 attack (user decision 10-18 -
 #     was the ROUGH boss values 30000 / 30). bodyRadius 2.0. exp 1000 = about one level at Lv10 (LevelTable.csv) - not changed on 10-18.
-#     display 2 = the web sprite "guryungi" - its web radius (MON_META.radius) is a separate value too.
+#     sprite guryungi - its web radius (MON_META.radius) is a separate value too.
 #     Born only in map 2 (SpawnRegion.csv). Skills: MonsterSkill.csv. Drops: DropTable.csv.
 #   snake king (3, boss of the party room map 3, 2026-10-18): ROUGH values - only "stronger than guryungi" (the user: stats do not matter much).
-#     Casts Revive (brings the dead fake snake kings back) and Rage - MonsterSkill.csv. display 3 = the web sprite "snakeking".
+#     Casts Revive (brings the dead fake snake kings back) and Rage - MonsterSkill.csv. sprite snakeking.
 #     bodyRadius 1.3 = the sprite's body half width (14px of a 64px cell) x its drawn height (3 tiles x scale 2) - the guryungi rule (picture ~ radius).
-#   fake snake king (4, 2026-10-18): exp 0 and no DropTable.csv rows - no reward (user decision). Born next to the snake king. display 4.
+#   fake snake king (4, 2026-10-18): exp 0 and no DropTable.csv rows - no reward (user decision). Born next to the snake king. sprite fakeking.
 #     bodyRadius 1.0 = the same sprite rule at scale 1.5.
-monsterId,name,maxHp,attack,defense,speed,exp,display,bodyRadius,boss
-1,뱀,30,5,0,5,10,1
-2,구렁이,300,10,0,5,1000,2,2.0
-3,뱀왕,1000,15,0,5,1500,3,1.3,1
-4,가짜 뱀왕,150,8,0,5,0,4,1.0
+monsterId,name,maxHp,attack,defense,speed,exp,sprite,bodyRadius,boss
+1,뱀,30,5,0,5,10,snake
+2,구렁이,300,10,0,5,1000,guryungi,2.0
+3,뱀왕,1000,15,0,5,1500,snakeking,1.3,1
+4,가짜 뱀왕,150,8,0,5,0,fakeking,1.0

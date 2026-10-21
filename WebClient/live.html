@@ -317,15 +317,16 @@ const SHEET_CACHE_MAX = 256;                         // 576×64×4B ≈ 147KB ×
 function rowOf(dir){ return dir===1?0 : dir===3?1 : dir===4?3 : 2; }  // UP/LEFT/RIGHT else DOWN
 
 // ---- 몬스터 ----
-// 서버는 새 패킷을 파지 않고 CREATE 의 displayChar 에 예약값을 실어 몬스터 종류를 알린다
-//   (Protocol.h DISPLAY_MONSTER_BASE). 사람은 'A'~'Z','a'~'z','0'~'9' 만 받으므로 0x20 미만이면 몬스터다.
+// 서버는 CREATE 의 displayChar 에 부류 값(Protocol.h DISPLAY_MONSTER)을, defId 에 몬스터 번호를 싣는다.
+//   그림 이름은 서버가 모른다 — 같은 몬스터 표(serve.js 의 /data/MonsterTable.csv 여덟째 sprite 칸)를 읽어 번호로 찾는다(MON_SPRITE).
+//   사람은 'A'~'Z','a'~'z','0'~'9' 만 받으므로 0x20 미만이면 사람이 아니다(그중 DISPLAY_MONSTER 만 몬스터 — NPC 는 DISPLAY_NPC).
 //   시트 규격이 사람(LPC 9열)과 달라(뱀 7열) 조합 캐시와 따로 굽는다 — 종류×방향이라 몇 장뿐이다.
 const MONIMG = {};                                   // kind -> Image (MON 전역에서 적재)
-const DISPLAY_KIND = { 0x01:'snake', 0x02:'guryungi', 0x03:'snakeking', 0x04:'fakeking' };   // 0x01 = Protocol.h DISPLAY_SNAKE · 0x02 = 구렁이 · 0x03 = 뱀왕(방 보스) · 0x04 = 가짜 뱀왕 — 값은 몬스터 표 display 칸(Protocol.h 에는 이름 없음)
+const MON_SPRITE = new Map();                        // monsterId -> 그림 이름(MON_META 열쇠) — loadWorldTables 가 채운다. 표를 못 받으면 비어 몬스터를 사람 모양으로 그린다
 const MONSHEET = new Map();                          // 'kind:행' -> 구운 캔버스(cols*64 x 64) — 상한 불필요(종류×4장)
 function monMeta(o){
-  if(!(o.disp>0 && o.disp<0x20)) return null;
-  const k=DISPLAY_KIND[o.disp];
+  if(o.disp!==P.DISPLAY_MONSTER) return null;
+  const k=MON_SPRITE.get(o.defId);
   return (k && window.MON_META && MON_META[k]) ? Object.assign({kind:k}, MON_META[k]) : null;
 }
 // 몬스터 그림 열 — 주문 동작(스킬을 쓴 직후 CAST_ANIM_LIFE 동안) → 걷기 → 서 있음 순으로 고른다(갈래 셋이라 순서대로 return).
@@ -385,10 +386,10 @@ function onPacket(p){
       break;
     // spawnReason 3(SPAWN) = 월드에 새로 생김 — 뱀이 깔릴 때. 부활 섬광을 같이 그린다
     case P.MSG.S2C_CREATE_OTHER_PLAYER: bump('ENTER'); fading.delete(p.playerId);   // 흐려지던 같은 번호가 다시 보이면 흐림을 버린다
-      others.set(p.playerId,{x:p.x,y:p.y,dir:p.direction,moveState:p.moveState,speed:p.speed||30,disp:p.displayChar,color:p.colorIndex,rx:p.x,ry:p.y,chat:null,chatT:0,...COMBAT_INIT(),hp:p.hp,maxHp:p.maxHp,spawnT:p.spawnReason===3?SPAWN_LIFE:0}); break;
+      others.set(p.playerId,{x:p.x,y:p.y,dir:p.direction,moveState:p.moveState,speed:p.speed||30,disp:p.displayChar,defId:p.defId,color:p.colorIndex,rx:p.x,ry:p.y,chat:null,chatT:0,...COMBAT_INIT(),hp:p.hp,maxHp:p.maxHp,spawnT:p.spawnReason===3?SPAWN_LIFE:0}); break;
     case P.MSG.S2C_CREATE_PLAYER_BATCH: bump('ENTER', p.count);
       p.entries.forEach(e=>fading.delete(e.playerId));
-      p.entries.forEach(e=>others.set(e.playerId,{x:e.x,y:e.y,dir:e.direction,moveState:e.moveState,speed:e.speed||30,disp:e.displayChar,color:e.colorIndex,rx:e.x,ry:e.y,chat:null,chatT:0,...COMBAT_INIT(),hp:e.hp,maxHp:e.maxHp,spawnT:e.spawnReason===3?SPAWN_LIFE:0})); break;
+      p.entries.forEach(e=>others.set(e.playerId,{x:e.x,y:e.y,dir:e.direction,moveState:e.moveState,speed:e.speed||30,disp:e.displayChar,defId:e.defId,color:e.colorIndex,rx:e.x,ry:e.y,chat:null,chatT:0,...COMBAT_INIT(),hp:e.hp,maxHp:e.maxHp,spawnT:e.spawnReason===3?SPAWN_LIFE:0})); break;
     case P.MSG.S2C_DELETE_PLAYER: bump('LEAVE'); removeOther(p.playerId); break;
     case P.MSG.S2C_DELETE_PLAYER_BATCH: bump('LEAVE', p.count); p.entries.forEach(e=>removeOther(e.playerId)); break;
     case P.MSG.S2C_SECTOR_UPDATES:
@@ -1722,7 +1723,7 @@ function parseSkillTable(text){
     SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]), costMp:Number(c[7]||0), shape, durationMs:Number(c[9]||0), user:(c[10]||'player').toLowerCase() });
   }
 }
-// 맵 표·포털 표(serve.js 의 /data/MapTable.csv · PortalTable.csv) — 못 받아도 멈추지 않는다(땅은 풀 · 포털이 안 보인다).
+// 맵 표·포털 표·몬스터 표(serve.js 의 /data/MapTable.csv · PortalTable.csv · MonsterTable.csv) — 못 받아도 멈추지 않는다(땅은 풀 · 포털이 안 보인다 · 몬스터를 사람 모양으로).
 //   걸러내는 규칙은 아이템 표와 같다(빈 줄 · '#' 주석 · 첫 칸이 숫자가 아닌 헤더). 값 검사는 서버가 기동 때 이미 했다.
 function loadWorldTables(){
   const map = fetch('/data/MapTable.csv', {cache:'no-store'})
@@ -1731,8 +1732,13 @@ function loadWorldTables(){
   const portal = fetch('/data/PortalTable.csv', {cache:'no-store'})
     .then(r=>r.ok ? r.text() : Promise.reject('HTTP '+r.status)).then(parsePortalTable)
     .catch(e=>console.warn('[portal] 포털 표를 못 받았다 — 포털을 안 그리고 F 키도 안 보낸다:', e));
-  return Promise.all([map, portal]).then(portalChanged);
+  const monster = fetch('/data/MonsterTable.csv', {cache:'no-store'})
+    .then(r=>r.ok ? r.text() : Promise.reject('HTTP '+r.status)).then(parseMonsterTable)
+    .catch(e=>console.warn('[monster] 몬스터 표를 못 받았다 — 몬스터를 사람 모양으로 그린다:', e));
+  return Promise.all([map, portal, monster]).then(portalChanged);
 }
+// 칸 위치로 읽는다 — monsterId,name,maxHp,attack,defense,speed,exp,sprite,… (서버 MonsterTable.cpp 와 같은 순서). 그림 이름(여덟째)만 쓴다
+function parseMonsterTable(text){ for(const c of csvRows(text)) if(c.length>=8 && c[7]) MON_SPRITE.set(Number(c[0]), c[7]); }
 function csvRows(text){
   const rows=[];
   for(const raw of text.split(/\r?\n/)){

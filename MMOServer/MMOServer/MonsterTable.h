@@ -18,8 +18,9 @@
 // [색인] 번호가 곧 색인이다(아이템 표와 같은 꼴). 0 = 없음, 구멍은 monsterId 0 인 빈 행.
 //        스폰 표·드랍 표가 이 번호로 몬스터를 가리키고, 읽을 때 이 표와 대조한다(CGameDataFiles::LoadAll 순서).
 //
-// [겉모습] display 는 와이어의 표시 문자(displayChar) 값이다 — 클라가 그 값으로 몬스터 그림을 고른다.
-//        값은 여기 두고, 와이어에 싣는 손은 게임 서버의 몬스터 조각이다(CMonsterHandler::OnMonsterSpawn). 존 층은 이 값을 안 읽는다.
+// [겉모습] 서버는 그림을 모른다 — 표의 여덟째 칸 sprite(웹 그림 이름)는 웹만 읽고 서버는 건너뛴다.
+//        와이어에는 번호(monsterId)가 등장 엔트리의 defId 로 실리고(CMonsterHandler::OnMonsterSpawn), 웹이 같은 표에서 그 번호의 sprite 를 찾는다.
+//        (10-21 전에는 display 칸 = 표시 문자 값 0x01~0x0F 였다 — 종류 15 상한이 있었다)
 //
 // [속도 상한은 여기서 안 본다] 판단 주기가 전제하는 상한(MonsterAI::MAX_SPEED)은 AI 사정이라
 //        게임 서버가 표를 읽은 직후 대조한다(CheckSpeed).
@@ -33,7 +34,6 @@ struct MonsterDef
     int32_t     defense   = 0;   // 맞을 때 빼는 값
     int32_t     speed     = 0;   // 칸/초
     int32_t     exp       = 0;   // 잡은 사람에게 주는 경험치
-    uint8_t     display   = 0;   // 와이어 표시 문자 — Protocol.h DISPLAY_MONSTER_BASE 구간
     float       bodyRadius = 0.0f;   // 몸 반지름(칸) — 0 이면 점. 사거리 판정이 중심 거리에서 이만큼 뺀다. 표의 아홉째 칸(옛 줄은 없어도 0)
     bool        boss      = false;   // 방 보스 — 방 맵에서 죽으면 그 방이 클리어된다(CCombatHandler::OnDeath — 방 안 전원 보상 · 잠금 · 나머지 몬스터 사라짐).
                                      //   표의 열째 칸(없거나 비면 0). 「방 맵에만 · 방 맵마다 하나 · count 1」은 스폰 표 읽기가 본다(CSpawnRegionTable::Load)

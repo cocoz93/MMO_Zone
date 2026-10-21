@@ -11,7 +11,7 @@
 #include "MapManager.h"
 #include "Zone.h"
 #include "Monster.h"
-#include "MonsterTable.h"     // MonsterDef — 등장 때 표시 문자(_def.display)
+#include "MonsterTable.h"     // MonsterDef — 등장 때 정의 번호(_def.monsterId)
 #include "GameMonitor.h"
 #include <Protocol/Protocol.h> // SpawnReason
 
@@ -52,11 +52,13 @@ int32_t CMonsterHandler::AllocActorId()
 
 void CMonsterHandler::OnMonsterSpawn(CZone* zone, CMonster* monster)
 {
-    // 표시 문자 — 클라가 사람 대신 몬스터 스프라이트를 고르는 패킷 값(Protocol.h DISPLAY_MONSTER_BASE).
+    // 표시 문자 · 정의 번호 — 클라가 사람 대신 몬스터로 그리고(부류 DISPLAY_MONSTER) 어느 몬스터인지 고르는(defId = monsterId) 패킷 값.
     //   플레이어의 CalcDisplayChar 처럼 게임 서버 쪽(이 몬스터 조각)이 넣는다 — 존 층(몬스터 생성자)은 이 값을 모른다(10-06).
     //   깔 때 존 입장 직후 이 콜백을 곧바로 부르므로, 아래 CREATE 보다 늦는 일이 없다.
-    //   값은 몬스터 표(_def.display)에 있다 — 표가 읽을 때 몬스터 구간(DISPLAY_MONSTER_BASE~)인지 봤다.
-    monster->_displayChar = monster->_def.display;
+    //   그림 이름은 서버가 모른다 — 웹이 같은 몬스터 표(MonsterTable.csv sprite 칸)를 읽어 defId 로 찾는다.
+    static_assert(CMonsterTable::MAX_MONSTER_ID <= UINT16_MAX, "몬스터 번호가 defId(u16)에 안 들어간다");
+    monster->_displayChar = DISPLAY_MONSTER;
+    monster->_defId       = static_cast<uint16_t>(monster->_def.monsterId);
 
     // 이미 그 자리를 보고 있던 플레이어에게 CREATE(SPAWN) 가 간다 — 가득 찬 체력을 싣는다(ActorSnapshot).
     //   보는 사람이 없으면 아무에게도 안 가고, 나중에 걸어온 사람은 섹터 진입 때 받는다.

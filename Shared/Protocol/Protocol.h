@@ -231,17 +231,15 @@ struct MSG_S2C_MOVE_STOP
 // 스폰 / 삭제
 //==================================================
 
-// 표시 문자(displayChar)의 예약 구간 — 몬스터는 새 패킷을 파지 않고 이 값으로 종류를 알린다.
-//   플레이어는 서버가 'A'~'Z','a'~'z','0'~'9' 62 종만 부여하므로(CalcDisplayChar)
-//   0x20 미만이 통째로 비어 있다. 여기에 몬스터 종류를 싣는다.
-//   ★ 이렇게 하면 CREATE 패킷의 구조·크기·필드 순서가 한 바이트도 안 바뀐다.
-//     새 타입을 파면 네 클라(콘솔·부하더미·웹·언리얼)에 전부 case 를 넣어야 하고,
-//     부하 더미는 모르는 타입에 크기 0 을 돌려줘 연결을 끊는다(DummyClient::GetPacketSize).
-//   몬스터 이름·레벨처럼 실을 자리가 없는 정보가 필요해지면 그때 전용 패킷을 판다.
-constexpr uint8_t DISPLAY_MONSTER_BASE = 0x01;   // 0x01~0x0F = 몬스터 종류
-constexpr uint8_t DISPLAY_SNAKE        = 0x01;   // 뱀
+// 표시 문자(displayChar)의 예약 값 — 사람이 아닌 것의 「부류」. 어느 몬스터·NPC 인지는 등장 엔트리의 defId(아래 CreatePlayerEntry)다.
+//   플레이어는 서버가 'A'~'Z','a'~'z','0'~'9' 62 종만 부여하므로(CalcDisplayChar) 0x20 미만이 통째로 비어 있다.
+//   클라는 0x20 미만이면 사람으로 안 그리고(사람 글자·파티 고르기에서 빠짐), 부류 값으로 몬스터·NPC 를 가른 뒤 defId 로 표 줄을 찾는다.
+//   ★ 예전엔 이 한 바이트에 몬스터 종류(0x01~0x0F)를 실었다 — 종류가 15 를 못 넘고, NPC 의 이름·생김새·메뉴처럼 실을 자리가 없는
+//     정보가 생겨 defId 를 따로 둔다(NPC·상점 플랜 4판).
+constexpr uint8_t DISPLAY_MONSTER = 0x01;   // 몬스터 — defId = 몬스터 표(MonsterTable.csv) monsterId
+constexpr uint8_t DISPLAY_NPC     = 0x02;   // NPC — defId = NPC 표(NpcTable.csv) npcId
 
-// 등장할 때 같이 알아야 하는 상태 — CREATE 셋(MY·OTHER·묶음 엔트리)이 맨 끝에 같은 조각으로 싣는다.
+// 등장할 때 같이 알아야 하는 상태 — CREATE 셋(MY·OTHER·묶음 엔트리)이 같은 조각으로 싣는다(MY 는 맨 끝 · 엔트리는 defId 바로 앞).
 //   캐릭터가 화면에 생기는 순간 체력까지 완성된다. 예전엔 CREATE 뒤에 S2C_ACTOR_STATS 를 따로 붙였는데,
 //   그 줄을 송신 경로마다 기억해야 해서 한 경로에서 빠뜨린 적이 있다(남의 체력 막대만 안 뜸).
 //   ★ 넣는 기준 = "남의 화면에 그려지는가". 본인만 보는 수치(MP·공격력 등)는 여기 말고 본인 전용 패킷으로
@@ -253,7 +251,7 @@ struct ActorSnapshot
     int32_t maxHp;    // 최대 체력
 };
 static_assert(sizeof(ActorSnapshot) == 8,
-    "ActorSnapshot 을 늘렸으면 같이 고칠 것: GameServer.cpp WriteSnapshot · WebClient/proto.js readSnap · "
+    "ActorSnapshot 을 늘렸으면 같이 고칠 것: PacketBuild.h WriteSnapshot · WebClient/proto.js readSnap · "
     "아래 CREATE 크기 단언 셋 · 묶음 상한 CREATE_PLAYER_BATCH_MAX_ENTRIES");
 
 // S2C: 내 캐릭터 생성 (접속 직후)
@@ -282,23 +280,24 @@ enum class SpawnReason : uint8_t
     SPAWN = 3           // 월드에 새로 생김
 };
 
-// 다른 캐릭터 한 명분 (29B, pack(1)) — CREATE_OTHER 의 몸통이자 묶음(S2C_CREATE_PLAYER_BATCH)의 엔트리.
-//   두 패킷이 이 구조체 하나를 같이 쓴다 — 칸을 늘리면 여기 한 곳 · 서버 WriteCreateEntry · 콘솔 클라 PushCreateOther ·
+// 다른 캐릭터 한 명분 (31B, pack(1)) — CREATE_OTHER 의 몸통이자 묶음(S2C_CREATE_PLAYER_BATCH)의 엔트리.
+//   두 패킷이 이 구조체 하나를 같이 쓴다 — 칸을 늘리면 여기 한 곳 · 서버 WriteCreateEntry(PacketBuild.h) · 콘솔 클라 PushCreateOther ·
 //   proto.js readCreateEntry. 예전엔 CREATE_OTHER 와 묶음 엔트리가 같은 칸을 따로 적고 「바디와 동일」 주석으로 맞췄다.
 struct CreatePlayerEntry
 {
     int32_t playerId;
     uint8_t direction;    // Direction enum
     uint8_t moveState;    // MoveState enum (진입 시 이동 중일 수 있음)
-    uint8_t displayChar;  // 서버 권위 표시 문자 (ASCII: A-Z, a-z, 0-9)
+    uint8_t displayChar;  // 서버 권위 표시 문자 (ASCII: A-Z, a-z, 0-9) · 0x20 미만 = 부류(DISPLAY_MONSTER · DISPLAY_NPC)
     uint8_t colorIndex;   // 서버 권위 색상 인덱스 (0-6)
     uint8_t spawnReason;  // SpawnReason enum (등장 사유)
     float   x;
     float   y;
     int32_t speed;
-    ActorSnapshot snap;   // 등장 상태(체력) — 맨 끝
+    ActorSnapshot snap;   // 등장 상태(체력)
+    uint16_t defId;       // 정의 번호 — 몬스터 = monsterId · NPC = npcId · 사람 = 0 (부류는 displayChar). 맨 끝(10-21 덧붙임)
 };
-static_assert(sizeof(CreatePlayerEntry) == 29, "한 명분은 29B (proto.js 의 CREATE_ENTRY_BYTES 와 맞출 것)");
+static_assert(sizeof(CreatePlayerEntry) == 31, "한 명분은 31B (proto.js 의 CREATE_ENTRY_BYTES 와 맞출 것)");
 
 // S2C: 다른 캐릭터 생성 (시야 진입)
 struct MSG_S2C_CREATE_OTHER_PLAYER
@@ -310,7 +309,7 @@ struct MSG_S2C_CREATE_OTHER_PLAYER
     MSG_S2C_CREATE_OTHER_PLAYER() : header{ sizeof(*this), TYPE }, entry{} {}
 };
 static_assert(sizeof(MSG_S2C_CREATE_MY_PLAYER)    == 31, "CREATE_MY 는 31B (proto.js 와 맞출 것)");
-static_assert(sizeof(MSG_S2C_CREATE_OTHER_PLAYER) == 33, "CREATE_OTHER 는 33B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_CREATE_OTHER_PLAYER) == 35, "CREATE_OTHER 는 35B (proto.js 와 맞출 것)");
 
 // S2C: 캐릭터 삭제 (시야 이탈 / 퇴장)
 struct MSG_S2C_DELETE_PLAYER
@@ -451,11 +450,11 @@ struct DeletePlayerBatchEntry
 };
 
 // 배치당 최대 엔트리 수. 패킷이 MAX_PACKET_SIZE(1458B)를 넘지 않게 (SECTOR_UPDATE_MAX_ENTRIES와 동일 정책):
-//   CREATE: (1458 - 헤더4 - count2) / 엔트리29 = 최대 50개 → 여유 두고 48.
-//           (엔트리가 21B 일 때는 69 → 64 였다. 넘는지는 GameServer.cpp 의 static_assert 가 본다)
+//   CREATE: (1458 - 헤더4 - count2) / 엔트리31 = 최대 46개 → 여유 두고 44.
+//           (엔트리가 21B 일 때는 69 → 64, 29B 일 때는 50 → 48 이었다. 넘는지는 SightBroadcaster.cpp 의 static_assert 가 본다)
 //   DELETE: (1458 - 6) / 엔트리4 = 최대 363개 → 여유 두고 350.
 // 초과분은 서버가 청크 분할 송신
-constexpr int CREATE_PLAYER_BATCH_MAX_ENTRIES = 48;
+constexpr int CREATE_PLAYER_BATCH_MAX_ENTRIES = 44;
 constexpr int DELETE_PLAYER_BATCH_MAX_ENTRIES = 350;
 
 // S2C: 시야 진입 상대 묶음 — 인바운드(상대→나) CREATE N개를 mover 1명에게 1패킷으로.
@@ -1076,7 +1075,7 @@ struct MSG_S2C_ACTOR_MP
 
 static_assert(sizeof(MSG_S2C_ACTOR_MP) == 16, "ACTOR_MP 는 16B (proto.js 와 맞출 것)");
 
-// 지속 효과(버프)의 종류 — 와이어 값이자 서버 효과 칸의 색인(CCharacter::_buffs — InvTab 처럼 서버가 이 enum 을 그대로 쓴다).
+// 지속 효과(버프)의 종류 — 와이어 값이자 서버 효과 칸의 색인(효과 부품 CBuffPart::_slots — InvTab 처럼 서버가 이 enum 을 그대로 쓴다).
 //   효과의 정체는 「어느 스킬이 걸었나」가 아니라 종류다 — 스킬이 걸든 아이템이 걸든 같은 칸이고, 같은 종류는 나중 것이 값·시간을 덮는다.
 //   ★ 끝에만 붙인다(값이 와이어에 실린다) — 가운데에 끼우면 옛 클라가 다른 효과로 읽는다.
 enum class BuffKind : uint8_t

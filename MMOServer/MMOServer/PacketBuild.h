@@ -56,7 +56,7 @@ namespace PacketBuild
         buf->Seal();
     }
 
-    // 등장 상태 조각(Protocol.h ActorSnapshot) — MakeCreateMyPlayer 와 WriteCreateEntry(CREATE_OTHER·묶음) 둘이 맨 끝에 부른다.
+    // 등장 상태 조각(Protocol.h ActorSnapshot) — MakeCreateMyPlayer(맨 끝) 와 WriteCreateEntry(CREATE_OTHER·묶음 — defId 앞) 둘이 부른다.
     //   조각에 필드를 늘리면 여기 한 줄 · proto.js readSnap 한 줄(Protocol.h 의 크기 단언이 알려 준다).
     //   전투가 꺼진 빌드는 0 을 싣는다 — 체력 부품은 꺼져도 있지만 쓰는 곳이 없어 의미가 없다.
     CREATE_FORCEINLINE void WriteSnapshot(CSerialBuffer* buf, const CCharacter* ch)
@@ -87,6 +87,7 @@ namespace PacketBuild
         *buf << ch->_y;
         *buf << static_cast<int>(ch->_speed);
         WriteSnapshot(buf, ch);
+        *buf << static_cast<uint16_t>(ch->_defId);   // 정의 번호 — 맨 끝(Protocol.h CreatePlayerEntry)
     }
 
 #if USE_COMBAT

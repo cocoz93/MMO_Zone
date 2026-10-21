@@ -3,7 +3,6 @@
 #if USE_MONSTER
 
 #include <Common/ErrorLog.h>
-#include <Protocol/Protocol.h>   // DISPLAY_MONSTER_BASE — 겉모습 값의 구간
 
 #include "Combat.h"          // MAX_BODY_RADIUS — 몸 반지름 상한 (USE_COMBAT 밖 상수)
 #include "GameDataCsv.h"
@@ -13,13 +12,6 @@ using GameDataCsv::ReadDataLines;
 using GameDataCsv::SplitCsv;
 using GameDataCsv::ParseInt;
 using GameDataCsv::ParseFloat;
-
-namespace
-{
-    // 몬스터 겉모습 구간의 끝 — Protocol.h 「0x01~0x0F = 몬스터 종류」(DISPLAY_MONSTER_BASE 주석).
-    //   그 헤더는 클라들과 같이 쓰는 와이어 정의라 끝 값을 거기 새로 두지 않고 여기 적는다.
-    constexpr int64_t DISPLAY_MONSTER_LAST = 0x0F;
-}
 
 bool CMonsterTable::Load(const std::string& path)
 {
@@ -44,7 +36,7 @@ bool CMonsterTable::Load(const std::string& path)
         SplitCsv(dl.text, cell);
         if (cell.size() < 8)
         {
-            SLOG_ERROR("[MonsterTable] {}줄: 칸이 {}개입니다 — monsterId,name,maxHp,attack,defense,speed,exp,display 여덟(+ bodyRadius, boss)이 필요합니다",
+            SLOG_ERROR("[MonsterTable] {}줄: 칸이 {}개입니다 — monsterId,name,maxHp,attack,defense,speed,exp,sprite 여덟(+ bodyRadius, boss)이 필요합니다",
                        dl.fileLine, cell.size());
             return false;
         }
@@ -53,10 +45,11 @@ bool CMonsterTable::Load(const std::string& path)
         //   열째 boss 칸도 같다(없거나 비면 0) — 보스가 아닌 줄은 아홉 칸 그대로 둔다
         const std::string radiusText = (cell.size() > 8) ? cell[8] : std::string();
         const std::string bossText   = (cell.size() > 9) ? cell[9] : std::string();
-        int64_t monsterId = 0, maxHp = 0, attack = 0, defense = 0, speed = 0, exp = 0, display = 0, boss = 0;
+        // 여덟째 sprite 칸(웹 그림 이름)은 서버가 안 읽는다 — 헤더 [겉모습]
+        int64_t monsterId = 0, maxHp = 0, attack = 0, defense = 0, speed = 0, exp = 0, boss = 0;
         double  bodyRadius = 0.0;
         if (!ParseInt(cell[0], monsterId) || !ParseInt(cell[2], maxHp) || !ParseInt(cell[3], attack) ||
-            !ParseInt(cell[4], defense) || !ParseInt(cell[5], speed) || !ParseInt(cell[6], exp) || !ParseInt(cell[7], display) ||
+            !ParseInt(cell[4], defense) || !ParseInt(cell[5], speed) || !ParseInt(cell[6], exp) ||
             (!radiusText.empty() && !ParseFloat(radiusText, bodyRadius)) || (!bossText.empty() && !ParseInt(bossText, boss)))
         {
             SLOG_ERROR("[MonsterTable] {}줄: 숫자여야 하는 칸이 숫자가 아닙니다 — \"{}\"", dl.fileLine, dl.text);
@@ -104,13 +97,7 @@ bool CMonsterTable::Load(const std::string& path)
             return false;
         }
 
-        // ⑹ 겉모습 — 몬스터 구간 밖이면 클라가 사람 글자로 그리거나 아무것도 못 그린다
-        if (display < DISPLAY_MONSTER_BASE || display > DISPLAY_MONSTER_LAST)
-        {
-            SLOG_ERROR("[MonsterTable] {}줄: display {} 는 {}~{} 여야 합니다 (몬스터 {})",
-                       dl.fileLine, display, DISPLAY_MONSTER_BASE, DISPLAY_MONSTER_LAST, monsterId);
-            return false;
-        }
+        // ⑹ 겉모습 — 서버는 안 본다(헤더 [겉모습]). 번호가 곧 와이어 값(defId)이다.
 
         // ⑺ 몸 반지름 — 0 이상 상한 이하. 음수는 사거리를 줄이고, 상한을 넘으면 후보 반경(Combat::MAX_BODY_RADIUS)에서 놓치는 몬스터가 생긴다
         if (!(bodyRadius >= 0.0) || bodyRadius > static_cast<double>(Combat::MAX_BODY_RADIUS))
@@ -138,7 +125,6 @@ bool CMonsterTable::Load(const std::string& path)
         d.defense   = static_cast<int32_t>(defense);
         d.speed     = static_cast<int32_t>(speed);
         d.exp       = static_cast<int32_t>(exp);
-        d.display   = static_cast<uint8_t>(display);
         d.bodyRadius = static_cast<float>(bodyRadius);
         d.boss      = (boss == 1);
         d.fileLine  = dl.fileLine;
