@@ -43,7 +43,9 @@
     S2C_ACTOR_SPEED:1049,
     // 파티 (USE_PARTY) — 고르기는 화면에서 캐릭터를 눌러서(캐릭터에 이름이 없다). 무엇이 갈지(초대·신청·추천)는 서버가 가린다
     C2S_PARTY_REQUEST:1050, C2S_PARTY_ANSWER:1051, C2S_PARTY_LEAVE:1052, C2S_PARTY_KICK:1053, C2S_PARTY_LEADER:1054, C2S_PARTY_DISBAND:1055,
-    S2C_PARTY_ASK:1056, S2C_PARTY_ASK_END:1057, S2C_PARTY_NOTICE:1058, S2C_PARTY_INFO:1059, S2C_PARTY_MEMBER:1060
+    S2C_PARTY_ASK:1056, S2C_PARTY_ASK_END:1057, S2C_PARTY_NOTICE:1058, S2C_PARTY_INFO:1059, S2C_PARTY_MEMBER:1060,
+    // 상점 (USE_SHOP) · 돈 (USE_INVENTORY) — 말 걸기·메뉴는 웹 혼자(서버 왕복 없음). 사고팔기는 요청마다 서버가 다시 본다
+    C2S_SHOP_BUY:1061, C2S_SHOP_SELL:1062, S2C_SHOP_FAIL:1063, S2C_MONEY:1064
   };
   // 파티 — Protocol.h PartyAskKind · PartyNotice 순서 그대로(값이 와이어에 실린다). 한글 문구는 live.html 이 이름으로 고른다
   const PARTY_ASK_KIND = ['INVITE','APPLY','SUGGEST'];
@@ -58,7 +60,9 @@
   // 땅의 아이템 — Protocol.h GroundItemAppear · GroundItemGone · PickupFail 순서 그대로(값이 와이어에 실린다)
   const GROUND_APPEAR = ['SEEN','DROP'];
   const GROUND_GONE   = ['OUT_OF_SIGHT','PICKED','EXPIRED'];
-  const PICKUP_FAIL   = ['DEAD','NO_ITEM','NOT_OWNER','TAB_FULL'];
+  const PICKUP_FAIL   = ['DEAD','NO_ITEM','NOT_OWNER','TAB_FULL','MONEY_FULL'];
+  // 사고팔기 거절 사유 — Protocol.h ShopFail 순서 그대로(값이 와이어에 실린다). 한글 문구는 live.html 이 이름으로 고른다
+  const SHOP_FAIL = ['DEAD','NO_NPC','NOT_IN_REACH','NOT_SOLD_HERE','NOT_BOUGHT_HERE','BAD_SLOT','BAD_COUNT','NOT_ENOUGH_MONEY','BAG_FULL','MONEY_FULL'];
   // 가방 탭 구간 — Protocol.h INV_TAB_RANGES 사본(InvTab 순서: 장비·소비·기타). 칸 번호가 곧 DB 열쇠라
   //   한쪽만 고치면 웹이 엉뚱한 탭에 그린다 — Protocol.h 와 나란히 볼 것.
   const INV_TAB_RANGES = [ { first:0, n:20 }, { first:100, n:20 }, { first:200, n:20 } ];
@@ -282,6 +286,11 @@
       //   PARTY_MEMBER 26B = 파티원 한 줄(22B) — 바뀐 사람만(0.5초마다 서버가 견준다)
       case MSG.S2C_PARTY_MEMBER:
         Object.assign(p, readPartyMember(dv, o)); break;
+      // ---- 상점 · 돈 ----
+      case MSG.S2C_SHOP_FAIL:
+        p.reason=dv.getUint8(o); p.reasonName=SHOP_FAIL[p.reason] || ('?'+p.reason); break;
+      case MSG.S2C_MONEY:   // int64 최종값 — 상한 1억이라 Number 로 옮겨도 정확하다
+        p.money=Number(dv.getBigInt64(o,true)); break;
       default: break; // ADMIN_* etc. — not needed for the view
     }
     return p;
@@ -335,6 +344,10 @@
     // ---- 파티 (USE_PARTY) ----
     // C2S_PARTY_REQUEST: header(4) + targetId i32 = 8B — 화면에서 누른 캐릭터. 무엇이 갈지는 서버가 가린다
     partyRequest(targetId){ const {b,d}=hdr(8,MSG.C2S_PARTY_REQUEST); d.setInt32(4, targetId, true); return b; },
+    // C2S_SHOP_BUY: header(4) + npcActorId i32 + itemId i32 + count i32 = 16B · npcActorId = 등장 엔트리의 playerId(NPC 표 번호 아님)
+    shopBuy(npcActorId, itemId, count){ const {b,d}=hdr(16,MSG.C2S_SHOP_BUY); d.setInt32(4, npcActorId, true); d.setInt32(8, itemId, true); d.setInt32(12, count, true); return b; },
+    // C2S_SHOP_SELL: header(4) + npcActorId i32 + slot u16 + count i32 = 14B (slot = 가방 칸 번호)
+    shopSell(npcActorId, slot, count){ const {b,d}=hdr(14,MSG.C2S_SHOP_SELL); d.setInt32(4, npcActorId, true); d.setUint16(8, slot, true); d.setInt32(10, count, true); return b; },
     // C2S_PARTY_ANSWER: header(4) + requestId u32 + accept u8 = 9B
     partyAnswer(requestId, accept){ const {b,d}=hdr(9,MSG.C2S_PARTY_ANSWER); d.setUint32(4, requestId>>>0, true); d.setUint8(8, accept?1:0); return b; },
     // C2S_PARTY_LEAVE · DISBAND: 몸 없음 / KICK · LEADER: header(4) + targetId i32 = 8B (파티장만)
@@ -356,7 +369,7 @@
   };
 
   const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, EQUIP_SLOT, USE_FAIL, EQUIP_FAIL, SKILL_FAIL, BUFF_KIND, ZONE_FAIL, GROUND_APPEAR, GROUND_GONE, PICKUP_FAIL,
-                PARTY_ASK_KIND, PARTY_NOTICE, PARTY_MAX_MEMBERS, DISPLAY_MONSTER, DISPLAY_NPC, CREATE_ENTRY_BYTES, decodePacket, Reassembler, enc };
+                PARTY_ASK_KIND, PARTY_NOTICE, PARTY_MAX_MEMBERS, DISPLAY_MONSTER, DISPLAY_NPC, CREATE_ENTRY_BYTES, SHOP_FAIL, decodePacket, Reassembler, enc };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else global.Proto = API;
 })(typeof window !== 'undefined' ? window : globalThis);

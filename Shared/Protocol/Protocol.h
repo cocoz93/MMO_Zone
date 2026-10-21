@@ -168,7 +168,15 @@ enum class MsgType : uint16_t
     S2C_PARTY_ASK_END,          // 서버 → 클라이언트: 그 요청이 무효가 됐다 (받는 사람 — 창을 닫는다)
     S2C_PARTY_NOTICE,           // 서버 → 클라이언트: 보냄·거절 사유·결과 알림 한 줄 (본인)
     S2C_PARTY_INFO,             // 서버 → 클라이언트: 파티 전체 (가입·탈퇴·넘기기·해산 때 파티원 전원 — 빠진 사람에겐 인원 0)
-    S2C_PARTY_MEMBER            // 서버 → 클라이언트: 파티원 한 명의 체력·레벨·맵이 바뀜 (파티원 전원)
+    S2C_PARTY_MEMBER,           // 서버 → 클라이언트: 파티원 한 명의 체력·레벨·맵이 바뀜 (파티원 전원)
+
+    //--------------------------------------------------
+    // 상점 (USE_SHOP — 사고팔기 · 말 걸기·메뉴는 웹 혼자라 서버 왕복이 없다) · 돈 (USE_INVENTORY — 돈은 가방의 일부)
+    //--------------------------------------------------
+    C2S_SHOP_BUY,               // 클라이언트 → 서버: 이 NPC 의 상점에서 이 물건을 몇 개 산다
+    C2S_SHOP_SELL,              // 클라이언트 → 서버: 이 NPC 의 상점에 이 가방 칸의 물건을 몇 개 판다
+    S2C_SHOP_FAIL,              // 서버 → 클라이언트: 사고팔기 거절 + 사유 (본인 — 성공은 칸 갱신과 S2C_MONEY 가 곧 결과다)
+    S2C_MONEY                   // 서버 → 클라이언트: 가진 돈(최종값 · 본인) — 입장 때 가방 전체 바로 뒤 한 장 · 돈이 바뀔 때마다
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -870,13 +878,14 @@ enum class GroundItemGone : uint8_t
 };
 
 // 줍기 거절 사유 — 서버는 위에서부터 차례로 보고 먼저 걸린 하나로 답한다(순서가 곧 확인 순서).
-//   TAB_FULL 만 판정이 아니라 가방 넣기(CInventory::TryAdd)의 결과다.
+//   TAB_FULL · MONEY_FULL 은 판정이 아니라 가방 넣기(CInventory::TryAdd)의 결과다. ★ 값이 와이어에 실린다 — 끝(COUNT 앞)에만 붙인다.
 enum class PickupFail : uint8_t
 {
     DEAD,        // 죽어 있다
     NO_ITEM,     // 2칸 안에 땅의 아이템이 없다
     NOT_OWNER,   // 2칸 안에 있긴 한데 전부 남의 것이다 (막타 친 사람의 우선 시간 안)
     TAB_FULL,    // 고른 것이 가방 그 탭에 다 안 들어간다 — 아이템은 땅에 그대로
+    MONEY_FULL,  // 고른 것이 돈인데 받으면 들 수 있는 돈(1억)을 넘는다 — 돈은 땅에 그대로 (10-21)
     COUNT
 };
 
@@ -925,7 +934,7 @@ struct MSG_S2C_PICKUP_FAIL
     static constexpr MsgType TYPE = MsgType::S2C_PICKUP_FAIL;
     MsgHeader header;
     uint8_t reason;   // PickupFail
-    int32_t itemId;   // TAB_FULL 이면 고른 아이템(클라가 어느 탭이 찼는지 안다), 아니면 0
+    int32_t itemId;   // TAB_FULL · MONEY_FULL 이면 고른 아이템(클라가 어느 탭이 찼는지 · 돈이 넘쳤는지 안다), 아니면 0
 
     MSG_S2C_PICKUP_FAIL() : header{ sizeof(*this), TYPE }, reason(0), itemId(0) {}
 };
@@ -1361,5 +1370,76 @@ static_assert(sizeof(MSG_S2C_PARTY_INFO)    == 13 + 22 * PARTY_MAX_MEMBERS, "PAR
 static_assert(sizeof(MSG_S2C_PARTY_MEMBER)  == 26, "PARTY_MEMBER 는 26B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::C2S_PARTY_REQUEST) == 1050, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_PARTY_MEMBER)  == 1060, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+
+//==================================================
+// 상점 (USE_SHOP) · 돈 (USE_INVENTORY) — npc-shop-plan.md 4판
+//==================================================
+//   말 걸기(인사·메뉴)는 웹이 등장 때 받은 defId 로 NPC 표(NpcTable.csv)를 찾아 혼자 연다 — 판정할 것이 없어 서버 왕복이 없다.
+//   사고팔기는 요청마다 서버가 처음부터 다시 본다 — 서버는 「상점을 열었다」는 상태를 안 든다(멀어지면 다음 요청이 NOT_IN_REACH).
+//   성공 알림은 따로 없다 — 칸 패킷(S2C_INVENTORY_SLOT)과 돈 패킷(S2C_MONEY)이 결과다(물약 쓰기·줍기와 같은 꼴).
+
+// 사고팔기 거절 사유 — 확인 순서는 사기·팔기마다 다르다(CShopSystem · 플랜 「흐름」). ★ 값이 와이어에 실린다 — 끝(COUNT 앞)에만 붙인다.
+enum class ShopFail : uint8_t
+{
+    DEAD,              // 쓰러져 있다
+    NO_NPC,            // 주변에 그 번호의 캐릭터가 없다 · NPC 가 아니다(말 걸기 칸 없음) · 상점이 없는 NPC
+    NOT_IN_REACH,      // 그 NPC 가 있지만 손이 안 닿는다(반경 밖)
+    NOT_SOLD_HERE,     // 사기 — 그 상점이 이 물건을 안 판다(표에 없는 번호 포함)
+    NOT_BOUGHT_HERE,   // 팔기 — 그 상점이 이 물건을 안 사들인다
+    BAD_SLOT,          // 팔기 — 빈 칸 · 착용 칸 · 칸 번호 범위 밖
+    BAD_COUNT,         // 개수가 1..한도 밖(사기 = 그 물건 maxStack · 팔기 = 그 칸 개수)
+    NOT_ENOUGH_MONEY,  // 사기 — 값 × 개수가 가진 돈보다 많다
+    BAG_FULL,          // 사기 — 가방 그 탭에 다 안 들어간다(아무것도 안 바뀐다)
+    MONEY_FULL,        // 팔기 — 받으면 들 수 있는 돈(1억)을 넘는다(아무것도 안 바뀐다)
+    COUNT
+};
+
+// C2S: 사기 — 이 NPC(캐릭터 번호)의 상점에서 이 물건을 count 개
+struct MSG_C2S_SHOP_BUY
+{
+    static constexpr MsgType TYPE = MsgType::C2S_SHOP_BUY;
+    MsgHeader header;
+    int32_t   npcActorId;   // 등장 엔트리의 playerId(NPC 의 캐릭터 번호) — NPC 표 번호(defId)가 아니다
+    int32_t   itemId;       // Run/bin/ItemTable.csv
+    int32_t   count;
+};
+
+// C2S: 팔기 — 이 NPC 의 상점에 이 가방 칸(INV_TAB_RANGES 의 칸 번호)의 물건을 count 개
+struct MSG_C2S_SHOP_SELL
+{
+    static constexpr MsgType TYPE = MsgType::C2S_SHOP_SELL;
+    MsgHeader header;
+    int32_t   npcActorId;
+    uint16_t  slot;
+    int32_t   count;
+};
+
+// S2C: 사고팔기 거절
+struct MSG_S2C_SHOP_FAIL
+{
+    static constexpr MsgType TYPE = MsgType::S2C_SHOP_FAIL;
+    MsgHeader header;
+    uint8_t   reason;   // ShopFail
+
+    MSG_S2C_SHOP_FAIL() : header{ sizeof(*this), TYPE }, reason(0) {}
+};
+
+// S2C: 가진 돈 — 최종값(증감이 아니라 두 번 와도 같다). 입장 때 가방 전체(S2C_INVENTORY) 바로 뒤 한 장 · 돈이 바뀐 내보내기마다
+//   ★ 부하 더미도 입장 때 이 한 장을 반드시 받는다 — 더미의 크기 표(DummyClient::GetPacketSize)에 없으면 전원이 접속하자마자 끊긴다.
+struct MSG_S2C_MONEY
+{
+    static constexpr MsgType TYPE = MsgType::S2C_MONEY;
+    MsgHeader header;
+    int64_t   money;
+
+    MSG_S2C_MONEY() : header{ sizeof(*this), TYPE }, money(0) {}
+};
+
+static_assert(sizeof(MSG_C2S_SHOP_BUY)  == 16, "C2S_SHOP_BUY 는 16B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_SHOP_SELL) == 14, "C2S_SHOP_SELL 은 14B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_SHOP_FAIL) == 5,  "SHOP_FAIL 은 5B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_MONEY)     == 12, "MONEY 는 12B (proto.js 와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::C2S_SHOP_BUY) == 1061, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::S2C_MONEY)    == 1064, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 #pragma pack(pop)

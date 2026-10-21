@@ -428,6 +428,12 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
     case MsgType::S2C_PARTY_MEMBER:
         break;
 
+    // 돈(서버 USE_INVENTORY) — 입장 때 가방 전체 뒤 한 장이 온다. 상점(USE_SHOP) 거절 — 콘솔 클라는 상점 화면이 없어 올 일이 없다.
+    //   콘솔 클라는 가방·돈을 그리지 않는다(가방 패킷과 같은 처리) — 모르는 타입 로그만 막는다.
+    case MsgType::S2C_MONEY:
+    case MsgType::S2C_SHOP_FAIL:
+        break;
+
     default:
         LOG_ERROR_STREAM("Unknown message type: " << static_cast<int>(header->type));
         break;

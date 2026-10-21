@@ -278,6 +278,11 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     case MsgType::S2C_PARTY_NOTICE:       return sizeof(MSG_S2C_PARTY_NOTICE);
     case MsgType::S2C_PARTY_INFO:         return static_cast<uint16_t>(offsetof(MSG_S2C_PARTY_INFO, entries));   // 가변 길이: 최소 = 머리(인원 0)
     case MsgType::S2C_PARTY_MEMBER:       return sizeof(MSG_S2C_PARTY_MEMBER);
+    // USE_INVENTORY: 돈 — ★ 입장 때 본인에게 가방 전체 바로 뒤 한 장 간다(S2C_INVENTORY · S2C_MY_STATS 와 같은 함정).
+    //   빠뜨리면 더미 전원이 접속하자마자 떨어진다. 더미는 줍기·사고팔기를 안 해서 그 뒤로는 올 일이 없다.
+    case MsgType::S2C_MONEY:              return sizeof(MSG_S2C_MONEY);
+    // USE_SHOP: 사고팔기 거절 — 더미는 상점에 요청을 안 보내 올 일이 없지만 전례대로 크기만 등록한다.
+    case MsgType::S2C_SHOP_FAIL:          return sizeof(MSG_S2C_SHOP_FAIL);
     default: return 0;
     }
 }

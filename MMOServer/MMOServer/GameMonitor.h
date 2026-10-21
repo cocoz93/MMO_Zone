@@ -41,14 +41,15 @@
 //   와이어 값으로 바꾸고, 가방이 찬 것(TAB_FULL)은 게임 서버가 정하므로 세는 자리가 게임 서버(RecvPickup) 하나다.
 inline const char* PickupFailName(PickupFail r)
 {
-    static_assert(static_cast<int>(PickupFail::COUNT) == 4, "PickupFail 을 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(PickupFail::COUNT) == 5, "PickupFail 을 늘렸으면 이름도 붙일 것");
     switch (r)
     {
-    case PickupFail::DEAD:      return "dead";
-    case PickupFail::NO_ITEM:   return "no_item";
-    case PickupFail::NOT_OWNER: return "not_owner";
-    case PickupFail::TAB_FULL:  return "tab_full";
-    case PickupFail::COUNT:     break;
+    case PickupFail::DEAD:       return "dead";
+    case PickupFail::NO_ITEM:    return "no_item";
+    case PickupFail::NOT_OWNER:  return "not_owner";
+    case PickupFail::TAB_FULL:   return "tab_full";
+    case PickupFail::MONEY_FULL: return "money_full";   // 돈 상한(10-21) — 가방 넣기의 결과라 TAB_FULL 과 같은 자리(RecvPickup)에서 센다
+    case PickupFail::COUNT:      break;
     }
     return "?";
 }
