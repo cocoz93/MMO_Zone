@@ -44,6 +44,20 @@ void SignalProcessShutdown()
     cv.notify_one();
 }
 
+// 정리 기다림이 상한(SHUTDOWN_WAIT_MAX_MS)에 닿았을 때 — 창 닫기·로그오프·윈도 종료라 반환하면 곧 OS 가 죽인다.
+//   확정 못 받은 종료 저장(떠난 기록 수)을 로그로 남긴다 — 저장 플랜 C 종료 시험 S4(10-21): DB 가 4.5초 넘게 막히면 저장이 로그 한 줄 없이 사라졌다.
+//   로거가 비동기라 직접 내보내고, 실제로 쓸 틈을 조금 준다(OS 유예 약 5초 − 4.5초 안). 콘솔 핸들러 스레드에서 불린다 — 게이지(원자 값)만 읽는다
+CGameMonitor* g_gameMonitorForShutdown = nullptr;
+void OnShutdownWaitTimeout()
+{
+    const int64_t pendingLeave = (g_gameMonitorForShutdown != nullptr) ? g_gameMonitorForShutdown->_save._pendingLeave.Load() : -1;
+    SLOG_ERROR("[Shutdown] 정리 기다림 {}ms 를 넘김 — OS 가 곧 끈다. 확정 못 받은 종료 저장(떠난 기록) {}개 — 그 캐릭터들의 마지막 저장 뒤 변경은 잃을 수 있다",
+               SHUTDOWN_WAIT_MAX_MS, pendingLeave);
+    if (auto& logger = shared::Logger::Get())
+        logger->flush();
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+}
+
 int main()
 {
     // 로거 초기화 (RAII — 소멸자에서 Shutdown)
@@ -136,7 +150,8 @@ int main()
     }
 
     // Ctrl+C / 콘솔 종료 시 graceful shutdown (server.Stop이 DB 드레인 수행)
-    Platform::InstallShutdownHandler(SignalProcessShutdown, &shutdownComplete, SHUTDOWN_WAIT_MAX_MS);
+    g_gameMonitorForShutdown = &gameMonitor;
+    Platform::InstallShutdownHandler(SignalProcessShutdown, &shutdownComplete, SHUTDOWN_WAIT_MAX_MS, OnShutdownWaitTimeout);
 
     if (!server.Start())
     {
