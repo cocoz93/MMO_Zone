@@ -20,6 +20,7 @@ enum class InvAddResult : uint8_t
     TAB_FULL,       // 그 탭에 다 들어갈 자리가 없다 — 아무것도 안 넣었다
     UNKNOWN_ITEM,   // 아이템 표에 없는 번호
     BAD_COUNT,      // 개수가 1 미만
+    MONEY_FULL,     // 돈 아이템 — 받으면 들 수 있는 돈(Item.h MONEY_MAX)을 넘는다 — 아무것도 안 바꿨다(반만 받지 않는다)
     COUNT
 };
 const char* InvAddResultName(InvAddResult r);   // 지표 라벨(tab_full 등)
@@ -54,6 +55,11 @@ constexpr bool IsWornIndex(int index) { return index >= WORN_BASE_INDEX && index
 //        착용 칸도 같은 배열이라 바뀐 칸 표시·내보내기(FlushInventory)·전체 목록이 한 길로 돈다.
 //        넣기(TryAdd)는 아이템 탭의 구간만 돌아 착용 칸에 저절로 안 들어간다.
 //
+// [돈] 칸이 아니라 숫자 하나(_money · 0~MONEY_MAX)다. 땅·드랍에서는 「돈」 아이템(아이템 표 store = MONEY) 한 덩이로 다니다가
+//        넣기(TryAdd)가 담는 자리를 보고 칸 대신 돈에 더한다 — 줍기·보상·명령에 돈 갈래가 따로 없다. 상한을 넘으면 아무것도 안 바꾸고 MONEY_FULL.
+//        화면용 표시는 「돈 바뀜」 하나(FlushInventory 가 S2C_MONEY 를 보내며 지운다). 저장 표시는 따로 없다 — 돈은 캐릭터 행의 열이라
+//        저장소가 마지막으로 실은 값과 견준다(CCharacterStore::ShouldSave · Player.h _dbSaved — 체력·경험치와 같은 규칙).
+//
 // [바뀐 칸] 가방이 스스로 적어 둔다(칸 61개 비트 두 벌 — 착용 칸 포함). 넣기든 쓰기든 끼우기든 같다(MarkChanged 한 곳).
 //        화면용(_changed)은 CItemHandler::FlushInventory 가 칸 패킷을 내보내며 지우고, 저장용(_unsaved)은 캐릭터 저장소가
 //        묶음에 실을 때 가져간다(DB 가 실패를 회신하면 되돌려 놓는다). 칸을 바꾸는 길이 늘어도 패킷·저장을 따로 안 짠다.
@@ -73,13 +79,23 @@ public:
     //     반만 넣으면 "몇 개 들어갔나"를 요청한 쪽에 알려야 하고, 드랍이면 남은 것을 땅에 둬야 한다.
     //   같은 아이템이 든 덜 찬 칸부터(칸 번호 순) 채우고, 남으면 빈 칸(칸 번호 순)에 새로 놓는다.
     //   쌓임 한도는 def.maxStack 하나로 본다 — 종류로 가르지 않는다(장비는 한도 1이라 저절로 안 쌓인다).
+    //   ★ 돈 아이템(def.store = MONEY)이면 칸이 아니라 돈에 더한다 — 위 [돈]. 상한을 넘으면 MONEY_FULL(아무것도 안 바뀜).
     InvAddResult TryAdd(const ItemDef& def, int32_t count);
 
     // 불러올 때 칸을 채운다 — 탭·개수가 안 맞으면 안 넣고 사유를 돌려준다. 바뀐 칸 표시를 안 켠다(DB 와 같은 값이다).
     InvLoadResult LoadSlot(int index, const ItemDef& def, int32_t count);
 
-    // 한 개 줄인다 — 0 이 되면 칸을 비운다(itemId 0). 쓸 수 있는지는 부르는 쪽이 이미 봤다(빈 칸이면 단언).
-    void ConsumeOne(int index);
+    // count 개 줄인다 — 0 이 되면 칸을 비운다(itemId 0). 되는지(빈 칸 · 개수)는 부르는 쪽이 이미 봤다(어기면 단언).
+    //   물약 쓰기는 1 개, 상점에 팔기는 count 개.
+    void Remove(int index, int32_t count);
+
+    // ── 돈 ── 위 [돈]. 되는지(상한 · 모자람)는 부르는 쪽이 판정에서 이미 봤다 — 더하기만 상한을 스스로 본다(넣기 갈래가 여럿이라)
+    int64_t Money() const { return _money; }
+    bool    TryAddMoney(int64_t amount);   // amount ≥ 1 · 상한을 넘으면 false(아무것도 안 바뀜)
+    void    SpendMoney(int64_t amount);    // amount ≥ 1 · 가진 돈 이하(어기면 단언)
+    void    LoadMoney(int64_t money);      // 불러올 때 — 범위는 부르는 쪽이 봤다(망가진 값은 안 넣음 — 저장소). 「돈 바뀜」을 안 켠다(DB 와 같은 값)
+    // 「돈 바뀜」을 돌려주고 지운다 — FlushInventory 만 부른다(화면용 — S2C_MONEY)
+    bool    TakeMoneyChange() { const bool c = _moneyChanged; _moneyChanged = false; return c; }
 
     // 두 칸의 내용을 맞바꾼다 — 끼우기(가방 칸 ↔ 무기 칸)·빼기(무기 칸 ↔ 장비 탭의 빈 칸)가 이것 하나다.
     //   한쪽이 비었으면 "옮기기"가 된다. 되는지(장비인가·죽었나·빈 칸이 있나)는 부르는 쪽이 이미 봤다(CItemSystem::CheckEquip).
@@ -126,6 +142,8 @@ private:
     Item _slots[INVENTORY_ALL_SLOTS];            // 가방 60 + 착용 칸(색인 WORN_BASE_INDEX~)
     std::bitset<INVENTORY_ALL_SLOTS> _changed;   // 화면에 아직 안 보낸 칸(FlushInventory 가 지움)
     SlotBits                         _unsaved;   // DB 에 아직 확정 안 된 칸(저장소가 묶음에 실을 때 가져감)
+    int64_t                          _money = 0;            // 가진 돈(전) — 0~MONEY_MAX
+    bool                             _moneyChanged = false; // 화면에 아직 안 보낸 돈(FlushInventory 가 지움) — 저장 표시는 아니다(위 [돈])
 };
 
 #endif // USE_INVENTORY

@@ -323,7 +323,11 @@ void CChatHandler::RunItemCommand(CPlayer* player, const std::vector<std::string
     switch (result)
     {
     case InvAddResult::OK:
-        counters._itemsAdded.Add(count);
+        // 개수(_itemsAdded)는 칸에 드는 아이템만 — 돈의 개수는 금액(전)이라 단위가 달라 돈 들어옴에만 센다
+        if (def->store == ItemStore::MONEY)
+            counters._moneyIn[static_cast<int>(MoneySource::COMMAND)].Add(count);   // 개수 = 금액(전)
+        else
+            counters._itemsAdded.Add(count);
         SLOG_INFO("[ITEM] /item (account={}, player={}) -> {} x{} (item {})",
                   player->_accountId, player->_actorId, def->name, count, def->itemId);
         _itemHandler.FlushInventory(player);
@@ -332,6 +336,11 @@ void CChatHandler::RunItemCommand(CPlayer* player, const std::vector<std::string
     case InvAddResult::TAB_FULL:
         _selfNotifier.SendSystemMessage(player, std::string("가방에 자리가 없습니다 — ") + InvTabDisplayName(def->tab)
                                   + " 탭에 " + def->name + " " + std::to_string(count) + "개를 다 둘 수 없습니다");
+        break;
+
+    case InvAddResult::MONEY_FULL:     // 돈 아이템 — 받으면 상한을 넘는다(아무것도 안 바뀜)
+        _selfNotifier.SendSystemMessage(player, "돈이 넘칩니다 — 들 수 있는 돈은 " + std::to_string(MONEY_MAX) + " 전까지입니다(지금 "
+                                  + std::to_string(player->_inventory.Money()) + ")");
         break;
 
     case InvAddResult::UNKNOWN_ITEM:   // TryAdd 는 이 둘을 안 돌려준다 — 위에서 이미 걸렀다

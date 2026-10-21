@@ -77,7 +77,7 @@ UseItemReject CItemSystem::UseItem(CPlayer* player, uint16_t slot, uint64_t fram
         player->_attack.GainMp(def->healMp);   // 최대 넘으면 최대 — 규칙은 공격 부품
     }
 #endif
-    player->_inventory.ConsumeOne(index);
+    player->_inventory.Remove(index, 1);
     player->_itemUseReadyFrame = frame + ITEM_USE_COOLDOWN_FRAMES;   // 성공했을 때만 — 거절은 대기시간을 안 건다
     _gameMonitor._inventory._itemsUsed.Inc();
     outUsed = def;

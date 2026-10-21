@@ -39,13 +39,14 @@ namespace
 const char* InvAddResultName(InvAddResult r)
 {
     // 값마다 한 줄 — 새 사유를 넣고 여기를 빠뜨리면 아래 단언이 막는다(라벨 없는 계수기가 안 생기게).
-    static_assert(static_cast<int>(InvAddResult::COUNT) == 4, "InvAddResult 를 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(InvAddResult::COUNT) == 5, "InvAddResult 를 늘렸으면 이름도 붙일 것");
     switch (r)
     {
     case InvAddResult::OK:           return "ok";
     case InvAddResult::TAB_FULL:     return "tab_full";
     case InvAddResult::UNKNOWN_ITEM: return "unknown_item";
     case InvAddResult::BAD_COUNT:    return "bad_count";
+    case InvAddResult::MONEY_FULL:   return "money_full";
     case InvAddResult::COUNT:        break;
     }
     return "?";
@@ -109,6 +110,15 @@ InvAddResult CInventory::TryAdd(const ItemDef& def, int32_t count)
     if (count < 1)
         return InvAddResult::BAD_COUNT;
 
+    // 담는 자리 — 돈이면 칸 구간을 안 쓴다(돈 줄의 탭은 개수 표시라 아래 구간 셈에 넣으면 배열 밖이다 · 헤더 [돈])
+    switch (def.store)
+    {
+    case ItemStore::MONEY:
+        return TryAddMoney(count) ? InvAddResult::OK : InvAddResult::MONEY_FULL;
+    case ItemStore::SLOT:
+        break;
+    }
+
     assert(def.maxStack >= 1);   // 표 로드가 막는다(ItemTable.cpp ⑷)
     const int begin = TabBaseIndex(def.tab);
     const int end   = begin + INV_TAB_RANGES[static_cast<unsigned>(def.tab)].slotCount;
@@ -156,17 +166,41 @@ InvAddResult CInventory::TryAdd(const ItemDef& def, int32_t count)
     return InvAddResult::OK;
 }
 
-void CInventory::ConsumeOne(int index)
+void CInventory::Remove(int index, int32_t count)
 {
     assert(index >= 0 && index < INVENTORY_ALL_SLOTS);
     Item& s = _slots[index];
-    assert(s.itemId != 0 && s.count > 0);   // 부르는 쪽(RecvUseItem)이 빈 칸을 이미 거절했다
-    if (--s.count <= 0)
+    assert(s.itemId != 0 && count >= 1 && count <= s.count);   // 부르는 쪽(물약 쓰기 · 팔기)이 빈 칸 · 개수를 이미 거절했다
+    s.count -= count;
+    if (s.count <= 0)
     {
-        s.itemId = 0;   // 마지막 한 개 — 칸을 비운다. 칸 패킷은 itemId 0 으로 나간다
+        s.itemId = 0;   // 남은 게 없다 — 칸을 비운다. 칸 패킷은 itemId 0 으로 나간다
         s.count  = 0;
     }
     MarkChanged(index);
+}
+
+bool CInventory::TryAddMoney(int64_t amount)
+{
+    assert(amount >= 1);
+    if (amount > MONEY_MAX - _money)   // _money + amount > MONEY_MAX 를 넘침 없이
+        return false;
+    _money += amount;
+    _moneyChanged = true;
+    return true;
+}
+
+void CInventory::SpendMoney(int64_t amount)
+{
+    assert(amount >= 1 && amount <= _money);   // 판정(CShopSystem)이 이미 봤다
+    _money -= amount;
+    _moneyChanged = true;
+}
+
+void CInventory::LoadMoney(int64_t money)
+{
+    assert(money >= 0 && money <= MONEY_MAX);   // 저장소가 범위를 봤다(망가진 값은 안 넣는다)
+    _money = money;
 }
 
 void CInventory::SwapSlots(int a, int b)

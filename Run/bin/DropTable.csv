@@ -8,6 +8,8 @@
 #   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
 #   With the rows below a snake drops nothing 21% of the time; on average 1.17 ground items (1.47 pieces) per kill.
 #   (mana potion row added 2026-10-11 - 25%, same as the small potion. Before it: nothing 28%, 0.92 items, 1.22 pieces.)
+#   Money (item 7, 2026-10-21): only the two bosses drop it - Guryungi 100 (silver coin) · Snake King 200 (silver bundle, each player in the room).
+#   Snakes drop no money, like the original's first monsters: you sell snake hide to the butcher (npc-shop-plan.md, derived rule 1).
 itemId,monsterId,chance,min,max
 3,1,60,1,2
 1,1,25,1,1
@@ -18,3 +20,5 @@ itemId,monsterId,chance,min,max
 4,2,20,1,1
 2,3,100,2,3
 6,3,100,1,1
+7,2,100,100,100
+7,3,100,200,200

@@ -114,6 +114,17 @@ namespace
             offsetof(MSG_S2C_INVENTORY, entries) + static_cast<size_t>(count) * sizeof(InventoryEntry));
         return buf;
     }
+
+    // 가진 돈 — 최종값 int64(Protocol.h MSG_S2C_MONEY)
+    CSerialBuffer* MakeMoney(int64_t money)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_MONEY::TYPE);
+        *buf << static_cast<int64_t>(money);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_MONEY));
+        return buf;
+    }
 #endif // USE_INVENTORY
 
 #if USE_SKILL
@@ -216,6 +227,12 @@ void CSelfNotifier::SendInventory(CPlayer* player)
 {
     _sessionHub.SendPacket(player, MakeInventory(player->_inventory));
     _gameMonitor._inventory._snapshotsSent.Inc();
+}
+
+// 돈 패킷은 여기 한 곳에서 만든다 — 입장(도착 차례 가방 전체 뒤)과 돈이 바뀐 내보내기(CItemHandler::FlushInventory) 둘이 부른다
+void CSelfNotifier::SendMoney(CPlayer* player)
+{
+    _sessionHub.SendPacket(player, MakeMoney(player->_inventory.Money()));
 }
 #endif // USE_INVENTORY
 

@@ -101,7 +101,7 @@ public:
 
 private:
     bool ShouldSave(const CPlayer* player) const;        // 저장 대상 판정(MOVING||dirty||레벨·경험치·체력·마력·쿨타임·버프 칸이 _dbSaved 와 다름||저장 안 된 가방 칸) — 주기·틱 끝
-    DBCharRow MakeCharRow(const CPlayer* player) const;  // 캐릭터 행 값 — 위치·레벨·경험치·체력·마력·쿨타임·버프 스냅샷(묶음 머리 · 판정 공용)
+    DBCharRow MakeCharRow(const CPlayer* player) const;  // 캐릭터 행 값 — 위치·레벨·경험치·체력·마력·쿨타임·버프·돈 스냅샷(묶음 머리 · 판정 공용)
     static void RecordSaved(CPlayer* player, const DBCharRow& row);      // 「마지막으로 실은 값」 사본(_dbSaved) 갱신 — 묶음을 만들 때
     void SaveAllPlayers();                     // 종료: 전원 최종 저장(안전망, dirty 무관) — 떠난 기록으로
 

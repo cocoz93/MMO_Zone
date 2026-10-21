@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS characters (
     mp         INT         NOT NULL DEFAULT -1,
     skill_cooldowns VARBINARY(255) NOT NULL DEFAULT '',
     buffs           VARBINARY(255) NOT NULL DEFAULT '',
+    money      BIGINT      NOT NULL DEFAULT 0,
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
                            ON UPDATE CURRENT_TIMESTAMP(3)
 ) ENGINE=InnoDB;
@@ -47,6 +48,11 @@ CREATE TABLE IF NOT EXISTS characters (
 --   the player is offline. A bad or unknown value is dropped on enter (that cooldown or buff
 --   just ends) - it never blocks the login.
 --   Saved with the rest of the row (the same moments as hp/mp above).
+-- money = jeon the character carries (0 .. 100000000, Item.h MONEY_MAX). Part of the bag, so the column is
+--   written and read only by a build with the bag (USE_INVENTORY) - a build without it never overwrites it.
+--   Saved with the row (a buy or sell changes slots and money in ONE transaction - the save bundle).
+--   A value out of range is not loaded (the character starts with 0 and the server logs the account and the
+--   old value) - the server never writes one, so it only appears after a hand edit or a broken row.
 
 -- ==========================================================================
 -- Upgrades for a database created before the column existed.
@@ -101,6 +107,13 @@ SET @add_buffs := (SELECT IF(COUNT(*) = 0,
     WHERE TABLE_SCHEMA = 'gamedb' AND TABLE_NAME = 'characters' AND COLUMN_NAME = 'buffs');
 PREPARE s FROM @add_buffs; EXECUTE s; DEALLOCATE PREPARE s;
 
+SET @add_money := (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE characters ADD COLUMN money BIGINT NOT NULL DEFAULT 0 AFTER buffs',
+    'DO 0')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = 'gamedb' AND TABLE_NAME = 'characters' AND COLUMN_NAME = 'money');
+PREPARE s FROM @add_money; EXECUTE s; DEALLOCATE PREPARE s;
+
 -- ==========================================================================
 -- Inventory (USE_INVENTORY) - one row per bag slot.
 --   slot = slot number from Protocol.h INV_TAB_RANGES (equip 0.., use 100.., etc 200..).
@@ -126,12 +139,13 @@ CREATE TABLE IF NOT EXISTS inventory (
 --   Save bundle = character row UPSERT + one slot UPSERT per changed slot.
 --     With slots it is wrapped in START TRANSACTION ... COMMIT (ROLLBACK on error);
 --     a bundle with no slots is the single row statement (autocommit).
---     INSERT INTO characters (account_id,x,y,map_id,level,exp,hp,mp,skill_cooldowns,buffs)
---       VALUES (?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE x=?,y=?,map_id=?,level=?,exp=?,hp=?,mp=?,skill_cooldowns=?,buffs=?
+--     INSERT INTO characters (account_id,x,y,map_id,level,exp,hp,mp,skill_cooldowns,buffs,money)
+--       VALUES (?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE x=?,y=?,map_id=?,level=?,exp=?,hp=?,mp=?,skill_cooldowns=?,buffs=?,money=?
+--       (money only in a build with the bag - USE_INVENTORY)
 --     INSERT INTO inventory (account_id,slot,item_id,count) VALUES (?,?,?,?)
 --       ON DUPLICATE KEY UPDATE item_id=?, count=?
 --   Load:
---     SELECT x,y,map_id,level,exp,hp,mp,skill_cooldowns,buffs FROM characters WHERE account_id=?
+--     SELECT x,y,map_id,level,exp,hp,mp,skill_cooldowns,buffs,money FROM characters WHERE account_id=?
 --   Inventory load (second statement of the same load job, run even when the
 --   character row is missing - see DBWorker.cpp RunLoadOnce):
 --     SELECT slot,item_id,count FROM inventory WHERE account_id=? AND item_id<>0 ORDER BY slot

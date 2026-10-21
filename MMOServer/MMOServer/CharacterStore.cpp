@@ -95,7 +95,7 @@ bool CCharacterStore::ShouldSave(const CPlayer* player) const
     // 저장 대상 판정(주기·틱 끝 — 나갈 때·종료는 이 판정 없이 쓴다):
     //   MOVING   = 위치가 계속 변하는 중 → 저장 후 dirty가 리셋돼도 매 주기 재저장 필요
     //   _dbDirty = 정지/접속/존변경/클램프로 생긴 미저장 변경(일회성, 저장 후 리셋)
-    //   값 비교  = 레벨·경험치·체력·마력·쿨타임·버프 칸이 마지막으로 실은 값(_dbSaved)과 다름 — 바뀌는 자리마다 켜지 않고 여기서 본다(Player.h)
+    //   값 비교  = 레벨·경험치·체력·마력·돈·쿨타임·버프 칸이 마지막으로 실은 값(_dbSaved)과 다름 — 바뀌는 자리마다 켜지 않고 여기서 본다(Player.h)
     //   가방     = 저장 안 된 칸이 있다(CInventory::HasUnsaved — 가방이 스스로 켠다)
     if (player->_moveState == MoveState::MOVING || player->_dbDirty)
         return true;
@@ -109,7 +109,8 @@ bool CCharacterStore::ShouldSave(const CPlayer* player) const
     // 저장할 값과 같은 식으로 견준다(MakeCharRow) — 토글을 끈 빌드의 「모름(-1)」도 똑같이 나와 헛저장이 없다.
     const DBCharRow now = MakeCharRow(player);
     const CPlayer::DbSavedValues& saved = player->_dbSaved;
-    return now.level != saved.level || now.exp != saved.exp || now.hp != saved.hp || now.mp != saved.mp;
+    return now.level != saved.level || now.exp != saved.exp || now.hp != saved.hp || now.mp != saved.mp
+        || now.money != saved.money;   // 돈 — 바뀌는 자리가 여럿(줍기·보상·명령·사고팔기)이라 체력·경험치처럼 값으로 본다(Inventory.h [돈])
 }
 
 DBCharRow CCharacterStore::MakeCharRow(const CPlayer* player) const
@@ -133,6 +134,11 @@ DBCharRow CCharacterStore::MakeCharRow(const CPlayer* player) const
     row.mp        = DB_HP_MP_UNSAVED;
 #endif
     PackCooldownsAndBuffs(player, row);   // 쿨타임·버프 — 토글을 끈 빌드는 빈 값
+#if USE_INVENTORY
+    row.money     = player->_inventory.Money();
+#else
+    row.money     = 0;   // 가방을 끈 빌드 — 돈 열이 열 표에 없어 안 써진다(칸만 채워 둔다)
+#endif
     return row;
 }
 
@@ -143,6 +149,7 @@ void CCharacterStore::RecordSaved(CPlayer* player, const DBCharRow& row)
     player->_dbSaved.exp     = row.exp;
     player->_dbSaved.hp      = row.hp;
     player->_dbSaved.mp      = row.mp;
+    player->_dbSaved.money   = row.money;
     // 쿨타임·버프는 잡의 바이트가 아니라 칸(틱)을 사본으로 남긴다 — 같은 틱에 만든 잡이라 내용은 같다(까닭은 CooldownsAndBuffsChanged)
     RecordSavedCooldownsAndBuffs(player);
 }
@@ -810,6 +817,20 @@ void CCharacterStore::LoadInventoryRows(CPlayer* player, const DBResult& result)
         SLOG_WARN("[INV] load skip {} (account={}, slot={}, item={}, count={})",
                   InvLoadSkipName(why), player->_accountId, r.slot, r.itemId, r.count);
     };
+
+    // 가진 돈 — 망가진 값(음수 · 상한 초과)은 안 넣는다(0 으로 시작). 서버는 상한 밖을 쓰지 않으므로 DB 를 손으로 고쳤거나 깨졌을 때만 닿고,
+    //   그 값은 크기도 믿을 수 없다 — 잘라 넣으면 깨진 큰 값이 1억을 쥐여 준다(npc-shop-plan.md 따라 나온 것 7 · 10-21 사용자 정정).
+    //   다음 저장이 0 으로 덮으므로 계정과 원래 값을 로그에 남긴다 — 되살리기는 그 값으로 손으로. 입장은 안 막는다(쿨타임·버프 칸 불량과 같은 규칙)
+    if (result.money >= 0 && result.money <= MONEY_MAX)
+    {
+        player->_inventory.LoadMoney(result.money);
+    }
+    else
+    {
+        counters._loadSkipped[static_cast<int>(InvLoadSkip::BAD_MONEY)].Inc();
+        SLOG_ERROR("[INV] load skip bad_money (account={}, money={}) — 0 으로 시작 · 다음 저장이 이 값을 덮는다(되살리기는 이 줄의 값으로)",
+                   player->_accountId, result.money);
+    }
 
     // 사유는 가장 기본적인 것부터 본다 — 칸이 틀리면 아이템을 볼 것도 없다
     for (int i = 0; i < result.invCount; ++i)

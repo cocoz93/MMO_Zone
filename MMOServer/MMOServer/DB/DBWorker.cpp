@@ -419,6 +419,11 @@ static constexpr DbColumn kCharColumns[] = {
     DB_COL(DBCharRow, DBResult, mp,     mp,    false),
     DB_COL(DBCharRow, DBResult, skill_cooldowns, skillCooldowns, false),   // 바이트 열 — 형식은 CooldownBuffBlob.h
     DB_COL(DBCharRow, DBResult, buffs,           buffs,          false),
+#if USE_INVENTORY
+    // 가진 돈 — 가방 토글 안(아래 가방 열 표와 같은 토글). 가방을 끈 빌드는 이 열을 쓰지도 읽지도 않는다 — 0 으로 덮지 않게
+    //   (체력·마력의 「모름」 값 같은 장치가 돈엔 없다 · npc-shop-plan.md 「DB」)
+    DB_COL(DBCharRow, DBResult, money,           money,          false),
+#endif
 };
 static constexpr int kCharColCount = static_cast<int>(sizeof(kCharColumns) / sizeof(kCharColumns[0]));
 
@@ -433,7 +438,7 @@ static constexpr int kInvColCount = static_cast<int>(sizeof(kInvColumns) / sizeo
 #endif
 #undef DB_COL
 
-static constexpr int kMaxCols = 9;   // 바인딩 배열 크기 — 표가 이보다 길어지면 아래 static_assert 가 막는다
+static constexpr int kMaxCols = 10;  // 바인딩 배열 크기 — 표가 이보다 길어지면 아래 static_assert 가 막는다(10-21 돈 열로 9 → 10)
 static_assert(kCharColCount <= kMaxCols, "kCharColumns 가 kMaxCols 를 넘었다");
 #if USE_INVENTORY
 static_assert(kInvColCount <= kMaxCols, "kInvColumns 가 kMaxCols 를 넘었다");
@@ -812,6 +817,7 @@ void CDBWorker::ExecLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out
     out.mp        = DB_HP_MP_UNSAVED;
     out.skillCooldowns.len = 0;   // 새 캐릭터·못 읽음 = 돌고 있는 것 없음
     out.buffs.len          = 0;
+    out.money              = 0;   // 새 캐릭터 = 빈손(돈 열은 가방을 켠 빌드만 읽는다 — 열 표 kCharColumns)
 #if USE_INVENTORY
     out.invCount    = 0;   // 가방 줄 — RunInventoryLoad 가 채운다(실패면 code 가 FAILED 라 안 쓰인다)
     out.invOverflow = 0;

@@ -65,6 +65,10 @@ public:
 #if USE_INVENTORY
     // 가방 전체 — 입장 때 한 번(빈 가방이어도 한 장).
     void SendInventory(CPlayer* player);
+
+    // 가진 돈(최종값) — 입장 때 가방 전체 바로 뒤 한 장 · 돈이 바뀐 내보내기마다(CItemHandler::FlushInventory).
+    //   돈 패킷을 만드는 곳은 여기 하나다(npc-shop-plan.md 결정 감사). ★ 부하 더미도 입장 때 받는다 — 더미 크기 표에 있어야 한다.
+    void SendMoney(CPlayer* player);
 #endif
 
     // 본인에게 알림 한 줄 — 기존 S2C_ERROR 를 쓴다(콘솔은 이미 UTF-8 로 풀어 보여 준다).

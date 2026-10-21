@@ -181,11 +181,18 @@ void CItemHandler::FlushInventory(CPlayer* player)
         _gameMonitor._inventory._slotUpdatesSent.Inc();
     });
 
+    // 돈 — 바뀌었으면 최종값 한 장(만드는 곳은 본인 알림 한 곳 — SelfNotifier::SendMoney). 칸과 같은 요청에서 바뀌어도 패킷은 따로, 저장 묶음은 하나다
+    const bool moneyChanged = inv.TakeMoneyChange();
+    if (moneyChanged)
+        _selfNotifier.SendMoney(player);
+
 #if USE_DB_WORKER
     // DB 는 이 틱 끝에 — 가방이 스스로 켠 저장 표시(CInventory::HasUnsaved)를 저장소가 캐릭터 행과 한 묶음으로 싣는다.
     //   같은 요청에서 바뀐 체력·경험치도 같은 묶음이라 강제 종료 뒤에도 같은 순간으로 돌아온다(물약 · 방 보상 — 저장 플랜 C).
     //   빈 칸은 행을 지우지 않고 itemId 0 으로 덮는다(DB 계정에 DELETE 권한이 없다).
-    if (_characterStore.IsRunning() && inv.HasUnsaved())
+    //   돈은 캐릭터 행의 열이라 칸 표시가 없다 — 바뀌었으면 같은 사유(가방 — 돈은 가방의 일부)로 요청하고, 묶음에 싣는 판정은
+    //   저장소가 마지막으로 실은 값과 견준다(ShouldSave). 사고팔기처럼 칸·돈이 같이 바뀌어도 요청은 하나 · 묶음은 하나 = 트랜잭션 하나.
+    if (_characterStore.IsRunning() && (inv.HasUnsaved() || moneyChanged))
         _characterStore.RequestSave(player, SaveReason::BAG);
 #endif
 }
@@ -328,17 +335,32 @@ void CItemHandler::RecvPickup(CPlayer* player, CSerialBuffer* /*pMsg*/)   // 몸
         const InvAddResult r = player->_inventory.TryAdd(*def, g.item.count);
         if (r == InvAddResult::OK)
         {
-            _gameMonitor._inventory._itemsAdded.Add(g.item.count);   // /item 과 같은 계수기 — 가방에 들어간 개수
+            if (def->store == ItemStore::MONEY)
+                _gameMonitor._inventory._moneyIn[static_cast<int>(MoneySource::PICKUP)].Add(g.item.count);   // 돈 무더기 — 개수 = 금액(전)
+            else
+                _gameMonitor._inventory._itemsAdded.Add(g.item.count);   // /item 과 같은 계수기 — 가방에 들어간 개수(돈은 단위가 달라 위에만)
             groundItems.Remove(MakeGroundItemContext(), at.sectorX, at.sectorY, at.index,
                                GroundItemRemoval::PICKED, player->_actorId);
             FlushInventory(player);   // 칸 패킷 + 그 틱 끝 저장 요청
             return;
         }
 
-        // 드랍 아이템은 표에 있고 개수 1 이상이라 TryAdd 가 돌려줄 거절은 가득(TAB_FULL)뿐이다
+        // 드랍 아이템은 표에 있고 개수 1 이상이라 TryAdd 가 돌려줄 거절은 둘 — 그 탭이 가득(칸 아이템) · 돈 상한(돈 아이템).
+        //   둘 다 아이템은 땅에 그대로. 그 밖의 값은 올 수 없다(위 두 조건이 막는다) — 갈래를 하나로 박지 않고 다 적는다
         _gameMonitor._inventory._addRejected[static_cast<int>(r)].Inc();
-        fail = PickupFail::TAB_FULL;
-        failItemId = g.item.itemId;   // 클라가 어느 탭이 찼는지 안다
+        switch (r)
+        {
+        case InvAddResult::TAB_FULL:   fail = PickupFail::TAB_FULL;   break;
+        case InvAddResult::MONEY_FULL: fail = PickupFail::MONEY_FULL; break;
+        case InvAddResult::OK:
+        case InvAddResult::UNKNOWN_ITEM:
+        case InvAddResult::BAD_COUNT:
+        case InvAddResult::COUNT:
+            assert(false && "드랍 아이템 넣기는 가득 · 돈 상한 말고 거절할 수 없다");
+            fail = PickupFail::TAB_FULL;
+            break;
+        }
+        failItemId = g.item.itemId;   // 클라가 어느 탭이 찼는지 · 돈이 넘쳤는지 안다
     }
 
     _gameMonitor._drop._pickupRejected[static_cast<int>(fail)].Inc();

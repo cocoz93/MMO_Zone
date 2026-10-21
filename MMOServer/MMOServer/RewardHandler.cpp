@@ -118,16 +118,25 @@ void CRewardHandler::RewardRoom(CZone* zone, CMonster* monster)
             const InvAddResult r = p->_inventory.TryAdd(*def, it.count);
             if (r == InvAddResult::OK)
             {
-                _gameMonitor._inventory._itemsAdded.Add(it.count);   // /item · 줍기와 같은 계수기 — 가방에 들어간 개수
-                _gameMonitor._room._rewardItemsBag.Add(it.count);
+                // 아이템 개수 계수기(가방 넣은 수 · 방 보상 가방 몫)는 칸에 드는 아이템만 — 돈의 개수는 금액(전)이라 단위가 달라 돈 들어옴에만 센다
+                if (def->store == ItemStore::MONEY)
+                    _gameMonitor._inventory._moneyIn[static_cast<int>(MoneySource::REWARD)].Add(it.count);   // 개수 = 금액(전)
+                else
+                {
+                    _gameMonitor._inventory._itemsAdded.Add(it.count);   // /item · 줍기와 같은 계수기 — 가방에 들어간 개수
+                    _gameMonitor._room._rewardItemsBag.Add(it.count);
+                }
                 _selfNotifier.SendSystemMessage(p, "얻음 — " + def->name + " ×" + std::to_string(it.count));
             }
             else
             {
+                // 넘친 것은 그 사람 발밑 땅에 그 사람 것으로 — 가방 그 탭이 가득이든 돈이 상한이든 같은 길. 알림 문구만 사유별
                 _gameMonitor._inventory._addRejected[static_cast<int>(r)].Inc();
-                _gameMonitor._room._rewardItemsGround.Add(it.count);
+                if (def->store != ItemStore::MONEY)   // 땅 몫 개수도 아이템만(위와 같은 까닭) — 넘친 돈은 땅 무더기 수(_drop._dropped)에만 든다
+                    _gameMonitor._room._rewardItemsGround.Add(it.count);
                 _roomOverflow.push_back(it);
-                _selfNotifier.SendSystemMessage(p, "가방이 차서 발밑에 — " + def->name + " ×" + std::to_string(it.count));
+                const char* why = (r == InvAddResult::MONEY_FULL) ? "돈이 넘쳐 발밑에 — " : "가방이 차서 발밑에 — ";
+                _selfNotifier.SendSystemMessage(p, why + def->name + " ×" + std::to_string(it.count));
             }
         }
         _itemHandler.FlushInventory(p);   // 칸 패킷 + 그 틱 끝 저장 요청(줍기와 같은 길 · 레벨업과 같은 묶음) — 바뀐 칸이 없으면 아무것도 안 간다

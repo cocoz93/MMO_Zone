@@ -90,6 +90,7 @@ struct DBCharRow
     int32_t mp;      // 현재 마력 — 같은 규칙
     DBBytes<DB_SKILL_COOLDOWNS_BYTES> skillCooldowns;   // 돌고 있는 스킬 쿨타임 묶음 — 빈 값 = 없음(스킬을 끈 빌드도 빈 값)
     DBBytes<DB_BUFFS_BYTES>           buffs;            // 걸려 있는 버프 묶음 — 같은 규칙(전투를 끈 빌드도 빈 값)
+    int64_t money;   // 가진 돈(전) — 열은 가방을 켠 빌드만 쓴다(DBWorker.cpp kCharColumns). 칸은 늘 있어 열 표의 offsetof 가 빌드마다 같다
 };
 
 // 가방 한 줄 — 불러온 줄(DB 값 그대로 · 검사는 게임 스레드가 한다: 칸 범위·아이템 표·탭·쌓임 한도)이자 저장 묶음의 칸 줄(최종값).
@@ -109,7 +110,7 @@ struct DBInvRow
 //   칸이 0줄이면 문장 하나(그 자체가 트랜잭션), 1줄 이상이면 START TRANSACTION … COMMIT 으로 감싼다.
 struct DBSaveBundle
 {
-    DBCharRow row;         // 캐릭터 행 9열 + 계정(열 표 kCharColumns 가 이 꼴의 멤버를 가리킨다)
+    DBCharRow row;         // 캐릭터 행 10열(돈 열은 가방을 켠 빌드만) + 계정(열 표 kCharColumns 가 이 꼴의 멤버를 가리킨다)
     int64_t   sessionId;   // 주인 — 살아 있는 사람의 세션 번호 · 0 = 저장소의 떠난 기록·종료(회신은 계정 번호로 찾는다)
     uint32_t  bundleNo;    // 회신과 짝을 맞추는 번호(0 은 안 씀)
     uint32_t  slotBegin;   // 줄 벡터 안 시작 자리 — 넣는 함수가 매긴다(부르는 쪽 값은 무시)
@@ -222,6 +223,7 @@ struct DBResult
     int32_t      mp;
     DBBytes<DB_SKILL_COOLDOWNS_BYTES> skillCooldowns;   // 바이트 그대로 — 검사·풀기는 게임 스레드(SpawnPlayer). len > 버퍼 = 잘림(불량)
     DBBytes<DB_BUFFS_BYTES>           buffs;
+    int64_t      money;       // DB 값 그대로 — 범위(0~MONEY_MAX) 검사는 게임 스레드(CCharacterStore::LoadInventoryRows — 망가진 값은 안 넣는다)
 #if USE_INVENTORY
     // ↓ FOUND·NOT_FOUND 둘 다 유효 — 캐릭터 행이 없어도 가방은 읽는다(지금은 칸을 쓰는 묶음이 캐릭터 행도 같이 쓰지만,
     //   저장 묶음 전의 칸 즉시 저장 시절에 생긴 「가방 행만 있는 계정」이 DB 에 남아 있을 수 있다).

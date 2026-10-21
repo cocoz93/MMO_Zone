@@ -695,6 +695,18 @@ private:
         }
         ss << "\n";
 
+        // 돈 — 금액(전) 합. 가방 토글 안 · DB 토글 밖(돈은 DB 를 끈 빌드에도 메모리에 있다). 길은 표를 돈다(늘어도 노출에서 안 빠진다)
+        ss << "# HELP mmo_money_in_total Jeon that came into bags, split by source\n";
+        ss << "# TYPE mmo_money_in_total counter\n";
+        for (int i = 0; i < static_cast<int>(MoneySource::COUNT); ++i)
+            ss << "mmo_money_in_total{source=\"" << MoneySourceName(static_cast<MoneySource>(i)) << "\"} " << inv._moneyIn[i] << "\n";
+        ss << "\n";
+        ss << "# HELP mmo_money_out_total Jeon that left bags, split by sink\n";
+        ss << "# TYPE mmo_money_out_total counter\n";
+        for (int i = 0; i < static_cast<int>(MoneySink::COUNT); ++i)
+            ss << "mmo_money_out_total{sink=\"" << MoneySinkName(static_cast<MoneySink>(i)) << "\"} " << inv._moneyOut[i] << "\n";
+        ss << "\n";
+
 #if USE_DB_WORKER
         // 가방 불러오기. 가방 칸 저장은 저장 묶음 지표(mmo_db_save_* — 칸 줄 수 mmo_db_save_slot_rows_total)가 센다.
         WriteCounter(ss, "mmo_inv_loaded_slots_total",

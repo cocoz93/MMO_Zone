@@ -305,12 +305,13 @@ enum class InvLoadSkip : uint8_t
     WRONG_TAB,       // 아이템의 탭과 칸의 탭이 다르다
     BAD_COUNT,       // 개수가 0 이하이거나 쌓임 한도를 넘는다
     TOO_MANY_ROWS,   // 결과에 다 못 실은 줄(DB_INV_MAX_ROWS 초과)
+    BAD_MONEY,       // 캐릭터 행의 돈이 범위 밖(음수 · MONEY_MAX 초과) — 안 넣고 0 으로 시작(원래 값은 로그 · npc-shop-plan.md 따라 나온 것 7)
     COUNT
 };
 
 inline const char* InvLoadSkipName(InvLoadSkip r)
 {
-    static_assert(static_cast<int>(InvLoadSkip::COUNT) == 5, "InvLoadSkip 을 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(InvLoadSkip::COUNT) == 6, "InvLoadSkip 을 늘렸으면 이름도 붙일 것");
     switch (r)
     {
     case InvLoadSkip::BAD_SLOT:      return "bad_slot";
@@ -318,7 +319,38 @@ inline const char* InvLoadSkipName(InvLoadSkip r)
     case InvLoadSkip::WRONG_TAB:     return "wrong_tab";
     case InvLoadSkip::BAD_COUNT:     return "bad_count";
     case InvLoadSkip::TOO_MANY_ROWS: return "too_many_rows";
+    case InvLoadSkip::BAD_MONEY:     return "bad_money";
     case InvLoadSkip::COUNT:         break;
+    }
+    return "?";
+}
+
+// 돈이 들어온 길 · 나간 길 — 지표 라벨(mmo_money_in_total{source} · mmo_money_out_total{sink}). 세는 곳은 돈이 실제로 바뀐 자리마다 한 줄
+//   (들어옴 = 줍기 · 팔기 · 방 보상 · 운영 명령 /item · 나감 = 사기). 「넣은 돈 − 뺀 돈 = 지금 가진 돈의 합(접속 중 · 불러온 몫 제외)」을 시험이 맞춘다.
+enum class MoneySource : uint8_t { PICKUP, SELL, REWARD, COMMAND, COUNT };
+enum class MoneySink   : uint8_t { BUY, COUNT };
+
+inline const char* MoneySourceName(MoneySource s)
+{
+    static_assert(static_cast<int>(MoneySource::COUNT) == 4, "MoneySource 를 늘렸으면 이름도 붙일 것");
+    switch (s)
+    {
+    case MoneySource::PICKUP:  return "pickup";
+    case MoneySource::SELL:    return "sell";
+    case MoneySource::REWARD:  return "reward";
+    case MoneySource::COMMAND: return "command";
+    case MoneySource::COUNT:   break;
+    }
+    return "?";
+}
+
+inline const char* MoneySinkName(MoneySink s)
+{
+    static_assert(static_cast<int>(MoneySink::COUNT) == 1, "MoneySink 를 늘렸으면 이름도 붙일 것");
+    switch (s)
+    {
+    case MoneySink::BUY:   return "buy";
+    case MoneySink::COUNT: break;
     }
     return "?";
 }
@@ -549,7 +581,7 @@ public:
     // ══════════════════════════════════════════════════════════════
     struct alignas(64) InventoryCounters
     {
-        Counter _itemsAdded;                                                  // 넣은 아이템 개수(칸 수가 아니라 개수)
+        Counter _itemsAdded;                                                  // 넣은 아이템 개수(칸 수가 아니라 개수) — 돈은 빼고(금액이라 단위가 다름 → _moneyIn)
         Counter _addRejected[static_cast<int>(InvAddResult::COUNT)];          // 넣기 거절, 사유별 ([OK] 칸은 안 쓴다)
         // 채팅 명령 거절 · /gm 켜고 끈 수는 채팅 묶음(_chat)으로 갔다 — 명령 틀이 토글 밖으로 나가서(게임 서버 나누기 14 단계)
         Counter _slotUpdatesSent;                                            // 칸 패킷(S2C_INVENTORY_SLOT) 보낸 수
@@ -560,6 +592,10 @@ public:
         // ── DB 불러오기 (USE_DB_WORKER) — 게임 스레드가 센다. 칸 저장은 저장 묶음 지표(_save · _db)가 센다 ──
         Counter _loadedSlots;                                                 // 불러와 가방에 넣은 칸 수
         Counter _loadSkipped[static_cast<int>(InvLoadSkip::COUNT)];           // 불러올 때 건너뛴 줄, 사유별 — 평소 0
+
+        // ── 돈 (가방의 일부) — 금액(전)을 더한다(횟수가 아니라). 위 MoneySource · MoneySink ──
+        Counter _moneyIn[static_cast<int>(MoneySource::COUNT)];
+        Counter _moneyOut[static_cast<int>(MoneySink::COUNT)];
     } _inventory;
 
 #if USE_EQUIP
@@ -798,8 +834,8 @@ public:
         Counter _moved;                                                   // 방으로 옮긴 사람 수(파티장 포함)
         Counter _closed;                                                  // 지운 방(빈 채널 정리)
         Counter _rewards;                                                 // 방 보상을 받은 사람 수 — 보스 한 마리에 방 안 사람 수만큼(RewardRoom)
-        Counter _rewardItemsBag;                                          // 방 보상으로 가방에 바로 들어간 아이템 개수
-        Counter _rewardItemsGround;                                       // 가방이 차서 그 사람 발밑 땅으로 간 개수(땅 계수 _drop._dropped 에도 들어간다)
+        Counter _rewardItemsBag;                                          // 방 보상으로 가방에 바로 들어간 아이템 개수(돈은 빼고 — 금액은 _inventory._moneyIn)
+        Counter _rewardItemsGround;                                       // 가방이 차서 그 사람 발밑 땅으로 간 개수(땅 계수 _drop._dropped 에도 들어간다 · 돈은 빼고)
         Counter _locks;                                                   // [게이지] 다시 들어가기 잠금 표 크기(넣을 때 · 초마다 훑은 뒤)
         Counter _cleared;                                                 // 클리어된 방 = 방에서 죽은 보스 수(OnDeath 의 방 갈래 — 몬스터 표 boss)
         Counter _minionsCleared;                                          // 클리어로 사라진 몬스터 수(OnMonsterVanish — 방에서 깐 수 = 잡힌 수 + 이것 + 방이 닫힐 때 남은 수)

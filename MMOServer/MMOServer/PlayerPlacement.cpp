@@ -239,6 +239,10 @@ void CPlayerPlacement::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind k
         //     "등록을 빼면 떨어지나" 돌연변이가 이 한 장에 매달려 있다 — "비었으면 안 보내자"로 바꾸면 둘 다
         //     조용히 아무것도 안 보게 된다.
         _selfNotifier.SendInventory(player);
+
+        // 3-1b) 가진 돈 — 가방 전체 바로 뒤 한 장(돈은 가방의 일부 · 존 이동 때는 안 보낸다 — 가방과 같은 갈래).
+        //   ★ 부하 더미도 이 한 장을 반드시 받는다 — 가방 전체와 같은 함정(더미 크기 표에서 빠지면 전원 떨어진다).
+        _selfNotifier.SendMoney(player);
 #endif
 
 #if USE_COMBAT
