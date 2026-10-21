@@ -11,11 +11,12 @@
 //  - 생애 알림 나눠 부르기 — 존에서 빠짐 · 떠남(IPlacementEvents) · 존 지우기 직전(OnErasingZone).
 //    틱 너머 목록이 여러 조각·시스템에 흩어져 있어, 한 조각이 받으면 그 조각이 남의 목록을 알게 된다 — 그래서 조립하는 쪽이 받아 차례대로 부른다
 //
-// [조각] 멤버 이름(헤더) — 기반 다섯과 컨텐츠 여덟. 존·맵은 맵 관리자(_mapManager)가 든다
+// [조각] 멤버 이름(헤더) — 기반 다섯과 컨텐츠 열. 존·맵은 맵 관리자(_mapManager)가 든다
 //  기반: _sessionHub(세션 칸 · 보내기) · _selfNotifier(본인 알림) · _sightBroadcaster(시야 방송) · _characterStore(저장·불러오기 — USE_DB_WORKER) ·
 //        _placement(존에 넣기·옮기기·빼기 · 도착 차례)
 //  컨텐츠: _entryHandler(입장·존 이동) · _moveHandler(이동) · _combatHandler(전투 — USE_COMBAT) · _monsterHandler(몬스터 — USE_MONSTER) ·
-//          _rewardHandler(처치 보상 — USE_COMBAT && USE_MONSTER) · _itemHandler(가방·땅 — USE_INVENTORY) · _partyHandler(파티·방 — USE_PARTY) · _chatHandler(채팅·운영)
+//          _rewardHandler(처치 보상 — USE_COMBAT && USE_MONSTER) · _itemHandler(가방·땅 — USE_INVENTORY) · _partyHandler(파티·방 — USE_PARTY) · _chatHandler(채팅·운영) ·
+//          _npcHandler(NPC — 토글 없음) · _shopHandler(상점 — USE_SHOP)
 //
 // [모르는 것]
 //  패킷 조립(PacketBuild.h · 각 조각)과 컨텐츠 규칙. 받은 패킷의 처리기는 여기 하나도 없다.
@@ -48,6 +49,7 @@
 #include "ItemSystem.h"    // 아이템 쓰기·장착 규칙 — 멤버로 들고 부른다
 #include "SkillSystem.h"   // 스킬 규칙 — 멤버로 든다(그 알림 ISkillEvents 는 전투 조각이 구현한다)
 #include "PartySystem.h"   // 파티 규칙 — 멤버로 든다(그 알림 IPartyEvents 는 파티·방 조각이 구현한다 — PartyHandler.h)
+#include "ShopSystem.h"    // 사고팔기 규칙(USE_SHOP) — 멤버로 들고 상점 조각에 넘긴다
 #include "MonitorManager.h"
 #include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
 #include "Common.h"
@@ -65,6 +67,7 @@
 #include "CombatHandler.h"    // 전투(공격·스킬 요청 · 공격·시전·효과 알림 · 부활 대기열 — USE_COMBAT) — 게임 서버 나누기 9 단계(C3)
 #include "MonsterHandler.h"   // 몬스터(몬스터 틱 · 등장·사라짐 알림 · 번호 발급 — USE_MONSTER) — 게임 서버 나누기 10 단계(C4)
 #include "NpcHandler.h"       // NPC(NPC 틱 · 등장 알림 · 번호 발급 — 토글 없음) — NPC·상점 플랜 4판(C9)
+#include "ShopHandler.h"      // 상점(사기·팔기 요청 · NPC 찾기 · 거절 패킷 — USE_SHOP) — NPC·상점 플랜 4판(C10)
 #include "MoveHandler.h"      // 이동(이동 시작·멈춤 요청 · 좌표 수용 예산 — 토글 없음) — 게임 서버 나누기 11 단계(C2)
 #include "EntryHandler.h"     // 입장·존 이동 요청(접속 · 대기표 · 불러온 캐릭터 세우기 · 중복 접속 · 포털) — 게임 서버 나누기 12 단계(C1)
 #include "ChatHandler.h"      // 채팅·운영(채팅 · 운영자 로그인 · 채팅 명령 /item · /gm — 명령 줄만 토글) — 게임 서버 나누기 13 단계(C8)
@@ -179,6 +182,12 @@ private:
     CItemSystem _itemSystem{ _gameDataFiles, _gameMonitor, _statSystem };
 #endif
 
+#if USE_SHOP
+    // 사고팔기 규칙 — 표(아이템 · 상점)를 참조하고 지표를 센다. 부르는 쪽은 상점 조각(_shopHandler).
+    //   ★ _gameDataFiles·_gameMonitor 보다 뒤에 선언해야 한다(멤버는 선언 순서로 세워진다 — _combatSystem 주석과 같은 까닭).
+    CShopSystem _shopSystem{ _gameDataFiles, _gameMonitor };
+#endif
+
     // 프레임 진입 시점 이벤트를 스왑해 받는 로컬 큐 (멤버 재사용 → deque 블록 보존으로 매 프레임 재할당 방지)
     std::queue<NetworkEvent> _localEvents;
     int _cleanupFrameCount = 0;
@@ -222,6 +231,12 @@ private:
                                _characterStore,
 #endif
                                _itemSystem, _mapManager, _gameMonitor, _gameDataFiles, _frameCount };
+#endif
+
+#if USE_SHOP
+    // 상점 — 사기·팔기 요청 · NPC 찾기 · 결과 내보내기(성공 = 가방 조각의 FlushInventory · 거절 = S2C_SHOP_FAIL)(ShopHandler.h).
+    //   ★ _sessionHub · _itemHandler · _shopSystem · _mapManager 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
+    CShopHandler _shopHandler{ _sessionHub, _itemHandler, _shopSystem, _mapManager };
 #endif
 
 #if USE_COMBAT

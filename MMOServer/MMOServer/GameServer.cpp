@@ -494,5 +494,9 @@ bool CGameServer::RegisterRoutes()
     // 파티 요청 여섯 — 파티·방 조각이 자기 줄을 등록한다(CPartyHandler::RegisterRoutes · 게임 서버 나누기 7 단계)
     ok &= _partyHandler.RegisterRoutes(_routes);
 #endif
+#if USE_SHOP
+    // 사기 · 팔기 — 상점 조각이 자기 줄을 등록한다(CShopHandler::RegisterRoutes · NPC·상점 플랜 4판 C10). 끄면 크기 줄도 없어 요청이 조용히 버려진다
+    ok &= _shopHandler.RegisterRoutes(_routes);
+#endif
     return ok;
 }

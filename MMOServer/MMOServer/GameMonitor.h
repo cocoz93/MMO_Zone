@@ -27,6 +27,7 @@
 #include "MapManager.h"       // 존 이동 요청 결과(ZoneChangeReject — 맵 관리자의 어휘) 수만큼 칸을 잡는다
 #include "PartySystem.h"      // USE_PARTY — 빠진 까닭(PartyLeave)·요청이 끝난 까닭(PartyRequestEnd) 수만큼 칸을 잡는다
 #include "Room.h"             // USE_PARTY — 방 들어가기 결과(RoomEntryReject) 수만큼 칸을 잡는다
+#include "ShopSystem.h"       // USE_SHOP — 사고팔기 거절 사유(ShopReject) 수만큼 칸을 잡는다
 
 // [사유 enum 의 집 — 규칙 하나] 사유는 그것을 정하는 층의 헤더에 산다(10-06, 아키텍처 전수검사 7번).
 //   존·엔티티 층이 정하는 것: GroundItemRemoval·PickupReject(GroundItem.h) · ZoneChangeReject(MapManager.h) · InvAddResult(Inventory.h)
@@ -390,6 +391,29 @@ inline const char* EquipRejectName(EquipReject r)
 }
 #endif
 
+#if USE_SHOP
+// 사고팔기 거절의 지표 라벨 — 사유 enum 은 CShopSystem 이 정한다(ShopSystem.h). 와이어 값으로는 상점 조각이 바꾼다.
+inline const char* ShopRejectName(ShopReject r)
+{
+    static_assert(static_cast<int>(ShopReject::COUNT) == 10, "ShopReject 를 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case ShopReject::DEAD:             return "dead";
+    case ShopReject::NO_NPC:           return "no_npc";
+    case ShopReject::NOT_IN_REACH:     return "not_in_reach";
+    case ShopReject::NOT_SOLD_HERE:    return "not_sold_here";
+    case ShopReject::NOT_BOUGHT_HERE:  return "not_bought_here";
+    case ShopReject::BAD_SLOT:         return "bad_slot";
+    case ShopReject::BAD_COUNT:        return "bad_count";
+    case ShopReject::NOT_ENOUGH_MONEY: return "not_enough_money";
+    case ShopReject::BAG_FULL:         return "bag_full";
+    case ShopReject::MONEY_FULL:       return "money_full";
+    case ShopReject::COUNT:            break;
+    }
+    return "?";
+}
+#endif
+
 #if USE_COMBAT
 // 지속 효과의 지표 라벨 둘 — 종류(BuffKind, 와이어 enum — Protocol.h)와 끝난 사유(BuffEnd — Buff.h).
 //   종류 이름은 스킬 표의 effect 글자 「buff_<종류>」 뒤쪽과 같게 둔다(웹 proto.js BUFF_KIND 도 같은 이름).
@@ -609,6 +633,19 @@ public:
         Counter _unequipped;                                        // 빼기 성공
         Counter _rejected[static_cast<int>(EquipReject::COUNT)];    // 거절, 사유별
     } _equip;
+#endif
+
+#if USE_SHOP
+    // ══════════════════════════════════════════════════════════════
+    // 상점 (USE_SHOP) — 성공은 요청마다 한 칸(사기 · 팔기), 거절은 사유마다 한 칸(배열). 돈은 위 _inventory 의 들어옴·나감(금액).
+    //   세는 곳은 CShopSystem::Buy · Sell 한 곳씩 — 「사유 칸 합 = 거절 수」.
+    // ══════════════════════════════════════════════════════════════
+    struct alignas(64) ShopCounters
+    {
+        Counter _bought;                                            // 사기 성공(요청 수 — 개수가 아니라)
+        Counter _sold;                                              // 팔기 성공(요청 수)
+        Counter _rejected[static_cast<int>(ShopReject::COUNT)];     // 거절, 사유별
+    } _shop;
 #endif
 #endif
 

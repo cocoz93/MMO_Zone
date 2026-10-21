@@ -739,6 +739,21 @@ private:
         }
         ss << "\n";
 #endif
+
+#if USE_SHOP
+        // 상점 — 성공은 요청마다, 거절은 사유마다 한 줄. 사유는 표를 돈다(늘어도 노출에서 안 빠진다). 돈은 mmo_money_in/out_total
+        const auto& sh = _gameMonitor._shop;
+        WriteCounter(ss, "mmo_shop_bought_total", "Shop buy requests that succeeded (requests, not item units)", sh._bought);
+        WriteCounter(ss, "mmo_shop_sold_total",   "Shop sell requests that succeeded (requests, not item units)", sh._sold);
+        ss << "# HELP mmo_shop_rejected_total Shop buy / sell requests refused, split by reason (nothing changed)\n";
+        ss << "# TYPE mmo_shop_rejected_total counter\n";
+        for (int i = 0; i < static_cast<int>(ShopReject::COUNT); ++i)
+        {
+            ss << "mmo_shop_rejected_total{reason=\"" << ShopRejectName(static_cast<ShopReject>(i))
+               << "\"} " << sh._rejected[i] << "\n";
+        }
+        ss << "\n";
+#endif
 #endif
 
 #if USE_SKILL
