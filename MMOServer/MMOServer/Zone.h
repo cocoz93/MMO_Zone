@@ -2,7 +2,7 @@
 // CZone — 존 단위 데이터 컨테이너
 //
 // [책임]
-//  - 맵 크기, CSectorManager, 캐릭터 목록 소유 (vector<CCharacter*> — 플레이어·몬스터 공통)
+//  - 맵 크기, CSectorManager, 캐릭터 목록 소유 (vector<CCharacter*> — 플레이어·몬스터·NPC 공통)
 //  - NPC 관리자 소유 (_npcManager, 값) — NPC 객체·첫 틱 깔기는 그쪽(NpcManager.h). 몬스터 관리자와 형제
 //  - 몬스터 관리자 소유 (_monsterManager, 값) — 몬스터 객체·깔기·판단은 그쪽(MonsterManager.h).
 //    존과 같이 태어나고 같이 사라지므로. 플레이어 객체는 접속 수명이라 게임 서버의 세션 칸(CSessionHub)이 소유한다
@@ -205,7 +205,7 @@ private:
 
     CSectorManager _sectorManager;
 
-    // 순회용 (Tick 캐시 지역성) — 플레이어·몬스터가 함께 담긴다
+    // 순회용 (Tick 캐시 지역성) — 플레이어·몬스터·NPC 가 함께 담긴다
     std::vector<CCharacter*> _characterList;
 
     // _characterList 중 _kind == PLAYER 인 것의 수 (채널 정원·빈 채널 판정 전용).

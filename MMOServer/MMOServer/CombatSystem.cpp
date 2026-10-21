@@ -126,7 +126,7 @@ void CCombatSystem::PerformAttack(CZone* zone, CCharacter* player, uint64_t fram
     //     뱀이 죽기까지 했다). 지금은 목록이 갈라져 있어 뱀은 후보에 아예 안 들어온다.
     //     AI 의 대상 찾기(FindAITarget)도 플레이어 목록만 돈다 — AI 는 "누구를 쫓을까"를 정할 뿐이고,
     //     실제로 무는 대상은 여기서 다시 고르므로 두 자리가 다 플레이어 목록이어야 한다.
-    //   플레이어가 때릴 때는 보이는 것 전부(플레이어·몬스터)가 후보다
+    //   플레이어가 때릴 때는 맞을 수 있는 것 전부(플레이어·몬스터)가 후보다 — NPC 는 체력 부품이 없어 「그 밖」 목록이라 안 든다
     const CandidateList which = byMonster ? CandidateList::PLAYERS : CandidateList::ALL_HITTABLE;
     bool sawDeadInRange = false;   // 사거리 안에 있긴 했는데 시체였다 — "아무도 없었다"와 다르다
     CCharacter* target = FindFrontTarget(zone, player, which, sawDeadInRange);

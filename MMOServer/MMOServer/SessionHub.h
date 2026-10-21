@@ -7,7 +7,7 @@
 //  - 플레이어 찾기(세션 번호로) · 전원 돌기 · 첫 일치 찾기
 //  - 한 사람에게 보내기(SendPacket) — 보낸 수·바이트를 코어 지표로 센다
 //  - 수신자 한 명에게 한 장 넣기(RequestSend · RequestSendRaw) — 방송(시야 조각)이 수신자마다 부른다. 소유권·지표는 부르는 쪽(3 단계)
-//  - 캐릭터 번호 발급 — 플레이어와 몬스터가 한 번호 공간을 쓴다(몬스터 관리자의 번호 부탁도 여기로 온다)
+//  - 캐릭터 번호 발급 — 플레이어·몬스터·NPC 가 한 번호 공간을 쓴다(몬스터·NPC 관리자의 번호 부탁도 여기로 온다)
 //
 // [경계]
 //  네트워크는 빌려 쓴다 — 만들고 띄우고 내리는 것은 게임 서버(B0)이고, 여기는 Init 에서 받은 포인터로 보내기만 한다.
@@ -119,8 +119,8 @@ public:
     }
 
     // ── 캐릭터 번호 발급 ──
-    //   플레이어와 몬스터가 같이 쓴다(몬스터는 CMonsterHandler::AllocActorId — IMonsterEvents 를 거쳐 온다).
-    //   단일 증가 카운터라 둘이 충돌하지 않는다. int32 라 2^31 위로 못 올라온다(지정 계정 번호 하한 ACCOUNT_ID_MIN 이 여기에 기댄다).
+    //   플레이어·몬스터·NPC 가 같이 쓴다(몬스터는 CMonsterHandler::AllocActorId — IMonsterEvents · NPC 는 CNpcHandler::AllocActorId — INpcEvents 를 거쳐 온다).
+    //   단일 증가 카운터라 서로 충돌하지 않는다. int32 라 2^31 위로 못 올라온다(지정 계정 번호 하한 ACCOUNT_ID_MIN 이 여기에 기댄다).
     int32_t AllocActorId() { return _nextActorId++; }
 
     // ── 끊기 요청 ──
