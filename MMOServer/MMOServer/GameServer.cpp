@@ -203,6 +203,10 @@ void CGameServer::GameLoopThread()
         _monsterHandler.TickMonsters();
 #endif
 
+        // 1-1b) NPC — 처음 도는 존이면 그 맵의 NPC 를 깐다(CNpcManager::Tick). 그 뒤로는 존마다 bool 하나로 끝난다. 토글 없음.
+        //   좌표 갱신(2) · 섹터 바뀜(3) 앞 — 깐 NPC 가 같은 틱의 시야 처리에 이미 들어 있다.
+        _npcHandler.TickNpcs();
+
         // 2) 게임 로직 갱신 (좌표 이동 + 섹터 변경 감지 + 경계 클램핑) — 섹터 변경은 존마다 대기열에 쌓인다
         //   경계에 막혀 선 캐릭터는 존이 그 자리에서 알린다(OnCharacterMoveStop — 그 알림은 시야 조각이 받는다)
         _mapManager.TickAll(deltaTime, _sightBroadcaster);

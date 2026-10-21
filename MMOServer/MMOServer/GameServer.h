@@ -64,6 +64,7 @@
 #include "RewardHandler.h"    // 처치 보상(몬스터 경험치 · 드랍 굴림 · 방 보상 — USE_COMBAT && USE_MONSTER) — 게임 서버 나누기 8 단계(C5)
 #include "CombatHandler.h"    // 전투(공격·스킬 요청 · 공격·시전·효과 알림 · 부활 대기열 — USE_COMBAT) — 게임 서버 나누기 9 단계(C3)
 #include "MonsterHandler.h"   // 몬스터(몬스터 틱 · 등장·사라짐 알림 · 번호 발급 — USE_MONSTER) — 게임 서버 나누기 10 단계(C4)
+#include "NpcHandler.h"       // NPC(NPC 틱 · 등장 알림 · 번호 발급 — 토글 없음) — NPC·상점 플랜 4판(C9)
 #include "MoveHandler.h"      // 이동(이동 시작·멈춤 요청 · 좌표 수용 예산 — 토글 없음) — 게임 서버 나누기 11 단계(C2)
 #include "EntryHandler.h"     // 입장·존 이동 요청(접속 · 대기표 · 불러온 캐릭터 세우기 · 중복 접속 · 포털) — 게임 서버 나누기 12 단계(C1)
 #include "ChatHandler.h"      // 채팅·운영(채팅 · 운영자 로그인 · 채팅 명령 /item · /gm — 명령 줄만 토글) — 게임 서버 나누기 13 단계(C8)
@@ -297,6 +298,10 @@ private:
 #endif
                                      _mapManager, _gameMonitor, _frameCount };
 #endif
+
+    // NPC — 존마다 NPC 틱(첫 틱 깔기) · NPC 알림(INpcEvents — 번호 발급 · 등장)(NpcHandler.h). 토글 없음.
+    //   ★ _sessionHub · _sightBroadcaster · _mapManager · _gameMonitor 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
+    CNpcHandler _npcHandler{ _sessionHub, _sightBroadcaster, _mapManager, _gameMonitor };
 
     // 이동 — 이동 시작·멈춤 요청 · 좌표 수용 예산 · 틱 끝 거부 건수(MoveHandler.h).
     //   ★ _sightBroadcaster · _mapManager · _gameMonitor · _frameCount 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).

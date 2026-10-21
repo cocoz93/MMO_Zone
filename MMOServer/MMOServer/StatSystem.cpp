@@ -81,6 +81,12 @@ void CStatSystem::RecalcStats(CCharacter* character, bool refill)
 #endif
         break;
     }
+
+    case CharacterKind::NPC:
+        // NPC 는 스탯이 없다(부품이 없다 — 맞지도 때리지도 않는다). 스탯을 세우는 자리(입장 · 레벨업 · 장비 · GM · 효과)는 NPC 를 안 받는다.
+        //   여기 닿으면 부르는 쪽 잘못이다 — 아래 공통 꼬리가 부품을 꺼내기 전에 돌아간다(Release 에서 널 역참조로 죽지 않게).
+        assert(false && "NPC 의 스탯을 세움 — 부르는 쪽이 사람·몬스터가 아니다");
+        return;
     }
 
     // 공통 꼬리의 부품 — 스탯을 세우는 것은 사람·몬스터뿐이라 부품 셋이 늘 있다(부르는 쪽 = 입장 · 레벨업 · 장비 · GM · 효과 걸림·풀림)

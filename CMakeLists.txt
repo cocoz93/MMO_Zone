@@ -149,6 +149,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/RewardHandler.cpp
     ${SRV_DIR}/CombatHandler.cpp
     ${SRV_DIR}/MonsterHandler.cpp
+    ${SRV_DIR}/NpcHandler.cpp
     ${SRV_DIR}/MoveHandler.cpp
     ${SRV_DIR}/EntryHandler.cpp
     ${SRV_DIR}/ChatHandler.cpp
@@ -161,6 +162,8 @@ set(GAME_SOURCES
     ${SRV_DIR}/Monster.cpp
     ${SRV_DIR}/MonsterAI.cpp
     ${SRV_DIR}/MonsterManager.cpp
+    ${SRV_DIR}/Npc.cpp
+    ${SRV_DIR}/NpcManager.cpp
     ${SRV_DIR}/GroundItemManager.cpp
     ${SRV_DIR}/Actor.cpp
     ${SRV_DIR}/Combat.cpp

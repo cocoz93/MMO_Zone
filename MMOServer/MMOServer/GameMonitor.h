@@ -517,6 +517,14 @@ public:
     } _monster;
 #endif
 
+    // ── NPC (토글 없음 — 맵·포털처럼 세계 데이터) ──
+    //   존의 첫 틱마다 그 맵의 NPC 표 줄 수만큼 깐다(CNpcManager::Tick → CNpcHandler::OnNpcSpawn 에서 센다).
+    //   NPC 는 안 죽고 다시 안 깔리므로 깐 수 = 만들어진 존들의 NPC 합 — 새 채널마다 그 맵 줄 수만큼 는다.
+    struct alignas(64) NpcCounters
+    {
+        Counter _spawned;   // 깐 NPC 누계
+    } _npc;
+
 #if USE_EXP
     // ══════════════════════════════════════════════════════════════
     // 경험치·레벨 (USE_EXP)

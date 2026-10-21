@@ -3,6 +3,7 @@
 //
 // [책임]
 //  - 맵 크기, CSectorManager, 캐릭터 목록 소유 (vector<CCharacter*> — 플레이어·몬스터 공통)
+//  - NPC 관리자 소유 (_npcManager, 값) — NPC 객체·첫 틱 깔기는 그쪽(NpcManager.h). 몬스터 관리자와 형제
 //  - 몬스터 관리자 소유 (_monsterManager, 값) — 몬스터 객체·깔기·판단은 그쪽(MonsterManager.h).
 //    존과 같이 태어나고 같이 사라지므로. 플레이어 객체는 접속 수명이라 게임 서버의 세션 칸(CSessionHub)이 소유한다
 //  - 캐릭터 입장/퇴장, 섹터 등록/해제 등 데이터 관리
@@ -28,6 +29,7 @@
 #include "MapTable.h"       // StartArea — 맵 표의 시작 구역(CalcSpawnPos 가 읽는다)
 #include "SectorManager.h"
 #include "MonsterManager.h"   // 몬스터 관리자 — 존이 값으로 든다(USE_MONSTER 가 꺼져 있으면 빈 헤더)
+#include "NpcManager.h"       // NPC 관리자 — 존이 값으로 든다(토글 없음 — 맵·포털처럼 세계 데이터)
 #include "GroundItemManager.h" // 땅 아이템 관리자 — 존이 값으로 든다(USE_DROP 이 꺼져 있으면 빈 헤더)
 
 class CCharacter;
@@ -173,6 +175,10 @@ public:
     CMonsterManager& GetMonsterManager() { return _monsterManager; }
 #endif
 
+    // ── NPC ── 이 존의 NPC 를 소유하고 첫 틱에 까는 관리자(NpcManager.h). 게임 루프 1-1b 가 꺼내 부른다(몬스터 관리자와 같은 꼴).
+    //   NPC 는 _characterList·섹터 「그 밖」 목록에도 들어간다(거기 있어야 보인다) — 둘 다 빌린 포인터만 든다.
+    CNpcManager& GetNpcManager() { return _npcManager; }
+
 #if USE_DROP
     // ── 땅 아이템 ── 이 존 땅에 떨어진 것과 그 규칙을 함께 든 관리자(GroundItemManager.h).
     //   게임 서버가 떨어뜨릴 때·줍기·틱 3-3(수명 훑기)·채널 정리·시야 송신 때 꺼내 부른다(몬스터 관리자와 같은 꼴).
@@ -219,6 +225,10 @@ private:
     //   기획 데이터를 받으므로 생성자 초기화 목록에서 세운다(Zone.cpp).
     CMonsterManager _monsterManager;
 #endif
+
+    // NPC 관리자 — NPC 소유·깔았나 표시. *this 를 들므로 존은 복사하지 않는다(위 삭제 두 줄). 토글 없음.
+    //   해제는 존 소멸 때 멤버 소멸로 — 몬스터 관리자와 같다. 기획 데이터를 받으므로 생성자 초기화 목록에서 세운다(Zone.cpp).
+    CNpcManager _npcManager;
 
 #if USE_DROP
     // 땅 아이템 관리자 — 땅 아이템(값)·규칙·이 존 개수. 칸 번호는 위 _sectorManager 와 같다(Init 이 맞춘다).

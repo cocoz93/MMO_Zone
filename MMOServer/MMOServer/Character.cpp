@@ -27,3 +27,9 @@ void CCharacter::AttachParts(CHealthPart* health, CAttackPart* attack)
     _buffPart = buffs;
 #endif
 }
+
+void CCharacter::AttachTalk(const NpcDef* def)
+{
+    assert(_talk == nullptr && def != nullptr && "말 걸기 칸은 생성자에서 한 번만 붙인다");
+    _talk = def;
+}

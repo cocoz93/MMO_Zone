@@ -25,7 +25,8 @@
 //        As<CPlayer>(아래 As) 로 확인 후 내려 바꾼다. 코드 전체에서 내려 바꾸는 자리는 그 한 곳뿐이다.
 //
 // [종류] _kind 로 종류를 가른다 — 정원 카운터(_playerCount), As(각 타입의 IsA), 섹터 목록 고르기(CSectorManager::AddCharacter).
-//        파생 생성자가 자기 것을 잡는다 — 여기 기본값은 PLAYER 이고 CMonster 가 MONSTER 로 덮는다.
+//        파생 생성자가 자기 것을 잡는다 — 여기 기본값은 PLAYER 이고 CMonster 가 MONSTER, CNpc 가 NPC 로 덮는다.
+//        종류가 셋이라 종류로 가르는 자리는 switch 로 셋을 다 적는다(StatSystem.cpp RecalcStats) — if/else 면 하나가 나머지를 삼킨다.
 //        생성자 뒤에는 안 바뀐다 — As 와 섹터 목록 선택(넣을 때·뺄 때 같은 목록)이 이 전제에 기댄다.
 //
 // [컨테이너] 존(_characterList)은 vector<CCharacter*> 하나(틱 순회용 — 이동 갱신은 종류가 상관없다).
@@ -46,12 +47,14 @@ class CAttackPart;
 #if USE_COMBAT
 class CBuffPart;
 #endif
+struct NpcDef;   // NpcTable.h — 말 걸기 칸이 가리키는 NPC 표 한 줄(부품이 아니라 표 줄이라 상태가 없다)
 
-// 캐릭터 종류 — 위 [종류] 참조. 와이어에는 안 실린다(클라는 displayChar 로 종류를 안다).
+// 캐릭터 종류 — 위 [종류] 참조. 와이어에는 안 실린다(클라는 displayChar 의 부류로 종류를 안다).
 enum class CharacterKind : uint8_t
 {
     PLAYER  = 0,
     MONSTER = 1,
+    NPC     = 2,   // 마을 NPC — 부품 없음 · 말 걸기 칸(Npc.h)
 };
 
 class CCharacter : public CActor
@@ -86,6 +89,11 @@ public:
     const CBuffPart*   Buffs() const  { return _buffPart; }
 #endif
 
+    // ── 말 걸기 칸 ── 「말 건다」는 능력 — 자기 NPC 표 줄을 가리킨다(없으면 null). 사고팔기 판정은 타입이 아니라 이 칸으로 찾는다
+    //   (싸우는 NPC 가 생기면 「체력 + 공격 + 말 걸기 칸」). 값 부품이 아니라 표 줄 포인터인 까닭 — 이름·인사·상점 번호가 다 표에 있고
+    //   바뀌는 상태가 없다. 부품 자리와 같은 규칙(생성자 몸에서 한 번 · 생성 뒤 안 바뀐다).
+    const NpcDef* Talk() const { return _talk; }
+
     // 복사·옮김 금지 — 부품 자리가 자기 멤버를 가리키므로 복사본은 옛 물체의 부품을 가리키게 된다.
     //   물체는 unique_ptr 로 만들어진 자리에서 안 움직인다(CSessionHub · CMonsterManager) — 그 성질을 타입이 지킨다.
     CCharacter(const CCharacter&) = delete;
@@ -98,6 +106,8 @@ protected:
 #else
     void AttachParts(CHealthPart* health, CAttackPart* attack);
 #endif
+    // 말 걸기 칸 — 파생(CNpc) 생성자 몸에서 한 번
+    void AttachTalk(const NpcDef* def);
 
 private:
     CHealthPart* _healthPart = nullptr;
@@ -105,6 +115,7 @@ private:
 #if USE_COMBAT
     CBuffPart*   _buffPart   = nullptr;
 #endif
+    const NpcDef* _talk      = nullptr;
 };
 
 // 내려 바꾸는 자리는 코드 전체에서 이 함수 하나뿐이다 — 다른 곳의 static_cast<CPlayer*>·<CMonster*> 는 잘못이다.

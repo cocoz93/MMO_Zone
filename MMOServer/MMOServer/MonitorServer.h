@@ -636,6 +636,11 @@ private:
                      _gameMonitor._monster._revivedTotal);
 #endif
 
+        // NPC — 토글 없음. 존의 첫 틱마다 그 맵의 NPC 표 줄 수만큼(안 죽고 다시 안 깔린다 — 새 채널마다 그만큼 는다)
+        WriteCounter(ss, "mmo_npc_spawned_total",
+                     "NPCs placed (each zone places its map's NPC table rows on its first tick; never die, never respawn)",
+                     _gameMonitor._npc._spawned);
+
 #if USE_EXP
         // 경험치·레벨. 둘을 나눠 세는 이유 — 횟수만으로는 "몇 마리 잡았나"만 보이고
         //   총량과 갈라 두면 나중에 종류별 보상이 생겨도 평균이 바로 나온다.
