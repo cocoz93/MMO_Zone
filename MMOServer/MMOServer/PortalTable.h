@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "Reach.h"   // 손이 닿나 — 포털·NPC 가 같은 식
+
 class CMapTable;
 
 // ==========================================================================
@@ -20,7 +22,7 @@ class CMapTable;
 //        포털 자리·도착 자리는 각 맵 안이다(오른쪽 끝은 폭 - 1 — 이동 클램프와 같은 선, SpawnRegionTable.h [맵 대조] ★).
 //        맵 표를 먼저 읽고 그 결과를 받는다(CGameDataFiles::LoadAll 순서).
 //
-// [판정은 표 옆] 「손이 닿나」(PortalDef::InReach)는 포털 한 줄과 좌표만 보는 계산이라 여기 둔다.
+// [판정은 표 옆] 「손이 닿나」(PortalDef::InReach)는 포털 한 줄과 좌표만 보는 계산이라 여기 둔다(식 자체는 NPC 와 같은 Reach.h).
 //        같은 맵인지는 부르는 쪽이 본다 — 지금 어느 존에 있는지를 아는 쪽이다.
 // ==========================================================================
 struct PortalDef
@@ -36,13 +38,10 @@ struct PortalDef
     std::string name;              // 안내 글자 — 웹이 띄운다(같은 파일을 serve.js 로 받는다). 서버는 로그에만 쓴다
     int32_t     fileLine    = 0;   // 틀렸을 때 가리킬 줄
 
-    // 손이 닿나 — 포털 자리와의 거리가 반경 안(경계 포함)
+    // 손이 닿나 — 포털 자리와의 거리가 반경 안(경계 포함). 식은 NPC 와 같은 한 곳(Reach.h)
     bool InReach(float px, float py) const
     {
-        const float dx = px - static_cast<float>(x);
-        const float dy = py - static_cast<float>(y);
-        const float r  = static_cast<float>(radius);
-        return dx * dx + dy * dy <= r * r;
+        return Reach::InRadius(px, py, static_cast<float>(x), static_cast<float>(y), static_cast<float>(radius));
     }
 };
 

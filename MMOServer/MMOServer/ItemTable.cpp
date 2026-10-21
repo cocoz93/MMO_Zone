@@ -68,21 +68,22 @@ bool CItemTable::Load(const std::string& path)
     }
 
     int32_t perTab[static_cast<int>(InvTab::COUNT)] = {};
+    int32_t moneyRows = 0;   // 돈 줄 수 — 하나만(헤더 [담는 자리])
     std::vector<std::string> cell;
     for (const DataLine& dl : lines)
     {
         SplitCsv(dl.text, cell);
-        if (cell.size() < 8)
+        if (cell.size() < 9)
         {
-            SLOG_ERROR("[ItemTable] {}줄: 칸이 {}개입니다 — itemId,name,tab,maxStack,healHp,icon,attack,healMp 여덟이 필요합니다",
+            SLOG_ERROR("[ItemTable] {}줄: 칸이 {}개입니다 — itemId,name,tab,maxStack,healHp,icon,attack,healMp,price 아홉이 필요합니다",
                        dl.fileLine, cell.size());
             return false;
         }
 
-        int64_t itemId = 0, maxStack = 0, healHp = 0, icon = 0, attack = 0, healMp = 0;
+        int64_t itemId = 0, maxStack = 0, healHp = 0, icon = 0, attack = 0, healMp = 0, price = 0;
         if (!ParseInt(cell[0], itemId) || !ParseInt(cell[3], maxStack) ||
             !ParseInt(cell[4], healHp) || !ParseInt(cell[5], icon) || !ParseInt(cell[6], attack) ||
-            !ParseInt(cell[7], healMp))
+            !ParseInt(cell[7], healMp) || !ParseInt(cell[8], price))
         {
             SLOG_ERROR("[ItemTable] {}줄: 숫자여야 하는 칸이 숫자가 아닙니다 — \"{}\"", dl.fileLine, dl.text);
             return false;
@@ -107,20 +108,27 @@ bool CItemTable::Load(const std::string& path)
             return false;
         }
 
-        // ⑶ 탭 — 모르는 글자면 칸 구간이 안 정해진다
-        const InvTab tab = ParseTab(cell[2]);
-        if (tab == InvTab::COUNT)
+        // ⑶ 탭 — 모르는 글자면 칸 구간이 안 정해진다. money 는 탭이 아니라 담는 자리다(헤더 [담는 자리] — 돈 줄의 tab 은 COUNT)
+        const bool   isMoney = (cell[2] == "money");
+        const InvTab tab     = isMoney ? InvTab::COUNT : ParseTab(cell[2]);
+        if (!isMoney && tab == InvTab::COUNT)
         {
-            SLOG_ERROR("[ItemTable] {}줄: 모르는 탭 \"{}\" — equip · use · etc 중 하나여야 합니다",
+            SLOG_ERROR("[ItemTable] {}줄: 모르는 탭 \"{}\" — equip · use · etc · money 중 하나여야 합니다",
                        dl.fileLine, cell[2]);
             return false;
         }
-
-        // ⑷ 쌓임 한도 — 1 미만이면 넣을 수가 없다. 장비는 1 이어야 한다(장비는 안 쌓인다)
-        if (maxStack < 1 || maxStack > 9999)
+        if (isMoney && ++moneyRows > 1)
         {
-            SLOG_ERROR("[ItemTable] {}줄: maxStack {} 는 1~9999 여야 합니다 (아이템 {})",
-                       dl.fileLine, maxStack, itemId);
+            SLOG_ERROR("[ItemTable] {}줄: 돈(money) 줄이 둘째입니다 — 돈 줄은 하나만 (아이템 {})", dl.fileLine, itemId);
+            return false;
+        }
+
+        // ⑷ 쌓임 한도 — 1 미만이면 넣을 수가 없다. 장비는 1 이어야 한다(장비는 안 쌓인다). 돈은 땅 한 무더기 최대까지
+        const int64_t stackMax = isMoney ? MAX_MONEY_STACK : MAX_STACK;
+        if (maxStack < 1 || maxStack > stackMax)
+        {
+            SLOG_ERROR("[ItemTable] {}줄: maxStack {} 는 1~{} 여야 합니다 (아이템 {})",
+                       dl.fileLine, maxStack, stackMax, itemId);
             return false;
         }
         if (tab == InvTab::EQUIP && maxStack != 1)
@@ -160,16 +168,31 @@ bool CItemTable::Load(const std::string& path)
             return false;
         }
 
+        // ⑻ 값 — 0~돈 상한. 돈 줄은 효과·값이 없다(쓰거나 사고팔 물건이 아니라 돈 그 자체)
+        if (price < 0 || price > MONEY_MAX)
+        {
+            SLOG_ERROR("[ItemTable] {}줄: price {} 는 0~{} 여야 합니다 (아이템 {})", dl.fileLine, price, MONEY_MAX, itemId);
+            return false;
+        }
+        if (isMoney && (healHp != 0 || healMp != 0 || price != 0))
+        {
+            SLOG_ERROR("[ItemTable] {}줄: 돈(money) 줄은 healHp · healMp · price 가 0 이어야 합니다 — 지금 {} · {} · {} (아이템 {})",
+                       dl.fileLine, healHp, healMp, price, itemId);
+            return false;
+        }
+
         ItemDef d;
         d.itemId   = static_cast<int32_t>(itemId);
         d.name     = cell[1];
+        d.store    = isMoney ? ItemStore::MONEY : ItemStore::SLOT;
         d.tab      = tab;
         d.maxStack = static_cast<int32_t>(maxStack);
         d.healHp   = static_cast<int32_t>(healHp);
         d.healMp   = static_cast<int32_t>(healMp);
         d.attack   = static_cast<int32_t>(attack);
+        d.price    = static_cast<int32_t>(price);
 
-        // ⑻ 소비 아이템은 써서 무슨 일이 일어나야 한다 — 「효과가 있나」는 ItemDef::HasEffect 하나만 답한다.
+        // ⑼ 소비 아이템은 써서 무슨 일이 일어나야 한다 — 「효과가 있나」는 ItemDef::HasEffect 하나만 답한다.
         //    「이 빌드에서 쓸 수 있나」(IsUsable)를 묻지 않는 까닭 — 스킬을 끈 빌드도 마력 물약 줄을 받아야 서버가 뜬다(ItemTable.h)
         if (d.tab == InvTab::USE && !d.HasEffect())
         {
@@ -182,7 +205,8 @@ bool CItemTable::Load(const std::string& path)
             _rows.resize(static_cast<size_t>(itemId) + 1);
         _rows[static_cast<size_t>(itemId)] = std::move(d);
         ++_count;
-        ++perTab[static_cast<int>(tab)];
+        if (!isMoney)
+            ++perTab[static_cast<int>(tab)];   // 돈 줄의 탭은 COUNT — 색인으로 쓰면 배열 밖이다
     }
 
     // 탭별 개수 — 탭 이름을 박아 쓰지 않고 표를 돈다(넷째 탭이 생겨도 로그에서 안 빠진다)
@@ -195,7 +219,7 @@ bool CItemTable::Load(const std::string& path)
         byTab += ' ';
         byTab += std::to_string(perTab[i]);
     }
-    SLOG_INFO("[ItemTable] {} — 아이템 {}개 ({})", path, _count, byTab);
+    SLOG_INFO("[ItemTable] {} — 아이템 {}개 ({} · 돈 {})", path, _count, byTab, moneyRows);
     return true;
 }
 

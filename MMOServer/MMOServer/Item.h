@@ -25,4 +25,8 @@ struct Item
     int32_t count  = 0;
 };
 
+// 들 수 있는 돈 상한 — 원본 「최대소지 1억전」(npc-shop-plan.md 따라 나온 것 5). 넘치는 줍기·팔기는 거절한다(반만 받지 않는다).
+//   가방(돈 칸)·상점 판정·아이템 표(값 상한)가 같이 쓴다. 땅에서는 돈도 Item 한 덩이(돈 아이템 × 개수)로 다닌다.
+constexpr int64_t MONEY_MAX = 100000000;
+
 #endif // USE_INVENTORY

@@ -6,11 +6,12 @@
 
 #include "BuildConfig.h"
 #include <Protocol/Protocol.h>   // InvTab — 아이템이 어느 탭에 들어가나
+#include "Item.h"                // MONEY_MAX — 값 상한
 
 #if USE_INVENTORY
 
 // ==========================================================================
-// CItemTable — 아이템 정의 (이름 · 탭 · 쌓임 한도 · 회복량(체력·마력) · 착용 공격력)
+// CItemTable — 아이템 정의 (이름 · 담는 자리 · 탭 · 쌓임 한도 · 회복량(체력·마력) · 착용 공격력 · 값)
 //
 // [어디 것이냐] 기획 데이터다(Run/bin/ItemTable.csv). 가방 안의 "무엇이 몇 개"만 유저 데이터다.
 //        웹 클라도 같은 파일을 직접 읽어 이름·그림을 그린다 — 두 벌로 적으면 어긋난다.
@@ -21,16 +22,30 @@
 //
 // [색인] 번호가 곧 색인이다. 번호는 성기게 써도 된다(1001·2001 식) — 구멍은 itemId 0 인 빈 행.
 //        번호 상한을 두는 이유는 오타 하나(100000)가 배열을 통째로 키우지 않게.
+//
+// [담는 자리] 아이템은 가방 칸에 담기거나(store = SLOT — 탭이 칸 구간을 정한다) 돈에 더해진다(store = MONEY — 표의 tab 칸 값 money).
+//        돈은 탭이 아니다 — 탭은 와이어·DB 의 칸 구간이고(Protocol.h INV_TAB_RANGES), 돈은 칸이 아니라 숫자 하나다.
+//        그래서 돈 줄의 tab 은 개수 표시(InvTab::COUNT)이고, 칸 구간을 쓰는 자리(넣기·불러오기·끼우기·쓰기)는 store 를 먼저 가른다.
+//        돈 줄은 표에 하나만 · 쌓임 한도 = 땅 한 무더기 최대(MAX_MONEY_STACK) · 값·효과·공격 0.
+// [값] price = 상점이 파는 값(전). 사들이는 값은 상점 규칙이 이 값에서 셈한다(CShopSystem). 0 = 상점에서 사고팔 수 없다.
 // ==========================================================================
+enum class ItemStore : uint8_t
+{
+    SLOT,    // 가방 칸 — 탭 구간 안
+    MONEY,   // 돈 — 가방의 돈 칸에 더한다(칸을 안 쓴다)
+};
+
 struct ItemDef
 {
     int32_t     itemId   = 0;              // 0 = 이 번호의 아이템은 없다(배열 구멍)
     std::string name;                      // UTF-8. 서버는 로그·명령 답에만 쓴다
-    InvTab      tab      = InvTab::COUNT;
+    ItemStore   store    = ItemStore::SLOT;   // 어디에 담기나 — 위 [담는 자리]
+    InvTab      tab      = InvTab::COUNT;     // 칸 아이템의 탭 · 돈이면 COUNT
     int32_t     maxStack = 0;              // 한 칸에 몇 개까지
     int32_t     healHp   = 0;              // 소비 아이템을 쓰면 채우는 체력 (그 밖은 0)
     int32_t     healMp   = 0;              // 소비 아이템을 쓰면 채우는 마력 (그 밖은 0) — 한 물약 한 효과(healHp 와 둘 다 1 이상이면 로드가 막는다)
     int32_t     attack   = 0;              // 착용하면 더하는 공격력 — 장비만 (그 밖은 0, 로드가 막는다)
+    int32_t     price    = 0;              // 상점 값(전) — 위 [값]. 0 = 사고팔 수 없다
 
     // 효과가 있나 — 표 읽기가 묻는다(소비 아이템인데 효과 칸이 다 0이면 거부). 빌드와 무관하다 — 한 표를 모든 빌드가 읽는다.
     bool HasEffect() const { return healHp > 0 || healMp > 0; }
@@ -55,6 +70,8 @@ class CItemTable
 {
 public:
     static constexpr int32_t MAX_ITEM_ID = 10000;
+    static constexpr int32_t MAX_STACK       = 9999;     // 칸 아이템의 쌓임 한도 상한
+    static constexpr int32_t MAX_MONEY_STACK = 100000;   // 돈 줄의 쌓임 한도 상한 = 땅 한 무더기 최대(원본 「바닥에 버릴 수 있는 돈 10만전」)
 
     // 파일을 읽어 표를 세운다. 실패하면 false 이고 까닭을 로그로 남긴다 — main 이 서버를 안 띄운다.
     bool Load(const std::string& path);

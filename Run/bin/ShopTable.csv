@@ -1,0 +1,12 @@
+# Shops - design data, read once at startup (CShopTable, USE_SHOP). Which NPC runs which shop: NpcTable.csv shopId.
+#   One row = "this shop sells (you can buy) / buys (you can sell) this item". Prices live in ItemTable.csv price;
+#   a shop buys an item back for half its price, rounded down (CShopSystem). Like the original, a shop may buy what it does not sell.
+#   shopId : 1..1000 · itemId : ItemTable.csv (not the money row, price > 0) · sells / buys : 0 or 1, not both 0 · one row per (shop, item).
+#   1 = butcher (potions; also buys snake hide) · 2 = tavern (mana potion) · 3 = smithy (dagger) - placeholder lists (npc-shop-plan.md).
+#   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
+shopId,itemId,sells,buys
+1,1,1,1
+1,2,1,1
+1,3,0,1
+2,5,1,1
+3,4,1,1

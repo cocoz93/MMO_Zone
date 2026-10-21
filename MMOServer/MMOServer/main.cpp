@@ -104,7 +104,7 @@ int main()
     //   맵 표는 모든 빌드가 읽는다(MapTable.h) — 에코 시험 모드도 같다.
     if (!server.LoadGameDataFiles(Platform::GetExecutableDir()))
     {
-        SLOG_ERROR("[Error] 기획 데이터 파일을 못 읽었습니다 - 위 [MapTable]·[LevelTable]·[ItemTable]·[MonsterTable]·[SpawnRegion]·[DropTable] 줄을 보세요");
+        SLOG_ERROR("[Error] 기획 데이터 파일을 못 읽었습니다 - 위의 [표 이름] 으로 시작하는 줄을 보세요(표마다 이름표가 붙는다 — 표가 늘어도 이 문장은 그대로)");
         return 1;
     }
 

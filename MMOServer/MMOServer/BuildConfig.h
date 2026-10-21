@@ -200,6 +200,18 @@
 #define USE_EQUIP USE_INVENTORY
 #endif
 
+// 상점 — NPC 에게 사고팔기(npc-shop-plan.md 4판). 규칙은 CShopSystem, 상점마다 목록은 상점 표(ShopTable.csv), 와이어는 Protocol.h 상점 절.
+//   1: 상점 활성 — 상점 표를 읽고 사고팔기 요청을 받는다 [기본 = 가방을 따름]
+//   0: 상점 경로가 컴파일에서 빠짐 — 요청은 조용히 버려진다(크기 등록이 빠짐). 상점 표를 안 읽고, NPC 표의 상점 번호 대조를 건너뛴다
+//   NPC(표·깔기·등장)는 이 토글과 상관없다 — 맵·포털처럼 세계 데이터다. 돈은 가방의 일부라 USE_INVENTORY 를 따른다.
+#ifndef USE_SHOP
+#define USE_SHOP USE_INVENTORY
+#endif
+
+#if USE_SHOP && !USE_INVENTORY
+	#error "USE_SHOP requires USE_INVENTORY=1 (사고팔기가 가방·돈을 바꾼다)"
+#endif
+
 #if USE_EQUIP && !USE_INVENTORY
 	#error "USE_EQUIP requires USE_INVENTORY=1 (끼울 장비가 가방에서 온다)"
 #endif

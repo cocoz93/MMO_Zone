@@ -20,6 +20,21 @@ bool CGameDataFiles::LoadAll(const std::string& dir)
     if (!_item.Load(dir + "ItemTable.csv"))
         return false;
 #endif
+#if USE_SHOP
+    // ★ 아이템 표 "뒤" — 상점 줄의 아이템 번호 · 돈 줄인지 · 값을 대조한다
+    if (!_shop.Load(dir + "ShopTable.csv", _item))
+        return false;
+#endif
+    // NPC 표는 토글이 없다 — 맵 표 "뒤"(맵 번호·크기) · 상점을 켠 빌드면 상점 표 "뒤"(상점 번호). 포털과 반경이 겹치면 경고만
+    if (!_npc.Load(dir + "NpcTable.csv", _map))
+        return false;
+#if USE_SHOP
+    if (!_npc.CheckShops(_shop))
+        return false;
+#else
+    SLOG_INFO("[NpcTable] 상점을 끈 빌드(USE_SHOP 0) — 상점 번호 대조를 건너뜁니다");
+#endif
+    _npc.WarnPortalOverlap(_portal);
 #if USE_MONSTER
     if (!_monster.Load(dir + "MonsterTable.csv"))
         return false;

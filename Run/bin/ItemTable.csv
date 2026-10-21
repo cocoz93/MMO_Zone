@@ -1,6 +1,8 @@
 # Item table - design data, read once at startup (CItemTable). The web client reads the same file.
 #   UTF-8 without BOM (names are Korean). No commas inside a cell.
-#   tab      : equip | use | etc  (bag tabs - slot ranges live in Protocol.h INV_TAB_RANGES)
+#   tab      : equip | use | etc  (bag tabs - slot ranges live in Protocol.h INV_TAB_RANGES) | money (2026-10-21)
+#              money = the money row: it goes to the bag's money, not a slot. One money row at most; maxStack up to 100000
+#              (one pile on the ground - the original 'drop at most 100000 jeon'); healHp, healMp, attack and price must be 0.
 #   maxStack : items per slot. equip must be 1 (equipment never stacks).
 #   healHp   : HP restored when used. A use item needs healHp or healMp >= 1 - one effect per potion, never both. Others 0.
 #   icon     : cell index on the LPC item sheet (16 cells per row, 32px). Server ignores it.
@@ -14,10 +16,13 @@
 #              A build without skills (USE_SKILL=0) still loads the row but refuses to use it (NOT_USABLE) - it has no mana.
 #   Lv1 HP is 800 and a snake bite is 5, so a small potion (200) is 40 bites.
 #   Lv1 mana is 100 and Baekhocham costs 10, so a mana potion (50) is 5 casts.
-itemId,name,tab,maxStack,healHp,icon,attack,healMp
-1,작은 물약,use,99,200,83,0,0
-2,큰 물약,use,99,500,85,0,0
-3,뱀 가죽,etc,99,0,136,0,0
-4,낡은 단검,equip,1,0,7,5,0
-5,마력 물약,use,99,0,84,0,50
-6,뱀왕의 지팡이,equip,1,0,147,15,0
+#   price    : shop price in jeon (2026-10-21, appended last). A shop buys it back for half, rounded down (CShopSystem).
+#              0 = cannot be bought or sold (the Snake King's Staff). Values follow the original Baram (npc-shop-plan.md value table):
+#              small 40 (snake meat) · big 100 (snake tail) · hide 40 · dagger 20 (wooden sword) · mana 10 (dongdongju).
+itemId,name,tab,maxStack,healHp,icon,attack,healMp,price
+1,작은 물약,use,99,200,83,0,0,40
+2,큰 물약,use,99,500,85,0,0,100
+3,뱀 가죽,etc,99,0,136,0,0,40
+4,낡은 단검,equip,1,0,7,5,0,20
+5,마력 물약,use,99,0,84,0,50,10
+6,뱀왕의 지팡이,equip,1,0,147,15,0,0

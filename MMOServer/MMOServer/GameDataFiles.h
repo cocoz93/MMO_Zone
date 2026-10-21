@@ -12,6 +12,8 @@
 #include "DropTable.h"
 #include "SkillTable.h"
 #include "MonsterSkillTable.h"
+#include "ShopTable.h"
+#include "NpcTable.h"
 
 // 담는 자리는 늘 있다 — 맵 표는 토글이 없다(MapTable.h [토글 없음]). 나머지 표는 표마다 토글이 따로다
 //   (레벨 표 USE_COMBAT · USE_INVENTORY · USE_MONSTER · USE_DROP · USE_SKILL).
@@ -51,11 +53,15 @@ public:
 
     const CMapTable& Maps() const { return _map; }
     const CPortalTable& Portals() const { return _portal; }
+    const CNpcTable& Npcs() const { return _npc; }   // 토글 없음 — 맵·포털과 같은 세계 데이터(NpcTable.h [토글 없음])
 #if USE_COMBAT
     const CLevelTable& Level() const { return _level; }
 #endif
 #if USE_INVENTORY
     const CItemTable& Item() const { return _item; }
+#endif
+#if USE_SHOP
+    const CShopTable& Shops() const { return _shop; }
 #endif
 #if USE_MONSTER
     // 속도 상한 대조(CheckSpeed)는 여기서 안 한다 — 상한은 AI 사정이라 CGameServer::LoadGameDataFiles 가 대조한다.
@@ -81,6 +87,10 @@ private:
 #if USE_INVENTORY
     CItemTable _item;
 #endif
+#if USE_SHOP
+    CShopTable _shop;   // 아이템 표를 먼저 읽고 번호·담는 자리·값을 대조한다(LoadAll 순서)
+#endif
+    CNpcTable _npc;     // 맵 표 · (상점을 켠 빌드면) 상점 표를 먼저 읽고 대조한다(LoadAll 순서). 토글 없음
 #if USE_MONSTER
     CMonsterTable _monster;
     CSpawnRegionTable _spawnRegion;   // 맵 표·몬스터 표를 먼저 읽고 그 결과로 대조한다(LoadAll 순서)

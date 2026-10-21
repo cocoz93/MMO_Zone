@@ -176,7 +176,9 @@ set(GAME_SOURCES
     ${SRV_DIR}/GameDataCsv.cpp
     ${SRV_DIR}/MapTable.cpp
     ${SRV_DIR}/PortalTable.cpp
+    ${SRV_DIR}/NpcTable.cpp
     ${SRV_DIR}/ItemTable.cpp
+    ${SRV_DIR}/ShopTable.cpp
     ${SRV_DIR}/Inventory.cpp
     ${SRV_DIR}/MonsterTable.cpp
     ${SRV_DIR}/SpawnRegionTable.cpp
