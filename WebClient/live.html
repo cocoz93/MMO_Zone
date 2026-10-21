@@ -109,7 +109,11 @@ const LEVELUP_LIFE = 1.6;                    // 레벨업 문구 표시 시간(�
 //   level===null = "아직 한 장도 못 받음" → HUD 에 레벨 줄을 안 그린다.
 //   공격력·방어력(attack·defense)도 여기 — 서버가 보낸 최종값(S2C_MY_STATS, 레벨 표 + 착용 장비 → 지속 효과 배수)을 그대로 쓴다. 효과(버프)는 내 액터(self.buffs)에.
 //     클라는 합을 셈하지 않는다(판정은 서버). null = 아직 한 장도 못 받음 → 상태창에 「—」.
-const me = { level:null, exp:0, base:0, next:0, levelUpT:0, attack:null, defense:null };
+//   돈(money)도 여기 — 서버가 보낸 최종값(S2C_MONEY — 입장 때 가방 전체 바로 뒤 한 장 · 바뀔 때마다). null = 아직 못 받음 → 상태창에 「—」.
+//     moneyDelta·moneyT = 방금 바뀐 몫과 그 표시 시간(초) — 상점 창 아래에 잠깐(사고팔기는 성공 알림이 따로 없다 — 돈·칸 패킷이 결과)
+const me = { level:null, exp:0, base:0, next:0, levelUpT:0, attack:null, defense:null, money:null, moneyDelta:0, moneyT:0 };
+const MONEY_DELTA_LIFE = 2.0;
+function fmtMoney(n){ return n===null ? '—' : Number(n).toLocaleString('ko-KR')+'전'; }
 // 가방 (USE_INVENTORY) — 본인 것만 온다. self 밖에 두는 이유는 me 와 같다(존을 넘을 때 self 가 새로 만들어진다).
 //   slots: 칸 번호 -> {id, c}. 서버가 보낸 칸의 "최종값"을 그대로 담는다 — 넣고 빼는 규칙은 클라가 모른다(판정은 서버).
 const bag = { slots:new Map(), open:false, tab:1, hover:null };
@@ -152,17 +156,61 @@ const ZONE_FAIL_TEXT = {
   NOT_FOUND:'갈 곳이 없습니다', FULL:'채널이 가득 찼습니다', SAME_ZONE:'이미 그 채널에 있습니다',
   NOT_ALLOWED:'다른 맵으로는 포털로만 갈 수 있습니다', TOO_FAR:'포털에 더 가까이 가세요', NO_PORTAL:'이 맵의 포털이 아닙니다',
 };
-// 지금 맵의 포털 중 손이 닿는 가장 가까운 것 — 서버 PortalDef::InReach 와 같은 식(거리 ≤ 반경). 맞는지는 서버가 다시 본다
+// 「손이 닿나」 식 한 곳 — 서버 Reach::InRadius(Reach.h)와 같은 식(중심과의 거리 ≤ 반경 · 경계 포함). 포털 · NPC 가 같이 쓴다.
+//   두 곳에 적으면 한쪽만 「<」로 바뀌는 날 F 키가 포털엔 닿고 NPC 엔 안 닿는다. 맞는지는 서버가 다시 본다
+function inReach(px,py,cx,cy,r){ const dx=px-cx, dy=py-cy; return dx*dx+dy*dy <= r*r; }
+// 지금 맵의 포털 중 손이 닿는 가장 가까운 것. 맞는지는 서버가 다시 본다
 function portalInReach(){
   if(!self) return null;
   let best=null, bestD=1e9;
   for(const pt of PORTALS){
     if(pt.mapId!==ZONE.mapId) continue;
     const d=Math.hypot(self.x-pt.x, self.y-pt.y);
-    if(d<=pt.radius && d<bestD){ best=pt; bestD=d; }
+    if(inReach(self.x,self.y,pt.x,pt.y,pt.radius) && d<bestD){ best=pt; bestD=d; }
   }
   return best;
 }
+// NPC 표·상점 표 — 서버와 같은 파일(Run/bin/NpcTable.csv · ShopTable.csv)을 serve.js 의 /data 로 받는다(맵·포털 표와 같은 꼴).
+//   NPC 는 등장 엔트리의 defId(= npcId)로 줄을 찾아 이름표·생김새·인사·메뉴를 정한다 — 말 걸기는 서버 왕복이 없다(판정할 것이 없다).
+//   상점 표는 메뉴(사기 목록 · 팔기 칸 표시)에만 쓴다 — 사고팔 수 있나는 요청마다 서버가 다시 본다(어긋나면 S2C_SHOP_FAIL 이 [System] 한 줄).
+//   못 받으면 NPC 를 번호로 고른 사람 모양 · 이름표 「NPC」로 그리고 메뉴를 못 연다(어느 상점인지 모른다). 없다는 사실은 콘솔 경고와 data-shop 에 남는다.
+const NPCS = new Map();                                                 // npcId -> {mapId, x, y, radius, name, look, greeting, shopId}
+const SHOPS = new Map();                                                // shopId -> [{itemId, sells, buys}]
+// NPC 생김새 — NPC 표 look 칸 → 사람 겹 그림 조합(lpc_layers.js 의 이미 쓰는 겹 — 새로 그리지 않는다 · 플랜 「표」). 모르는 이름이면 번호로 고른 조합(사람과 같은 규칙)
+const NPC_LOOK = {
+  butcher:   ['b_bronze','hd_bronze','l_leather','t_red','h_plain'],        // 푸줏간 주인 — 붉은 웃옷 · 가죽 바지
+  innkeeper: ['bf_amber','hd_f_amber','lf_rose','tf_rose','hf_braid'],      // 주막 주모 — 땋은 머리
+  smith:     ['b_brown','hd_brown','l_charcoal','t_slate','h_spiked'],      // 대장장이 — 잿빛 웃옷
+};
+function npcOf(o){ return (o && o.disp===P.DISPLAY_NPC) ? (NPCS.get(o.defId) || null) : null; }
+// 손이 닿는 NPC 중 가장 가까운 것 — 반경은 NPC 의 지금 자리 + 표의 반경(서버 CShopSystem::CheckNpc 와 같은 자리). 상점이 없는 NPC 도 든다(인사는 된다)
+function npcInReach(){
+  if(!self) return null;
+  let best=null, bestD=1e9;
+  others.forEach((o,id)=>{ const n=npcOf(o); if(!n) return;
+    const d=Math.hypot(self.x-o.x, self.y-o.y);
+    if(inReach(self.x,self.y,o.x,o.y,n.radius) && d<bestD){ best={ id, o, n, d }; bestD=d; } });
+  return best;
+}
+// 상점 (USE_SHOP) — 화면 상태만 든다. 서버는 「상점을 열었다」를 안 든다(Protocol.h 상점 절) — 사고팔기 요청마다 처음부터 다시 본다.
+//   npc = 메뉴를 연 NPC 의 캐릭터 번호(등장 엔트리 playerId — 요청에 이 번호가 실린다 · NPC 표 번호가 아니다) · mode = null | 'menu' | 'buy' | 'sell'
+const shop = { npc:0, mode:null, hover:null, lastFail:null, sent:0 };
+function shopNpc(){ const o = shop.npc ? others.get(shop.npc) : null; return o ? { o, n:npcOf(o) } : null; }
+function shopLines(){ const s=shopNpc(); return (s && s.n && SHOPS.get(s.n.shopId)) || []; }   // 그 NPC 상점의 줄(파는 것 · 사들이는 것)
+function openShop(id){ shop.npc=id; shop.mode='menu'; shop.hover=null; if(party.menu) { party.menu=null; partyChanged(); } shopChanged(); }
+function closeShop(){ if(!shop.mode) return; shop.npc=0; shop.mode=null; shop.hover=null; shopChanged(); }
+// 사들이는 값(한 개) — 보여 주기만(정본은 서버 CShopSystem::SellPriceOf — 파는 값의 절반 내림). 받는 돈은 S2C_MONEY 가 정한다
+function sellPriceOf(it){ return Math.floor((it.price||0)/2); }
+function shopChanged(){ const s=shopNpc();
+  document.documentElement.setAttribute('data-shop', JSON.stringify({ mode:shop.mode, npc:shop.npc, defId: s ? s.o.defId : 0, shopId: s && s.n ? s.n.shopId : 0,
+    npcs:NPCS.size, shops:SHOPS.size, money:me.money, lastFail:shop.lastFail, sent:shop.sent })); }
+// 사고팔기 거절 사유(P.SHOP_FAIL 이름) → 채팅 칸 [System] 문구. 거절이면 칸·돈이 그대로다(서버는 넣기가 된 뒤에만 돈을 뺀다)
+const SHOP_FAIL_TEXT = {
+  DEAD:'쓰러진 동안에는 사고팔 수 없습니다', NO_NPC:'상대할 상인이 없습니다', NOT_IN_REACH:'상인에게 더 가까이 가세요',
+  NOT_SOLD_HERE:'이 상점에서 팔지 않는 물건입니다', NOT_BOUGHT_HERE:'이 상점에서 사들이지 않는 물건입니다',
+  BAD_SLOT:'팔 수 없는 칸입니다 — 끼운 장비는 벗고 파세요', BAD_COUNT:'개수가 맞지 않습니다',
+  NOT_ENOUGH_MONEY:'돈이 모자랍니다', BAG_FULL:'가방에 자리가 없습니다', MONEY_FULL:'들 수 있는 돈(1억 전)을 넘습니다',
+};
 function portalChanged(){ const r=portalInReach(); document.documentElement.setAttribute('data-portal', JSON.stringify({ map:ZONE.mapId, ch:ZONE.channel,
   kind:(MAPS.get(ZONE.mapId)||{}).kind||null, maps:MAPS.size, portals:PORTALS.length, here:PORTALS.filter(p=>p.mapId===ZONE.mapId).length,
   inReach:r?r.id:null, sent:portalState.sent, lastFail:portalState.lastFail })); }
@@ -266,6 +314,7 @@ function itemName(id){ const it=ITEMS.get(id); return it ? it.name : ('#'+id); }
 const PICKUP_FAIL_TEXT = {
   DEAD:'쓰러진 동안에는 주울 수 없습니다', NO_ITEM:'주울 것이 없습니다 — 가까이 가서 Z',
   NOT_OWNER:'다른 사람이 먼저 주울 수 있는 아이템입니다 — 잠시 뒤에 다시',
+  MONEY_FULL:'들 수 있는 돈(1억 전)을 넘어 주울 수 없습니다',
 };
 // 전투 필드 기본값 — CREATE 와 부활 양쪽에서 같은 모양으로 만들려고 한 곳에 둔다
 //   mp·maxMp(USE_SKILL) — S2C_ACTOR_MP 가 채운다. 본인 것만 오므로 남의 액터는 null 그대로다(남의 마력은 안 그린다). null = 아직 한 장도 못 받음
@@ -346,8 +395,10 @@ function monSheetFor(meta,row){ const k=meta.kind+':'+row;
   cv.getContext('2d').drawImage(im, 0,row*64,w,64, 0,0,w,64);
   MONSHEET.set(k,cv); return cv; }
 
+// NPC 는 표의 생김새(NPC_LOOK) — 조합 열쇠를 「npc:생김새」로 둬 사람 조합 캐시와 같은 길로 굽는다. 모르는 생김새 · 표를 못 받음이면 번호로 고른 조합
+function npcCombo(o){ const n=npcOf(o), L=n && NPC_LOOK[n.look]; return L ? { key:'npc:'+n.look, L } : null; }
 function sheetFor(o,row){ const m=monMeta(o); if(m) return monSheetFor(m,row);
-  const c=comboFor(o.id||0), k=c.key+':'+row;
+  const c=npcCombo(o) || comboFor(o.id||0), k=c.key+':'+row;
   const hit=SHEETC.get(k);
   if(hit){ SHEETC.delete(k); SHEETC.set(k,hit); return hit; }                          // 재삽입 = 최근 사용 갱신
   const cv=document.createElement('canvas'); cv.width=576; cv.height=64; const cx=cv.getContext('2d');
@@ -511,6 +562,15 @@ function onPacket(p){
     case P.MSG.S2C_ADMIN_LOGIN_FAIL: sysMsg('운영자 로그인 실패 — 주소의 ?admin= 키를 확인하세요'); break;
     // 쓰기 거절 — 성공은 따로 안 온다(칸 갱신과 S2C_ACTOR_STATS — 마력 물약이면 S2C_ACTOR_MP — 가 곧 결과다)
     case P.MSG.S2C_USE_ITEM_FAIL: sysMsg(USE_FAIL_TEXT[p.reasonName] || ('쓰지 못했습니다 ('+p.reasonName+')')); break;
+    // 가진 돈 — 최종값(두 번 와도 같다). 입장 때 가방 전체 바로 뒤 한 장 · 줍기·사고팔기·방 보상·/item 으로 바뀔 때마다.
+    //   방금 바뀐 몫은 상점 창 아래에 잠깐 — 첫 장(입장)은 바뀐 것이 아니라 안 띄운다
+    case P.MSG.S2C_MONEY:
+      if(me.money!==null && p.money!==me.money){ me.moneyDelta=p.money-me.money; me.moneyT=MONEY_DELTA_LIFE; }
+      me.money=p.money; bagChanged(); shopChanged(); break;
+
+    // ---- 상점 (USE_SHOP) — 성공은 따로 안 온다(칸 갱신 + S2C_MONEY 가 곧 결과). 거절만 사유가 온다 ----
+    case P.MSG.S2C_SHOP_FAIL:
+      shop.lastFail=p.reasonName; sysMsg(SHOP_FAIL_TEXT[p.reasonName] || ('사고팔지 못했습니다 ('+p.reasonName+')')); shopChanged(); break;
 
     // ---- 스탯·장착 (USE_COMBAT · USE_EQUIP) ----
     // 내 최종 공격력·방어력 — 입장·레벨업·끼우기·빼기 때 온다. 끼우기 성공은 따로 안 온다(칸 갱신 둘 + 이 한 장이 곧 결과다)
@@ -613,6 +673,29 @@ function sendPickup(){
   if(!self || !ws || ws.readyState!==1) return;
   ws.send(P.enc.pickup());
 }
+// F = 손이 닿는 대상 중 가장 가까운 것 하나(포털 · NPC — 식은 inReach 한 곳). 포털이면 이동 요청, NPC 면 메뉴를 연다(서버 왕복 없음).
+//   같은 거리면 NPC — 서버가 기동 때 「NPC 와 포털 반경이 겹친다」 경고를 남기는 자리다(NpcTable). 쓰러져 있으면 안 연다(포털과 같은 규칙)
+function interact(){
+  if(!self || self.dead) return;
+  const pt=portalInReach(), np=npcInReach();
+  const dp = pt ? Math.hypot(self.x-pt.x, self.y-pt.y) : 1e9;
+  if(np && np.d<=dp) openShop(np.id); else if(pt) usePortal();
+}
+// NPC 를 눌렀다 — 손이 닿으면 메뉴, 아니면 한 줄 안내(멀리서 연 메뉴로 산 것이 서버에서 NOT_IN_REACH 로 튕기는 것보다 먼저 알린다)
+function clickNpc(id){
+  const o=others.get(id), n=npcOf(o); if(!n || !self) return;
+  if(inReach(self.x,self.y,o.x,o.y,n.radius)) openShop(id); else sysMsg(n.name+'에게 더 가까이 가세요');
+}
+// 사고팔기 — 보내기만 한다. 되는지(반경·돈·가방·개수)는 서버가 가르고 안 되면 사유가 [System] 으로 온다(클라가 미리 거르지 않는다 — 판정을 두 곳에 두면 어긋난다)
+function shopBuy(itemId, count){
+  if(!ws || ws.readyState!==1 || !shop.npc) return;
+  ws.send(P.enc.shopBuy(shop.npc, itemId, count)); shop.sent++; shopChanged();
+}
+// 팔기 모드에서 가방 칸을 눌렀다 — 1개, Shift 를 누른 채면 그 칸 전부
+function shopSell(slot, all){
+  const e=bag.slots.get(slot); if(!e || !ws || ws.readyState!==1 || !shop.npc) return;
+  ws.send(P.enc.shopSell(shop.npc, slot, all ? e.c : 1)); shop.sent++; shopChanged();
+}
 if(!SNAP){
   addEventListener('keydown',e=>{ if(typing())return; const k=e.key.toLowerCase();
     if(k===' '||e.code==='Space'){ if(!e.repeat) sendAttack(); e.preventDefault(); return; }
@@ -623,8 +706,8 @@ if(!SNAP){
     if(e.code==='KeyC' && !e.repeat){ stw.open=!stw.open; stw.hover=false; statsChanged(); e.preventDefault(); return; }
     // Z = 줍기 — 고르는 건 서버(2칸 안에서 주울 수 있는 가장 가까운 것 하나). 누르고 있어도 한 번(e.repeat 무시)
     if(e.code==='KeyZ'){ if(!e.repeat) sendPickup(); e.preventDefault(); return; }
-    // F = 포털(상호작용) — 손이 닿는 포털이 있을 때만 보낸다. I·C 와 같은 까닭으로 e.code — 누르고 있어도 한 번
-    if(e.code==='KeyF'){ if(!e.repeat) usePortal(); e.preventDefault(); return; }
+    // F = 상호작용 — 손이 닿는 가장 가까운 포털·NPC 하나(interact). I·C 와 같은 까닭으로 e.code — 누르고 있어도 한 번
+    if(e.code==='KeyF'){ if(!e.repeat) interact(); e.preventDefault(); return; }
     // 1~8 = 스킬(키 번호 = 스킬 번호). I·C 와 같은 까닭으로 e.code — 누르고 있어도 한 번
     const dg=/^Digit([1-8])$/.exec(e.code);
     if(dg){ if(!e.repeat && !isMonsterSkill(Number(dg[1]))) sendSkill(Number(dg[1])); e.preventDefault(); return; }   // 몬스터 몫 번호는 안 보낸다(보내면 서버가 BAD_SKILL 로 거절)
@@ -632,8 +715,8 @@ if(!SNAP){
     if(e.code==='KeyP' && !e.repeat){ party.open=!party.open; party.hover=null; partyChanged(); e.preventDefault(); return; }
     // Y·N = 받은 파티 요청에 수락·거절 — 요청 창이 떠 있을 때만(아니면 그냥 지나간다)
     if(party.ask && (e.code==='KeyY' || e.code==='KeyN')){ if(!e.repeat) partyAnswer(e.code==='KeyY'); e.preventDefault(); return; }
-    if(k==='escape' && (bag.open || stw.open || party.open || party.menu)){   // 창을 다 닫는다(받은 요청 창은 답해야 닫힌다 — N 이 거절)
-      bag.open=false; bag.hover=null; stw.open=false; stw.hover=false; party.open=false; party.menu=null; party.hover=null; bagChanged(); partyChanged(); return; }
+    if(k==='escape' && (bag.open || stw.open || party.open || party.menu || shop.mode)){   // 창을 다 닫는다(받은 요청 창은 답해야 닫힌다 — N 이 거절)
+      bag.open=false; bag.hover=null; stw.open=false; stw.hover=false; party.open=false; party.menu=null; party.hover=null; closeShop(); bagChanged(); partyChanged(); return; }
     if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k)){ if(!keys.has(k)){keys.add(k); sendMove();} e.preventDefault(); }});
   addEventListener('keyup',e=>{ if(typing())return; const k=e.key.toLowerCase(); if(keys.delete(k)) sendMove(); });
   // Enter=채팅 열기, 채팅창 내 Enter=전송/Esc=취소
@@ -649,16 +732,25 @@ if(!SNAP){
     bag.hover = h && h.slot!==undefined ? h.slot : null; stw.hover = s==='weapon';
     const pu=partyUiHit(e.offsetX,e.offsetY);   // 파티 단추 위면 그 단추를 밝힌다
     party.hover = pu && pu.btn ? pu : null;
-    cv.style.cursor = (h || s || pu) ? 'default' : ''; });
-  cv.addEventListener('mouseleave',()=>{ bag.hover=null; stw.hover=false; party.hover=null; });
-  // 파티 마우스 — 받은 요청 창 > 캐릭터 메뉴 > 파티 창 순서로 본다(위에 그려진 것이 먼저). 가방·상태창 위는 그쪽 몫이라 손대지 않는다.
-  //   창 밖 게임 화면을 누르면 그 자리의 사람 캐릭터(나·몬스터 빼고)에 메뉴를 연다 — 10-17 전엔 창 밖 클릭이 아무 일도 안 했다(위 가방 주석).
+    const su=shopUiHit(e.offsetX,e.offsetY);    // 상점 창 단추도 같은 꼴
+    shop.hover = su && su.btn ? su : null;
+    cv.style.cursor = (h || s || pu || su) ? 'default' : ''; });
+  cv.addEventListener('mouseleave',()=>{ bag.hover=null; stw.hover=false; party.hover=null; shop.hover=null; });
+  // 누르기 — 위에 그려진 것부터: 받은 파티 요청 창 > 상점 창 > 캐릭터 메뉴·파티 창 > 가방(팔기 모드면 그 칸을 판다)·상태창 > 게임 화면.
+  //   게임 화면을 누르면 그 자리의 NPC(말 걸기) 또는 사람 캐릭터(나·몬스터 빼고 — 파티 메뉴)를 고른다 — 10-17 전엔 창 밖 클릭이 아무 일도 안 했다(위 가방 주석).
   cv.addEventListener('mousedown',e=>{ if(e.button!==0) return;
     const x=e.offsetX, y=e.offsetY;
     const pu=partyUiHit(x,y);
+    if(pu && pu.where==='ask'){ partyClick(pu); return; }   // 답을 기다리는 창이 맨 위
+    const su=shopUiHit(x,y);
+    if(su){ shopClick(su); return; }
     if(pu){ partyClick(pu); return; }
-    if((bag.open && bagHit(x,y)) || (stw.open && statusHit(x,y))) return;
+    if(bag.open){ const h=bagHit(x,y);
+      if(h){ if(shop.mode==='sell' && h.slot!==undefined && bag.slots.has(h.slot)) shopSell(h.slot, e.shiftKey); return; } }
+    if(stw.open && statusHit(x,y)) return;
     if(x<VX || x>VX+VW || y<VY || y>VY+VH){ if(party.menu){ party.menu=null; partyChanged(); } return; }
+    const nid=npcAt(x,y);
+    if(nid){ if(party.menu){ party.menu=null; partyChanged(); } clickNpc(nid); return; }
     const id=charAt(x,y);
     party.menu = id ? { id, x, y } : null; partyChanged(); });
   cv.addEventListener('mousedown',e=>{ if(e.button!==0 || !bag.open) return;
@@ -670,7 +762,7 @@ if(!SNAP){
     if(stw.open && statusHit(e.offsetX,e.offsetY)==='weapon'){
       if(bag.slots.has(P.EQUIP_SLOT.WEAPON)) ws.send(P.enc.unequip(P.EQUIP_SLOT.WEAPON));
       return; }
-    if(!bag.open) return;
+    if(!bag.open || shop.mode==='sell') return;   // 팔기 모드에선 칸 누르기가 팔기다 — 두 번 누르기로 물약을 써 버리지 않게
     const h=bagHit(e.offsetX,e.offsetY); if(!h || h.slot===undefined || !bag.slots.has(h.slot)) return;
     ws.send(isEquipTabSlot(h.slot) ? P.enc.equip(h.slot) : P.enc.useItem(h.slot)); });
 }
@@ -805,14 +897,16 @@ function drawChar(o,isMe,t,fade=1){
   // nametag = server's authoritative display char (몬스터는 글리프가 없는 제어문자라 종류 이름을 찍는다)
   //   높이는 "머리 끝 위 같은 간격" — 사람 머리 끝은 칸 안 y=12, 몬스터는 방향(행)마다 top 이 달라
   //   그만큼 내린다(뱀은 옆을 볼 때 머리가 6px 낮다).
+  //   NPC 는 표의 이름(NPC 부류 값은 글리프가 없는 제어문자다) — 사람 이름표와 바탕색을 달리한다(누르면 말 걸기). 표를 못 받았으면 「NPC」
   const ny = mon ? dy + dh*(mon.top[row]-12)/64 - 4 : py-dh*0.92-4;
-  const tag = mon ? mon.label : String.fromCharCode(o.disp||63);
+  const isNpc = o.disp===P.DISPLAY_NPC, npc = isNpc ? npcOf(o) : null;
+  const tag = mon ? mon.label : isNpc ? (npc ? npc.name : 'NPC') : String.fromCharCode(o.disp||63);
   ctx.save(); ctx.globalAlpha=fade;       // 이름표·막대도 몸과 같이 흐려진다
-  ctx.font='600 12px '+MONO; ctx.textAlign='center';
+  ctx.font = isNpc ? '600 12px '+SANS : '600 12px '+MONO; ctx.textAlign='center';
   const nw=ctx.measureText(tag).width+12;
-  ctx.fillStyle = o.dead ? 'rgba(80,24,24,.85)' : (isMe?'rgba(40,90,60,.92)':'rgba(18,26,18,.72)');
+  ctx.fillStyle = o.dead ? 'rgba(80,24,24,.85)' : isMe ? 'rgba(40,90,60,.92)' : isNpc ? 'rgba(70,52,14,.88)' : 'rgba(18,26,18,.72)';
   rr(px-nw/2,ny-14,nw,15,4); ctx.fill();
-  ctx.fillStyle = o.dead ? '#f0b8b8' : (isMe?'#bff0c9':'#eaf3e0'); ctx.fillText(tag,px,ny-2.5);
+  ctx.fillStyle = o.dead ? '#f0b8b8' : isMe ? '#bff0c9' : isNpc ? '#ffe7a8' : '#eaf3e0'; ctx.fillText(tag,px,ny-2.5);
 
   drawHpBar(o,px,ny-22);                  // 이름표 위
   ctx.restore();
@@ -1145,6 +1239,7 @@ function drawHUD(){
   if(stw.open) drawStatus();   // 채팅 패널 뒤 — 창이 좁아 채팅 자리까지 내려와도 상태창이 위에 그려진다
   drawPartyPanel();            // 상태창 아래(왼쪽) — 파티에 들면 늘, P 로 연 관리 창이면 파티가 없어도
   if(bag.open) drawBag();   // 맨 마지막 — 창이 낮아 레이더 자리까지 내려와도 가방이 위에 그려진다
+  drawShop();               // 상점 창 — 게임 화면 위 가운데(가방과 안 겹친다). 받은 파티 요청 창이 같은 자리면 그 창이 위
   drawPartyMenu();          // 캐릭터를 눌러 연 메뉴와 받은 요청 창은 모든 창 위에 — 답을 기다리는 것이라 가리면 안 된다
   drawPartyAsk();
 }
@@ -1279,6 +1374,8 @@ function drawBag(){
     ctx.strokeStyle = c.slot===bag.hover ? 'rgba(255,233,138,.85)' : 'rgba(150,200,150,.16)'; ctx.lineWidth=1; ctx.stroke();
     if(!e) continue;
     used++;
+    // 팔기 모드 — 그 상점이 사들이는 칸은 금빛 테두리(표시만 — 판정은 서버)
+    if(shop.mode==='sell' && shopBuysItem(e.id)){ ctx.strokeStyle='rgba(255,210,110,.9)'; ctx.lineWidth=2; rr(c.x+1,c.y+1,BAG_CELL-2,BAG_CELL-2,5); ctx.stroke(); ctx.lineWidth=1; }
     drawItemIcon(c.x,c.y,BAG_CELL,e.id);
     if(e.c>1){ ctx.font='600 10px '+MONO; ctx.textAlign='right';
       ctx.lineWidth=3; ctx.strokeStyle='rgba(0,0,0,.85)'; ctx.strokeText(String(e.c), c.x+BAG_CELL-3, c.y+BAG_CELL-4);
@@ -1287,6 +1384,8 @@ function drawBag(){
   }
   ctx.fillStyle='rgba(180,210,180,.6)'; ctx.font='11px '+SANS;
   ctx.fillText(INV_TAB_NAMES[bag.tab]+'  '+used+' / '+L.cells.length+'칸', px+12, py+ph-9);
+  // 가진 돈 — 오른쪽 아래(돈은 칸이 아니라 숫자 하나 — Inventory.h [돈])
+  ctx.textAlign='right'; ctx.fillStyle='#ffe98a'; ctx.font='600 11px '+MONO; ctx.fillText(fmtMoney(me.money), px+pw-12, py+ph-9); ctx.textAlign='left';
   if(hover) drawItemTip(px, hover.c.y, hover.e);
 }
 // 마우스를 올린 칸의 설명 — 창 왼쪽(게임 화면 쪽)에 띄운다. 창 위에 띄우면 옆 칸을 가린다.
@@ -1300,15 +1399,21 @@ function drawItemTip(winX, y, e){
   if(it && it.healMp>0) lines.push(['마력 '+it.healMp+' 회복', '#9ec8ff']);
   if(equip && it.attack>0) lines.push(['공격력 +'+it.attack, '#bfe8c0']);
   lines.push([it ? (e.c+' / '+it.maxStack+'개') : (e.c+'개'), 'rgba(200,215,200,.8)']);
-  if(it && (it.healHp>0 || it.healMp>0)) lines.push(['두 번 눌러 사용', 'rgba(255,233,138,.9)']);
-  if(equip) lines.push(['두 번 눌러 장착', 'rgba(255,233,138,.9)']);
+  if(shop.mode==='sell'){   // 팔기 모드 — 받을 값(한 개)을 보여 주기만. 정본은 서버(S2C_MONEY)
+    //   두 줄로 — 한 줄에 다 쓰면 툴팁 폭(156)을 넘어 가방 창 위로 삐져나갔다(10-21 사진)
+    if(it && shopBuysItem(e.id) && sellPriceOf(it)>0){ lines.push(['팔면 한 개 '+fmtMoney(sellPriceOf(it)), 'rgba(255,210,110,.95)']); lines.push(['눌러 팔기 · Shift 전부', 'rgba(255,233,138,.9)']); }
+    else lines.push(['이 상점은 안 사들입니다', 'rgba(200,180,170,.8)']);
+  } else {
+    if(it && (it.healHp>0 || it.healMp>0)) lines.push(['두 번 눌러 사용', 'rgba(255,233,138,.9)']);
+    if(equip) lines.push(['두 번 눌러 장착', 'rgba(255,233,138,.9)']);
+  }
   const tw=156, th=58+lines.length*17+6, tx=winX-tw-10, ty=Math.min(y, H-14-th);
   ctx.fillStyle='rgba(8,12,10,.97)'; rr(tx,ty,tw,th,8); ctx.fill();   // 게임 화면 위에 뜨므로 뒤가 비치지 않게 거의 불투명
   ctx.strokeStyle='rgba(255,233,138,.35)'; ctx.lineWidth=1; ctx.stroke();
   ctx.fillStyle='rgba(0,0,0,.35)'; rr(tx+10,ty+10,36,36,5); ctx.fill();
   drawItemIcon(tx+10,ty+10,36,e.id);
   ctx.textAlign='left'; ctx.fillStyle='#f2f6ec'; ctx.font='600 13px '+SANS; ctx.fillText(fitText(name, tw-66), tx+56, ty+25);
-  ctx.fillStyle='rgba(180,210,180,.6)'; ctx.font='11px '+SANS; ctx.fillText(it ? INV_TAB_NAMES[it.tab] : '', tx+56, ty+41);
+  ctx.fillStyle='rgba(180,210,180,.6)'; ctx.font='11px '+SANS; ctx.fillText(it ? (it.money ? '돈' : INV_TAB_NAMES[it.tab]) : '', tx+56, ty+41);
   ctx.strokeStyle='rgba(150,200,150,.14)'; ctx.beginPath(); ctx.moveTo(tx+10,ty+54); ctx.lineTo(tx+tw-10,ty+54); ctx.stroke();
   lines.forEach((l,i)=>{ ctx.fillStyle=l[1]; ctx.font='12px '+SANS; ctx.fillText(l[0], tx+12, ty+72+i*17); });
 }
@@ -1318,7 +1423,7 @@ function isEquipTabSlot(slot){ const r=P.INV_TAB_RANGES[INV_TAB_FILE.get('equip'
 // ---- 상태창 (USE_COMBAT · USE_EQUIP) — 그리기와 마우스 판정이 같은 자리 계산(statusLayout)을 쓴다 ----
 //   자리 = 왼쪽 위, 이름표 아래. 옆 여백이 있으면 연결 표시(resize() 가 110px 로 옮긴다, 높이 약 30) 아래 12px,
 //   없으면(여백 250px 미만 · 창 전체가 게임 화면) 연결 표시가 위 가운데로 가므로 이름표 바로 아래(110). 모양은 다른 HUD 와 같은 panel().
-const ST_W=220, ST_ROW=22, ST_TOP=30, ST_CELL=40, ST_ROWS=5;   // 줄 = 레벨 · 체력 · 마력 · 공격력 · 방어력
+const ST_W=220, ST_ROW=22, ST_TOP=30, ST_CELL=40, ST_ROWS=6;   // 줄 = 레벨 · 체력 · 마력 · 공격력 · 방어력 · 돈
 function statusLayout(){
   const px=14, py=(VX>=250) ? 152 : 110, pw=ST_W;
   const ph=ST_TOP+12+ST_ROWS*ST_ROW+14+ST_CELL+12+24;
@@ -1344,6 +1449,7 @@ function drawStatus(){
     ['마력',   self && self.maxMp!==null ? self.mp+' / '+self.maxMp : '—'],   // null = 아직 못 받음(스킬을 끈 서버면 끝까지)
     ['공격력', me.attack===null ? '—' : String(me.attack)],
     ['방어력', me.defense===null ? '—' : String(me.defense)],
+    ['돈',     fmtMoney(me.money)],                                       // null = 아직 못 받음(가방을 끈 서버면 끝까지)
   ];
   let y=py+ST_TOP+12+14;
   for(const [k,v] of rows){
@@ -1385,6 +1491,97 @@ function charAt(x,y){
   others.forEach((o,id)=>{ if(monMeta(o) || !(o.disp>=0x20)) return;
     const b=charBox(o); if(x>=b.x && x<=b.x+b.w && y>=b.y && y<=b.y+b.h && o.ry>bestY){ best=id; bestY=o.ry; } });
   return best;
+}
+// 그 자리의 NPC(표에 줄이 있는 것) — 누르면 말 걸기(clickNpc). 겹치면 앞에 그려진 것(charAt 과 같은 규칙). 없으면 0
+function npcAt(x,y){
+  let best=0, bestY=-1e9;
+  others.forEach((o,id)=>{ if(!npcOf(o)) return;
+    const b=charBox(o); if(x>=b.x && x<=b.x+b.w && y>=b.y && y<=b.y+b.h && o.ry>bestY){ best=id; bestY=o.ry; } });
+  return best;
+}
+
+// ---- 상점 (USE_SHOP) — 그리기와 마우스 판정이 같은 자리 계산(shopLayout)을 쓴다(가방·파티와 같은 꼴) ----
+//   자리 = 게임 화면 위 가운데(받은 파티 요청 창과 같은 자리 — 그 창이 뜨면 위에 그려지고 먼저 눌린다). 모드마다 몸이 다르다:
+//   menu = 이름 · 인사 · 단추(사기 · 팔기 · 닫기 — 상점이 없거나 파는/사들이는 것이 없으면 그 단추를 안 낸다)
+//   buy  = 파는 물건 줄마다 그림 · 이름 · 값 · 단추(1개 · 10개) + 가진 돈 · 뒤로
+//   sell = 안내(가방 칸을 누르면 1개 · Shift 면 전부) + 가진 돈 · 뒤로 — 가방 창이 같이 열리고 사들이는 칸에 금빛 테두리
+const SHOP_W=320, SHOP_ROW=34;
+function shopLayout(){
+  const s=shopNpc(); if(!shop.mode || !s) return null;
+  const lines=shopLines(), sells=lines.filter(l=>l.sells), buys=lines.filter(l=>l.buys);
+  const x=Math.round(VX+VW/2-SHOP_W/2), y=VY+86, L={ x, y, w:SHOP_W, h:104, s, sells, buys, btns:{}, rows:[] };
+  if(shop.mode==='menu'){
+    const by=y+L.h-36; let bx=x+14;
+    if(sells.length){ L.btns.buy={ x:bx, y:by, w:70, h:24 }; bx+=78; }
+    if(buys.length){ L.btns.sell={ x:bx, y:by, w:70, h:24 }; }
+    L.btns.close={ x:x+SHOP_W-84, y:by, w:70, h:24 };
+  } else {
+    if(shop.mode==='buy'){
+      L.h=40+sells.length*SHOP_ROW+48;
+      sells.forEach((l,i)=>{ const ry=y+38+i*SHOP_ROW;
+        L.rows.push({ y:ry, itemId:l.itemId, b1:{ x:x+SHOP_W-116, y:ry+5, w:48, h:22 }, b10:{ x:x+SHOP_W-62, y:ry+5, w:48, h:22 } }); });
+    }
+    L.btns.back={ x:x+SHOP_W-84, y:y+L.h-34, w:70, h:24 };
+  }
+  return L;
+}
+// 마우스가 상점 창 위면 {btn, itemId?}(빈 곳이면 btn null), 밖이면 null
+function shopUiHit(x,y){
+  const L=shopLayout(); if(!L || !inRect(x,y,L)) return null;
+  for(const [k,r] of Object.entries(L.btns)) if(inRect(x,y,r)) return { btn:k };
+  for(const r of L.rows){ if(inRect(x,y,r.b1)) return { btn:'buy1', itemId:r.itemId }; if(inRect(x,y,r.b10)) return { btn:'buy10', itemId:r.itemId }; }
+  return { btn:null };
+}
+function shopClick(h){
+  switch(h.btn){
+    case 'buy':   shop.mode='buy'; break;
+    case 'sell':  shop.mode='sell'; if(!bag.open){ bag.open=true; bag.hover=null; bagChanged(); } break;
+    case 'back':  shop.mode='menu'; break;
+    case 'close': closeShop(); return;
+    case 'buy1':  shopBuy(h.itemId, 1); return;
+    case 'buy10': shopBuy(h.itemId, 10); return;
+    default: return;   // 창 안 빈 곳 — 아무 일 없음(아래 게임 화면으로 새지 않게 여기서 끝)
+  }
+  shop.hover=null; shopChanged();
+}
+// 팔기 모드에서 이 아이템을 그 상점이 사들이나 — 표시만(정본은 서버 판정)
+function shopBuysItem(itemId){ return shopLines().some(l=>l.buys && l.itemId===itemId); }
+const shopHover=(btn,itemId)=>!!shop.hover && shop.hover.btn===btn && (itemId===undefined || shop.hover.itemId===itemId);
+function drawShop(){
+  const L=shopLayout(); if(!L) return;
+  const { x, y, w, h } = L, n=L.s.n;
+  ctx.fillStyle='rgba(8,12,10,.97)'; rr(x,y,w,h,10); ctx.fill(); ctx.strokeStyle='rgba(255,233,138,.45)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.textAlign='left'; ctx.fillStyle='#ffe7a8'; ctx.font='600 14px '+SANS; ctx.fillText(n ? n.name : 'NPC', x+14, y+24);
+  ctx.textAlign='right'; ctx.fillStyle='rgba(200,215,200,.6)'; ctx.font='11px '+SANS;
+  ctx.fillText(shop.mode==='buy' ? '사기' : shop.mode==='sell' ? '팔기' : 'Esc 로 닫기', x+w-14, y+24);
+  ctx.textAlign='left';
+  if(shop.mode==='menu'){
+    ctx.fillStyle='#eaf3e0'; ctx.font='13px '+SANS; ctx.fillText(fitText(n ? n.greeting : '', w-28), x+14, y+50);
+    if(!L.sells.length && !L.buys.length){ ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font='11px '+SANS; ctx.fillText('사고팔 것이 없습니다', x+14, y+68); }
+    if(L.btns.buy)  smallBtn(L.btns.buy,'사기',shopHover('buy'),false);
+    if(L.btns.sell) smallBtn(L.btns.sell,'팔기',shopHover('sell'),false);
+    smallBtn(L.btns.close,'닫기',shopHover('close'),false);
+    return;
+  }
+  if(shop.mode==='buy'){
+    for(const r of L.rows){ const it=ITEMS.get(r.itemId);
+      ctx.fillStyle='rgba(0,0,0,.30)'; rr(x+12,r.y+3,28,28,5); ctx.fill();
+      drawItemIcon(x+12,r.y+3,28,r.itemId);
+      ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font='600 12px '+SANS; ctx.fillText(fitText(it ? it.name : '#'+r.itemId, 140), x+48, r.y+15);
+      ctx.fillStyle='#ffd98a'; ctx.font='11px '+MONO; ctx.fillText(it ? fmtMoney(it.price) : '—', x+48, r.y+29);
+      smallBtn(r.b1,'1개',shopHover('buy1',r.itemId),false); smallBtn(r.b10,'10개',shopHover('buy10',r.itemId),false);
+    }
+  } else {
+    ctx.fillStyle='#eaf3e0'; ctx.font='13px '+SANS; ctx.fillText('가방에서 팔 물건을 누르세요', x+14, y+50);
+    ctx.fillStyle='rgba(180,210,180,.6)'; ctx.font='11px '+SANS; ctx.fillText(fitText('누르면 1개 · Shift 누른 채면 그 칸 전부', w-28), x+14, y+68);   // 받을 값은 칸 툴팁에(산 값의 절반)
+  }
+  // 아래 — 가진 돈(방금 바뀐 몫을 잠깐) · 뒤로
+  const fy=y+h-17;
+  ctx.textAlign='left'; ctx.fillStyle='rgba(200,215,200,.75)'; ctx.font='12px '+SANS; ctx.fillText('가진 돈', x+14, fy);
+  ctx.fillStyle='#ffe98a'; ctx.font='600 12px '+MONO; const mt=fmtMoney(me.money); ctx.fillText(mt, x+62, fy);
+  if(me.moneyT>0){ const dx=x+62+ctx.measureText(mt).width+8;
+    ctx.fillStyle = me.moneyDelta<0 ? '#f0a89c' : '#9fe0a8'; ctx.font='11px '+MONO; ctx.fillText((me.moneyDelta>0?'+':'')+me.moneyDelta.toLocaleString('ko-KR'), dx, fy); }
+  smallBtn(L.btns.back,'뒤로',shopHover('back'),false);
 }
 // 받은 요청 창 — 게임 화면 위 가운데(레벨업 문구 아래). 단추 둘
 function partyAskLayout(){
@@ -1530,6 +1727,9 @@ function step(dt,t){
   fading.forEach((o,id)=>{ advance(o,dt,Math.min(1,dt*9)); decayCombat(o,dt); o.fadeT-=dt; if(o.fadeT<=0) fading.delete(id); });
   if(me.levelUpT>0) me.levelUpT=Math.max(0,me.levelUpT-dt);   // 레벨업 문구는 나 하나뿐이라 decayCombat 밖이다
   ground.forEach(g=>{ if(g.dropT>0) g.dropT=Math.max(0,g.dropT-dt); });   // 떨어지는 그림
+  if(me.moneyT>0) me.moneyT=Math.max(0,me.moneyT-dt);                      // 상점 창의 「방금 바뀐 돈」
+  // 상점 창 — 그 NPC 가 사라졌거나(시야 밖 · 존 이동) 손 닿는 범위에서 1칸 넘게 벗어나면 닫는다(화면 정리만 — 서버는 상점 상태를 안 든다)
+  if(shop.mode){ const s=shopNpc(); if(!s || !s.n || !self || !inReach(self.x,self.y,s.o.x,s.o.y,s.n.radius+1)) closeShop(); }
 }
 // 땅의 아이템 — 캐릭터보다 먼저 그린다(발밑). 그림은 가방 칸과 같은 drawItemIcon, 개수가 1 보다 크면 오른쪽 아래 숫자
 // 포털 — 지금 맵의 포털마다 바닥 그림(반경 크기) + 이름. 손이 닿으면 그림이 켜지고 「F 키로 이동」이 붙는다.
@@ -1648,10 +1848,11 @@ function clearZoneWorld(){
   others.clear(); fading.clear();
   ground.clear(); groundChanged();
   if(party.menu){ party.menu=null; partyChanged(); }   // 누른 사람이 옛 존에 남았다 — 파티 자체는 존을 넘으므로 안 비운다
+  closeShop();                                          // 메뉴를 연 NPC 도 옛 존에 남았다
 }
 function connect(){
   clearZoneWorld(); self=null;   // 재접속 시 유령 엔티티 제거
-  bag.slots.clear(); adminSent=false; bagChanged();   // 가방은 입장 때 전체 목록이 다시 온다 · 운영자 로그인도 새 접속마다
+  bag.slots.clear(); adminSent=false; me.money=null; me.moneyT=0; bagChanged();   // 가방·돈은 입장 때 전체가 다시 온다 · 운영자 로그인도 새 접속마다
   party.info=null; party.ask=null; party.menu=null; partyChanged();   // 끊기면 서버가 파티에서 뺐다(저장 안 함) — 새 접속은 파티 없이 시작
   const re=new P.Reassembler(onPacket);
   ws=new WebSocket(WS_URL); ws.binaryType='arraybuffer';
@@ -1673,7 +1874,7 @@ function loadAssets(){
 // 조합이 쓰는 레이어가 실제로 다 실렸는지 확인. 하나라도 없으면 sheetFor 가 조용히 건너뛰어
 // 그 부위가 통째로 안 그려진다(머리 레이어 누락으로 얼굴이 안 보이던 사고와 같은 형태).
 function checkLayers(){
-  const need=[...MBODY,...MHEAD,...MHAIR,...MSHIRT,...MPANTS,...FBODY,...FHEAD,...FHAIR,...FSHIRT,...FPANTS,'b_skeleton'];
+  const need=[...MBODY,...MHEAD,...MHAIR,...MSHIRT,...MPANTS,...FBODY,...FHEAD,...FHAIR,...FSHIRT,...FPANTS,'b_skeleton',...Object.values(NPC_LOOK).flat()];
   const miss=need.filter(n=>!LAYER[n]);
   if(miss.length) console.warn('[asset] 빠진 LPC 레이어:', miss.join(', '));
 }
@@ -1694,11 +1895,13 @@ function parseItemTable(text){
     const line=raw.replace(/^﻿/,'').trim();
     if(!line || line[0]==='#' || !/^\d/.test(line)) continue;
     const c=line.split(',').map(s=>s.trim());
-    const tab=INV_TAB_FILE.get(c[2]);
+    // 탭 칸 값 money = 돈 줄(칸이 아니라 숫자에 더해진다 — 서버 ItemDef::store). 탭 번호는 -1(어느 칸 구간도 아니다) — 땅의 돈 그림·이름에 쓴다
+    const money = c[2]==='money', tab = money ? -1 : INV_TAB_FILE.get(c[2]);
     if(c.length<6 || tab===undefined) continue;
     // attack(7번째 칸) = 끼우면 더하는 공격력 — 보여 주기만 한다(무기 줄의 「공격력 +5」). 합은 서버가 셈한다
     // healMp(8번째 칸) = 마력 회복량(10-11) — 툴팁에만 쓴다. 쓸 수 있는지는 서버가 정한다(스킬을 끈 서버면 NOT_USABLE)
-    ITEMS.set(Number(c[0]), { name:c[1], tab, maxStack:Number(c[3]), healHp:Number(c[4]), icon:Number(c[5]), attack:Number(c[6]||0), healMp:Number(c[7]||0) });
+    // price(9번째 칸) = 상점 값(전 · 10-21) — 사기 창 값 · 팔기 툴팁(절반 내림)에 보여 주기만. 받고 내는 돈은 서버가 정한다
+    ITEMS.set(Number(c[0]), { name:c[1], tab, money, maxStack:Number(c[3]), healHp:Number(c[4]), icon:Number(c[5]), attack:Number(c[6]||0), healMp:Number(c[7]||0), price:Number(c[8]||0) });
   }
 }
 // 스킬 표(serve.js 의 /data/SkillTable.csv) — 못 받아도 멈추지 않는다(막대만 안 그린다). 없다는 사실은 콘솔 경고와 data-skill 에 남는다.
@@ -1735,7 +1938,25 @@ function loadWorldTables(){
   const monster = fetch('/data/MonsterTable.csv', {cache:'no-store'})
     .then(r=>r.ok ? r.text() : Promise.reject('HTTP '+r.status)).then(parseMonsterTable)
     .catch(e=>console.warn('[monster] 몬스터 표를 못 받았다 — 몬스터를 사람 모양으로 그린다:', e));
-  return Promise.all([map, portal, monster]).then(portalChanged);
+  const npc = fetch('/data/NpcTable.csv', {cache:'no-store'})
+    .then(r=>r.ok ? r.text() : Promise.reject('HTTP '+r.status)).then(parseNpcTable)
+    .catch(e=>console.warn('[npc] NPC 표를 못 받았다 — NPC 를 이름표 「NPC」로 그리고 메뉴를 못 연다:', e));
+  const shopT = fetch('/data/ShopTable.csv', {cache:'no-store'})
+    .then(r=>r.ok ? r.text() : Promise.reject('HTTP '+r.status)).then(parseShopTable)
+    .catch(e=>console.warn('[shop] 상점 표를 못 받았다 — 메뉴에 사기·팔기 단추가 안 뜬다:', e));
+  return Promise.all([map, portal, monster, npc, shopT]).then(()=>{ portalChanged(); shopChanged(); });
+}
+// 칸 위치로 읽는다 — npcId,mapId,x,y,radius,name,look,greeting,shopId (서버 NpcTable.cpp 와 같은 순서). 인사에 쉼표는 없다(서버 파서도 쉼표로 자른다)
+function parseNpcTable(text){
+  for(const c of csvRows(text)) if(c.length>=9)
+    NPCS.set(Number(c[0]), { mapId:Number(c[1]), x:Number(c[2]), y:Number(c[3]), radius:Number(c[4]), name:c[5], look:c[6], greeting:c[7], shopId:Number(c[8]) });
+}
+// 칸 위치로 읽는다 — shopId,itemId,sells,buys (서버 ShopTable.cpp 와 같은 순서 · 1/0)
+function parseShopTable(text){
+  for(const c of csvRows(text)) if(c.length>=4){
+    const id=Number(c[0]); if(!SHOPS.has(id)) SHOPS.set(id, []);
+    SHOPS.get(id).push({ itemId:Number(c[1]), sells:c[2]==='1', buys:c[3]==='1' });
+  }
 }
 // 칸 위치로 읽는다 — monsterId,name,maxHp,attack,defense,speed,exp,sprite,… (서버 MonsterTable.cpp 와 같은 순서). 그림 이름(여덟째)만 쓴다
 function parseMonsterTable(text){ for(const c of csvRows(text)) if(c.length>=8 && c[7]) MON_SPRITE.set(Number(c[0]), c[7]); }

@@ -19,7 +19,7 @@
 #   price    : shop price in jeon (2026-10-21, appended last). A shop buys it back for half, rounded down (CShopSystem).
 #              0 = cannot be bought or sold (the Snake King's Staff). Values follow the original Baram (npc-shop-plan.md value table):
 #              small 40 (snake meat) · big 100 (snake tail) · hide 40 · dagger 20 (wooden sword) · mana 10 (dongdongju).
-#   7 = money (jeon): one ground pile is one row of count jeon. icon 0 is a placeholder until the web stage picks a coin cell.
+#   7 = money (jeon): one ground pile is one row of count jeon. icon 36 = the money bag cell of the item sheet (WebClient/assets/items.js - LPC "Money bag").
 itemId,name,tab,maxStack,healHp,icon,attack,healMp,price
 1,작은 물약,use,99,200,83,0,0,40
 2,큰 물약,use,99,500,85,0,0,100
@@ -27,4 +27,4 @@ itemId,name,tab,maxStack,healHp,icon,attack,healMp,price
 4,낡은 단검,equip,1,0,7,5,0,20
 5,마력 물약,use,99,0,84,0,50,10
 6,뱀왕의 지팡이,equip,1,0,147,15,0,0
-7,돈,money,100000,0,0,0,0,0
+7,돈,money,100000,0,36,0,0,0
