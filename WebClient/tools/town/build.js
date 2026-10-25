@@ -10,6 +10,7 @@
 //            + 작은 초가 한 채는 조각(cottage.png · thatched-roof.png · windows-doors.png)으로 조립
 //     소품 — Medieval Village Decorations 시트 칸 · 견본 장면(deco-med.tmx)의 조립된 좌판·수레 · LPC 통
 //     포털 — Teleporter Circle 시트 그대로(256×128 다섯 장: 꺼짐 + 켜짐 넷)
+//     막힌 칸 — 끝에 blocks.js 를 불러 Run/bin/BlockTable.csv 의 마을 줄을 다시 쓴다(크롬 없이 따로 돌려도 된다)
 //   그림 출처·크레딧 = src/CREDITS-*.txt (assets/town_credits.txt 로 모아 둔다)
 const fs = require('fs'), path = require('path'), zlib = require('zlib'), { execFileSync } = require('child_process');
 const SRC = path.join(__dirname, 'src');
@@ -236,3 +237,5 @@ console.log(`미리보기 땅 일치율 ${(res.report.groundMatch * 100).toFixed
 for (const h of res.report.houses) console.log(`집 ${h.name} ${h.w}×${h.h} · 픽셀 ${h.px} · 지운 풀 ${h.green}`);
 console.log(`그림 ${Object.keys(sprites).length}개(${Object.keys(sprites).join(' ')}) · 물건 ${LAYOUT.objects.length} · 나무 ${LAYOUT.trees.length}`);
 console.log(`assets/town.js ${kb('town.js')}KB · assets/town_credits.txt ${kb('town_credits.txt')}KB`);
+// 막힌 칸 — 같은 배치(town0.js)에서 서버 표(Run/bin/BlockTable.csv)의 마을 줄을 다시 쓴다. 집을 옮기면 같이 따라간다
+execFileSync(process.execPath, [path.join(__dirname, 'blocks.js')], { stdio: 'inherit' });
