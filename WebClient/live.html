@@ -159,6 +159,23 @@ const ZONE_FAIL_TEXT = {
 // 「손이 닿나」 식 한 곳 — 서버 Reach::InRadius(Reach.h)와 같은 식(중심과의 거리 ≤ 반경 · 경계 포함). 포털 · NPC 가 같이 쓴다.
 //   두 곳에 적으면 한쪽만 「<」로 바뀌는 날 F 키가 포털엔 닿고 NPC 엔 안 닿는다. 맞는지는 서버가 다시 본다
 function inReach(px,py,cx,cy,r){ const dx=px-cx, dy=py-cy; return dx*dx+dy*dy <= r*r; }
+// 막힌 칸 — 서버와 같은 파일(Run/bin/BlockTable.csv)을 /data 로 받는다. 칸 = (floor(x), floor(y)) · 맵마다 막힌 칸 모음.
+//   식은 서버 CWalkGrid(Shared/World/WalkGrid.h)와 같다 — 한 걸음을 반 칸 이하로 나눠 보고, 막힌 칸에 들어가면 넘어간 축만 그 칸 경계에서 1/64 앞으로.
+//   못 받으면 막힌 칸 없이 걷는다(서버가 멈춤·보정으로 맞춰 준다 — 잠깐 집에 들어갔다 튕겨 보인다). 맵 끝은 여기 없다(advance 의 옛 클램프)
+const BLOCKS = new Map();                                               // mapId -> Set(cy*1024+cx)
+const WALK_GAP = 1/64, WALK_SUB = 0.5;                                   // 서버 CWalkGrid::STOP_GAP · SUB_STEP 과 같은 값
+function blockedAt(mapId,x,y){ const s=BLOCKS.get(mapId); if(!s || !(x>=0) || !(y>=0)) return false; return s.has(Math.floor(y)*1024+Math.floor(x)); }
+function walkResolve(mapId,x,y,nx,ny){
+  if(!BLOCKS.has(mapId)) return {x:nx, y:ny};
+  const dx=nx-x, dy=ny-y, len=Math.hypot(dx,dy), n=len>WALK_SUB ? Math.ceil(len/WALK_SUB) : 1;
+  let px=x, py=y;
+  for(let i=1;i<=n;i++){ const t=i/n, qx=i===n?nx:x+dx*t, qy=i===n?ny:y+dy*t;
+    if(!blockedAt(mapId,qx,qy)){ px=qx; py=qy; continue; }
+    const cx=Math.floor(qx), cy=Math.floor(qy), pcx=Math.floor(px), pcy=Math.floor(py);
+    return { x: cx!==pcx ? (cx>pcx ? cx-WALK_GAP : cx+1+WALK_GAP) : qx, y: cy!==pcy ? (cy>pcy ? cy-WALK_GAP : cy+1+WALK_GAP) : qy, blocked:true };
+  }
+  return {x:nx, y:ny};
+}
 // 지금 맵의 포털 중 손이 닿는 가장 가까운 것. 맞는지는 서버가 다시 본다
 function portalInReach(){
   if(!self) return null;
@@ -1708,9 +1725,11 @@ function advance(o,dt,k){
   // 서버 위치(o.x,o.y)를 속도로 전진시키고, 렌더(rx,ry)는 그 목표를 부드럽게 추종.
   // 상한은 서버 CZone::IsBlockedByWall 과 같은 mapWidth-1 (mapWidth 를 쓰면 없는 섹터가 잠깐 표시됨).
   // 서버 CZone::Tick 은 mapWidth 를 넘긴 뒤에야 mapWidth-1 로 되돌리므로, 경계에서 한 틱 정도는 서버가 더 나가 있을 수 있다.
-  if(o.moveState===1){ const v=dvec(o.dir), s=o.speed||30;
-    o.x=Math.max(0,Math.min(ZONE.mapWidth -1, o.x+v.x*s*dt));
-    o.y=Math.max(0,Math.min(ZONE.mapHeight-1, o.y+v.y*s*dt)); }
+  // 막힌 칸은 맵 끝 클램프 뒤에 본다(서버 CZone::Tick 과 같은 순서) — 집 벽 앞에서 서버가 세우는 자리와 같은 자리에 선다
+  if(o.moveState===1){ const v=dvec(o.dir), s=o.speed||30, px=o.x, py=o.y;
+    const nx=Math.max(0,Math.min(ZONE.mapWidth -1, o.x+v.x*s*dt));
+    const ny=Math.max(0,Math.min(ZONE.mapHeight-1, o.y+v.y*s*dt));
+    const r=walkResolve(ZONE.mapId,px,py,nx,ny); o.x=r.x; o.y=r.y; }
   o.rx+=(o.x-o.rx)*k; o.ry+=(o.y-o.ry)*k;
 }
 function step(dt,t){
@@ -1944,7 +1963,10 @@ function loadWorldTables(){
   const shopT = fetch('/data/ShopTable.csv', {cache:'no-store'})
     .then(r=>r.ok ? r.text() : Promise.reject('HTTP '+r.status)).then(parseShopTable)
     .catch(e=>console.warn('[shop] 상점 표를 못 받았다 — 메뉴에 사기·팔기 단추가 안 뜬다:', e));
-  return Promise.all([map, portal, monster, npc, shopT]).then(()=>{ portalChanged(); shopChanged(); });
+  const block = fetch('/data/BlockTable.csv', {cache:'no-store'})
+    .then(r=>r.ok ? r.text() : Promise.reject('HTTP '+r.status)).then(parseBlockTable)
+    .catch(e=>console.warn('[block] 막힌 칸 표를 못 받았다 — 집을 지나가 보이고 서버가 되돌린다:', e));
+  return Promise.all([map, portal, monster, npc, shopT, block]).then(()=>{ portalChanged(); shopChanged(); });
 }
 // 칸 위치로 읽는다 — npcId,mapId,x,y,radius,name,look,greeting,shopId (서버 NpcTable.cpp 와 같은 순서). 인사에 쉼표는 없다(서버 파서도 쉼표로 자른다)
 function parseNpcTable(text){
@@ -1968,6 +1990,12 @@ function csvRows(text){
     rows.push(line.split(',').map(s=>s.trim()));
   }
   return rows;
+}
+// 칸 위치로 읽는다 — mapId,x0,y0,x1,y1,note (서버 BlockTable.cpp 와 같은 순서 · 칸 번호 양끝 포함). 값 검사는 서버가 기동 때 했다
+function parseBlockTable(text){
+  for(const c of csvRows(text)) if(c.length>=6){ const [m,x0,y0,x1,y1]=c.slice(0,5).map(Number);
+    if(!BLOCKS.has(m)) BLOCKS.set(m, new Set()); const s=BLOCKS.get(m);
+    for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++) s.add(y*1024+x); }
 }
 // 칸 위치로 읽는다 — mapId,width,height,kind,… (서버 MapTable.cpp 와 같은 순서). 땅 모양에는 kind 만 쓴다
 function parseMapTable(text){ for(const c of csvRows(text)) if(c.length>=4) MAPS.set(Number(c[0]), { kind:c[3] }); }
