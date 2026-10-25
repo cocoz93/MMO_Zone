@@ -356,7 +356,7 @@ void CSightBroadcaster::OnCharacterMoveStart(CZone* zone, CCharacter* character)
 void CSightBroadcaster::OnCharacterMoveStop(CZone* zone, CCharacter* character)
 {
 #if USE_DB_WORKER
-    // 플레이어가 여기 오는 건 경계에 막혔을 때뿐이다 — 위치가 바뀌었으니 저장 대상
+    // 플레이어가 여기 오는 건 경계·막힌 칸에 막혔을 때뿐이다 — 위치가 바뀌었으니 저장 대상
     if (CPlayer* player = As<CPlayer>(character))
         player->_dbDirty = true;
 #endif

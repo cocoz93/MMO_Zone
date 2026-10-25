@@ -1,6 +1,7 @@
 ﻿#include "Zone.h"
 #include "Character.h"
 #include "Monster.h"   // USE_MONSTER — 벽에 막힌 캐릭터를 CMonster 로 내려 관리자에 넘긴다(헤더 안에서 스스로 토글을 본다)
+#include "GameDataFiles.h"   // 막힌 칸 표(Blocks) — 맵 격자를 꺼낸다
 #include <algorithm>
 #include <cassert>
 #include <cmath>       // std::isfinite — IsInsideMap
@@ -11,6 +12,7 @@ CZone::CZone(const CGameDataFiles& gameData)
     , _mapId(-1)
     , _mapWidth(0)
     , _mapHeight(0)
+    , _blocks(gameData.Blocks())
     , _playerCount(0)
 #if USE_MONSTER
     , _monsterManager(*this, gameData)
@@ -39,6 +41,9 @@ bool CZone::Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHei
     _mapWidth = mapWidth;
     _mapHeight = mapHeight;
     _start = start;   // 맵 안인지는 맵 표가 읽을 때 봤다(CMapTable::Load ⑷)
+    // 막힌 칸 — 같은 맵의 채널은 격자 하나를 같이 읽는다. 크기는 같은 맵 표에서 왔으니 다를 수 없다(다르면 표 읽기 쪽 잘못)
+    _walk = _blocks.GridOf(mapId);
+    assert(_walk == nullptr || (_walk->Width() == mapWidth && _walk->Height() == mapHeight));
 #if USE_MONSTER
     // 몬스터 구역 상태(점마다 차 있나·다음 리젠) — 맵 번호를 안 뒤라야 그 맵의 스폰 구역을 읽는다. 첫 틱이 다 깐다(처음 깔기)
     _monsterManager.Init();
@@ -127,13 +132,17 @@ void CZone::Tick(float deltaTime, IZoneEvents& events)
         // 방향에 따라 좌표 갱신 (플레이어별 속도) — 부호는 DirectionStep(Actor.h) 한 곳
         float dist = player->_speed * deltaTime;
         const DirectionVec step = DirectionStep(player->_direction);
+        const float fromX = player->_x;
+        const float fromY = player->_y;
         player->_x += step.x * dist;
         player->_y += step.y * dist;
 
-        // 맵 경계 클램핑
+        // 맵 경계 클램핑 — 그다음 막힌 칸(막은 축만 그 칸 경계 앞으로 — WalkGrid.h [멈추는 자리]). 순서가 바뀌면 맵 밖 좌표로 격자를 본다
         bool clamped = ClampToMap(player->_x, player->_y);
+        if (_walk != nullptr && _walk->ResolveStep(fromX, fromY, player->_x, player->_y))
+            clamped = true;
 
-        // 경계에 닿으면 정지 → 클라이언트에 MOVE_STOP 통보 필요
+        // 경계·막힌 칸에 닿으면 정지 → 클라이언트에 MOVE_STOP 통보 필요
         if (clamped)
         {
             player->_moveState = MoveState::IDLE;
@@ -413,6 +422,26 @@ bool CZone::IsBlockedByWall(float x, float y, Direction dir) const
     const DirectionVec s = DirectionStep(dir);
     return (s.x < 0.0f && atLeft) || (s.x > 0.0f && atRight)
         || (s.y < 0.0f && atTop)  || (s.y > 0.0f && atBottom);
+}
+
+bool CZone::IsWalkable(float x, float y) const
+{
+    return IsInsideMap(x, y) && !(_walk != nullptr && _walk->IsBlockedAt(x, y));
+}
+
+bool CZone::StepBlocked(float x, float y, Direction dir) const
+{
+    if (IsBlockedByWall(x, y, dir))
+        return true;
+    if (_walk == nullptr)
+        return false;
+    const DirectionVec s = DirectionStep(dir);   // NONE 은 (0, 0) — 지금 칸을 본다(이동 처리가 NONE 을 먼저 거른다 — IsMoveDirection)
+    return _walk->IsBlockedToward(x, y, s.x, s.y);
+}
+
+bool CZone::IsPathBlocked(float x0, float y0, float x1, float y1) const
+{
+    return _walk != nullptr && _walk->SegmentBlocked(x0, y0, x1, y1);
 }
 
 void CZone::CalcSpawnPos(float& outX, float& outY) const

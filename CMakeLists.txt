@@ -181,6 +181,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/GameDataCsv.cpp
     ${SRV_DIR}/MapTable.cpp
     ${SRV_DIR}/PortalTable.cpp
+    ${SRV_DIR}/BlockTable.cpp
     ${SRV_DIR}/NpcTable.cpp
     ${SRV_DIR}/ItemTable.cpp
     ${SRV_DIR}/ShopTable.cpp
@@ -202,7 +203,7 @@ target_link_libraries(MMOServer PRIVATE ServerNetworkLib)
 
 target_include_directories(MMOServer PRIVATE
     ${SRV_DIR}                           # "BuildConfig.h" 등 게임 헤더 (DB/ 하위에서도 이름만으로 열린다)
-    ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Protocol/Protocol.h> — 게임 패킷 정의 (클라와 공유)
+    ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Protocol/Protocol.h> — 게임 패킷 정의 (클라와 공유) · <World/WalkGrid.h> — 막힌 칸 격자 (콘솔 클라와 공유)
     ${MYSQL_DIR}/include                 # MySQL C API (DBWorker 전용)
 )
 
@@ -239,7 +240,7 @@ target_link_libraries(mmo_server PRIVATE ServerNetworkLib mysqlclient)
 
 target_include_directories(mmo_server PRIVATE
     ${SRV_DIR}                           # "BuildConfig.h" 등 게임 헤더 (DB/ 하위에서도 이름만으로 열린다)
-    ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Protocol/Protocol.h> — 게임 패킷 정의 (클라와 공유)
+    ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Protocol/Protocol.h> — 게임 패킷 정의 (클라와 공유) · <World/WalkGrid.h> — 막힌 칸 격자 (콘솔 클라와 공유)
     /usr/include/mysql
 )
 

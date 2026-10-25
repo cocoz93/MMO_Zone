@@ -14,6 +14,7 @@
 #include "MonsterSkillTable.h"
 #include "ShopTable.h"
 #include "NpcTable.h"
+#include "BlockTable.h"
 
 // 담는 자리는 늘 있다 — 맵 표는 토글이 없다(MapTable.h [토글 없음]). 나머지 표는 표마다 토글이 따로다
 //   (레벨 표 USE_COMBAT · USE_INVENTORY · USE_MONSTER · USE_DROP · USE_SKILL).
@@ -54,6 +55,7 @@ public:
     const CMapTable& Maps() const { return _map; }
     const CPortalTable& Portals() const { return _portal; }
     const CNpcTable& Npcs() const { return _npc; }   // 토글 없음 — 맵·포털과 같은 세계 데이터(NpcTable.h [토글 없음])
+    const CBlockTable& Blocks() const { return _block; }   // 토글 없음 — 막힌 칸. 존이 자기 맵 격자를 꺼낸다(CZone::Init)
 #if USE_COMBAT
     const CLevelTable& Level() const { return _level; }
 #endif
@@ -91,6 +93,7 @@ private:
     CShopTable _shop;   // 아이템 표를 먼저 읽고 번호·담는 자리·값을 대조한다(LoadAll 순서)
 #endif
     CNpcTable _npc;     // 맵 표 · (상점을 켠 빌드면) 상점 표를 먼저 읽고 대조한다(LoadAll 순서). 토글 없음
+    CBlockTable _block; // 맵 표 바로 뒤에 읽고, 포털·NPC·스폰 표를 다 읽은 뒤 「놓이는 자리가 막힌 칸이 아닌가」를 본다(LoadAll 순서). 토글 없음
 #if USE_MONSTER
     CMonsterTable _monster;
     CSpawnRegionTable _spawnRegion;   // 맵 표·몬스터 표를 먼저 읽고 그 결과로 대조한다(LoadAll 순서)

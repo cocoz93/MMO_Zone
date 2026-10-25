@@ -808,6 +808,10 @@ public:
         // C2S_MOVE_START 좌표 수용을 이동량 예산 초과로 거부한 횟수 — 정직한 클라는 0.
         //   0 이 아니면 치트 시도이거나 예산 계수(MOVE_BUDGET_SLACK)가 빡빡하다는 신호.
         Counter _moveBudgetRejects;
+
+        // C2S_MOVE_START 좌표 수용을 「서버 자리 → 보낸 자리 사이에 막힌 칸」으로 거부한 횟수 — 정직한 클라는 0(같은 격자로 미리 걷는다).
+        //   0 이 아니면 벽 너머 좌표를 보낸 치트이거나 클라 격자가 서버 표와 어긋났다는 신호(BlockTable.csv · 웹 /data 사본).
+        Counter _moveWallRejects;
     } _sector;
 
     // ══════════════════════════════════════════════════════════════

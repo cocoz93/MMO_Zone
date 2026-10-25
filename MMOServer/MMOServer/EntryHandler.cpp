@@ -244,7 +244,7 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
             SLOG_INFO("[DB] saved dead -> town start area (account={}, map={}, x={}, y={})",
                       result.accountId, result.mapId, result.x, result.y);
         }
-        else if (zone != nullptr && zone->IsInsideMap(result.x, result.y))
+        else if (zone != nullptr && zone->IsWalkable(result.x, result.y))
         {
             place.hasPos  = true;
             place.x       = result.x;
@@ -253,7 +253,7 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
         }
         else
         {
-            // 맵이 없어졌거나 좌표가 맵 밖·숫자 아님 → 그 맵의 들어오는 자리(시작 구역 · 없으면 무작위 — CZone::CalcSpawnPos). 그 자리는 DB 와 다르므로 dbDirty 는 기본값(true) 그대로.
+            // 맵이 없어졌거나 좌표가 맵 밖·숫자 아님·막힌 칸(저장 뒤에 그 자리에 집이 생김) → 그 맵의 들어오는 자리(시작 구역 · 없으면 무작위 — CZone::CalcSpawnPos). 그 자리는 DB 와 다르므로 dbDirty 는 기본값(true) 그대로.
             enter._fallback.Inc();
             SLOG_WARN("[DB] saved position unusable -> map entry spot, start area or random (account={}, map={}, x={}, y={})",
                       result.accountId, result.mapId, result.x, result.y);

@@ -219,6 +219,9 @@ private:
         WriteCounter(ss, "mmo_move_budget_rejects_total",
                      "C2S_MOVE_START coordinate accepts rejected by move budget (0 expected for honest clients)",
                      _gameMonitor._sector._moveBudgetRejects);
+        WriteCounter(ss, "mmo_move_wall_rejects_total",
+                     "C2S_MOVE_START coordinate accepts rejected because the path crosses a blocked cell (0 expected for honest clients)",
+                     _gameMonitor._sector._moveWallRejects);
 
         // ── DB 저장 파이프라인 (USE_DB_WORKER) — 저장 묶음(트랜잭션 하나). 그릇은 게임 쪽(CGameMonitor::_db · _save, 10-06), 옛 이름은 그대로 ──
         //   saved·failed 는 이제 묶음 수(묶음마다 캐릭터 행 하나) · dropped 는 살아 있는 캐릭터가 비행 중 묶음 하나라 구조상 0 에 묶인다

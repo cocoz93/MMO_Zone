@@ -24,6 +24,8 @@ void CMoveHandler::ReportTickMetrics()
 {
     _gameMonitor._sector._moveBudgetRejects.Add(_tickMoveBudgetRejects);  // 이동 예산 거부 건수
     _tickMoveBudgetRejects = 0;
+    _gameMonitor._sector._moveWallRejects.Add(_tickMoveWallRejects);      // 막힌 칸 너머 좌표 거부 건수
+    _tickMoveWallRejects = 0;
 }
 
 void CMoveHandler::RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg)
@@ -53,8 +55,8 @@ void CMoveHandler::RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg)
         if (dir == player->_direction)
             return;
 
-        // 벽 방향 검증: 벽 위치에서 벽 쪽으로 방향 전환 시 정지 처리
-        if (zone->IsBlockedByWall(player->_x, player->_y, dir))
+        // 벽 방향 검증: 벽(맵 끝 · 막힌 칸) 앞에서 벽 쪽으로 방향 전환 시 정지 처리
+        if (zone->StepBlocked(player->_x, player->_y, dir))
         {
             player->_moveState = MoveState::IDLE;
             player->_direction = dir;
@@ -83,12 +85,20 @@ void CMoveHandler::RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg)
         float dx = recvMsg.x - player->_x;
         float dy = recvMsg.y - player->_y;
         const float distSq = dx * dx + dy * dy;
-        if (distSq <= MOVE_START_ACCEPT_DIST_SQ && ConsumeMoveBudget(player, distSq))
+        // 맵 경계 클램핑 후 수용 — 서버 자리에서 그 자리까지 막힌 칸을 지나면 안 받는다(집이 8타일보다 얇아 벽 건너편 좌표로 뚫고 나가지 못하게).
+        //   정상 클라는 같은 격자로 미리 걸으므로 벽을 넘은 좌표를 보낼 일이 없다. 예산보다 먼저 본다 — 거절한 좌표로 예산을 깎지 않게
+        float acceptX = recvMsg.x;
+        float acceptY = recvMsg.y;
+        zone->ClampToMap(acceptX, acceptY);
+        bool through = false;
+        if (distSq <= MOVE_START_ACCEPT_DIST_SQ)
         {
-            // 맵 경계 클램핑 후 수용
-            float acceptX = recvMsg.x;
-            float acceptY = recvMsg.y;
-            zone->ClampToMap(acceptX, acceptY);
+            through = zone->IsPathBlocked(player->_x, player->_y, acceptX, acceptY);
+            if (through)
+                ++_tickMoveWallRejects;
+        }
+        if (distSq <= MOVE_START_ACCEPT_DIST_SQ && !through && ConsumeMoveBudget(player, distSq))
+        {
             player->_x = acceptX;
             player->_y = acceptY;
 
@@ -99,11 +109,11 @@ void CMoveHandler::RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg)
             // 좌표 수용으로 섹터가 변경되었을 수 있으므로 재계산
             zone->UpdateSectorAndQueue(player);
         }
-        // 범위 초과 또는 예산 부족 시 서버 좌표 유지 (치트 방지)
+        // 범위 초과 · 막힌 칸 너머 · 예산 부족 시 서버 좌표 유지 (치트 방지)
     }
 
-    // 벽 방향 검증: 벽 위치에서 벽 쪽으로 이동 시도 시 차단
-    if (zone->IsBlockedByWall(player->_x, player->_y, dir))
+    // 벽 방향 검증: 벽(맵 끝 · 막힌 칸) 앞에서 벽 쪽으로 이동 시도 시 차단
+    if (zone->StepBlocked(player->_x, player->_y, dir))
     {
         _sightBroadcaster.SendSyncPosition(player);        // 본인 — 서버 권위 좌표로 되돌림
         _sightBroadcaster.NotifyMoveSync(zone, player);    // 주변 — 위에서 채택한 좌표를 전파.

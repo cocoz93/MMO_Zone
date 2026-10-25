@@ -71,4 +71,5 @@ private:
 
     // 비용종류별 계측 — 틱 내 누적 후 틱 끝 1회 모니터 반영 (단일 게임루프 스레드 전용 → 누적 자체엔 원자연산 불필요)
     int64_t _tickMoveBudgetRejects = 0;   // 이동 예산 초과로 거부한 좌표 수용 수 — 틱 끝 _moveBudgetRejects로 반영
+    int64_t _tickMoveWallRejects   = 0;   // 서버 자리 → 보낸 자리 사이에 막힌 칸이 있어 거부한 좌표 수용 수 — 틱 끝 _moveWallRejects로 반영
 };

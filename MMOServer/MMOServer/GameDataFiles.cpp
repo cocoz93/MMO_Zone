@@ -12,6 +12,9 @@ bool CGameDataFiles::LoadAll(const std::string& dir)
     // 포털 표도 토글이 없다 — 맵 표만 대조한다(PortalTable.h [맵 대조])
     if (!_portal.Load(dir + "PortalTable.csv", _map))
         return false;
+    // 막힌 칸 표도 토글이 없다 — 맵 표만 대조한다. 놓이는 자리 대조는 뒤에서 표가 다 선 다음(BlockTable.h [자리 대조])
+    if (!_block.Load(dir + "BlockTable.csv", _map))
+        return false;
 #if USE_COMBAT   // 레벨 표는 전투를 따른다(바탕 스탯) — 경험치만 끈 빌드도 읽는다
     if (!_level.Load(dir + "LevelTable.csv"))
         return false;
@@ -35,11 +38,17 @@ bool CGameDataFiles::LoadAll(const std::string& dir)
     SLOG_INFO("[NpcTable] 상점을 끈 빌드(USE_SHOP 0) — 상점 번호 대조를 건너뜁니다");
 #endif
     _npc.WarnPortalOverlap(_portal);
+    // ★ 맵·포털·NPC 표 "뒤" — 시작 구역 · 포털 두 끝 · NPC 자리가 막힌 칸이 아닌가
+    if (!_block.CheckPlaces(_map, _portal, _npc))
+        return false;
 #if USE_MONSTER
     if (!_monster.Load(dir + "MonsterTable.csv"))
         return false;
     // ★ 맵 표·몬스터 표 "뒤" — 스폰 구역의 맵 번호·크기와 몬스터 번호를 두 표와 대조한다
     if (!_spawnRegion.Load(dir + "SpawnRegion.csv", _map, _monster))
+        return false;
+    // ★ 스폰 표 "뒤" — 몬스터가 깔리는 구역이 막힌 칸에 닿지 않나
+    if (!_block.CheckSpawnRegions(_map, _spawnRegion))
         return false;
 #endif
 #if USE_DROP

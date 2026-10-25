@@ -8,6 +8,7 @@
 //    존과 같이 태어나고 같이 사라지므로. 플레이어 객체는 접속 수명이라 게임 서버의 세션 칸(CSessionHub)이 소유한다
 //  - 캐릭터 입장/퇴장, 섹터 등록/해제 등 데이터 관리
 //  - 맵 경계 규칙(맵 안 검사·클램프·벽 판정) — 맵 크기를 든 곳이 여기라서
+//  - 막힌 칸 판정 — 그 맵의 칸 격자(CBlockTable 이 세운 CWalkGrid)를 Init 에서 받아 든다. 걷기·출발·좌표 받기·저장 자리가 다 여기를 지난다
 //  - 섹터 이동 대기열 — 담긴 옛 섹터 좌표가 이 존의 격자라서. 읽어서 CREATE/DELETE 를 보내는 것은 게임 서버의 시야 조각(CSightBroadcaster)
 //  - 땅 아이템 관리자 소유 (_groundItemManager, 값) — 땅 아이템 목록과 놓기·수명·줍기 고르기·개수는 그쪽
 //    (GroundItemManager.h). 무엇이 떨어질지(굴림)는 게임 서버의 처치 보상 조각(CRewardHandler), 알림 받기·송신은 가방·땅 조각(CItemHandler)·시야 조각
@@ -25,6 +26,7 @@
 #include <vector>
 
 #include "Actor.h"         // Direction — 벽 판정(IsBlockedByWall)이 방향을 받는다
+#include <World/WalkGrid.h>   // 막힌 칸 격자 — 맵마다 하나(CBlockTable 소유), 존은 읽기만
 #include "BuildConfig.h"
 #include "MapTable.h"       // StartArea — 맵 표의 시작 구역(CalcSpawnPos 가 읽는다)
 #include "SectorManager.h"
@@ -34,7 +36,8 @@
 
 class CCharacter;
 class CZone;
-class CGameDataFiles;   // GameDataFiles.h — 몬스터 관리자에 건넨다(존은 안 읽는다)
+class CGameDataFiles;   // GameDataFiles.h — 몬스터 관리자에 건넨다(존이 읽는 것은 막힌 칸 표뿐 — Init 이 그 맵 격자를 꺼낸다)
+class CBlockTable;
 
 // 존 안에서 정한 걷기·멈춤을 게임 서버에 알리는 통로 — 게임 서버의 시야 조각(CSightBroadcaster)이 구현한다(존은 게임 서버를 모른다).
 //   존 틱의 벽 멈춤과 몬스터 판단(CMonsterManager)이 같이 쓴다. 패킷으로 걷고 멈추는 플레이어는 안 온다.
@@ -89,7 +92,7 @@ public:
     void LeaveZone(CCharacter* player);
 
     // 프레임 갱신 — MOVING 캐릭터 좌표 갱신, 섹터 변경 감지(섹터 이동 대기열에 넣는다)
-    //   맵 경계에 막혀 세운 캐릭터는 그 자리에서 events.OnCharacterMoveStop 으로 알린다
+    //   맵 경계·막힌 칸에 막혀 세운 캐릭터는 그 자리에서 events.OnCharacterMoveStop 으로 알린다
     void Tick(float deltaTime, IZoneEvents& events);
 
     // 존 정보
@@ -106,6 +109,12 @@ public:
     bool ClampToMap(float& x, float& y) const;                    // 맵 밖이면 가장자리(0 또는 벽 선)로 되돌림. 되돌렸으면 true
     void ClampToWallLine(float& x, float& y) const;               // 벽 선까지 닫힌 범위로 자름 — 땅 아이템 놓을 자리
     bool IsBlockedByWall(float x, float y, Direction dir) const;  // 벽에 붙은 채 벽 쪽으로 가려 하나
+
+    // ── 막힌 칸 ── 맵 경계 위에 얹는다(맵 끝은 위 넷 그대로 — WalkGrid.h [맵 끝은 여기 없다]). 막힌 칸이 없는 맵은 전부 그냥 통과한다.
+    //   웹(live.html advance)과 콘솔 클라(GameClient)가 같은 격자·같은 식으로 미리 걷는다 — 바꾸면 같이.
+    bool IsWalkable(float x, float y) const;                      // 맵 안이고 막힌 칸이 아닌가 — 저장된 자리를 그대로 써도 되나
+    bool StepBlocked(float x, float y, Direction dir) const;      // 그쪽으로 한 발이 막혔나 — 맵 끝 벽(IsBlockedByWall) 또는 막힌 칸. 출발·방향 바꾸기가 본다
+    bool IsPathBlocked(float x0, float y0, float x1, float y1) const;  // 두 자리 사이 선분이 막힌 칸을 지나나 — 클라가 보낸 좌표를 받을 때(벽 건너편 좌표 거절)
 
     // ── 섹터 이동 ── 좌표를 바꾼 쪽이 부른다. 좌표가 가리키는 섹터로 등록을 옮긴다.
     //   화면(CREATE/DELETE)을 언제 고치느냐로 둘:
@@ -202,6 +211,8 @@ private:
     int32_t _mapWidth;
     int32_t _mapHeight;
     StartArea _start;   // 지정 자리 없이 들어올 때의 자리 — 없으면(has == false) 맵 전체(CalcSpawnPos)
+    const CBlockTable& _blocks;        // 막힌 칸 표 — 기획 데이터(서버 수명). Init 이 맵 번호로 격자를 꺼낸다
+    const CWalkGrid*   _walk = nullptr; // 이 맵의 격자 — 막힌 칸이 없는 맵이면 nullptr(판정을 통째로 건너뛴다)
 
     CSectorManager _sectorManager;
 
