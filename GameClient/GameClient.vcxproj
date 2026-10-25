@@ -149,6 +149,8 @@
     <ClInclude Include="NetworkEventQueue.h" />
     <ClInclude Include="PlayerManager.h" />
     <ClInclude Include="..\Shared\Protocol\Protocol.h" />
+    <ClInclude Include="..\Shared\World\WalkGrid.h" />
+    <ClInclude Include="ClientBlockTable.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="CONTRIBUTING.md" />

@@ -193,6 +193,8 @@ void CGameInstance::ProcessNetworkEvents()
             _renderer.SetMapSize(event.mapWidth, event.mapHeight);
             _renderer.SetSectorSize(event.sectorSize);
             _playerManager.SetMapSize(event.mapWidth, event.mapHeight);
+            if (!_playerManager.LoadWalkGrid(event.mapId, event.mapWidth, event.mapHeight))
+                LOG_ERROR_STREAM("BlockTable.csv not found next to the exe - walking without blocked cells (server stops will correct)");
             break;
 
         case ClientNetworkEvent::Type::CREATE_MY_PLAYER:
@@ -478,9 +480,9 @@ void CGameInstance::ProcessInput()
             me->moveState = MoveState::IDLE;
         }
 
-        // 새 방향이 있으면 이동 시작 (벽 방향은 차단)
+        // 새 방향이 있으면 이동 시작 (벽·막힌 칸 방향은 차단)
         if (newDir != Direction::NONE &&
-            !_playerManager.IsBlockedByWall(me->x, me->y, newDir))
+            !_playerManager.StepBlocked(me->x, me->y, newDir))
         {
             _network.SendMoveStart(static_cast<uint8_t>(newDir), me->x, me->y);
             me->direction = newDir;
