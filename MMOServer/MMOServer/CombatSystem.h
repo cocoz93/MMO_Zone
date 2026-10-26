@@ -4,6 +4,7 @@
 // [책임]
 //  - 공격 한 번의 처음부터 끝까지: 쿨타임 판정 → 대상 찾기(섹터 훑기) → 피해 → 죽음 필드
 //  - 대상 찾기(FindFrontTarget · CollectCandidates)와 맞힌 뒤 처리(ApplyHit)는 따로 열어 둔다 — 스킬도 같은 것을 부른다
+//  - 맞지 않고 쓰러뜨리기(Kill — 운영자 /die) — 죽음은 맞아 죽을 때와 같은 한 길(Die)로 간다
 //  - 그 과정에서 정한 것을 지표(CGameMonitor)로 센다 — 무엇을 정했는지는 여기서만 안다
 //  - 송신·죽은 목록·보상은 하지 않는다 — 일이 생기면 ICombatEvents 로 알리고, 받는 쪽(전투 조각 CCombatHandler)이 한다
 //
@@ -47,6 +48,7 @@ public:
 
     // 죽었다 — 죽음 표시(체력 부품 TakeDamage — 생사·죽은 프레임)·걷기 멈춤(_moveState)과 죽음 계수를 적은 뒤에 온다.
     //   받는 쪽 몫: 플레이어 죽은 목록 넣기 → S2C_DEATH → 보상(경험치·드랍) → 몬스터면 지우기, 이 순서.
+    //   attacker 는 때린 쪽 — 운영자 /die(Kill)면 당한 쪽 본인이다(때린 이가 없다 · 보상은 당한 쪽이 몬스터일 때만이라 안 생긴다).
     //   ★ 몬스터면 이 호출 안에서 해제된다 — 부른 쪽은 이 뒤로 target 을 쓰지 말 것(ApplyHit 은 여기가 마지막 줄이다).
     virtual void OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target) = 0;
 };
@@ -87,7 +89,15 @@ public:
     //   ★ 섹터 목록을 도는 중에 부르지 말 것 — 죽은 몬스터가 그 목록에서 빠진다(대상을 다 고른 뒤 부른다).
     void ApplyHit(CZone* zone, CCharacter* attacker, CCharacter* target, int32_t attackValue, uint64_t frame);
 
+    // 맞지 않고 쓰러뜨리기 — 운영자 /die(CCommandHandler · 10-26). 체력을 다 깎고(죽음 표시까지 체력 부품 TakeDamage 한 곳) → 아래 Die(ApplyHit 의 죽음과 같은 길).
+    //   피해 알림(OnHit)은 없다 — 맞은 게 아니다. 죽인 쪽 자리에는 당한 쪽 본인을 넘긴다(죽음 방송의 중심 · 보상은 당한 쪽이 몬스터일 때만이라 안 생긴다).
+    //   이미 죽었으면 아무것도 안 한다. ★ 몬스터를 넘기면 ApplyHit 처럼 이 안에서 해제된다.
+    void Kill(CZone* zone, CCharacter* target, uint64_t frame);
+
 private:
+    // 죽음 — 걷기 멈춤 · 죽음 계수 · OnDeath. 맞아 죽든(ApplyHit) 바로 쓰러지든(Kill) 이 한 길이다. ★ 몬스터면 이 안에서 해제된다.
+    void Die(CZone* zone, CCharacter* attacker, CCharacter* target);
+
     CGameMonitor&  _gameMonitor;
     ICombatEvents& _events;
 };

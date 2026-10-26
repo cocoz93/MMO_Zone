@@ -7,12 +7,13 @@
 #include "PacketBuild.h"      // 머리 쓰기·닫기 · 체력 바뀜(MakeActorStats — /gm)
 #include "SerialBuffer.h"
 #include <Protocol/Protocol.h>
-#include <Common/ErrorLog.h>  // SLOG_INFO — /item · /gm 기록
+#include <Common/ErrorLog.h>  // SLOG_INFO — /item · /gm · /die 기록
 #include <cassert>            // 직렬화 크기 검증
 #include "SelfNotifier.h"     // 명령 답(알림 한 줄)
 #include "GameMonitor.h"      // 명령 거절 · /gm 켜고 끈 수(_chat)
 #if USE_COMBAT
 #include "StatSystem.h"       // /gm 의 스탯 다시 세우기
+#include "CombatSystem.h"     // /die 의 쓰러뜨리기
 #endif
 #if USE_INVENTORY
 #include "ItemHandler.h"
@@ -22,10 +23,10 @@
 
 using namespace PacketBuild;   // 아래 조립 함수(MakeActorSpeed)가 머리 쓰기·닫기를 이름만으로 부른다
 
-// 채팅 명령 — ChatHandler.cpp 에서 옮김(10-26 · 몸·주석 그대로, 이름 CChatHandler → CCommandHandler · HandleChatCommand → Handle).
+// 채팅 명령 — ChatHandler.cpp 에서 옮김(10-26 · 몸·주석 그대로, 이름 CChatHandler → CCommandHandler · HandleChatCommand → Handle · /die 더함).
 
 // ==========================================================================
-// 채팅 명령 — 틀(낱말 나누기 · 표 · 권한 · 거절)은 늘 있고, 명령 줄만 토글을 본다(/item USE_INVENTORY · /gm USE_COMBAT)
+// 채팅 명령 — 틀(낱말 나누기 · 표 · 권한 · 거절)은 늘 있고, 명령 줄만 토글을 본다(/item USE_INVENTORY · /gm · /die USE_COMBAT)
 // ==========================================================================
 
 namespace
@@ -99,6 +100,7 @@ void CCommandHandler::Handle(CPlayer* player, const ChatChar* msg, uint16_t len)
 #endif
 #if USE_COMBAT
         { "/gm",   &CCommandHandler::RunGmCommand   },   // /gm — GM 모드 켜고 끄기
+        { "/die",  &CCommandHandler::RunDieCommand  },   // /die — 그 자리에서 쓰러지기
 #endif
         { nullptr, nullptr },   // 빈 줄 — 명령이 하나도 없는 빌드(전투를 끈 빌드)에서도 표가 크기 0 이 되지 않게(C++ 는 크기 0 배열을 못 둔다)
     };
@@ -186,6 +188,38 @@ void CCommandHandler::RunGmCommand(CPlayer* player, const std::vector<std::strin
     _selfNotifier.SendSystemMessage(player, std::string(player->_gmMode ? "GM 켬" : "GM 끔")
         + " — 속도 " + std::to_string(player->_speed) + " · 체력 " + std::to_string(player->_health.MaxHp())
         + " · 공격력 " + std::to_string(player->_attack._attackPower));
+}
+
+// /die — 그 자리에서 쓰러지기(10-26). 쓰러짐이 끝내는 것(거래 · 효과)을 몬스터 없이 바로 보려고 넣었다.
+//   맞지 않고 죽는 길(CCombatSystem::Kill) — 죽음 표시 · 걷기 멈춤 · 죽음 계수 · 죽은 목록 · DEATH 방송 · 효과 풀림이 맞아 죽을 때와 같은 한 길이고,
+//   부활도 같다(전투 조각의 부활 대기열 — CCombatHandler::TickRespawn). 피해 방송(DAMAGE)은 없다 — 맞은 게 아니라서.
+void CCommandHandler::RunDieCommand(CPlayer* player, const std::vector<std::string>& words)
+{
+    CGameMonitor::ChatCounters& counters = _gameMonitor._chat;
+
+    if (words.size() != 1)
+    {
+        counters._commandRejected[static_cast<int>(ChatCommandReject::BAD_ARGS)].Inc();
+        _selfNotifier.SendSystemMessage(player, "쓰는 법: /die (그 자리에서 쓰러진다 — 인자 없음)");
+        return;
+    }
+
+    if (player->_health.IsDead())
+    {
+        counters._commandRejected[static_cast<int>(ChatCommandReject::DEAD)].Inc();
+        _selfNotifier.SendSystemMessage(player, "이미 쓰러져 있습니다");
+        return;
+    }
+
+    // 채팅 조각(RecvChat)은 존을 찾은 뒤에만 명령을 넘긴다 — 없을 수 없지만 /gm 과 같이 본다
+    CZone* zone = _mapManager.GetZone(player->_zoneId);
+    if (zone == nullptr)
+        return;
+
+    _combatSystem.Kill(zone, player, _frameCount);
+
+    SLOG_INFO("[GM] /die (account={}, player={})", player->_accountId, player->_actorId);
+    _selfNotifier.SendSystemMessage(player, "쓰러졌습니다 (/die)");
 }
 #endif // USE_COMBAT
 

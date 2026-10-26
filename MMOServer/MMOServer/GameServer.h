@@ -71,7 +71,7 @@
 #include "TradeHandler.h"     // 거래(거래 요청 여섯 · 거래 알림 · 짝 저장 — USE_TRADE) — trade-plan.md
 #include "MoveHandler.h"      // 이동(이동 시작·멈춤 요청 · 좌표 수용 예산 — 토글 없음) — 게임 서버 나누기 11 단계(C2)
 #include "EntryHandler.h"     // 입장·존 이동 요청(접속 · 대기표 · 불러온 캐릭터 세우기 · 중복 접속 · 포털) — 게임 서버 나누기 12 단계(C1)
-#include "CommandHandler.h"   // 채팅 명령(명령 표 · 운영자 권한 · /item · /gm — 명령 줄만 토글) — 10-26 채팅 조각에서 떼어 냄
+#include "CommandHandler.h"   // 채팅 명령(명령 표 · 운영자 권한 · /item · /gm · /die — 명령 줄만 토글) — 10-26 채팅 조각에서 떼어 냄
 #include "ChatHandler.h"      // 채팅·운영(채팅 · 운영자 로그인 · '/' 채팅 넘기기) — 게임 서버 나누기 13 단계(C8)
 
 class CSerialBuffer;
@@ -354,12 +354,12 @@ private:
 #endif
                                  _mapManager, _gameMonitor, _gameDataFiles };
 
-    // 채팅 명령 — '/' 채팅의 명령 표 · 운영자 권한 · /item(USE_INVENTORY) · /gm(USE_COMBAT)(CommandHandler.h · 10-26 채팅 조각에서 떼어 냄).
-    //   ★ _sightBroadcaster · _selfNotifier · _gameMonitor · _mapManager 와 명령이 쓰는 _statSystem · _itemHandler · _gameDataFiles
+    // 채팅 명령 — '/' 채팅의 명령 표 · 운영자 권한 · /item(USE_INVENTORY) · /gm · /die(USE_COMBAT)(CommandHandler.h · 10-26 채팅 조각에서 떼어 냄).
+    //   ★ _sightBroadcaster · _selfNotifier · _gameMonitor · _mapManager 와 명령이 쓰는 _statSystem · _combatSystem · _frameCount · _itemHandler · _gameDataFiles
     //     보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
     CCommandHandler _commandHandler{ _sightBroadcaster, _selfNotifier, _gameMonitor,
 #if USE_COMBAT
-                                     _statSystem,
+                                     _statSystem, _combatSystem, _frameCount,
 #endif
 #if USE_INVENTORY
                                      _itemHandler, _gameDataFiles,

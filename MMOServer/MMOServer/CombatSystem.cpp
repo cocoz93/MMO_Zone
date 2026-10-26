@@ -258,7 +258,27 @@ void CCombatSystem::ApplyHit(CZone* zone, CCharacter* attacker, CCharacter* targ
     if (!died)
         return;
 
-    // ── 5) 죽음 ──
+    // ── 5) 죽음 ── ★ 마지막 줄이어야 한다 — 몬스터면 이 안에서 target 이 해제된다
+    Die(zone, attacker, target);
+}
+
+void CCombatSystem::Kill(CZone* zone, CCharacter* target, uint64_t frame)
+{
+    CHealthPart& targetHealth = HealthOf(target);
+    if (targetHealth.IsDead())
+        return;
+
+    // 남은 체력만큼 깎는다 — 0 이 되는 순간의 죽음 표시(생사·죽은 프레임)는 맞을 때와 같은 한 곳(TakeDamage)이 적는다
+    const bool died = targetHealth.TakeDamage(targetHealth.Hp(), frame);
+    assert(died && "남은 체력을 다 깎았는데 안 죽었다 — 체력이 0 인 산 것");
+    if (!died)
+        return;
+
+    Die(zone, target, target);   // ★ 마지막 줄 — 몬스터면 이 안에서 해제된다
+}
+
+void CCombatSystem::Die(CZone* zone, CCharacter* attacker, CCharacter* target)
+{
     target->_moveState  = MoveState::IDLE;   // 시체가 계속 걸어가지 않게
 
     // ★ 죽음은 "당한 쪽"으로 가른다 — 때린 쪽으로 가르면
