@@ -115,6 +115,7 @@ struct DBSaveBundle
     uint32_t  bundleNo;    // 회신과 짝을 맞추는 번호(0 은 안 씀)
     uint32_t  slotBegin;   // 줄 벡터 안 시작 자리 — 넣는 함수가 매긴다(부르는 쪽 값은 무시)
     int32_t   slotCount;   // 칸 줄 수(0 ~ 가방 칸 수)
+    uint8_t   pairNext;    // 1 = 큐에서 바로 뒤 머리와 한 트랜잭션(짝 묶음 — 거래 · EnqueueSavePair 만 켠다) · 0 = 혼자
 };
 
 // 저장 회신 — 모든 묶음이 하나씩 받는다(성공 · 실패). 무엇을 다시 실을지는 받는 쪽(저장소)이 정한다 — 워커는 주인을 모른다.
@@ -257,6 +258,8 @@ struct DBWorkerSlot
 };
 
 // K개 워커 스레드 + 커넥션. accountId % K 고정 분배(같은 유저=같은 워커=UPSERT 순서 보장).
+//   ★ 예외 하나 — 짝 묶음(거래 · EnqueueSavePair)은 두 계정 중 작은 번호의 워커로 간다. 다른 쪽 사람의 순서는 큐가 아니라
+//     저장소가 지킨다 — 짝이 확정될 때까지 그 사람의 다른 쓰기(혼자 묶음 · 떠난 기록)를 붙잡는다(CCharacterStore 「짝 저장」).
 //   백프레셔: 저장 묶음끼리 센 수가 queueMax 에 닿으면 거절(카운터+ERROR) — 부르는 쪽이 표시를 되살리거나 떠난 기록을 남겨
 //   다음 계기에 다시 싣는다. 살아 있는 캐릭터는 비행 중 묶음이 하나라 정상 상태에선 안 닿는다.
 class CDBWorker
@@ -284,6 +287,14 @@ public:
     //   슬롯마다 락 1회. outRefused 가 있으면 거절된 묶음의 heads 안 색인을 담는다(꼬리부터 거절 — 앞에서부터 받는다).
     void EnqueueSaveBatch(const std::vector<DBSaveBundle>& heads, const std::vector<DBInvRow>& allRows,
                           std::vector<size_t>* outRefused = nullptr);
+
+    // 게임루프·종료 전용 — 짝 묶음 1건(두 캐릭터 = 트랜잭션 하나 · 거래 — trade-plan.md 「저장」).
+    //   ★ 큐는 두 계정 중 작은 번호의 슬롯이다(같은 짝은 늘 같은 큐 — 종료 때 다시 낸 짝 묶음이 떠 있던 짝 묶음 뒤에 줄 선다).
+    //     다른 쪽 사람의 순서는 큐가 지켜 주지 않는다 — 부르는 쪽(CCharacterStore)이 짝이 확정될 때까지 두 사람의 다른 쓰기를 붙잡는다.
+    //   두 머리를 한 락 안에 이어 넣어 워커가 한 번에 꺼낸다(a.pairNext = 1). 상한은 둘 다 들어갈 때만 — 반쪽만 넣지 않는다.
+    //   회신은 머리마다 하나씩(같은 성패). 반환 false = 거절(둘 다 안 들어감 · dropped 를 2 센다).
+    bool EnqueueSavePair(const DBSaveBundle& a, const DBInvRow* aRows, int aCount,
+                         const DBSaveBundle& b, const DBInvRow* bRows, int bCount);
 
     // 게임루프 전용 — 쌓인 결과를 통째로 꺼낸다(락 1회). 두 벡터 다 비어 있어야 한다.
     //   벡터를 맞바꾸므로 양쪽 다 용량이 보존된다 → 틱마다 할당하지 않는다
@@ -320,9 +331,11 @@ private:
 
     // 저장 묶음 — 불러오기와 같은 재연결 규칙(없으면 그 자리 재연결 · 도중에 끊기면 재연결 뒤 묶음째 한 번 더).
     //   반환 = 성공. 회신은 부르는 쪽(WorkerThread)이 곧바로 넣는다.
+    //   heads·rows = 머리 n 개(1 = 혼자 · 2 = 짝 묶음)와 그 칸 줄 — n 개를 트랜잭션 하나로 쓴다.
     enum class SaveOutcome : uint8_t { OK, QUERY_ERROR, CONNECTION_LOST };
-    bool ExecBundle(DBWorkerSlot& slot, const DBSaveBundle& b, const DBInvRow* rows, bool& reconnectFailedThisBatch);
-    SaveOutcome RunBundleOnce(DBWorkerSlot& slot, const DBSaveBundle& b, const DBInvRow* rows);
+    static constexpr int MAX_BUNDLE_HEADS = 2;
+    bool ExecBundle(DBWorkerSlot& slot, const DBSaveBundle* const* heads, const DBInvRow* const* rows, int n, bool& reconnectFailedThisBatch);
+    SaveOutcome RunBundleOnce(DBWorkerSlot& slot, const DBSaveBundle* const* heads, const DBInvRow* const* rows, int n);
     void PushSaveReply(const DBSaveReply& reply);   // 워커 스레드 → 회신 큐(저장 회신 목록)
     // 묶음 하나를 슬롯 큐에 — 락을 쥔 채 부른다(EnqueueSave · EnqueueSaveBatch 공용). 거절이면 false.
     bool PushBundleLocked(DBWorkerSlot& slot, DBSaveBundle head, const DBInvRow* rows, int rowCount);

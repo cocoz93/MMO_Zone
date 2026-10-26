@@ -85,6 +85,7 @@ public:
         bool          again       = false;   // 비행 중에 계기가 와서 판정이 참이었다 = 다시 필요(성공 회신 뒤 틱 끝에 다시)
         bool          listed      = false;   // 이번 틱 끝 목록에 올라 있다(목록 중복 막기)
         bool          posDirty    = false;   // 실을 때의 _dbDirty — 실패면 되살린다
+        bool          paired      = false;   // 짝 고리(거래)가 걸려 있다 — 짝 묶음이 확정될 때까지 혼자 묶음을 안 낸다(CCharacterStore 「짝 저장」)
         DbSavedValues savedBefore;           // 실을 때의 _dbSaved(싣기 전 값) — 실패면 되돌린다
 #if USE_INVENTORY
         CInventory::SlotBits slots;          // 실은 가방 칸 — 실패면 가방 저장 표시로 되살리고, 나갈 때·종료 묶음엔 표시와 합쳐 싣는다

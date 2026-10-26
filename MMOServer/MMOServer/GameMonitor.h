@@ -233,18 +233,20 @@ enum class SaveTrigger : uint8_t
     TICK_END,   // 틱 끝 요청(가방 · 레벨업 · 다시 필요) — 목록의 사람 중 판정 참
     LEAVE,      // 나갈 때 — 떠난 기록의 첫 묶음 · 그 기록을 다시 실은 묶음
     SHUTDOWN,   // 종료 — 전원 + 확정 안 된 떠난 기록
+    TRADE,      // 거래 — 두 사람의 짝 묶음(머리 둘을 하나씩 센다 · 실패 뒤 다시 낸 짝 · 종료 때 다시 낸 짝 포함)
     COUNT
 };
 
 inline const char* SaveTriggerName(SaveTrigger t)
 {
-    static_assert(static_cast<int>(SaveTrigger::COUNT) == 4, "SaveTrigger 를 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(SaveTrigger::COUNT) == 5, "SaveTrigger 를 늘렸으면 이름도 붙일 것");
     switch (t)
     {
     case SaveTrigger::PERIOD:   return "period";
     case SaveTrigger::TICK_END: return "tick_end";
     case SaveTrigger::LEAVE:    return "leave";
     case SaveTrigger::SHUTDOWN: return "shutdown";
+    case SaveTrigger::TRADE:    return "trade";
     case SaveTrigger::COUNT:    break;
     }
     return "?";

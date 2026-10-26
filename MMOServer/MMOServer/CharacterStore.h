@@ -82,7 +82,19 @@ public:
     //   틱 끝 — 주기(그 틱이면 판정 참인 전원 · 실패한 떠난 기록 다시 싣기) → 목록. GameServer 틱의 마지막 일.
     void TickSaves();
     //   나갈 때 — 마지막 묶음(행 + 표시 칸 ∪ 비행 칸)을 떠난 기록으로 바로 큐에. 부른 뒤 플레이어가 해제된다(ReleasePlayer).
+    //   ★ 짝 고리가 걸려 있으면 떠난 기록을 붙잡는다(큐에 안 넣음 — 아래 「짝 저장」).
     void SaveOnLeave(CPlayer* player);
+
+    // ── 짝 저장 (거래 · trade-plan.md 「저장 — 왜 붙잡나」) ──
+    //   두 사람의 맞바꾼 가방은 짝 묶음 하나 = 트랜잭션 하나로 쓴다(따로 쓰다 그 사이 죽으면 복사·증발).
+    //   짝 묶음은 한 큐(두 계정 중 작은 번호의 워커)에만 들어가 다른 쪽 사람의 순서를 큐가 못 지킨다 — 그래서 「한 캐릭터의 DB 쓰기는
+    //   늘 하나만 떠 있다」를 짝에도 지킨다: 짝 고리가 걸린 동안 두 사람의 혼자 묶음(주기 · 틱 끝)도, 떠난 기록도 안 낸다(붙잡음).
+    //   성공 회신 = 고리를 풀고 붙잡아 둔 것을 낸다 · 실패 회신 = 다음 주기에 짝째로 다시(혼자씩 따로 쓰는 길이 없다).
+    //   종료 = 고리가 걸린 짝은 두 사람의 최종을 짝 묶음으로 같은 큐에(떠 있던 짝 묶음 뒤에 줄 선다).
+    //   맞바꾸기 직전에 묻는다 — 둘 다 떠 있는 묶음이 없고 고리도 없나(워커가 없으면 늘 참). 거짓이면 부르는 쪽이 다음 틱으로 미룬다.
+    bool CanSaveTradeNow(const CPlayer* a, const CPlayer* b) const;
+    //   맞바꾼 바로 뒤(같은 틱) — 고리를 걸고 짝 묶음을 낸다. 큐가 거절해도 고리는 남아 다음 주기에 다시 낸다. 워커가 없으면 아무 일도 안 한다.
+    void SaveTrade(CPlayer* a, CPlayer* b);
 
 #if USE_INVENTORY
     // 불러온 가방 줄을 검사해 넣는다 — 칸 범위·아이템 표·탭·쌓임 한도. 안 맞는 줄은 세고 건너뛴다(깎아 넣지 않는다).
@@ -113,6 +125,7 @@ private:
     bool SendBundle(CPlayer* player, SaveTrigger trigger);               // 주기·틱 끝 하나 — 비행 중이면 다시 필요만. 반환 = 큐가 받았나
     void OnSaveReply(const DBSaveReply& reply);                          // 회신 하나 — 살아 있는 사람 · 떠난 기록 · 주인 없음
     void FillFinalRows(CPlayer* player, std::vector<DBInvRow>& rows);    // 나갈 때·종료 — 표시 칸 ∪ 비행 칸(최종값)
+    void LeaveFinal(CPlayer* player, SaveTrigger trigger);                // 나갈 때·종료 — 마지막 묶음을 떠난 기록으로(짝이면 붙잡음)
     void SetInflight(int delta);                                          // 비행 중 게이지
 
     // 떠난 기록 — 나간 사람의 마지막 묶음. 플레이어가 해제되므로 저장소가 계정 열쇠로 든다(계정당 하나).
@@ -122,9 +135,25 @@ private:
         DBSaveBundle          head{};
         std::vector<DBInvRow> rows;
         bool                  inFlight = false;
+        bool                  paired   = false;   // 짝 고리에 걸려 붙잡힘 — 혼자 안 낸다(짝 묶음의 한쪽으로만 · 고리가 풀리면 혼자)
     };
-    void PutLeaveRecord(DBSaveBundle head, std::vector<DBInvRow>&& rows, SaveTrigger trigger);
+    void PutLeaveRecord(DBSaveBundle head, std::vector<DBInvRow>&& rows, SaveTrigger trigger, bool hold = false);
     void SendLeaveRecord(LeaveRecord& rec, SaveTrigger trigger);
+
+    // 짝 고리 — 거래 한 건의 확정 안 된 저장. 쪽마다 살아 있는 사람(세션) 또는 떠난 기록(계정 열쇠)이다.
+    struct PairLink
+    {
+        int64_t  account[2]  = {};
+        int64_t  session[2]  = {};      // 살아 있으면 세션 번호 · 0 = 나갔다(그쪽 최종 = 붙잡힌 떠난 기록)
+        uint32_t bundleNo[2] = {};      // 떠 있는 짝 묶음의 머리 번호 — 회신 짝 맞추기(inFlight 일 때만 뜻이 있다)
+        bool     replied[2]  = {};
+        bool     ok          = true;    // 받은 회신이 다 성공인가(트랜잭션 하나라 둘은 같다)
+        bool     inFlight    = false;
+    };
+    PairLink* FindPair(int64_t accountId, int* outSide = nullptr);
+    bool SendPair(PairLink& link, SaveTrigger trigger);   // 짝 묶음 하나를 낸다 — 반환 = 큐가 받았나
+    void OnPairReply(const DBSaveReply& reply);           // 회신이 떠 있는 짝 묶음의 머리면 고리에 적고, 둘 다 오면 푼다(ProcessDbResults — OnSaveReply 바로 뒤)
+    void ReleasePairSide(int64_t accountId, int64_t sessionId);   // 고리가 풀린 한쪽 — 혼자 묶음·붙잡힌 떠난 기록을 다시 흐르게
 
     // 쿨타임·버프 ↔ DB 묶음(characters.skill_cooldowns · buffs, 형식은 CooldownBuffBlob.h). 게임 안의 시간은 틱이고 DB 는 실제 시각이다.
     void PackCooldownsAndBuffs(const CPlayer* player, DBCharRow& row) const;      // 저장 — 돌고 있는 칸을 틱 → 실제 시각으로 묶는다(MakeCharRow)
@@ -159,6 +188,8 @@ private:
     std::vector<DBInvRow>                      _batchRows;         // 그 칸 줄(머리의 slotBegin 이 가리킨다)
     std::vector<CPlayer*>                      _batchOwners;       // _batchHeads 와 나란한 주인(거절 때 되돌릴 사람)
     std::vector<size_t>                        _batchRefused;      // 거절된 색인
+    std::vector<PairLink>                      _pairs;             // 걸린 짝 고리 — 많아야 동시에 확정을 기다리는 거래 수
+    std::vector<DBInvRow>                      _pairRows[2];       // 짝 묶음 쪽마다 칸 줄 — 멤버 재사용(SendPair)
 };
 
 #endif // USE_DB_WORKER

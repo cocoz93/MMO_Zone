@@ -376,25 +376,19 @@ void CCharacterStore::SaveAllPlayers()
     // 주기 저장(ShouldSave 필터)과 목적이 다름: 여기선 dirty 추적을 신뢰하지 않고 무조건 다 씀.
     //   전원을 떠난 기록으로 넘긴다(나갈 때와 같은 마지막 묶음 — 행 + 표시 칸 ∪ 비행 칸) → 드레인 뒤 Shutdown 이
     //   회신을 꺼내 확정 안 된 기록을 「잃음」으로 센다. 실패 중이던 떠난 기록도 한 번 더 싣는다.
+    //   짝 고리가 걸린 사람은 떠난 기록을 붙잡고(LeaveFinal), 두 사람의 최종을 짝 묶음으로 같은 큐에 낸다 —
+    //   떠 있던 짝 묶음이 있어도 같은 큐(작은 계정의 워커) 뒤에 줄 서므로 뒤집히지 않는다(늦게 온 옛 회신은 번호가 안 맞아 주인 없음).
     _sessionHub.ForEachPlayer([&](CPlayer* player)
     {
-        DBSaveBundle head{};
-        head.row       = MakeCharRow(player);
-        head.sessionId = 0;
-        std::vector<DBInvRow> rows;
-        FillFinalRows(player, rows);
-        if (player->_dbFlight.bundleNo != 0)
-        {
-            player->_dbFlight.bundleNo = 0;   // 비행 중이던 묶음의 회신은 주인 없음으로 떨어진다 — 칸은 위 마지막 묶음에 실렸다
-            SetInflight(-1);
-        }
-        PutLeaveRecord(head, std::move(rows), SaveTrigger::SHUTDOWN);
+        LeaveFinal(player, SaveTrigger::SHUTDOWN);
     });
     for (auto& kv : _leaveRecords)
     {
-        if (!kv.second.inFlight)
+        if (!kv.second.inFlight && !kv.second.paired)
             SendLeaveRecord(kv.second, SaveTrigger::SHUTDOWN);
     }
+    for (PairLink& link : _pairs)
+        SendPair(link, SaveTrigger::SHUTDOWN);
 }
 
 // 멈추기 — 부르는 자리는 CGameServer::Stop 의 DB 블록 그대로(게임 스레드를 join 한 뒤).
@@ -432,6 +426,171 @@ void CCharacterStore::Shutdown()
 //   묶음 하나(캐릭터 행 + 저장 안 된 칸)를 넣고, 회신이 확정(성공)하거나 되살린다(실패). 캐릭터당 비행 중 묶음은 하나.
 //   나간 사람의 묶음은 떠난 기록이 주인 — 실패하면 다음 주기에 다시 싣고, 확정 전엔 같은 계정 불러오기를 실패로 돌린다.
 // ==========================================================================
+
+// ==========================================================================
+// 짝 저장 — 거래 한 건의 두 사람(헤더 「짝 저장」 · trade-plan.md 「저장 — 왜 붙잡나」)
+// ==========================================================================
+bool CCharacterStore::CanSaveTradeNow(const CPlayer* a, const CPlayer* b) const
+{
+    if (!_dbWorker)
+        return true;   // DB 를 안 쓰는 빌드·설정 — 맞바꾸기만 한다
+    return a->_dbFlight.bundleNo == 0 && b->_dbFlight.bundleNo == 0 && !a->_dbFlight.paired && !b->_dbFlight.paired;
+}
+
+void CCharacterStore::SaveTrade(CPlayer* a, CPlayer* b)
+{
+    if (!_dbWorker)
+        return;
+    assert(CanSaveTradeNow(a, b) && "부르는 쪽(거래)이 맞바꾸기 전에 물었다");
+    PairLink link;
+    link.account[0] = a->_accountId;  link.session[0] = a->_sessionId;
+    link.account[1] = b->_accountId;  link.session[1] = b->_sessionId;
+    a->_dbFlight.paired = true;
+    b->_dbFlight.paired = true;
+    _pairs.push_back(link);
+    SendPair(_pairs.back(), SaveTrigger::TRADE);   // 거절돼도 고리는 남는다 — 다음 주기에 다시(TickSaves)
+}
+
+CCharacterStore::PairLink* CCharacterStore::FindPair(int64_t accountId, int* outSide)
+{
+    for (PairLink& link : _pairs)
+    {
+        for (int s = 0; s < 2; ++s)
+        {
+            if (link.account[s] == accountId)
+            {
+                if (outSide != nullptr)
+                    *outSide = s;
+                return &link;
+            }
+        }
+    }
+    return nullptr;
+}
+
+bool CCharacterStore::SendPair(PairLink& link, SaveTrigger trigger)
+{
+    // 쪽마다 머리 — 살아 있는 사람은 지금 값(PrepareBundle — 표시를 비행 기록으로), 나간 쪽은 붙잡힌 떠난 기록(새 번호)
+    DBSaveBundle head[2]{};
+    CPlayer*     player[2] = { nullptr, nullptr };
+    LeaveRecord* rec[2]    = { nullptr, nullptr };
+    for (int s = 0; s < 2; ++s)
+    {
+        _pairRows[s].clear();
+        if (link.session[s] != 0)
+        {
+            player[s] = _sessionHub.FindPlayer(link.session[s]);
+            assert(player[s] != nullptr && player[s]->_accountId == link.account[s] && "나가면 LeaveFinal 이 세션을 0 으로 바꾼다");
+            assert(player[s]->_dbFlight.paired && player[s]->_dbFlight.bundleNo == 0 && "고리가 걸린 동안 혼자 묶음을 안 냈다 · 실패면 되살렸다");
+            PrepareBundle(player[s], head[s], _pairRows[s]);
+        }
+        else
+        {
+            auto it = _leaveRecords.find(link.account[s]);
+            if (it == _leaveRecords.end() || !it->second.paired)
+            {
+                // 있을 수 없다 — 붙잡힌 기록은 짝 성공 회신으로만 지워지고, 그때 고리도 풀린다. 고리는 남는다(다음 주기에 또 이 줄)
+                SLOG_ERROR("[DB] save pair side missing (account={}, partner={}) — pair not sent",
+                           link.account[s], link.account[1 - s]);
+                for (int t = 0; t < s; ++t)
+                {
+                    if (player[t] != nullptr)
+                        AbortBundle(player[t]);
+                }
+                return false;
+            }
+            rec[s] = &it->second;
+            if (++_leaveSeq == 0)
+                _leaveSeq = 1;
+            rec[s]->head.bundleNo  = _leaveSeq;
+            rec[s]->head.slotBegin = 0;
+            rec[s]->head.slotCount = static_cast<int32_t>(rec[s]->rows.size());
+            head[s] = rec[s]->head;
+        }
+    }
+
+    const DBInvRow* rows[2];
+    int             count[2];
+    for (int s = 0; s < 2; ++s)
+    {
+        const std::vector<DBInvRow>& v = (rec[s] != nullptr) ? rec[s]->rows : _pairRows[s];
+        rows[s]  = v.empty() ? nullptr : v.data();
+        count[s] = static_cast<int32_t>(v.size());
+    }
+    if (!_dbWorker->EnqueueSavePair(head[0], rows[0], count[0], head[1], rows[1], count[1]))
+    {
+        for (int s = 0; s < 2; ++s)
+        {
+            if (player[s] != nullptr)
+                AbortBundle(player[s]);   // 표시를 되살린다 — 다음 짝 묶음이 다시 싣는다
+        }
+        link.inFlight = false;
+        return false;
+    }
+
+    for (int s = 0; s < 2; ++s)
+    {
+        if (player[s] != nullptr)
+            CommitBundle(player[s], head[s], trigger);   // 비행 중으로 — 회신은 지금 회신 길(살아 있는 사람)을 탄다
+        else
+        {
+            rec[s]->inFlight = true;                     // 회신은 떠난 기록 길을 탄다(계정 + 번호)
+            _gameMonitor._save._txn[static_cast<int>(trigger)].Inc();
+        }
+        link.bundleNo[s] = head[s].bundleNo;
+        link.replied[s]  = false;
+    }
+    link.ok       = true;
+    link.inFlight = true;
+    return true;
+}
+
+void CCharacterStore::OnPairReply(const DBSaveReply& reply)
+{
+    int side = 0;
+    PairLink* link = FindPair(reply.accountId, &side);
+    if (link == nullptr || !link->inFlight || link->bundleNo[side] != reply.bundleNo || link->replied[side])
+        return;   // 짝 묶음의 머리가 아니다(혼자 묶음 · 종료 때 다시 낸 짝 뒤에 온 옛 짝의 회신)
+    link->replied[side] = true;
+    link->ok = link->ok && reply.ok;
+    if (!link->replied[1 - side])
+        return;   // 다른 쪽 회신을 기다린다(워커가 둘을 이어 넣어 대개 같은 꺼내기에 온다)
+
+    if (!link->ok)
+    {
+        // 실패 — 쪽마다 회신 길이 이미 되살렸다(살아 있는 사람 AbortBundle · 떠난 기록 inFlight=false). 고리를 두고 다음 주기에 짝째로.
+        link->inFlight = false;
+        return;
+    }
+
+    // 성공 — 고리를 풀고, 쪽마다 붙잡아 둔 것을 다시 흐르게 한다
+    const PairLink done = *link;
+    _pairs.erase(_pairs.begin() + (link - _pairs.data()));
+    for (int s = 0; s < 2; ++s)
+        ReleasePairSide(done.account[s], done.session[s]);
+}
+
+void CCharacterStore::ReleasePairSide(int64_t accountId, int64_t sessionId)
+{
+    if (sessionId != 0)
+    {
+        CPlayer* player = _sessionHub.FindPlayer(sessionId);
+        if (player != nullptr && player->_accountId == accountId)
+        {
+            player->_dbFlight.paired = false;
+            RequestSave(player, SaveReason::AGAIN);   // 짝 묶음 뒤에 바뀐 것이 있으면 이번 틱 끝에 혼자 묶음으로(판정이 거짓이면 헛일 없음)
+        }
+        return;
+    }
+    // 나간 쪽 — 그 기록이 아직 있으면 짝 묶음에 안 실린 것이다(짝이 떠 있는 동안 나가 붙잡힌 것 · 실린 것은 성공 회신에 지워졌다)
+    auto it = _leaveRecords.find(accountId);
+    if (it != _leaveRecords.end() && it->second.paired)
+    {
+        it->second.paired = false;
+        if (!it->second.inFlight)
+            SendLeaveRecord(it->second, SaveTrigger::LEAVE);
+    }
+}
 
 void CCharacterStore::SetInflight(int delta)
 {
@@ -497,6 +656,8 @@ void CCharacterStore::CommitBundle(CPlayer* player, const DBSaveBundle& head, Sa
 bool CCharacterStore::SendBundle(CPlayer* player, SaveTrigger trigger)
 {
     CPlayer::DbFlight& f = player->_dbFlight;
+    if (f.paired)
+        return false;     // 짝 고리 — 짝 묶음이 확정될 때까지 혼자 안 낸다(풀리면 ReleasePairSide 가 다시 요청한다)
     if (f.bundleNo != 0)
     {
         f.again = true;   // 비행 중 — 회신 뒤 틱 끝에 다시(상태 표 C·E2 → D)
@@ -538,6 +699,8 @@ void CCharacterStore::TickSaves()
         {
             if (!ShouldSave(player))
                 return;
+            if (player->_dbFlight.paired)
+                return;   // 짝 고리 — 아래 짝 다시 싣기가 이 사람의 지금 값을 짝 묶음으로 싣는다
             if (player->_dbFlight.bundleNo != 0)
             {
                 player->_dbFlight.again = true;
@@ -561,10 +724,18 @@ void CCharacterStore::TickSaves()
         }
 
         // 실패한 떠난 기록 다시 싣기 — 살아 있는 사람과 같은 간격(주기). 죽은 DB 를 틱마다 두드리지 않는다.
+        //   붙잡힌 기록(짝 고리)은 혼자 안 낸다 — 아래 짝 묶음의 한쪽으로 간다.
         for (auto& kv : _leaveRecords)
         {
-            if (!kv.second.inFlight)
+            if (!kv.second.inFlight && !kv.second.paired)
                 SendLeaveRecord(kv.second, SaveTrigger::LEAVE);
+        }
+
+        // 실패·거절된 짝 다시 싣기 — 같은 간격. 짝째로만(두 사람의 지금 값 · 나간 쪽은 붙잡힌 떠난 기록)
+        for (PairLink& link : _pairs)
+        {
+            if (!link.inFlight)
+                SendPair(link, SaveTrigger::TRADE);
         }
     }
 
@@ -603,6 +774,11 @@ void CCharacterStore::FillFinalRows(CPlayer* player, std::vector<DBInvRow>& rows
 void CCharacterStore::SaveOnLeave(CPlayer* player)
 {
     // 나갈 때 — 판정 없이 늘 쓴다(안전망 · 지금과 같음). 바로 큐에 — 같은 계정 재접속의 불러오기가 이 뒤에 줄 선다.
+    LeaveFinal(player, SaveTrigger::LEAVE);
+}
+
+void CCharacterStore::LeaveFinal(CPlayer* player, SaveTrigger trigger)
+{
     DBSaveBundle head{};
     head.row       = MakeCharRow(player);
     head.sessionId = 0;   // 주인 = 떠난 기록(회신은 계정 번호로 찾는다)
@@ -613,10 +789,21 @@ void CCharacterStore::SaveOnLeave(CPlayer* player)
         player->_dbFlight.bundleNo = 0;   // 비행 중이던 묶음의 회신은 주인 없음으로 떨어진다 — 칸은 위 마지막 묶음에 실렸다
         SetInflight(-1);
     }
-    PutLeaveRecord(head, std::move(rows), SaveTrigger::LEAVE);
+    // 짝 고리 — 떠난 기록을 붙잡는다(큐에 안 넣음). 비행 중이던 것이 짝 묶음이면 그 짝은 다른 큐에 있을 수 있어,
+    //   지금 내면 이 기록이 먼저 써지고 늦게 온 짝 묶음이 그보다 옛 값으로 덮는다(trade-plan.md 「위험」). 짝이 확정되면 그때 혼자 낸다.
+    //   고리의 이쪽은 이제 떠난 기록이다(세션 0) — 짝을 다시 낼 때 이 기록을 그 쪽 머리로 쓴다.
+    const bool hold = player->_dbFlight.paired;
+    if (hold)
+    {
+        int side = 0;
+        if (PairLink* link = FindPair(player->_accountId, &side))
+            link->session[side] = 0;
+        player->_dbFlight.paired = false;   // 플레이어는 곧 해제된다 — 고리는 기록 쪽이 든다
+    }
+    PutLeaveRecord(head, std::move(rows), trigger, hold);
 }
 
-void CCharacterStore::PutLeaveRecord(DBSaveBundle head, std::vector<DBInvRow>&& rows, SaveTrigger trigger)
+void CCharacterStore::PutLeaveRecord(DBSaveBundle head, std::vector<DBInvRow>&& rows, SaveTrigger trigger, bool hold)
 {
     const int64_t accountId = head.row.accountId;
     auto it = _leaveRecords.find(accountId);
@@ -631,7 +818,9 @@ void CCharacterStore::PutLeaveRecord(DBSaveBundle head, std::vector<DBInvRow>&& 
     rec.rows           = std::move(rows);
     rec.head.slotCount = static_cast<int32_t>(rec.rows.size());
     rec.inFlight       = false;
-    SendLeaveRecord(rec, trigger);
+    rec.paired         = hold;
+    if (!hold)
+        SendLeaveRecord(rec, trigger);
     _gameMonitor._save._pendingLeave.Store(static_cast<int64_t>(_leaveRecords.size()));
 }
 
@@ -725,8 +914,9 @@ bool CCharacterStore::RequestCharacterLoad(int64_t sessionId, int64_t accountId)
 
     // 그 계정의 떠난 기록이 실패 중이면 먼저 다시 싣는다 — 같은 슬롯 큐라 이 불러오기가 그 뒤에 줄 서서, 성공하면 새 값을 읽는다.
     //   비행 중이면 그대로 둔다(이미 앞에 있다). 확정 전에 온 불러오기 결과는 ProcessDbResults 가 실패로 돌린다.
+    //   붙잡힌 기록(짝 고리)은 안 낸다 — 혼자 내면 다른 큐의 짝 묶음과 차례가 뒤집힌다. 기록이 있는 한 결과는 실패로 돌려진다(아래).
     auto leave = _leaveRecords.find(accountId);
-    if (leave != _leaveRecords.end() && !leave->second.inFlight)
+    if (leave != _leaveRecords.end() && !leave->second.inFlight && !leave->second.paired)
         SendLeaveRecord(leave->second, SaveTrigger::LEAVE);
 
     // 거절되면 결과가 오지 않는다 → requested 에 넣지 않고 따로 센다(등식이 안 흐려지게).
@@ -751,7 +941,10 @@ void CCharacterStore::ProcessDbResults()
     // ★ 저장 회신 먼저 — 같은 계정의 묶음 회신은 뒤 불러오기 결과보다 먼저 들어온다(같은 큐 차례 · 묶음마다 곧바로 회신).
     //   회신을 다 처리한 뒤 불러오기 결과를 보면, 그 계정의 떠난 기록이 확정됐는지 이미 안다(아래 불러오기 차례).
     for (const DBSaveReply& reply : _dbSaveReplies)
+    {
         OnSaveReply(reply);
+        OnPairReply(reply);   // 뒤 — 떠난 기록 쪽 머리가 먼저 지워져야 고리를 풀 때 「짝에 안 실린 붙잡힌 기록」만 남는다
+    }
     _dbSaveReplies.clear();
 
     if (_dbResults.empty())
