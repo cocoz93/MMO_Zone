@@ -11,12 +11,12 @@
 //  - 생애 알림 나눠 부르기 — 존에서 빠짐 · 떠남(IPlacementEvents) · 존 지우기 직전(OnErasingZone).
 //    틱 너머 목록이 여러 조각·시스템에 흩어져 있어, 한 조각이 받으면 그 조각이 남의 목록을 알게 된다 — 그래서 조립하는 쪽이 받아 차례대로 부른다
 //
-// [조각] 멤버 이름(헤더) — 기반 다섯과 컨텐츠 열. 존·맵은 맵 관리자(_mapManager)가 든다
+// [조각] 멤버 이름(헤더) — 기반 다섯과 컨텐츠 열하나. 존·맵은 맵 관리자(_mapManager)가 든다
 //  기반: _sessionHub(세션 칸 · 보내기) · _selfNotifier(본인 알림) · _sightBroadcaster(시야 방송) · _characterStore(저장·불러오기 — USE_DB_WORKER) ·
 //        _placement(존에 넣기·옮기기·빼기 · 도착 차례)
 //  컨텐츠: _entryHandler(입장·존 이동) · _moveHandler(이동) · _combatHandler(전투 — USE_COMBAT) · _monsterHandler(몬스터 — USE_MONSTER) ·
 //          _rewardHandler(처치 보상 — USE_COMBAT && USE_MONSTER) · _itemHandler(가방·땅 — USE_INVENTORY) · _partyHandler(파티·방 — USE_PARTY) · _chatHandler(채팅·운영) ·
-//          _npcHandler(NPC — 토글 없음) · _shopHandler(상점 — USE_SHOP)
+//          _npcHandler(NPC — 토글 없음) · _shopHandler(상점 — USE_SHOP) · _tradeHandler(거래 — USE_TRADE)
 //
 // [모르는 것]
 //  패킷 조립(PacketBuild.h · 각 조각)과 컨텐츠 규칙. 받은 패킷의 처리기는 여기 하나도 없다.
@@ -68,6 +68,7 @@
 #include "MonsterHandler.h"   // 몬스터(몬스터 틱 · 등장·사라짐 알림 · 번호 발급 — USE_MONSTER) — 게임 서버 나누기 10 단계(C4)
 #include "NpcHandler.h"       // NPC(NPC 틱 · 등장 알림 · 번호 발급 — 토글 없음) — NPC·상점 플랜 4판(C9)
 #include "ShopHandler.h"      // 상점(사기·팔기 요청 · NPC 찾기 · 거절 패킷 — USE_SHOP) — NPC·상점 플랜 4판(C10)
+#include "TradeHandler.h"     // 거래(거래 요청 여섯 · 거래 알림 · 짝 저장 — USE_TRADE) — trade-plan.md
 #include "MoveHandler.h"      // 이동(이동 시작·멈춤 요청 · 좌표 수용 예산 — 토글 없음) — 게임 서버 나누기 11 단계(C2)
 #include "EntryHandler.h"     // 입장·존 이동 요청(접속 · 대기표 · 불러온 캐릭터 세우기 · 중복 접속 · 포털) — 게임 서버 나누기 12 단계(C1)
 #include "ChatHandler.h"      // 채팅·운영(채팅 · 운영자 로그인 · 채팅 명령 /item · /gm — 명령 줄만 토글) — 게임 서버 나누기 13 단계(C8)
@@ -237,6 +238,21 @@ private:
     // 상점 — 사기·팔기 요청 · NPC 찾기 · 결과 내보내기(성공 = 가방 조각의 FlushInventory · 거절 = S2C_SHOP_FAIL)(ShopHandler.h).
     //   ★ _sessionHub · _itemHandler · _shopSystem · _mapManager 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
     CShopHandler _shopHandler{ _sessionHub, _itemHandler, _shopSystem, _mapManager };
+#endif
+
+#if USE_TRADE
+    // 거래 — 거래 요청 · 거래 알림(ITradeEvents) · 맞바꾼 뒤 짝 저장·가방 내보내기(TradeHandler.h).
+    //   ★ _sessionHub · _itemHandler · _characterStore · _mapManager · _gameMonitor · _frameCount 보다 뒤에 선언 — 그 참조를 받는다.
+    //   _tradeSystem 만 거꾸로 이 뒤다 — 그 알림 받는 쪽이 이 조각이라 이것이 먼저 세워져야 한다(파티와 같은 꼴).
+    CTradeHandler _tradeHandler{ _sessionHub, _itemHandler,
+#if USE_DB_WORKER
+                                 _characterStore,
+#endif
+                                 _tradeSystem, _mapManager, _gameMonitor, _frameCount };
+
+    // 거래 규칙 — 신청 표 · 거래창 · 맞바꾸기. 신청·거래창의 주소를 틱 너머로 들므로 「존에서 빠짐」(OnLeavingZone)과 「떠남」(OnLeavingGame)이 지운다.
+    //   ★ _gameDataFiles · _gameMonitor · _tradeHandler 보다 뒤에 선언해야 한다.
+    CTradeSystem _tradeSystem{ _gameDataFiles, _gameMonitor, _tradeHandler };
 #endif
 
 #if USE_COMBAT

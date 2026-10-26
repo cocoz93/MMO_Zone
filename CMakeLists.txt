@@ -151,6 +151,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/MonsterHandler.cpp
     ${SRV_DIR}/NpcHandler.cpp
     ${SRV_DIR}/ShopHandler.cpp
+    ${SRV_DIR}/TradeHandler.cpp
     ${SRV_DIR}/MoveHandler.cpp
     ${SRV_DIR}/EntryHandler.cpp
     ${SRV_DIR}/ChatHandler.cpp
@@ -172,6 +173,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/StatSystem.cpp
     ${SRV_DIR}/ItemSystem.cpp
     ${SRV_DIR}/ShopSystem.cpp
+    ${SRV_DIR}/TradeSystem.cpp
     ${SRV_DIR}/SkillSystem.cpp
     ${SRV_DIR}/BuffSystem.cpp
     ${SRV_DIR}/PartySystem.cpp

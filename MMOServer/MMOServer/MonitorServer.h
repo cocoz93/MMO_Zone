@@ -613,6 +613,34 @@ private:
         }
 #endif
 
+#if USE_TRADE
+        // 거래. 등식 둘(GameMonitor.h): requests = opened + Σ requests_ended + pending_requests · opened = Σ ended + active
+        {
+            const auto& tr = _gameMonitor._trade;
+            ss << "# HELP mmo_trade_active Trade windows open right now\n# TYPE mmo_trade_active gauge\nmmo_trade_active " << tr._active << "\n";
+            ss << "# HELP mmo_trade_pending_requests Trade requests waiting for an answer right now\n# TYPE mmo_trade_pending_requests gauge\nmmo_trade_pending_requests " << tr._pending << "\n\n";
+            WriteCounter(ss, "mmo_trade_requests_total", "Trade requests put in the table", tr._requests);
+            WriteCounter(ss, "mmo_trade_opened_total", "Trade windows opened (accepted requests)", tr._opened);
+            ss << "# HELP mmo_trade_requests_ended_total Trade requests that ended without opening a window, split by why\n# TYPE mmo_trade_requests_ended_total counter\n";
+            for (int i = 0; i < static_cast<int>(TradeEnd::COUNT); ++i)
+                ss << "mmo_trade_requests_ended_total{why=\"" << TradeEndName(static_cast<TradeEnd>(i)) << "\"} " << tr._requestsEnded[i] << "\n";
+            ss << "\n# HELP mmo_trade_ended_total Trade windows that ended, split by why (done = swapped)\n# TYPE mmo_trade_ended_total counter\n";
+            for (int i = 0; i < static_cast<int>(TradeEnd::COUNT); ++i)
+                ss << "mmo_trade_ended_total{why=\"" << TradeEndName(static_cast<TradeEnd>(i)) << "\"} " << tr._ended[i] << "\n";
+            ss << "\n# HELP mmo_trade_fail_total Trade requests refused, split by reason (one S2C_TRADE_FAIL each)\n# TYPE mmo_trade_fail_total counter\n";
+            for (int i = 0; i < static_cast<int>(TradeFail::COUNT); ++i)
+                ss << "mmo_trade_fail_total{reason=\"" << TradeFailName(static_cast<TradeFail>(i)) << "\"} " << tr._fails[i] << "\n";
+            ss << "\n";
+            WriteCounter(ss, "mmo_trade_items_moved_total", "Items moved by finished trades, both directions", tr._itemsMoved);
+            WriteCounter(ss, "mmo_trade_money_moved_total", "Money moved by finished trades, both directions", tr._moneyMoved);
+            WriteCounter(ss, "mmo_trade_save_waits_total", "Ticks a closed trade waited because a save of either player was still in flight", tr._saveWaits);
+            WriteCounter(ss, "mmo_trade_ask_sent_total", "S2C_TRADE_ASK packets sent (should equal mmo_trade_requests_total)", tr._askSent);
+            WriteCounter(ss, "mmo_trade_ask_end_sent_total", "S2C_TRADE_ASK_END packets sent", tr._askEndSent);
+            WriteCounter(ss, "mmo_trade_state_sent_total", "S2C_TRADE_STATE packets sent", tr._stateSent);
+            WriteCounter(ss, "mmo_trade_end_sent_total", "S2C_TRADE_END packets sent", tr._endSent);
+        }
+#endif
+
 #if USE_MONSTER
         // 위 값들은 "플레이어만" 센다 — 몬스터를 섞으면 기존 A/B 실측의 기준선이 오염된다.
         //   공격은 때린 쪽, 죽음·부활은 당한 쪽 기준으로 갈린다(GameMonitor.h 참조).

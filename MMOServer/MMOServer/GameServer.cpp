@@ -235,6 +235,11 @@ void CGameServer::GameLoopThread()
         _partyHandler.TickRoomLocks();
 #endif
 
+#if USE_TRADE
+        // 3-2d) 거래 — 신청 시간 지남 · 쓰러짐 · 저장을 기다리던 맞바꾸기. 신청·거래창이 없으면 바로 끝난다(부하 시험엔 거래가 없다).
+        _tradeSystem.Tick(_frameCount);
+#endif
+
 #if USE_DROP
         // 3-3) 땅의 아이템 사라지기 — 섹터 변경 대기열을 비운 뒤라 "같은 틱 이동자" 보정이 필요 없다
         _itemHandler.TickGroundItems();
@@ -372,7 +377,12 @@ void CGameServer::OnLeavingZone(CCharacter* player)
     //   죽은 채로 퇴장·존이동하는 경우가 실제 경로다(부활 3초 안에 창을 닫으면 여기로 온다).
     _combatHandler.RemoveFromDeadActors(player);
 #endif
-    (void)player;   // 전투를 끈 빌드엔 할 일이 없다
+#if USE_TRADE
+    // 거래는 존을 안 넘는다 — 끊김·맵 이동이 다 여기를 지나 낀 신청·거래창을 끝낸다(LEFT). 몬스터는 거래에 없다.
+    if (CPlayer* p = As<CPlayer>(player))
+        _tradeSystem.OnLeavingZone(p);
+#endif
+    (void)player;   // 전투·거래를 끈 빌드엔 할 일이 없다
 }
 
 // 떠남 — 최종 저장 뒤 · 칸 비우기(해제) 앞(CPlayerPlacement::ReleasePlayer). 이 사람에게 보낼 세션은 이미 없다.
@@ -392,6 +402,11 @@ void CGameServer::OnLeavingGame(CPlayer* player)
     // 파티원·요청 표도 같은 까닭으로 여기서 뺀다 — 남은 파티원·요청 상대에게는 알림이 간다(이 사람에게는 안 간다 — 세션이 없다).
     //   끊기면 바로 파티에서 빠지는 규칙(10-16 사용자 결정)이 이 한 줄이다. 존 이동·죽음은 이 길을 안 지난다(파티는 존을 넘는다).
     _partySystem.Forget(player);
+#endif
+
+#if USE_TRADE
+    // 신청·거래창도 같은 까닭으로 — 존에서 빠질 때 이미 지웠지만, 존을 못 찾은 갈래는 그걸 건너뛴다(두 번 불러도 무해)
+    _tradeSystem.Forget(player);
 #endif
     (void)player;   // 전투·파티를 다 끈 빌드엔 할 일이 없다
 }
@@ -497,6 +512,10 @@ bool CGameServer::RegisterRoutes()
 #if USE_SHOP
     // 사기 · 팔기 — 상점 조각이 자기 줄을 등록한다(CShopHandler::RegisterRoutes · NPC·상점 플랜 4판 C10). 끄면 크기 줄도 없어 요청이 조용히 버려진다
     ok &= _shopHandler.RegisterRoutes(_routes);
+#endif
+#if USE_TRADE
+    // 거래 요청 여섯 — 거래 조각이 자기 줄을 등록한다(CTradeHandler::RegisterRoutes · trade-plan.md). 끄면 크기 줄도 없어 요청이 조용히 버려진다
+    ok &= _tradeHandler.RegisterRoutes(_routes);
 #endif
     return ok;
 }

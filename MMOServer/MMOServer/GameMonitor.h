@@ -37,6 +37,57 @@
 //                        InvLoadSkip·ChatCommandReject·PortalReject(계수기만 쓰는 사유라 여기)
 //   여기(계수기)는 COUNT 로 칸을 잡고 이름표를 두는 자리일 뿐, 사유를 정하지 않는다.
 
+#if USE_TRADE
+// 거래의 지표 라벨 둘 — 거절(TradeFail)·끝(TradeEnd)은 와이어 enum 그대로다(Protocol.h 거래 절 · TradeSystem.h [와이어 enum 을 그대로 쓴다])
+inline const char* TradeFailName(TradeFail r)
+{
+    static_assert(static_cast<int>(TradeFail::COUNT) == 17, "TradeFail 을 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case TradeFail::NO_TARGET:        return "no_target";
+    case TradeFail::SELF:             return "self";
+    case TradeFail::NOT_IN_REACH:     return "not_in_reach";
+    case TradeFail::DEAD:             return "dead";
+    case TradeFail::TARGET_DEAD:      return "target_dead";
+    case TradeFail::TARGET_BUSY:      return "target_busy";
+    case TradeFail::SELF_BUSY:        return "self_busy";
+    case TradeFail::NO_REQUEST:       return "no_request";
+    case TradeFail::NOT_IN_TRADE:     return "not_in_trade";
+    case TradeFail::CLOSED:           return "closed";
+    case TradeFail::BAD_SLOT:         return "bad_slot";
+    case TradeFail::ALREADY_OFFERED:  return "already_offered";
+    case TradeFail::NOT_TRADABLE:     return "not_tradable";
+    case TradeFail::BAD_COUNT:        return "bad_count";
+    case TradeFail::ITEMS_FULL:       return "items_full";
+    case TradeFail::NOT_ENOUGH_MONEY: return "not_enough_money";
+    case TradeFail::NOT_HERE:         return "not_here";
+    case TradeFail::COUNT:            break;
+    }
+    return "?";
+}
+
+inline const char* TradeEndName(TradeEnd r)
+{
+    static_assert(static_cast<int>(TradeEnd::COUNT) == 11, "TradeEnd 를 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case TradeEnd::DONE:         return "done";
+    case TradeEnd::CANCELLED:    return "cancelled";
+    case TradeEnd::DECLINED:     return "declined";
+    case TradeEnd::EXPIRED:      return "expired";
+    case TradeEnd::LEFT:         return "left";
+    case TradeEnd::DEAD:         return "dead";
+    case TradeEnd::NOT_IN_REACH: return "not_in_reach";
+    case TradeEnd::BAG_FULL:     return "bag_full";
+    case TradeEnd::MONEY_FULL:   return "money_full";
+    case TradeEnd::CHANGED:      return "changed";
+    case TradeEnd::SAVE_DELAY:   return "save_delay";
+    case TradeEnd::COUNT:        break;
+    }
+    return "?";
+}
+#endif
+
 #if USE_DROP
 // 줍기 거절 사유의 지표 라벨 — 와이어 enum(Protocol.h PickupFail) 그대로 센다. 존의 판정(PickupReject)은 게임 서버가
 //   와이어 값으로 바꾸고, 가방이 찬 것(TAB_FULL)은 게임 서버가 정하므로 세는 자리가 게임 서버(RecvPickup) 하나다.
@@ -886,6 +937,30 @@ public:
         Counter _cleared;                                                 // 클리어된 방 = 방에서 죽은 보스 수(OnDeath 의 방 갈래 — 몬스터 표 boss)
         Counter _minionsCleared;                                          // 클리어로 사라진 몬스터 수(OnMonsterVanish — 방에서 깐 수 = 잡힌 수 + 이것 + 방이 닫힐 때 남은 수)
     } _room;
+#endif
+
+#if USE_TRADE
+    // ══════════════════════════════════════════════════════════════
+    // 거래 (USE_TRADE) — 세는 곳은 CTradeSystem 안(보내기 몫 넷만 거래 조각 CTradeHandler 의 알림 함수 한 곳씩).
+    //   ★ 등식 둘(조용해진 뒤): _requests = _opened + Σ _requestsEnded + _pending · _opened = Σ _ended + _active
+    // ══════════════════════════════════════════════════════════════
+    struct alignas(64) TradeCounters
+    {
+        Counter _requests;                                                // 신청 표에 넣은 수
+        Counter _requestsEnded[static_cast<int>(TradeEnd::COUNT)];        // 거래창이 안 되고 끝난 신청, 까닭별(DECLINED · EXPIRED · CANCELLED · LEFT · DEAD)
+        Counter _pending;                                                 // [게이지] 지금 신청 표 크기
+        Counter _opened;                                                  // 열린 거래창(수락된 신청)
+        Counter _ended[static_cast<int>(TradeEnd::COUNT)];                // 끝난 거래창, 까닭별 — 성사는 DONE 칸
+        Counter _active;                                                  // [게이지] 지금 열린 거래창 수
+        Counter _fails[static_cast<int>(TradeFail::COUNT)];               // 요청 거절, 사유별(S2C_TRADE_FAIL 보낸 수와 같다)
+        Counter _itemsMoved;                                              // 성사로 옮긴 아이템 개수(두 방향 합)
+        Counter _moneyMoved;                                              // 성사로 옮긴 돈(두 방향 합)
+        Counter _saveWaits;                                               // 둘 다 닫혔는데 저장 쪽이 못 받아 미룬 틱 수
+        Counter _askSent;                                                 // S2C_TRADE_ASK 보낸 수 — _requests 와 같아야 한다
+        Counter _askEndSent;                                              // S2C_TRADE_ASK_END 보낸 수
+        Counter _stateSent;                                               // S2C_TRADE_STATE 보낸 수
+        Counter _endSent;                                                 // S2C_TRADE_END 보낸 수
+    } _trade;
 #endif
 
     // DB 저장 파이프라인 — 정의는 위 DBSaveCounters(DB 워커가 참조로 받는다)
