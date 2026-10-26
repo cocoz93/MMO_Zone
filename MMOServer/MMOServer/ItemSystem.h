@@ -37,6 +37,7 @@ enum class UseItemReject : uint8_t
 {
     BAD_SLOT,     // 칸 번호가 어느 탭 구간에도 없다
     EMPTY,        // 빈 칸
+    IN_TRADE,     // 거래창에 올린 칸(가방이 잠갔다 — Inventory.h [거래 잠금]) — 와이어 UseItemFail 에서는 맨 끝 값이다(끝에만 붙인다)
     NOT_USABLE,   // 쓸 수 있는 아이템이 아니다(소비 탭이 아니거나 효과가 없다) · 표에서 사라진 번호 포함 · 스킬을 끈 빌드의 마력 물약
     DEAD,         // 죽어 있다
     COOLDOWN,     // 아직 대기 중이다(지난번에 쓴 지 1초가 안 됐다)
@@ -51,6 +52,7 @@ enum class EquipReject : uint8_t
 {
     BAD_SLOT,         // 끼우기: 그런 가방 칸이 없다(없는 번호 · 착용 칸 번호) · 빼기: 착용 칸이 아니다
     EMPTY,            // 빈 칸
+    IN_TRADE,         // 끼우기: 거래창에 올린 칸(착용 칸은 못 올려 빼기에는 안 걸린다) — 와이어 EquipFail 에서는 맨 끝 값이다
     NOT_EQUIPPABLE,   // 끼우기: 장비 아이템이 아니다 — 물약 칸을 보내도 여기다(쓰기의 NOT_USABLE 과 같은 꼴) · 표에서 사라진 번호 포함
     DEAD,             // 죽어 있다
     COOLDOWN,         // 아직 대기 중이다(지난번에 끼우거나 뺀 지 1초가 안 됐다)

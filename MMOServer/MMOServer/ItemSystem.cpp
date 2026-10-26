@@ -28,6 +28,9 @@ UseItemReject CItemSystem::CheckUseItem(const CPlayer* player, uint16_t slot, ui
     if (s.itemId == 0)
         return UseItemReject::EMPTY;
 
+    if (player->_inventory.IsLocked(outIndex))
+        return UseItemReject::IN_TRADE;   // 거래창에 올린 물약 — 마시면 올린 개수가 바뀐다
+
     // 표에서 사라진 번호(패치로 지운 아이템)도 여기서 "못 쓴다"로 떨어진다.
     //   「이 빌드에서 쓸 수 있나」는 표 쪽 한 곳(ItemDef::IsUsable)에 묻는다 — 스킬을 끈 빌드의 마력 물약도 여기서 떨어진다.
     //   표 읽기는 다른 물음(HasEffect — 효과 칸이 있나)을 묻는다(ItemTable.h 의 IsUsable 주석).
@@ -104,6 +107,10 @@ EquipReject CItemSystem::CheckEquip(const CPlayer* player, uint16_t slot, bool u
     const Item& s = inv.At(outFrom);
     if (s.itemId == 0)
         return EquipReject::EMPTY;
+
+    // IN_TRADE — 거래창에 올린 칸. 빼기의 착용 칸은 올릴 수 없어(CTradeSystem) 늘 안 잠겨 있고, 맞바꿀 상대(빈 칸)도 빈 칸이라 안 잠겨 있다
+    if (inv.IsLocked(outFrom))
+        return EquipReject::IN_TRADE;
 
     // NOT_EQUIPPABLE — 끼우기만. 물약 칸을 보내도 여기서 걸린다(가방 칸이면 탭을 안 가린다 — 선언 주석)
     //   표에서 사라진 번호도 여기로 떨어진다. 무기 칸의 것은 불러오기가 이미 장비만 들였다.

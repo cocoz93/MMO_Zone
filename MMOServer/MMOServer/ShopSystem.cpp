@@ -64,7 +64,7 @@ ShopReject CShopSystem::CheckBuy(const CPlayer* player, const CCharacter* npc, i
 
     // 값 × 개수 — 개수가 maxStack(표 상한 99) 이하 · 값이 1억 이하라 int64 에서 안 넘친다
     outCost = static_cast<int64_t>(outDef->price) * count;
-    if (outCost > player->_inventory.Money())
+    if (outCost > player->_inventory.SpendableMoney())   // 거래창에 올려 잠근 돈은 못 쓴다(Inventory.h [거래 잠금])
         return ShopReject::NOT_ENOUGH_MONEY;
 
     return ShopReject::COUNT;   // 통과 — BAG_FULL 은 넣어 봐야 안다(Buy)
@@ -116,6 +116,8 @@ ShopReject CShopSystem::CheckSell(const CPlayer* player, const CCharacter* npc, 
     const Item& s = player->_inventory.At(outIndex);
     if (s.itemId == 0)
         return ShopReject::BAD_SLOT;
+    if (player->_inventory.IsLocked(outIndex))
+        return ShopReject::IN_TRADE;   // 거래창에 올린 칸 — 팔면 올린 것이 사라진다
 
     // 표에서 사라진 번호(패치로 지운 아이템)도 「안 사들인다」로 떨어진다. 사들이는 값이 0(파는 값 0 · 1)이면 돈이 안 들어오니 거절
     const ItemDef* def = _tables.Item().Find(s.itemId);

@@ -65,6 +65,12 @@ constexpr bool IsWornIndex(int index) { return index >= WORN_BASE_INDEX && index
 //        묶음에 실을 때 가져간다(DB 가 실패를 회신하면 되돌려 놓는다). 칸을 바꾸는 길이 늘어도 패킷·저장을 따로 안 짠다.
 //        FlushInventory 가 그 틱 끝 저장도 요청한다 — 빠뜨려도 저장 표시는 남아 다음 주기 판정이 싣는다.
 //
+// [거래 잠금] 거래창에 올린 칸·돈을 묶어 둔다(잠그고 푸는 쪽 = CTradeSystem · trade-plan.md 구조 결정 ②). 비트 한 벌과 돈 숫자 하나뿐이다.
+//        잠긴 칸에는 넣기(TryAdd)가 안 쌓는다 — 올린 물약 칸에 줍기가 몰래 붙어 올린 개수가 바뀌지 않게.
+//        줄이기·맞바꾸기(Remove · SwapSlots)는 부르는 쪽이 IsLocked 로 먼저 거절한다(쓰기·끼우기·팔기의 IN_TRADE — 어기면 단언).
+//        잠근 돈은 쓸 수 있는 돈(SpendableMoney)에서 빠진다 — 사기·더 올리기가 이 값으로 판정한다. 들 수 있는 돈 상한은 그대로 Money() 로 본다.
+//        잠금은 화면·저장 표시가 아니다 — DB 에 안 실린다(끊기면 거래가 취소되며 풀린다). 가방은 거래가 있다는 것을 모른다.
+//
 // [모르는 것] 패킷도 DB 도 모른다. 아이템 정의는 부르는 쪽이 표에서 찾아 건넨다.
 //        죽어도 안 잃는다(죽음 경로가 이 객체를 안 건드린다).
 // ==========================================================================
@@ -80,6 +86,7 @@ public:
     //   같은 아이템이 든 덜 찬 칸부터(칸 번호 순) 채우고, 남으면 빈 칸(칸 번호 순)에 새로 놓는다.
     //   쌓임 한도는 def.maxStack 하나로 본다 — 종류로 가르지 않는다(장비는 한도 1이라 저절로 안 쌓인다).
     //   ★ 돈 아이템(def.store = MONEY)이면 칸이 아니라 돈에 더한다 — 위 [돈]. 상한을 넘으면 MONEY_FULL(아무것도 안 바뀜).
+    //   ★ 거래로 잠긴 칸에는 안 쌓는다(위 [거래 잠금]) — 자리 셈에서도 뺀다. 잠긴 칸은 늘 차 있어 빈 칸 자리에는 안 걸린다.
     InvAddResult TryAdd(const ItemDef& def, int32_t count);
 
     // 불러올 때 칸을 채운다 — 탭·개수가 안 맞으면 안 넣고 사유를 돌려준다. 바뀐 칸 표시를 안 켠다(DB 와 같은 값이다).
@@ -131,6 +138,15 @@ public:
     void MarkUnsaved(const SlotBits& bits) { _unsaved |= bits; }
     bool HasUnsaved() const { return _unsaved.any(); }
 
+    // ── 거래 잠금 ── 위 [거래 잠금]. 되는지(빈 칸 · 착용 칸 · 이미 잠김 · 쓸 수 있는 돈)는 부르는 쪽(CTradeSystem)이 판정에서 봤다(어기면 단언)
+    void    LockSlot(int index);
+    void    LockMoney(int64_t amount);    // amount ≥ 1 · SpendableMoney 이하 — 잠근 돈에 더한다(거래창의 돈은 늘리기만)
+    void    UnlockAll();                  // 칸·돈 잠금을 다 푼다 — 거래가 끝날 때(성사 · 취소)
+    bool    IsLocked(int index) const { return _locked.test(static_cast<size_t>(index)); }
+    bool    HasLocks() const { return _locked.any() || _lockedMoney != 0; }
+    int64_t LockedMoney() const { return _lockedMoney; }
+    int64_t SpendableMoney() const { return _money - _lockedMoney; }   // 가진 돈 − 거래창에 올려 잠근 돈
+
 private:
     // 칸이 바뀌었다 — 화면용·저장용 표시를 같이 켠다. 칸을 바꾸는 함수는 이것만 부른다(둘 중 하나를 빠뜨릴 길을 없앤다).
     void MarkChanged(int index)
@@ -144,6 +160,8 @@ private:
     SlotBits                         _unsaved;   // DB 에 아직 확정 안 된 칸(저장소가 묶음에 실을 때 가져감)
     int64_t                          _money = 0;            // 가진 돈(전) — 0~MONEY_MAX
     bool                             _moneyChanged = false; // 화면에 아직 안 보낸 돈(FlushInventory 가 지움) — 저장 표시는 아니다(위 [돈])
+    SlotBits                         _locked;               // 거래창에 올려 잠근 칸(위 [거래 잠금])
+    int64_t                          _lockedMoney = 0;      // 거래창에 올려 잠근 돈 — 0~_money
 };
 
 #endif // USE_INVENTORY

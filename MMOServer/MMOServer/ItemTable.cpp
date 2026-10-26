@@ -73,17 +73,17 @@ bool CItemTable::Load(const std::string& path)
     for (const DataLine& dl : lines)
     {
         SplitCsv(dl.text, cell);
-        if (cell.size() < 9)
+        if (cell.size() < 10)
         {
-            SLOG_ERROR("[ItemTable] {}줄: 칸이 {}개입니다 — itemId,name,tab,maxStack,healHp,icon,attack,healMp,price 아홉이 필요합니다",
+            SLOG_ERROR("[ItemTable] {}줄: 칸이 {}개입니다 — itemId,name,tab,maxStack,healHp,icon,attack,healMp,price,trade 열 개가 필요합니다",
                        dl.fileLine, cell.size());
             return false;
         }
 
-        int64_t itemId = 0, maxStack = 0, healHp = 0, icon = 0, attack = 0, healMp = 0, price = 0;
+        int64_t itemId = 0, maxStack = 0, healHp = 0, icon = 0, attack = 0, healMp = 0, price = 0, trade = 0;
         if (!ParseInt(cell[0], itemId) || !ParseInt(cell[3], maxStack) ||
             !ParseInt(cell[4], healHp) || !ParseInt(cell[5], icon) || !ParseInt(cell[6], attack) ||
-            !ParseInt(cell[7], healMp) || !ParseInt(cell[8], price))
+            !ParseInt(cell[7], healMp) || !ParseInt(cell[8], price) || !ParseInt(cell[9], trade))
         {
             SLOG_ERROR("[ItemTable] {}줄: 숫자여야 하는 칸이 숫자가 아닙니다 — \"{}\"", dl.fileLine, dl.text);
             return false;
@@ -181,6 +181,13 @@ bool CItemTable::Load(const std::string& path)
             return false;
         }
 
+        // ⑻-2 거래 — 1(올릴 수 있다) 또는 0(못 올린다). 그 밖의 값은 오타다(2 를 「더 잘 된다」로 읽게 두지 않는다)
+        if (trade != 0 && trade != 1)
+        {
+            SLOG_ERROR("[ItemTable] {}줄: trade {} 는 0 또는 1 이어야 합니다 (아이템 {})", dl.fileLine, trade, itemId);
+            return false;
+        }
+
         ItemDef d;
         d.itemId   = static_cast<int32_t>(itemId);
         d.name     = cell[1];
@@ -191,6 +198,7 @@ bool CItemTable::Load(const std::string& path)
         d.healMp   = static_cast<int32_t>(healMp);
         d.attack   = static_cast<int32_t>(attack);
         d.price    = static_cast<int32_t>(price);
+        d.tradable = (trade == 1);
 
         // ⑼ 소비 아이템은 써서 무슨 일이 일어나야 한다 — 「효과가 있나」는 ItemDef::HasEffect 하나만 답한다.
         //    「이 빌드에서 쓸 수 있나」(IsUsable)를 묻지 않는 까닭 — 스킬을 끈 빌드도 마력 물약 줄을 받아야 서버가 뜬다(ItemTable.h)

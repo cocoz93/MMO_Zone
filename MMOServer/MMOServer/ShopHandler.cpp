@@ -33,6 +33,7 @@ namespace
         case ShopReject::NOT_SOLD_HERE:    return ShopFail::NOT_SOLD_HERE;
         case ShopReject::NOT_BOUGHT_HERE:  return ShopFail::NOT_BOUGHT_HERE;
         case ShopReject::BAD_SLOT:         return ShopFail::BAD_SLOT;
+        case ShopReject::IN_TRADE:         return ShopFail::IN_TRADE;
         case ShopReject::BAD_COUNT:        return ShopFail::BAD_COUNT;
         case ShopReject::NOT_ENOUGH_MONEY: return ShopFail::NOT_ENOUGH_MONEY;
         case ShopReject::BAG_FULL:         return ShopFail::BAG_FULL;

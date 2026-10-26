@@ -66,6 +66,7 @@ namespace
         {
         case UseItemReject::BAD_SLOT:   return UseItemFail::BAD_SLOT;
         case UseItemReject::EMPTY:      return UseItemFail::EMPTY;
+        case UseItemReject::IN_TRADE:   return UseItemFail::IN_TRADE;
         case UseItemReject::NOT_USABLE: return UseItemFail::NOT_USABLE;
         case UseItemReject::DEAD:       return UseItemFail::DEAD;
         case UseItemReject::COOLDOWN:   return UseItemFail::COOLDOWN;
@@ -84,6 +85,7 @@ namespace
         {
         case EquipReject::BAD_SLOT:       return EquipFail::BAD_SLOT;
         case EquipReject::EMPTY:          return EquipFail::EMPTY;
+        case EquipReject::IN_TRADE:       return EquipFail::IN_TRADE;
         case EquipReject::NOT_EQUIPPABLE: return EquipFail::NOT_EQUIPPABLE;
         case EquipReject::DEAD:           return EquipFail::DEAD;
         case EquipReject::COOLDOWN:       return EquipFail::COOLDOWN;

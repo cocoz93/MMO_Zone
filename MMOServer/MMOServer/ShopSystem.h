@@ -41,6 +41,7 @@ enum class ShopReject : uint8_t
     NOT_SOLD_HERE,     // 사기 — 그 상점이 이 물건을 안 판다(아이템 표에 없는 번호 포함)
     NOT_BOUGHT_HERE,   // 팔기 — 그 상점이 이 물건을 안 사들인다 · 사들이는 값이 0
     BAD_SLOT,          // 팔기 — 칸 번호 범위 밖 · 착용 칸(900~) · 빈 칸
+    IN_TRADE,          // 팔기 — 거래창에 올린 칸(가방이 잠갔다) — 와이어 ShopFail 에서는 맨 끝 값이다(끝에만 붙인다)
     BAD_COUNT,         // 개수가 1..한도 밖(사기 = 그 물건 maxStack · 팔기 = 그 칸 개수)
     NOT_ENOUGH_MONEY,  // 사기 — 값 × 개수가 가진 돈보다 많다
     BAG_FULL,          // 사기 — 가방 그 탭에 다 안 들어간다(아무것도 안 바뀐다)
@@ -60,7 +61,7 @@ public:
     ShopReject Buy(CPlayer* player, const CCharacter* npc, int32_t itemId, int32_t count);
 
     // 팔기 — slot = 가방 칸 번호(INV_TAB_RANGES).
-    //   확인 순서: DEAD → NO_NPC → NOT_IN_REACH → BAD_SLOT → NOT_BOUGHT_HERE → BAD_COUNT → MONEY_FULL. 통과면 COUNT.
+    //   확인 순서: DEAD → NO_NPC → NOT_IN_REACH → BAD_SLOT → IN_TRADE → NOT_BOUGHT_HERE → BAD_COUNT → MONEY_FULL. 통과면 COUNT.
     //   성공 = 칸에서 count 개 빼기 → 사들이는 값 × 개수만큼 돈 더하기. 부르는 쪽이 FlushInventory 로 내보낸다.
     ShopReject Sell(CPlayer* player, const CCharacter* npc, uint16_t slot, int32_t count);
 

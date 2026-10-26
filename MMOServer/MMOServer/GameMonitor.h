@@ -359,11 +359,12 @@ inline const char* MoneySinkName(MoneySink s)
 // 쓰기·장착 거절의 지표 라벨 — 사유 enum 은 CItemSystem 이 정한다(ItemSystem.h). 와이어 값으로는 게임 서버가 바꾼다.
 inline const char* UseItemRejectName(UseItemReject r)
 {
-    static_assert(static_cast<int>(UseItemReject::COUNT) == 7, "UseItemReject 를 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(UseItemReject::COUNT) == 8, "UseItemReject 를 늘렸으면 이름도 붙일 것");
     switch (r)
     {
     case UseItemReject::BAD_SLOT:   return "bad_slot";
     case UseItemReject::EMPTY:      return "empty";
+    case UseItemReject::IN_TRADE:   return "in_trade";
     case UseItemReject::NOT_USABLE: return "not_usable";
     case UseItemReject::DEAD:       return "dead";
     case UseItemReject::COOLDOWN:   return "cooldown";
@@ -376,11 +377,12 @@ inline const char* UseItemRejectName(UseItemReject r)
 
 inline const char* EquipRejectName(EquipReject r)
 {
-    static_assert(static_cast<int>(EquipReject::COUNT) == 6, "EquipReject 를 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(EquipReject::COUNT) == 7, "EquipReject 를 늘렸으면 이름도 붙일 것");
     switch (r)
     {
     case EquipReject::BAD_SLOT:       return "bad_slot";
     case EquipReject::EMPTY:          return "empty";
+    case EquipReject::IN_TRADE:       return "in_trade";
     case EquipReject::NOT_EQUIPPABLE: return "not_equippable";
     case EquipReject::DEAD:           return "dead";
     case EquipReject::COOLDOWN:       return "cooldown";
@@ -395,7 +397,7 @@ inline const char* EquipRejectName(EquipReject r)
 // 사고팔기 거절의 지표 라벨 — 사유 enum 은 CShopSystem 이 정한다(ShopSystem.h). 와이어 값으로는 상점 조각이 바꾼다.
 inline const char* ShopRejectName(ShopReject r)
 {
-    static_assert(static_cast<int>(ShopReject::COUNT) == 10, "ShopReject 를 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(ShopReject::COUNT) == 11, "ShopReject 를 늘렸으면 이름도 붙일 것");
     switch (r)
     {
     case ShopReject::DEAD:             return "dead";
@@ -404,6 +406,7 @@ inline const char* ShopRejectName(ShopReject r)
     case ShopReject::NOT_SOLD_HERE:    return "not_sold_here";
     case ShopReject::NOT_BOUGHT_HERE:  return "not_bought_here";
     case ShopReject::BAD_SLOT:         return "bad_slot";
+    case ShopReject::IN_TRADE:         return "in_trade";
     case ShopReject::BAD_COUNT:        return "bad_count";
     case ShopReject::NOT_ENOUGH_MONEY: return "not_enough_money";
     case ShopReject::BAG_FULL:         return "bag_full";

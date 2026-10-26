@@ -128,6 +128,8 @@ InvAddResult CInventory::TryAdd(const ItemDef& def, int32_t count)
     for (int i = begin; i < end; ++i)
     {
         const Item& s = _slots[i];
+        if (IsLocked(i))
+            continue;                          // 거래창에 올린 칸 — 안 쌓는다(헤더 [거래 잠금])
         if (s.itemId == def.itemId)
             room += def.maxStack - s.count;   // 같은 아이템이 든 칸의 남은 자리
         else if (s.itemId == 0)
@@ -141,7 +143,7 @@ InvAddResult CInventory::TryAdd(const ItemDef& def, int32_t count)
     for (int i = begin; i < end && left > 0; ++i)
     {
         Item& s = _slots[i];
-        if (s.itemId != def.itemId || s.count >= def.maxStack)
+        if (s.itemId != def.itemId || s.count >= def.maxStack || IsLocked(i))
             continue;
         const int32_t put = (def.maxStack - s.count < left) ? def.maxStack - s.count : left;
         s.count += put;
@@ -171,6 +173,7 @@ void CInventory::Remove(int index, int32_t count)
     assert(index >= 0 && index < INVENTORY_ALL_SLOTS);
     Item& s = _slots[index];
     assert(s.itemId != 0 && count >= 1 && count <= s.count);   // 부르는 쪽(물약 쓰기 · 팔기)이 빈 칸 · 개수를 이미 거절했다
+    assert(!IsLocked(index) && "거래창에 올린 칸 — 부르는 쪽이 IN_TRADE 로 거절했다");
     s.count -= count;
     if (s.count <= 0)
     {
@@ -192,7 +195,7 @@ bool CInventory::TryAddMoney(int64_t amount)
 
 void CInventory::SpendMoney(int64_t amount)
 {
-    assert(amount >= 1 && amount <= _money);   // 판정(CShopSystem)이 이미 봤다
+    assert(amount >= 1 && amount <= SpendableMoney());   // 판정(CShopSystem)이 이미 봤다 — 거래창에 잠근 돈은 못 쓴다
     _money -= amount;
     _moneyChanged = true;
 }
@@ -206,11 +209,31 @@ void CInventory::LoadMoney(int64_t money)
 void CInventory::SwapSlots(int a, int b)
 {
     assert(a >= 0 && a < INVENTORY_ALL_SLOTS && b >= 0 && b < INVENTORY_ALL_SLOTS && a != b);
+    assert(!IsLocked(a) && !IsLocked(b) && "거래창에 올린 칸 — 부르는 쪽이 IN_TRADE 로 거절했다");
     const Item t = _slots[a];
     _slots[a] = _slots[b];
     _slots[b] = t;
     MarkChanged(a);
     MarkChanged(b);
+}
+
+void CInventory::LockSlot(int index)
+{
+    assert(index >= 0 && index < INVENTORY_ALL_SLOTS && !IsWornIndex(index));
+    assert(_slots[index].itemId != 0 && !IsLocked(index) && "빈 칸 · 이미 올린 칸은 판정(CTradeSystem)이 거절했다");
+    _locked.set(static_cast<size_t>(index));
+}
+
+void CInventory::LockMoney(int64_t amount)
+{
+    assert(amount >= 1 && amount <= SpendableMoney() && "판정(CTradeSystem)이 봤다");
+    _lockedMoney += amount;
+}
+
+void CInventory::UnlockAll()
+{
+    _locked.reset();
+    _lockedMoney = 0;
 }
 
 int CInventory::FirstEmptyInTab(InvTab tab) const

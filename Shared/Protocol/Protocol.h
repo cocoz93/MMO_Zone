@@ -846,6 +846,7 @@ enum class UseItemFail : uint8_t
     COOLDOWN,     // 아직 대기 중이다(지난번에 쓴 지 1초가 안 됐다)
     FULL_HP,      // 체력이 가득 — 물약을 안 줄인다
     FULL_MP,      // 마력이 가득 — 마력 물약을 안 줄인다
+    IN_TRADE,     // 거래창에 올린 칸 — ★ 끝에 붙였지만 서버는 EMPTY 바로 뒤에 본다(확인 순서는 서버 UseItemReject 순서 · ItemSystem.h)
     COUNT
 };
 
@@ -988,6 +989,7 @@ enum class EquipFail : uint8_t
     DEAD,             // 죽어 있다
     COOLDOWN,         // 아직 대기 중이다(지난번에 끼우거나 뺀 지 1초가 안 됐다)
     TAB_FULL,         // 빼기: 장비 탭에 빈 칸이 없다 — 아무것도 안 바뀐다
+    IN_TRADE,         // 끼우기: 거래창에 올린 칸 — ★ 끝에 붙였지만 서버는 EMPTY 바로 뒤에 본다(서버 EquipReject 순서 · ItemSystem.h)
     COUNT
 };
 
@@ -1406,6 +1408,7 @@ enum class ShopFail : uint8_t
     NOT_ENOUGH_MONEY,  // 사기 — 값 × 개수가 가진 돈보다 많다
     BAG_FULL,          // 사기 — 가방 그 탭에 다 안 들어간다(아무것도 안 바뀐다)
     MONEY_FULL,        // 팔기 — 받으면 들 수 있는 돈(1억)을 넘는다(아무것도 안 바뀐다)
+    IN_TRADE,          // 팔기 — 거래창에 올린 칸 — ★ 끝에 붙였지만 서버는 BAD_SLOT 바로 뒤에 본다(서버 ShopReject 순서 · ShopSystem.h)
     COUNT
 };
 
