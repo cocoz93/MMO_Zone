@@ -212,6 +212,47 @@ function npcInReach(){
 // 상점 (USE_SHOP) — 화면 상태만 든다. 서버는 「상점을 열었다」를 안 든다(Protocol.h 상점 절) — 사고팔기 요청마다 처음부터 다시 본다.
 //   npc = 메뉴를 연 NPC 의 캐릭터 번호(등장 엔트리 playerId — 요청에 이 번호가 실린다 · NPC 표 번호가 아니다) · mode = null | 'menu' | 'buy' | 'sell'
 const shop = { npc:0, mode:null, hover:null, lastFail:null, sent:0 };
+// 거래 (USE_TRADE) — 서버가 보낸 것만 담는다. 되는지(거리 · 바쁨 · 칸 · 돈 · 닫힘)는 서버가 정한다(trade-plan.md).
+//   ask = 받은 신청 {requestId, from, until} · win = S2C_TRADE_STATE 그대로 {tradeId, partner, mine, theirs}(mine/theirs = {money, closed, items:[{slot,itemId,count}]})
+//   규칙 — 마을·사냥터에서만(파티 방 안 됨) · 「교환하기」 한 버튼(누른 쪽만 닫힘) · 둘 다 누르면 성사 · 올린 것은 못 뺀다(늘리기만) — 잘못 올렸으면 취소하고 다시
+const trade = { ask:null, win:null, hover:null, lastEnd:null, lastFail:null, sent:0 };
+// 헤드리스 검증용 — 거래 요약(data-party 와 같은 자리)
+function tradeChanged(){
+  const side = s => s ? { money:s.money, closed:s.closed, items:s.items.map(i=>[i.slot,i.itemId,i.count]) } : null;
+  document.documentElement.setAttribute('data-trade', JSON.stringify({ ask: trade.ask ? { id:trade.ask.requestId, from:trade.ask.from.actorId } : null,
+    win: trade.win ? { id:trade.win.tradeId, partner:trade.win.partner.actorId, mine:side(trade.win.mine), theirs:side(trade.win.theirs) } : null,
+    lastEnd:trade.lastEnd, lastFail:trade.lastFail, sent:trade.sent }));
+}
+// 거절 사유(P.TRADE_FAIL 이름) → 채팅 칸 [System] 문구
+const TRADE_FAIL_TEXT = {
+  NO_TARGET:'그 사람이 화면에 없습니다', SELF:'자기 자신입니다', NOT_IN_REACH:'상대에게 더 가까이 가세요(3칸)',
+  DEAD:'쓰러진 동안에는 거래할 수 없습니다', TARGET_DEAD:'상대가 쓰러져 있습니다',
+  TARGET_BUSY:'상대가 다른 거래 중입니다', SELF_BUSY:'이미 거래 중이거나 답을 기다리는 신청이 있습니다', NO_REQUEST:'답할 거래 신청이 없습니다',
+  NOT_IN_TRADE:'거래 중이 아닙니다', CLOSED:'교환하기를 누른 뒤에는 더 올릴 수 없습니다',
+  BAD_SLOT:'올릴 수 없는 칸입니다 — 끼운 장비는 벗고 올리세요', ALREADY_OFFERED:'이미 올린 칸입니다', NOT_TRADABLE:'거래할 수 없는 물건입니다',
+  BAD_COUNT:'개수가 맞지 않습니다', ITEMS_FULL:'더 올릴 수 없습니다('+P.TRADE_MAX_ITEMS+'칸)', NOT_ENOUGH_MONEY:'돈이 모자랍니다',
+  NOT_HERE:'여기서는 거래할 수 없습니다 — 마을·사냥터에서만',
+};
+// 끝난 사유(P.TRADE_END 이름) → 문구. w = 끝낸 사람(성사면 상대)
+function tradeEndText(why, actorId){
+  const w=whoName(actorId);
+  switch(why){
+    case 'DONE':         return '거래가 끝났습니다: '+w;
+    case 'CANCELLED':    return '거래가 취소됐습니다: '+w;
+    case 'DECLINED':     return '거래 신청을 거절했습니다: '+w;
+    case 'EXPIRED':      return '거래 신청의 시간이 지났습니다';
+    case 'LEFT':         return '상대가 자리를 떠 거래가 취소됐습니다: '+w;
+    case 'DEAD':         return '쓰러져 거래가 취소됐습니다: '+w;
+    case 'NOT_IN_REACH': return '거리가 멀어 거래하지 못했습니다(3칸)';
+    case 'BAG_FULL':     return '가방에 자리가 없어 거래하지 못했습니다: '+w;
+    case 'MONEY_FULL':   return '들 수 있는 돈(1억 전)을 넘어 거래하지 못했습니다: '+w;
+    case 'CHANGED':      return '올린 물건이 바뀌어 거래하지 못했습니다';
+    case 'SAVE_DELAY':   return '저장이 밀려 거래하지 못했습니다 — 잠시 뒤 다시';
+  }
+  return '거래가 끝났습니다 ('+why+')';
+}
+// 이 가방 칸이 내 거래창에 올라가 있나 — 가방 그림의 「거래」 표시(판정은 서버 — 가방이 잠갔다)
+function tradeOffered(slot){ return !!trade.win && trade.win.mine.items.some(i=>i.slot===slot); }
 function shopNpc(){ const o = shop.npc ? others.get(shop.npc) : null; return o ? { o, n:npcOf(o) } : null; }
 function shopLines(){ const s=shopNpc(); return (s && s.n && SHOPS.get(s.n.shopId)) || []; }   // 그 NPC 상점의 줄(파는 것 · 사들이는 것)
 function openShop(id){ shop.npc=id; shop.mode='menu'; shop.hover=null; if(party.menu) { party.menu=null; partyChanged(); } shopChanged(); }
@@ -227,6 +268,7 @@ const SHOP_FAIL_TEXT = {
   NOT_SOLD_HERE:'이 상점에서 팔지 않는 물건입니다', NOT_BOUGHT_HERE:'이 상점에서 사들이지 않는 물건입니다',
   BAD_SLOT:'팔 수 없는 칸입니다 — 끼운 장비는 벗고 파세요', BAD_COUNT:'개수가 맞지 않습니다',
   NOT_ENOUGH_MONEY:'돈이 모자랍니다', BAG_FULL:'가방에 자리가 없습니다', MONEY_FULL:'들 수 있는 돈(1억 전)을 넘습니다',
+  IN_TRADE:'거래창에 올린 물건은 팔 수 없습니다',
 };
 function portalChanged(){ const r=portalInReach(); document.documentElement.setAttribute('data-portal', JSON.stringify({ map:ZONE.mapId, ch:ZONE.channel,
   kind:(MAPS.get(ZONE.mapId)||{}).kind||null, maps:MAPS.size, portals:PORTALS.length, here:PORTALS.filter(p=>p.mapId===ZONE.mapId).length,
@@ -254,12 +296,13 @@ function statsChanged(){
 const USE_FAIL_TEXT = {
   BAD_SLOT:'없는 칸입니다', EMPTY:'빈 칸입니다', NOT_USABLE:'쓸 수 없는 아이템입니다',
   DEAD:'쓰러진 동안에는 쓸 수 없습니다', COOLDOWN:'아직 쓸 수 없습니다 — 잠시 뒤에 다시', FULL_HP:'체력이 가득 찼습니다',
-  FULL_MP:'마력이 가득 찼습니다',
+  FULL_MP:'마력이 가득 찼습니다', IN_TRADE:'거래창에 올린 물건은 쓸 수 없습니다',
 };
 // 끼우기·빼기 거절 사유(P.EQUIP_FAIL 이름) → 채팅 칸 [System] 문구
 const EQUIP_FAIL_TEXT = {
   BAD_SLOT:'없는 칸입니다', EMPTY:'빈 칸입니다', NOT_EQUIPPABLE:'장비가 아닙니다',
   DEAD:'쓰러진 동안에는 바꿀 수 없습니다', COOLDOWN:'아직 바꿀 수 없습니다 — 잠시 뒤에 다시', TAB_FULL:'장비 가방이 가득 차 벗을 수 없습니다',
+  IN_TRADE:'거래창에 올린 장비는 끼울 수 없습니다',
 };
 // 파티 (USE_PARTY) — 서버가 보낸 것만 담는다. 누가 무엇을 할 수 있나(초대·신청·추천 가르기, 파티장만, 인원)는 서버가 정한다.
 //   info = S2C_PARTY_INFO 그대로(파티 없으면 null) — {partyId, leaderId, members:[{actorId, displayChar, colorIndex, level, hp, maxHp, mapId}]}(가입 순서)
@@ -631,6 +674,21 @@ function onPacket(p){
       partyChanged(); break;
     case P.MSG.S2C_PARTY_NOTICE:
       party.lastNotice=p.codeName; sysMsg(partyNoticeText(p.codeName, p.actorId)); partyChanged(); break;
+
+    // ---- 거래 (USE_TRADE) — 판정은 서버. 여기는 받은 것을 담고 그리기만 한다 ----
+    case P.MSG.S2C_TRADE_ASK:
+      trade.ask={ requestId:p.requestId, from:p.from, until:performance.now()+p.remainMs }; tradeChanged(); break;
+    case P.MSG.S2C_TRADE_ASK_END:
+      if(trade.ask && trade.ask.requestId===p.requestId){ trade.ask=null; sysMsg(p.reasonName==='EXPIRED' ? '받은 거래 신청의 시간이 지났습니다' : '받은 거래 신청이 취소됐습니다'); }
+      tradeChanged(); break;
+    // 거래창 전체(최종값) — 새 창이면 가방도 연다(가방 칸을 눌러 올린다)
+    case P.MSG.S2C_TRADE_STATE:
+      if(!trade.win || trade.win.tradeId!==p.tradeId){ if(!bag.open){ bag.open=true; bag.hover=null; bagChanged(); } closeShop(); }
+      trade.win={ tradeId:p.tradeId, partner:p.partner, mine:p.mine, theirs:p.theirs }; trade.hover=null; tradeChanged(); break;
+    case P.MSG.S2C_TRADE_END:
+      trade.win=null; trade.hover=null; trade.lastEnd=p.reasonName; sysMsg(tradeEndText(p.reasonName, p.actorId)); tradeChanged(); break;
+    case P.MSG.S2C_TRADE_FAIL:
+      trade.lastFail=p.reasonName; sysMsg(TRADE_FAIL_TEXT[p.reasonName] || ('거래하지 못했습니다 ('+p.reasonName+')')); tradeChanged(); break;
   }
 }
 // 전투 패킷은 대상이 나일 수도 남일 수도 있다 — 한 곳에서 고른다.
@@ -685,6 +743,17 @@ function partyAnswer(accept){
   if(!party.ask) return;
   if(partySend(P.enc.partyAnswer(party.ask.requestId, accept))){ party.ask=null; partyChanged(); }
 }
+// 거래 — 보내기만 한다(파티와 같은 까닭 — 판정을 두 곳에 두면 어긋난다)
+function tradeSend(buf){ if(!ws || ws.readyState!==1 || !self) return false; ws.send(buf); trade.sent++; tradeChanged(); return true; }
+function tradeAnswer(accept){
+  if(!trade.ask) return;
+  if(tradeSend(P.enc.tradeAnswer(trade.ask.requestId, accept))){ trade.ask=null; tradeChanged(); }
+}
+// 거래창이 열린 동안 가방 칸을 눌렀다 — 그 칸 전부, Shift 를 누른 채면 1개(같은 칸은 한 번만 올라가서 — 팔기와 반대)
+function tradeOffer(slot, one){
+  const e=bag.slots.get(slot); if(!e || !trade.win) return;
+  tradeSend(P.enc.tradeOffer(slot, one ? 1 : e.c));
+}
 // 줍기 — 쓰러져 있어도 보낸다(서버가 DEAD 로 답해 [System] 한 줄이 뜬다 — 왜 안 되는지 보이게)
 function sendPickup(){
   if(!self || !ws || ws.readyState!==1) return;
@@ -732,6 +801,8 @@ if(!SNAP){
     if(e.code==='KeyP' && !e.repeat){ party.open=!party.open; party.hover=null; partyChanged(); e.preventDefault(); return; }
     // Y·N = 받은 파티 요청에 수락·거절 — 요청 창이 떠 있을 때만(아니면 그냥 지나간다)
     if(party.ask && (e.code==='KeyY' || e.code==='KeyN')){ if(!e.repeat) partyAnswer(e.code==='KeyY'); e.preventDefault(); return; }
+    // 받은 거래 신청도 Y·N — 파티 요청 창이 함께 떠 있으면 위 파티가 먼저(창 둘이 한 번에 답해지지 않게)
+    if(trade.ask && (e.code==='KeyY' || e.code==='KeyN')){ if(!e.repeat) tradeAnswer(e.code==='KeyY'); e.preventDefault(); return; }
     if(k==='escape' && (bag.open || stw.open || party.open || party.menu || shop.mode)){   // 창을 다 닫는다(받은 요청 창은 답해야 닫힌다 — N 이 거절)
       bag.open=false; bag.hover=null; stw.open=false; stw.hover=false; party.open=false; party.menu=null; party.hover=null; closeShop(); bagChanged(); partyChanged(); return; }
     if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k)){ if(!keys.has(k)){keys.add(k); sendMove();} e.preventDefault(); }});
@@ -751,19 +822,24 @@ if(!SNAP){
     party.hover = pu && pu.btn ? pu : null;
     const su=shopUiHit(e.offsetX,e.offsetY);    // 상점 창 단추도 같은 꼴
     shop.hover = su && su.btn ? su : null;
-    cv.style.cursor = (h || s || pu || su) ? 'default' : ''; });
-  cv.addEventListener('mouseleave',()=>{ bag.hover=null; stw.hover=false; party.hover=null; shop.hover=null; });
+    const tu=tradeUiHit(e.offsetX,e.offsetY);   // 거래 창 단추도
+    trade.hover = tu && tu.btn ? tu : null;
+    cv.style.cursor = (h || s || pu || su || tu) ? 'default' : ''; });
+  cv.addEventListener('mouseleave',()=>{ bag.hover=null; stw.hover=false; party.hover=null; shop.hover=null; trade.hover=null; });
   // 누르기 — 위에 그려진 것부터: 받은 파티 요청 창 > 상점 창 > 캐릭터 메뉴·파티 창 > 가방(팔기 모드면 그 칸을 판다)·상태창 > 게임 화면.
   //   게임 화면을 누르면 그 자리의 NPC(말 걸기) 또는 사람 캐릭터(나·몬스터 빼고 — 파티 메뉴)를 고른다 — 10-17 전엔 창 밖 클릭이 아무 일도 안 했다(위 가방 주석).
   cv.addEventListener('mousedown',e=>{ if(e.button!==0) return;
     const x=e.offsetX, y=e.offsetY;
     const pu=partyUiHit(x,y);
     if(pu && pu.where==='ask'){ partyClick(pu); return; }   // 답을 기다리는 창이 맨 위
+    const tu=tradeUiHit(x,y);
+    if(tu){ tradeClick(tu); return; }                        // 받은 거래 신청 창 · 거래 창
     const su=shopUiHit(x,y);
     if(su){ shopClick(su); return; }
     if(pu){ partyClick(pu); return; }
     if(bag.open){ const h=bagHit(x,y);
-      if(h){ if(shop.mode==='sell' && h.slot!==undefined && bag.slots.has(h.slot)) shopSell(h.slot, e.shiftKey); return; } }
+      if(h){ if(trade.win && h.slot!==undefined && bag.slots.has(h.slot)) tradeOffer(h.slot, e.shiftKey);       // 거래창이 열렸으면 누르기가 올리기
+             else if(shop.mode==='sell' && h.slot!==undefined && bag.slots.has(h.slot)) shopSell(h.slot, e.shiftKey); return; } }
     if(stw.open && statusHit(x,y)) return;
     if(x<VX || x>VX+VW || y<VY || y>VY+VH){ if(party.menu){ party.menu=null; partyChanged(); } return; }
     const nid=npcAt(x,y);
@@ -779,7 +855,7 @@ if(!SNAP){
     if(stw.open && statusHit(e.offsetX,e.offsetY)==='weapon'){
       if(bag.slots.has(P.EQUIP_SLOT.WEAPON)) ws.send(P.enc.unequip(P.EQUIP_SLOT.WEAPON));
       return; }
-    if(!bag.open || shop.mode==='sell') return;   // 팔기 모드에선 칸 누르기가 팔기다 — 두 번 누르기로 물약을 써 버리지 않게
+    if(!bag.open || shop.mode==='sell' || trade.win) return;   // 팔기 모드·거래창에선 칸 누르기가 팔기·올리기다 — 두 번 누르기로 물약을 써 버리지 않게
     const h=bagHit(e.offsetX,e.offsetY); if(!h || h.slot===undefined || !bag.slots.has(h.slot)) return;
     ws.send(isEquipTabSlot(h.slot) ? P.enc.equip(h.slot) : P.enc.useItem(h.slot)); });
 }
@@ -1257,8 +1333,10 @@ function drawHUD(){
   drawPartyPanel();            // 상태창 아래(왼쪽) — 파티에 들면 늘, P 로 연 관리 창이면 파티가 없어도
   if(bag.open) drawBag();   // 맨 마지막 — 창이 낮아 레이더 자리까지 내려와도 가방이 위에 그려진다
   drawShop();               // 상점 창 — 게임 화면 위 가운데(가방과 안 겹친다). 받은 파티 요청 창이 같은 자리면 그 창이 위
+  drawTrade();              // 거래 창 — 상점 창과 같은 자리(거래창이 열리면 상점을 닫는다)
   drawPartyMenu();          // 캐릭터를 눌러 연 메뉴와 받은 요청 창은 모든 창 위에 — 답을 기다리는 것이라 가리면 안 된다
   drawPartyAsk();
+  drawTradeAsk();           // 받은 거래 신청 — 파티 요청 창 아래 줄(둘이 같이 떠도 안 겹친다)
 }
 
 // ---- 스킬 막대 (USE_SKILL) — 게임 화면 아래 가운데. 표에 있는 스킬마다 한 칸: 키 번호 · 이름 · 쿨타임 덮개 · (지속 효과 스킬) 남은 시간 띠 ----
@@ -1394,6 +1472,10 @@ function drawBag(){
     // 팔기 모드 — 그 상점이 사들이는 칸은 금빛 테두리(표시만 — 판정은 서버)
     if(shop.mode==='sell' && shopBuysItem(e.id)){ ctx.strokeStyle='rgba(255,210,110,.9)'; ctx.lineWidth=2; rr(c.x+1,c.y+1,BAG_CELL-2,BAG_CELL-2,5); ctx.stroke(); ctx.lineWidth=1; }
     drawItemIcon(c.x,c.y,BAG_CELL,e.id);
+    if(tradeOffered(c.slot)){   // 거래창에 올린 칸 — 가방이 잠갔다(쓰기·팔기·끼우기가 안 된다). 어둡게 + 「거래」
+      ctx.fillStyle='rgba(0,0,0,.45)'; rr(c.x,c.y,BAG_CELL,BAG_CELL,5); ctx.fill();
+      ctx.strokeStyle='rgba(158,200,255,.9)'; ctx.lineWidth=2; rr(c.x+1,c.y+1,BAG_CELL-2,BAG_CELL-2,5); ctx.stroke(); ctx.lineWidth=1;
+      ctx.fillStyle='#cfe3ff'; ctx.font='600 9px '+SANS; ctx.textAlign='left'; ctx.fillText('거래', c.x+3, c.y+11); }
     if(e.c>1){ ctx.font='600 10px '+MONO; ctx.textAlign='right';
       ctx.lineWidth=3; ctx.strokeStyle='rgba(0,0,0,.85)'; ctx.strokeText(String(e.c), c.x+BAG_CELL-3, c.y+BAG_CELL-4);
       ctx.fillStyle='#ffffff'; ctx.fillText(String(e.c), c.x+BAG_CELL-3, c.y+BAG_CELL-4); ctx.textAlign='left'; }
@@ -1416,7 +1498,11 @@ function drawItemTip(winX, y, e){
   if(it && it.healMp>0) lines.push(['마력 '+it.healMp+' 회복', '#9ec8ff']);
   if(equip && it.attack>0) lines.push(['공격력 +'+it.attack, '#bfe8c0']);
   lines.push([it ? (e.c+' / '+it.maxStack+'개') : (e.c+'개'), 'rgba(200,215,200,.8)']);
-  if(shop.mode==='sell'){   // 팔기 모드 — 받을 값(한 개)을 보여 주기만. 정본은 서버(S2C_MONEY)
+  if(trade.win){   // 거래창이 열렸다 — 누르면 올리기(같은 칸은 한 번만)
+    if(tradeOffered(bag.hover)) lines.push(['거래창에 올림', 'rgba(158,200,255,.95)']);
+    else if(it && it.trade===0) lines.push(['거래할 수 없는 물건', 'rgba(200,180,170,.8)']);
+    else { lines.push(['눌러 전부 올리기', 'rgba(158,200,255,.95)']); lines.push(['Shift 누른 채면 1개', 'rgba(158,200,255,.8)']); }
+  } else if(shop.mode==='sell'){   // 팔기 모드 — 받을 값(한 개)을 보여 주기만. 정본은 서버(S2C_MONEY)
     //   두 줄로 — 한 줄에 다 쓰면 툴팁 폭(156)을 넘어 가방 창 위로 삐져나갔다(10-21 사진)
     if(it && shopBuysItem(e.id) && sellPriceOf(it)>0){ lines.push(['팔면 한 개 '+fmtMoney(sellPriceOf(it)), 'rgba(255,210,110,.95)']); lines.push(['눌러 팔기 · Shift 전부', 'rgba(255,233,138,.9)']); }
     else lines.push(['이 상점은 안 사들입니다', 'rgba(200,180,170,.8)']);
@@ -1607,8 +1693,8 @@ function partyAskLayout(){
 }
 // 캐릭터 메뉴 — 누른 자리 오른쪽 아래. 화면 밖으로 안 나가게 당긴다
 function partyMenuLayout(){
-  const w=124, h=62, x=Math.min(party.menu.x+10, W-14-w), y=Math.min(party.menu.y+6, H-14-h);
-  return { x, y, w, h, req:{ x:x+10, y:y+28, w:w-20, h:24 } };
+  const w=124, h=92, x=Math.min(party.menu.x+10, W-14-w), y=Math.min(party.menu.y+6, H-14-h);
+  return { x, y, w, h, req:{ x:x+10, y:y+28, w:w-20, h:24 }, trade:{ x:x+10, y:y+58, w:w-20, h:24 } };
 }
 // 파티 목록(늘) · 관리 창(P) — 왼쪽, 상태창 아래(상태창이 닫혀 있으면 그 자리). 관리 창은 줄마다 단추가 붙어 폭이 넓다
 const PT_ROW=24, PT_TOP=30;
@@ -1631,7 +1717,7 @@ const inRect=(x,y,r)=>!!r && x>=r.x && x<=r.x+r.w && y>=r.y && y<=r.y+r.h;
 // 마우스가 파티 UI 위면 {where, btn?, id?}, 아니면 null — 위에 그려진 것부터(요청 창 > 메뉴 > 목록·창)
 function partyUiHit(x,y){
   if(party.ask){ const L=partyAskLayout(); if(inRect(x,y,L)) return { where:'ask', btn: inRect(x,y,L.accept)?'accept' : inRect(x,y,L.decline)?'decline' : null }; }
-  if(party.menu){ const L=partyMenuLayout(); if(inRect(x,y,L)) return { where:'menu', btn: inRect(x,y,L.req)?'request':null }; }
+  if(party.menu){ const L=partyMenuLayout(); if(inRect(x,y,L)) return { where:'menu', btn: inRect(x,y,L.req)?'request' : inRect(x,y,L.trade)?'trade' : null }; }
   const L=partyLayout();
   if(L && inRect(x,y,{x:L.px,y:L.py,w:L.pw,h:L.ph})){
     for(const r of L.rows){ if(inRect(x,y,r.leader)) return { where:'panel', btn:'leader', id:r.m.actorId }; if(inRect(x,y,r.kick)) return { where:'panel', btn:'kick', id:r.m.actorId }; }
@@ -1646,6 +1732,7 @@ function partyClick(h){
     case 'accept':  partyAnswer(true); break;
     case 'decline': partyAnswer(false); break;
     case 'request': partySend(P.enc.partyRequest(party.menu.id)); party.menu=null; partyChanged(); break;
+    case 'trade':   tradeSend(P.enc.tradeRequest(party.menu.id)); sysMsg('거래 신청을 보냈습니다: '+whoName(party.menu.id)); party.menu=null; partyChanged(); break;
     case 'leader':  partySend(P.enc.partyLeader(h.id)); break;
     case 'kick':    partySend(P.enc.partyKick(h.id)); break;
     case 'leave':   partySend(P.enc.partyLeave()); break;
@@ -1702,6 +1789,7 @@ function drawPartyMenu(){
   ctx.textAlign='left'; ctx.fillStyle='#f2f6ec'; ctx.font='600 12px '+MONO; ctx.fillText(String.fromCharCode(o.disp), L.x+12, L.y+18);
   ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font='11px '+SANS; ctx.fillText('#'+party.menu.id, L.x+28, L.y+18);
   smallBtn(L.req,'파티',isHover('menu','request'),false);
+  smallBtn(L.trade,'거래',isHover('menu','trade'),false);
 }
 function drawPartyAsk(){
   if(!party.ask) return;
@@ -1716,6 +1804,89 @@ function drawPartyAsk(){
   ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font='13px '+SANS; ctx.fillText(fitText(line, L.w-28), L.x+14, L.y+46);
   smallBtn(L.accept,'수락 (Y)',isHover('ask','accept'),false);
   smallBtn(L.decline,'거절 (N)',isHover('ask','decline'),true);
+}
+
+// ---- 거래 (USE_TRADE) — 그리기와 마우스 판정이 같은 자리 계산(tradeLayout · tradeAskLayout)을 쓴다(상점·파티와 같은 꼴) ----
+//   거래 창 = 게임 화면 위 가운데(상점 창 자리). 왼쪽 「내가 줄 것」 · 오른쪽 「받을 것」 — 칸 20(5×4 · 가방 한 탭과 같은 격자) · 돈 · 교환하기 누름 표시
+//   아래 = 돈 더 올리기 셋(+100 · +1,000 · +10,000 — 깎는 길이 없다) · 교환하기 · 취소. 올리기는 가방 칸을 누른다(가방 창이 같이 열린다)
+const TR_CELL=32, TR_GAP=4, TR_COLS=5, TR_ROWS=4;   // 칸 32 — 28 이면 물약 그림이 1배로 줄어 점처럼 보였다(10-26 사진 · 가방 36 칸은 2배)
+function tradeLayout(){
+  if(!trade.win) return null;
+  const gw=TR_COLS*TR_CELL+(TR_COLS-1)*TR_GAP, gh=TR_ROWS*TR_CELL+(TR_ROWS-1)*TR_GAP;
+  const w=2*gw+3*18, h=40+18+gh+52+42, x=Math.round(VX+VW/2-w/2), y=VY+86;
+  const grid = gx => { const cells=[]; for(let i=0;i<P.TRADE_MAX_ITEMS;i++) cells.push({ x:gx+(i%TR_COLS)*(TR_CELL+TR_GAP), y:y+58+Math.floor(i/TR_COLS)*(TR_CELL+TR_GAP) }); return cells; };
+  const by=y+h-34;
+  return { x, y, w, h, gw, gh, mine:{ gx:x+18, cells:grid(x+18) }, theirs:{ gx:x+18+gw+18, cells:grid(x+18+gw+18) },
+    btns:{ m100:{ x:x+14, y:by, w:50, h:24 }, m1k:{ x:x+68, y:by, w:56, h:24 }, m10k:{ x:x+128, y:by, w:62, h:24 },
+           commit:{ x:x+w-170, y:by, w:76, h:24 }, cancel:{ x:x+w-88, y:by, w:74, h:24 } } };
+}
+function tradeAskLayout(){
+  const w=320, h=98, x=Math.round(VX+VW/2-w/2), y=VY+86+(party.ask ? 110 : 0);   // 파티 요청 창이 같이 떠 있으면 그 아래
+  return { x, y, w, h, accept:{ x:x+w-176, y:y+h-38, w:76, h:26 }, decline:{ x:x+w-92, y:y+h-38, w:76, h:26 } };
+}
+// 마우스가 거래 UI 위면 {where, btn}(빈 곳이면 btn null), 밖이면 null — 위에 그려진 것부터(신청 창 > 거래 창)
+function tradeUiHit(x,y){
+  if(trade.ask){ const L=tradeAskLayout(); if(inRect(x,y,L)) return { where:'ask', btn: inRect(x,y,L.accept)?'accept' : inRect(x,y,L.decline)?'decline' : null }; }
+  const L=tradeLayout(); if(!L || !inRect(x,y,L)) return null;
+  for(const [k,r] of Object.entries(L.btns)) if(inRect(x,y,r)) return { where:'win', btn:k };
+  return { where:'win', btn:null };
+}
+function tradeClick(h){
+  switch(h.btn){
+    case 'accept': tradeAnswer(true); break;
+    case 'decline': tradeAnswer(false); break;
+    case 'm100':  tradeSend(P.enc.tradeMoney(100)); break;
+    case 'm1k':   tradeSend(P.enc.tradeMoney(1000)); break;
+    case 'm10k':  tradeSend(P.enc.tradeMoney(10000)); break;
+    case 'commit': tradeSend(P.enc.tradeCommit()); break;
+    case 'cancel': tradeSend(P.enc.tradeCancel()); break;
+    default: break;   // 창 안 빈 곳 — 아래 게임 화면으로 새지 않게 여기서 끝
+  }
+}
+const tradeHover=(where,btn)=>!!trade.hover && trade.hover.where===where && trade.hover.btn===btn;
+function drawTradeSide(L, sd, half, title, closed){
+  ctx.textAlign='left'; ctx.fillStyle='rgba(200,215,200,.8)'; ctx.font='600 12px '+SANS; ctx.fillText(title, sd.gx, L.y+50);
+  if(closed){ ctx.textAlign='right'; ctx.fillStyle='#9fe0a8'; ctx.font='600 11px '+SANS; ctx.fillText('교환하기 누름', sd.gx+L.gw, L.y+50); ctx.textAlign='left'; }
+  sd.cells.forEach((c,i)=>{ const it=half.items[i];
+    ctx.fillStyle='rgba(0,0,0,.30)'; rr(c.x,c.y,TR_CELL,TR_CELL,4); ctx.fill();
+    ctx.strokeStyle = closed ? 'rgba(143,214,160,.40)' : 'rgba(150,200,150,.16)'; ctx.lineWidth=1; ctx.stroke();
+    if(!it) return;
+    drawItemIcon(c.x,c.y,TR_CELL,it.itemId);
+    if(it.count>1){ ctx.font='600 10px '+MONO; ctx.textAlign='right'; ctx.lineWidth=3; ctx.strokeStyle='rgba(0,0,0,.85)'; ctx.strokeText(String(it.count), c.x+TR_CELL-2, c.y+TR_CELL-3);
+      ctx.fillStyle='#ffffff'; ctx.fillText(String(it.count), c.x+TR_CELL-2, c.y+TR_CELL-3); ctx.textAlign='left'; } });
+  const my=L.y+58+L.gh+18;
+  ctx.fillStyle='rgba(200,215,200,.75)'; ctx.font='12px '+SANS; ctx.fillText('돈', sd.gx, my);
+  ctx.fillStyle='#ffe98a'; ctx.font='600 12px '+MONO; ctx.fillText(fmtMoney(half.money), sd.gx+22, my);
+}
+function drawTrade(){
+  const L=tradeLayout(); if(!L) return;
+  const t=trade.win, { x, y, w, h } = L;
+  ctx.fillStyle='rgba(8,12,10,.97)'; rr(x,y,w,h,10); ctx.fill(); ctx.strokeStyle='rgba(158,200,255,.45)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.textAlign='left'; ctx.fillStyle='#cfe3ff'; ctx.font='600 14px '+SANS; ctx.fillText('거래  ·  '+personName(t.partner)+'  Lv.'+t.partner.level, x+14, y+24);
+  ctx.textAlign='right'; ctx.fillStyle='rgba(200,215,200,.6)'; ctx.font='11px '+SANS; ctx.fillText('올린 것은 못 뺍니다 — 잘못 올렸으면 취소', x+w-14, y+24);
+  ctx.strokeStyle='rgba(150,200,150,.14)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x+14,y+34); ctx.lineTo(x+w-14,y+34); ctx.stroke();
+  drawTradeSide(L, L.mine, t.mine, '내가 줄 것', t.mine.closed);
+  drawTradeSide(L, L.theirs, t.theirs, '받을 것', t.theirs.closed);
+  const hy=L.y+58+L.gh+36;
+  ctx.textAlign='left'; ctx.fillStyle='rgba(158,200,255,.75)'; ctx.font='11px '+SANS;
+  ctx.fillText(fitText(t.mine.closed ? (t.theirs.closed ? '맞바꾸는 중…' : '상대가 교환하기를 누르면 맞바꿉니다') : '가방 칸을 누르면 그 칸 전부 · Shift 면 1개', w-28), x+14, hy);
+  const off=t.mine.closed;   // 닫았으면 돈·교환하기는 흐리게(눌러도 서버가 CLOSED — 표시만)
+  smallBtn(L.btns.m100,'+100',!off && tradeHover('win','m100'),false);
+  smallBtn(L.btns.m1k,'+1천',!off && tradeHover('win','m1k'),false);
+  smallBtn(L.btns.m10k,'+1만',!off && tradeHover('win','m10k'),false);
+  smallBtn(L.btns.commit, off ? '누름' : '교환하기', !off && tradeHover('win','commit'), false);
+  smallBtn(L.btns.cancel,'취소',tradeHover('win','cancel'),true);
+}
+function drawTradeAsk(){
+  if(!trade.ask) return;
+  const a=trade.ask, L=tradeAskLayout();
+  ctx.fillStyle='rgba(8,12,10,.97)'; rr(L.x,L.y,L.w,L.h,10); ctx.fill(); ctx.strokeStyle='rgba(158,200,255,.45)'; ctx.lineWidth=1; ctx.stroke();
+  const left=Math.max(0, Math.ceil((a.until-performance.now())/1000));
+  ctx.textAlign='left'; ctx.fillStyle='#cfe3ff'; ctx.font='600 14px '+SANS; ctx.fillText('거래 신청', L.x+14, L.y+24);
+  ctx.textAlign='right'; ctx.fillStyle='rgba(200,215,200,.6)'; ctx.font='11px '+SANS; ctx.fillText(left+'초', L.x+L.w-14, L.y+24);
+  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font='13px '+SANS; ctx.fillText(fitText(personName(a.from)+'  Lv.'+a.from.level+'  ·  거래하시겠습니까?', L.w-28), L.x+14, L.y+46);
+  smallBtn(L.accept, party.ask ? '수락' : '수락 (Y)', tradeHover('ask','accept'), false);
+  smallBtn(L.decline, party.ask ? '거절' : '거절 (N)', tradeHover('ask','decline'), true);
 }
 
 // ---- frame ----
@@ -1868,11 +2039,13 @@ function clearZoneWorld(){
   ground.clear(); groundChanged();
   if(party.menu){ party.menu=null; partyChanged(); }   // 누른 사람이 옛 존에 남았다 — 파티 자체는 존을 넘으므로 안 비운다
   closeShop();                                          // 메뉴를 연 NPC 도 옛 존에 남았다
+  if(trade.ask || trade.win){ trade.ask=null; trade.win=null; tradeChanged(); }   // 거래는 존을 안 넘는다 — 서버가 LEFT 로 끝냈다(END 가 먼저 와 있다)
 }
 function connect(){
   clearZoneWorld(); self=null;   // 재접속 시 유령 엔티티 제거
   bag.slots.clear(); adminSent=false; me.money=null; me.moneyT=0; bagChanged();   // 가방·돈은 입장 때 전체가 다시 온다 · 운영자 로그인도 새 접속마다
   party.info=null; party.ask=null; party.menu=null; partyChanged();   // 끊기면 서버가 파티에서 뺐다(저장 안 함) — 새 접속은 파티 없이 시작
+  trade.ask=null; trade.win=null; tradeChanged();                       // 거래도 끊기면 서버가 끝냈다
   const re=new P.Reassembler(onPacket);
   ws=new WebSocket(WS_URL); ws.binaryType='arraybuffer';
   // 입장 요청을 먼저 보낸다 — 서버는 이걸 받아야 캐릭터를 불러온다(USE_LOGIN).
@@ -1920,7 +2093,9 @@ function parseItemTable(text){
     // attack(7번째 칸) = 끼우면 더하는 공격력 — 보여 주기만 한다(무기 줄의 「공격력 +5」). 합은 서버가 셈한다
     // healMp(8번째 칸) = 마력 회복량(10-11) — 툴팁에만 쓴다. 쓸 수 있는지는 서버가 정한다(스킬을 끈 서버면 NOT_USABLE)
     // price(9번째 칸) = 상점 값(전 · 10-21) — 사기 창 값 · 팔기 툴팁(절반 내림)에 보여 주기만. 받고 내는 돈은 서버가 정한다
-    ITEMS.set(Number(c[0]), { name:c[1], tab, money, maxStack:Number(c[3]), healHp:Number(c[4]), icon:Number(c[5]), attack:Number(c[6]||0), healMp:Number(c[7]||0), price:Number(c[8]||0) });
+    // trade(10번째 칸) = 거래창에 올릴 수 있나(1 · 0 — 10-26) — 거래 중 툴팁에만. 막는 것은 서버(NOT_TRADABLE)
+    ITEMS.set(Number(c[0]), { name:c[1], tab, money, maxStack:Number(c[3]), healHp:Number(c[4]), icon:Number(c[5]), attack:Number(c[6]||0), healMp:Number(c[7]||0), price:Number(c[8]||0),
+      trade: c[9]===undefined ? 1 : Number(c[9]) });
   }
 }
 // 스킬 표(serve.js 의 /data/SkillTable.csv) — 못 받아도 멈추지 않는다(막대만 안 그린다). 없다는 사실은 콘솔 경고와 data-skill 에 남는다.
