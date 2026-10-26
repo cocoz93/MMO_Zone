@@ -37,7 +37,7 @@ public:
 
     bool _isAdmin;        // 운영자 여부
 
-    // ── GM 모드 — 운영자가 채팅 /gm 으로 켜고 끈다(CChatHandler::RunGmCommand) ──
+    // ── GM 모드 — 운영자가 채팅 /gm 으로 켜고 끈다(CCommandHandler::RunGmCommand) ──
     //   켜면 속도·최대 체력·공격력을 아래 값으로 — 체력·공격력은 스탯을 세우는 한 곳(CStatSystem::RecalcStats)이 레벨 표 대신 쓴다.
     //   저장하지 않는다 — 접속마다 꺼진 채 시작한다. 존을 넘어도(포털·마을 부활) 같은 CPlayer 라 그대로 켜져 있다.
     //   값은 운영 도구 값이라 기획 표가 아니라 여기 둔다.

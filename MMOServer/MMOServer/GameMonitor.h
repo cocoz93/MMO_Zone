@@ -252,7 +252,7 @@ inline const char* PartyNoticeName(PartyNotice r)
 #endif
 
 // 채팅 명령 거절 사유 — 넣기 거절(InvAddResult)과 따로 센다. 명령이 틀린 것과 가방이 찬 것은 다른 사실이다.
-//   토글 밖 — 명령 틀(채팅·운영 조각의 명령 표)은 늘 있고 명령 줄만 토글을 본다(_chat 묶음 · 게임 서버 나누기 14 단계 전에는 USE_INVENTORY 안).
+//   토글 밖 — 명령 틀(채팅 명령 조각 CCommandHandler 의 명령 표)은 늘 있고 명령 줄만 토글을 본다(_chat 묶음 · 게임 서버 나누기 14 단계 전에는 USE_INVENTORY 안).
 enum class ChatCommandReject : uint8_t
 {
     NOT_ADMIN,         // 운영자가 아니다
@@ -881,7 +881,7 @@ public:
     } _portal;
 
     // ══════════════════════════════════════════════════════════════
-    // 채팅 명령 — 세는 곳은 채팅·운영 조각(CChatHandler — 명령 표 · /gm · /item 의 인자 거절).
+    // 채팅 명령 — 세는 곳은 채팅 명령 조각(CCommandHandler — 명령 표 · /gm · /item 의 인자 거절 · 10-26 채팅·운영 조각에서 떼어 냄).
     //   토글 없음 — 명령 틀은 늘 있고 명령 줄만 토글을 본다(/item USE_INVENTORY · /gm USE_COMBAT). 줄이 빠진 빌드의 칸은 0 으로 남는다.
     //   게임 서버 나누기 14 단계 전에는 인벤토리 묶음(_inventory) 안에 있었다 — 노출 이름(mmo_chat_*)은 그대로.
     // ══════════════════════════════════════════════════════════════
