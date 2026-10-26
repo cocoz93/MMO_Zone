@@ -176,7 +176,22 @@ enum class MsgType : uint16_t
     C2S_SHOP_BUY,               // 클라이언트 → 서버: 이 NPC 의 상점에서 이 물건을 몇 개 산다
     C2S_SHOP_SELL,              // 클라이언트 → 서버: 이 NPC 의 상점에 이 가방 칸의 물건을 몇 개 판다
     S2C_SHOP_FAIL,              // 서버 → 클라이언트: 사고팔기 거절 + 사유 (본인 — 성공은 칸 갱신과 S2C_MONEY 가 곧 결과다)
-    S2C_MONEY                   // 서버 → 클라이언트: 가진 돈(최종값 · 본인) — 입장 때 가방 전체 바로 뒤 한 장 · 돈이 바뀔 때마다
+    S2C_MONEY,                  // 서버 → 클라이언트: 가진 돈(최종값 · 본인) — 입장 때 가방 전체 바로 뒤 한 장 · 돈이 바뀔 때마다
+
+    //--------------------------------------------------
+    // 거래 (USE_TRADE — 가까이 선 두 사람이 가방 칸·돈을 맞바꾼다 · trade-plan.md)
+    //--------------------------------------------------
+    C2S_TRADE_REQUEST,          // 클라이언트 → 서버: 이 사람과 거래하자 (화면에서 누른 캐릭터)
+    C2S_TRADE_ANSWER,           // 클라이언트 → 서버: 받은 신청(S2C_TRADE_ASK)에 수락·거절
+    C2S_TRADE_OFFER,            // 클라이언트 → 서버: 이 가방 칸의 물건을 몇 개 거래창에 올린다 (빼기·줄이기는 없다)
+    C2S_TRADE_MONEY,            // 클라이언트 → 서버: 거래창의 돈에 이만큼 더한다 (늘리기만)
+    C2S_TRADE_COMMIT,           // 클라이언트 → 서버: 「교환하기」 — 내 쪽을 닫는다(더 못 올림). 둘 다 닫히면 서버가 맞바꾼다
+    C2S_TRADE_CANCEL,           // 클라이언트 → 서버: 거래창(또는 내가 보낸 신청)을 그만둔다
+    S2C_TRADE_ASK,              // 서버 → 클라이언트: 거래 신청이 왔다 (받는 사람 — 수락·거절 창)
+    S2C_TRADE_ASK_END,          // 서버 → 클라이언트: 그 신청이 무효가 됐다 (받는 사람 — 창을 닫는다)
+    S2C_TRADE_STATE,            // 서버 → 클라이언트: 거래창 전체(최종값) — 열릴 때 · 바뀔 때마다 두 사람에게
+    S2C_TRADE_END,              // 서버 → 클라이언트: 신청·거래가 끝났다 + 사유 (성사 포함)
+    S2C_TRADE_FAIL              // 서버 → 클라이언트: 요청 거절 + 사유 (본인 — 아무것도 안 바뀌었다)
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -1441,5 +1456,189 @@ static_assert(sizeof(MSG_S2C_SHOP_FAIL) == 5,  "SHOP_FAIL 은 5B (proto.js 와 �
 static_assert(sizeof(MSG_S2C_MONEY)     == 12, "MONEY 는 12B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::C2S_SHOP_BUY) == 1061, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_MONEY)    == 1064, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+
+//==================================================
+// 거래 (USE_TRADE) — trade-plan.md
+//==================================================
+// 규칙(10-26 사용자 결정) — 마을·사냥터에서만(파티 방 안 됨) · 가방 칸 최대 TRADE_MAX_ITEMS + 돈 · 「교환하기」 한 버튼 · 누른 사람 쪽만 닫힘(더 못 올림) · 상대는 닫기 전까지 계속 올린다 ·
+//   둘 다 눌러야 성사 · 올린 것은 못 뺀다(같은 칸 두 번 · 개수 줄이기 · 돈 깎기 없음 — 돈은 「더할 액수」로만 받는다).
+//   그래서 내가 누른 뒤 상대가 할 수 있는 건 더 올리기뿐이다 — 내가 본 것보다 덜 받는 일이 없다. 잘못 올렸으면 취소하고 다시.
+//   규칙의 몸은 서버 CTradeSystem(TradeSystem.h) — 여기는 와이어만. 사람은 번호(actorId)와 글자·색으로 가리킨다(파티 절 PartyPerson).
+//   ★ 부하 더미·콘솔 클라도 받을 수 있다 — 웹 사람이 그 캐릭터를 눌러 신청하면 S2C_TRADE_ASK 가, 시간이 지나면 S2C_TRADE_ASK_END 가 간다.
+//     둘 다 S2C 다섯을 다 등록할 것(DummyClient.cpp · GameClient/ClientNetwork.cpp).
+constexpr int TRADE_MAX_ITEMS = 20;   // 사용자 결정 값(10-26) — 가방 한 탭 칸 수와 같다(웹이 같은 격자를 쓴다). S2C_TRADE_STATE 의 줄 수 상한이기도 하다
+
+// 요청 거절 사유 (S2C_TRADE_FAIL — 본인). ★ 값이 와이어에 실린다 — 끝(COUNT 앞)에만 붙인다. WebClient/proto.js 에 같은 순서로 옮겨 둔다.
+enum class TradeFail : uint8_t
+{
+    NO_TARGET,         // 신청 — 그런 사람이 내 화면(주변 섹터)에 없다 · 사람이 아니다(몬스터·NPC)
+    SELF,              // 신청 — 나 자신
+    NOT_IN_REACH,      // 신청·수락 — 손이 안 닿는다(서버 TradeSystem.h TRADE_REACH)
+    DEAD,              // 내가 쓰러져 있다
+    TARGET_DEAD,       // 상대가 쓰러져 있다
+    TARGET_BUSY,       // 상대가 거래 중이거나 다른 신청을 주고받는 중이다
+    SELF_BUSY,         // 내가 거래 중이거나 보낸·받은 신청이 아직 답을 기다린다
+    NO_REQUEST,        // 수락·거절 — 답할 신청이 없다(이미 끝났거나 내 것이 아니다)
+    NOT_IN_TRADE,      // 올리기·돈·교환하기 — 거래창이 없다
+    CLOSED,            // 올리기·돈·교환하기 — 내 쪽은 이미 닫았다(교환하기를 눌렀다)
+    BAD_SLOT,          // 올리기 — 빈 칸 · 착용 칸(900~) · 칸 번호 범위 밖
+    ALREADY_OFFERED,   // 올리기 — 이미 올린 칸(같은 칸은 한 번만 — 더 얹기도 안 된다)
+    NOT_TRADABLE,      // 올리기 — 거래할 수 없는 물건(ItemTable.csv trade 0)
+    BAD_COUNT,         // 올리기 — 개수가 1..그 칸 개수 밖 · 돈 — 더할 액수가 1 미만
+    ITEMS_FULL,        // 올리기 — 이미 TRADE_MAX_ITEMS 칸을 올렸다
+    NOT_ENOUGH_MONEY,  // 돈 — 더할 액수가 쓸 수 있는 돈(가진 돈 − 이미 올린 돈)보다 많다
+    NOT_HERE,          // 신청 — 이 맵에서는 거래할 수 없다(마을·사냥터만 — 파티 방 안 됨 · 10-26 사용자 결정)
+    COUNT
+};
+
+// 신청·거래가 끝난 사유 (S2C_TRADE_END — 두 사람 · S2C_TRADE_ASK_END — 받는 사람). ★ 값이 와이어에 실린다 — 끝(COUNT 앞)에만 붙인다.
+//   맞바꾸기 갈래의 실패(NOT_IN_REACH 아래 다섯)는 「아무것도 안 바뀌었다」 — 빼기가 없어 창을 열어 둬도 고칠 길이 없으므로 거래를 끝낸다.
+enum class TradeEnd : uint8_t
+{
+    DONE,          // 맞바꿨다
+    CANCELLED,     // actorId 가 그만뒀다(거래창 취소 · 보낸 신청 거두기)
+    DECLINED,      // actorId 가 신청을 거절했다 (신청한 사람에게)
+    EXPIRED,       // 신청에 답이 없어 시간이 지났다
+    LEFT,          // actorId 가 존에서 빠졌다(끊김 · 맵 이동)
+    DEAD,          // actorId 가 쓰러졌다
+    NOT_IN_REACH,  // 둘 다 눌렀을 때 손이 안 닿았다
+    BAG_FULL,      // actorId 의 가방에 받을 것이 다 안 들어간다
+    MONEY_FULL,    // actorId 가 받으면 들 수 있는 돈(1억)을 넘는다
+    CHANGED,       // 올린 칸이 그새 바뀌었다 — 잠근 칸이라 있으면 안 된다(서버 결함 신호 · 로그 ERROR)
+    SAVE_DELAY,    // 두 사람 저장이 밀려 맞바꾸지 못했다(서버 TradeSystem.h TRADE_SAVE_WAIT_FRAMES)
+    COUNT
+};
+
+// 거래창 한쪽 (210B, pack(1)) — 올린 순서대로 count 줄(그 뒤 줄은 0). 칸 한 줄은 가방 칸과 같은 꼴(InventoryEntry —
+//   slot = 그 사람 가방의 칸 번호 · 웹은 내 쪽 칸 번호로 가방 그림에 「올림」 표시를 하고 상대 쪽 칸 번호는 안 쓴다).
+struct TradeSide
+{
+    int64_t        money;     // 올린 돈(합)
+    uint8_t        closed;    // 1 = 교환하기를 눌렀다(더 못 올림)
+    uint8_t        count;     // items 중 쓰는 줄 수(0 ~ TRADE_MAX_ITEMS)
+    InventoryEntry items[TRADE_MAX_ITEMS];
+};
+
+// C2S: 이 사람과 거래하자 — 화면에서 누른 캐릭터
+struct MSG_C2S_TRADE_REQUEST
+{
+    static constexpr MsgType TYPE = MsgType::C2S_TRADE_REQUEST;
+    MsgHeader header;
+    int32_t   targetId;   // 누른 캐릭터 번호
+};
+
+// C2S: 받은 신청에 답한다
+struct MSG_C2S_TRADE_ANSWER
+{
+    static constexpr MsgType TYPE = MsgType::C2S_TRADE_ANSWER;
+    MsgHeader header;
+    uint32_t  requestId;  // S2C_TRADE_ASK 의 번호 그대로
+    uint8_t   accept;     // 1 = 수락 · 0 = 거절
+};
+
+// C2S: 이 가방 칸(INV_TAB_RANGES 의 칸 번호)의 물건을 count 개 올린다 — 같은 칸은 한 번만
+struct MSG_C2S_TRADE_OFFER
+{
+    static constexpr MsgType TYPE = MsgType::C2S_TRADE_OFFER;
+    MsgHeader header;
+    uint16_t  slot;
+    int32_t   count;
+};
+
+// C2S: 거래창의 돈에 amount 를 더한다 — 증가분이다(최종값이 아니다 · 깎는 길이 없다)
+struct MSG_C2S_TRADE_MONEY
+{
+    static constexpr MsgType TYPE = MsgType::C2S_TRADE_MONEY;
+    MsgHeader header;
+    int64_t   amount;
+};
+
+// C2S: 「교환하기」 — 몸 없음. 내 쪽이 닫힌다(되돌리기 없음 — 그만두려면 취소)
+struct MSG_C2S_TRADE_COMMIT
+{
+    static constexpr MsgType TYPE = MsgType::C2S_TRADE_COMMIT;
+    MsgHeader header;
+};
+
+// C2S: 그만둔다 — 몸 없음. 거래창이 있으면 거래를, 없으면 내가 보낸 신청을 거둔다
+struct MSG_C2S_TRADE_CANCEL
+{
+    static constexpr MsgType TYPE = MsgType::C2S_TRADE_CANCEL;
+    MsgHeader header;
+};
+
+// S2C: 거래 신청이 왔다 — 받는 사람에게만. 답은 C2S_TRADE_ANSWER(requestId).
+//   remainMs 가 지나면 서버가 S2C_TRADE_ASK_END(EXPIRED)로 닫는다 — 클라는 남은 초를 그리기만 한다(파티 신청과 같은 꼴).
+struct MSG_S2C_TRADE_ASK
+{
+    static constexpr MsgType TYPE = MsgType::S2C_TRADE_ASK;
+    MsgHeader   header;
+    uint32_t    requestId;
+    PartyPerson from;       // 신청한 사람
+    uint32_t    remainMs;
+
+    MSG_S2C_TRADE_ASK() : header{ sizeof(*this), TYPE }, requestId(0), from{}, remainMs(0) {}
+};
+
+// S2C: 그 신청이 무효가 됐다 — 받는 사람에게만(창을 닫는다). 받은 사람이 답해서 끝난 신청에는 안 온다
+struct MSG_S2C_TRADE_ASK_END
+{
+    static constexpr MsgType TYPE = MsgType::S2C_TRADE_ASK_END;
+    MsgHeader header;
+    uint32_t  requestId;
+    uint8_t   reason;     // TradeEnd — EXPIRED · CANCELLED · LEFT · DEAD
+
+    MSG_S2C_TRADE_ASK_END() : header{ sizeof(*this), TYPE }, requestId(0), reason(0) {}
+};
+
+// S2C: 거래창 전체 — 최종값(두 번 와도 같다). 열릴 때 · 올리기·돈·교환하기마다 두 사람에게(각자 mine = 자기 쪽).
+//   고정 길이 — 줄 수가 적어도 TRADE_MAX_ITEMS 줄을 다 싣는다(438B · 바뀔 때만 가서 가변으로 줄일 값이 작다).
+struct MSG_S2C_TRADE_STATE
+{
+    static constexpr MsgType TYPE = MsgType::S2C_TRADE_STATE;
+    MsgHeader   header;
+    uint32_t    tradeId;    // 이 거래창의 번호(서버가 매김 · 0 은 안 씀) — 웹이 새 창인지 가른다
+    PartyPerson partner;    // 상대
+    TradeSide   mine;
+    TradeSide   theirs;
+
+    MSG_S2C_TRADE_STATE() : header{ sizeof(*this), TYPE }, tradeId(0), partner{}, mine{}, theirs{} {}
+};
+
+// S2C: 신청·거래가 끝났다 — 거래창이 있었으면 두 사람에게, 신청 단계면 신청한 사람에게(DECLINED · EXPIRED · CANCELLED · LEFT · DEAD)
+struct MSG_S2C_TRADE_END
+{
+    static constexpr MsgType TYPE = MsgType::S2C_TRADE_END;
+    MsgHeader header;
+    uint8_t   reason;     // TradeEnd
+    int32_t   actorId;    // 끝낸 사람(DONE 이면 상대 · 없으면 0)
+
+    MSG_S2C_TRADE_END() : header{ sizeof(*this), TYPE }, reason(0), actorId(0) {}
+};
+
+// S2C: 요청 거절 — 본인에게만. 아무것도 안 바뀌었다
+struct MSG_S2C_TRADE_FAIL
+{
+    static constexpr MsgType TYPE = MsgType::S2C_TRADE_FAIL;
+    MsgHeader header;
+    uint8_t   reason;     // TradeFail
+
+    MSG_S2C_TRADE_FAIL() : header{ sizeof(*this), TYPE }, reason(0) {}
+};
+
+static_assert(sizeof(TradeSide)              == 210, "TradeSide 는 210B (proto.js TRADE_SIDE_BYTES 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_TRADE_REQUEST)  == 8,   "C2S_TRADE_REQUEST 는 8B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_TRADE_ANSWER)   == 9,   "C2S_TRADE_ANSWER 는 9B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_TRADE_OFFER)    == 10,  "C2S_TRADE_OFFER 는 10B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_TRADE_MONEY)    == 12,  "C2S_TRADE_MONEY 는 12B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_TRADE_COMMIT)   == 4,   "C2S_TRADE_COMMIT 은 헤더뿐");
+static_assert(sizeof(MSG_C2S_TRADE_CANCEL)   == 4,   "C2S_TRADE_CANCEL 은 헤더뿐");
+static_assert(sizeof(MSG_S2C_TRADE_ASK)      == 22,  "TRADE_ASK 는 22B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_TRADE_ASK_END)  == 9,   "TRADE_ASK_END 는 9B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_TRADE_STATE)    == 438, "TRADE_STATE 는 438B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_TRADE_END)      == 9,   "TRADE_END 는 9B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_TRADE_FAIL)     == 5,   "TRADE_FAIL 은 5B (proto.js 와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::C2S_TRADE_REQUEST) == 1065, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::S2C_TRADE_FAIL)    == 1075, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 #pragma pack(pop)

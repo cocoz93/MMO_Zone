@@ -45,7 +45,10 @@
     C2S_PARTY_REQUEST:1050, C2S_PARTY_ANSWER:1051, C2S_PARTY_LEAVE:1052, C2S_PARTY_KICK:1053, C2S_PARTY_LEADER:1054, C2S_PARTY_DISBAND:1055,
     S2C_PARTY_ASK:1056, S2C_PARTY_ASK_END:1057, S2C_PARTY_NOTICE:1058, S2C_PARTY_INFO:1059, S2C_PARTY_MEMBER:1060,
     // 상점 (USE_SHOP) · 돈 (USE_INVENTORY) — 말 걸기·메뉴는 웹 혼자(서버 왕복 없음). 사고팔기는 요청마다 서버가 다시 본다
-    C2S_SHOP_BUY:1061, C2S_SHOP_SELL:1062, S2C_SHOP_FAIL:1063, S2C_MONEY:1064
+    C2S_SHOP_BUY:1061, C2S_SHOP_SELL:1062, S2C_SHOP_FAIL:1063, S2C_MONEY:1064,
+    // 거래 (USE_TRADE) — 고르기는 화면에서 캐릭터를 눌러서. 「교환하기」 한 버튼(누른 쪽만 닫힘) · 올린 것은 못 뺀다(늘리기만)
+    C2S_TRADE_REQUEST:1065, C2S_TRADE_ANSWER:1066, C2S_TRADE_OFFER:1067, C2S_TRADE_MONEY:1068, C2S_TRADE_COMMIT:1069, C2S_TRADE_CANCEL:1070,
+    S2C_TRADE_ASK:1071, S2C_TRADE_ASK_END:1072, S2C_TRADE_STATE:1073, S2C_TRADE_END:1074, S2C_TRADE_FAIL:1075
   };
   // 파티 — Protocol.h PartyAskKind · PartyNotice 순서 그대로(값이 와이어에 실린다). 한글 문구는 live.html 이 이름으로 고른다
   const PARTY_ASK_KIND = ['INVITE','APPLY','SUGGEST'];
@@ -56,20 +59,26 @@
   const PARTY_MAX_MEMBERS = 8;      // Protocol.h PARTY_MAX_MEMBERS — INFO 줄 수 상한
   const PARTY_MEMBER_BYTES = 22;    // Protocol.h PartyMemberEntry = PartyPerson 10 + hp·maxHp·mapId 12
   // 아이템 쓰기 거절 사유 — Protocol.h UseItemFail 순서 그대로(값이 와이어에 실린다). 서버가 이 순서로 보고 먼저 걸린 하나를 보낸다
-  const USE_FAIL = ['BAD_SLOT','EMPTY','NOT_USABLE','DEAD','COOLDOWN','FULL_HP','FULL_MP'];
+  const USE_FAIL = ['BAD_SLOT','EMPTY','NOT_USABLE','DEAD','COOLDOWN','FULL_HP','FULL_MP','IN_TRADE'];
   // 땅의 아이템 — Protocol.h GroundItemAppear · GroundItemGone · PickupFail 순서 그대로(값이 와이어에 실린다)
   const GROUND_APPEAR = ['SEEN','DROP'];
   const GROUND_GONE   = ['OUT_OF_SIGHT','PICKED','EXPIRED'];
   const PICKUP_FAIL   = ['DEAD','NO_ITEM','NOT_OWNER','TAB_FULL','MONEY_FULL'];
   // 사고팔기 거절 사유 — Protocol.h ShopFail 순서 그대로(값이 와이어에 실린다). 한글 문구는 live.html 이 이름으로 고른다
-  const SHOP_FAIL = ['DEAD','NO_NPC','NOT_IN_REACH','NOT_SOLD_HERE','NOT_BOUGHT_HERE','BAD_SLOT','BAD_COUNT','NOT_ENOUGH_MONEY','BAG_FULL','MONEY_FULL'];
+  const SHOP_FAIL = ['DEAD','NO_NPC','NOT_IN_REACH','NOT_SOLD_HERE','NOT_BOUGHT_HERE','BAD_SLOT','BAD_COUNT','NOT_ENOUGH_MONEY','BAG_FULL','MONEY_FULL','IN_TRADE'];
+  // 거래 — Protocol.h TradeFail · TradeEnd 순서 그대로(값이 와이어에 실린다). 한글 문구는 live.html 이 이름으로 고른다
+  const TRADE_FAIL = ['NO_TARGET','SELF','NOT_IN_REACH','DEAD','TARGET_DEAD','TARGET_BUSY','SELF_BUSY','NO_REQUEST','NOT_IN_TRADE','CLOSED',
+    'BAD_SLOT','ALREADY_OFFERED','NOT_TRADABLE','BAD_COUNT','ITEMS_FULL','NOT_ENOUGH_MONEY','NOT_HERE'];
+  const TRADE_END = ['DONE','CANCELLED','DECLINED','EXPIRED','LEFT','DEAD','NOT_IN_REACH','BAG_FULL','MONEY_FULL','CHANGED','SAVE_DELAY'];
+  const TRADE_MAX_ITEMS = 20;       // Protocol.h TRADE_MAX_ITEMS — 거래창 한쪽 줄 수 상한
+  const TRADE_SIDE_BYTES = 210;     // Protocol.h TradeSide = money i64 · closed u8 · count u8 · 칸 줄(10B) × TRADE_MAX_ITEMS
   // 가방 탭 구간 — Protocol.h INV_TAB_RANGES 사본(InvTab 순서: 장비·소비·기타). 칸 번호가 곧 DB 열쇠라
   //   한쪽만 고치면 웹이 엉뚱한 탭에 그린다 — Protocol.h 와 나란히 볼 것.
   const INV_TAB_RANGES = [ { first:0, n:20 }, { first:100, n:20 }, { first:200, n:20 } ];
   // 착용 칸 — Protocol.h EQUIP_SLOT_FIRST + EquipSlot 사본(지금은 무기 하나). 가방 탭과 따로 세고, 가방과 같은 칸 목록(S2C_INVENTORY)에 실려 온다
   const EQUIP_SLOT = { WEAPON: 900 };
   // 끼우기·빼기 거절 사유 — Protocol.h EquipFail 순서 그대로(값이 와이어에 실린다)
-  const EQUIP_FAIL = ['BAD_SLOT','EMPTY','NOT_EQUIPPABLE','DEAD','COOLDOWN','TAB_FULL'];
+  const EQUIP_FAIL = ['BAD_SLOT','EMPTY','NOT_EQUIPPABLE','DEAD','COOLDOWN','TAB_FULL','IN_TRADE'];
   // 스킬 거절 사유 — Protocol.h SkillFail 순서 그대로(값이 와이어에 실린다). 거절이면 체력·마력·쿨타임이 그대로다
   const SKILL_FAIL = ['BAD_SKILL','DEAD','COOLDOWN','LOW_HP','NO_TARGET','LOW_MP'];
   // 지속 효과 종류 — Protocol.h BuffKind 순서 그대로(값이 와이어에 실린다). 스킬 표의 effect 「buff_<종류>」 와 이름이 같다
@@ -104,6 +113,13 @@
   // 파티원 한 줄 — Protocol.h PartyMemberEntry 22B = PartyPerson 10 · hp i32 · maxHp i32 · mapId i32. INFO 의 줄이자 MEMBER 의 몸통
   function readPartyMember(dv, o) {
     return { ...readPartyPerson(dv, o), hp:dv.getInt32(o+10,true), maxHp:dv.getInt32(o+14,true), mapId:dv.getInt32(o+18,true) };
+  }
+  // 거래창 한쪽 — Protocol.h TradeSide 210B. 칸 줄은 가방 칸과 같은 꼴(slot u16 · itemId i32 · count i32). count 는 상한으로 한 번 더 막는다
+  function readTradeSide(dv, o) {
+    let count = dv.getUint8(o+9); if (count > TRADE_MAX_ITEMS) count = TRADE_MAX_ITEMS;
+    const items = [];
+    for (let i=0;i<count;i++){ const e=o+10+i*10; items.push({ slot:dv.getUint16(e,true), itemId:dv.getInt32(e+2,true), count:dv.getInt32(e+6,true) }); }
+    return { money:Number(dv.getBigInt64(o,true)), closed:dv.getUint8(o+8)!==0, items };
   }
 
   // ---- decode one packet body (dv positioned at packet start, total = header.size) ----
@@ -291,6 +307,22 @@
         p.reason=dv.getUint8(o); p.reasonName=SHOP_FAIL[p.reason] || ('?'+p.reason); break;
       case MSG.S2C_MONEY:   // int64 최종값 — 상한 1억이라 Number 로 옮겨도 정확하다
         p.money=Number(dv.getBigInt64(o,true)); break;
+      // ---- 거래 (USE_TRADE) ----
+      //   TRADE_ASK 22B = requestId u32 · from PartyPerson(10) · remainMs u32 — 받는 사람에게만
+      case MSG.S2C_TRADE_ASK:
+        p.requestId=dv.getUint32(o,true); p.from=readPartyPerson(dv, o+4); p.remainMs=dv.getUint32(o+14,true); break;
+      //   TRADE_ASK_END 9B = requestId u32 · reason u8 (TRADE_END). 창을 닫는다
+      case MSG.S2C_TRADE_ASK_END:
+        p.requestId=dv.getUint32(o,true); p.reason=dv.getUint8(o+4); p.reasonName=TRADE_END[p.reason] || ('?'+p.reason); break;
+      //   TRADE_STATE 438B = tradeId u32 · partner PartyPerson(10) · mine TradeSide(210) · theirs TradeSide(210) — 최종값
+      case MSG.S2C_TRADE_STATE:
+        p.tradeId=dv.getUint32(o,true); p.partner=readPartyPerson(dv, o+4);
+        p.mine=readTradeSide(dv, o+14); p.theirs=readTradeSide(dv, o+14+TRADE_SIDE_BYTES); break;
+      //   TRADE_END 9B = reason u8 (TRADE_END) · actorId i32 (끝낸 사람 · 없으면 0)
+      case MSG.S2C_TRADE_END:
+        p.reason=dv.getUint8(o); p.reasonName=TRADE_END[p.reason] || ('?'+p.reason); p.actorId=dv.getInt32(o+1,true); break;
+      case MSG.S2C_TRADE_FAIL:
+        p.reason=dv.getUint8(o); p.reasonName=TRADE_FAIL[p.reason] || ('?'+p.reason); break;
       default: break; // ADMIN_* etc. — not needed for the view
     }
     return p;
@@ -355,6 +387,16 @@
     partyKick(targetId){ const {b,d}=hdr(8,MSG.C2S_PARTY_KICK); d.setInt32(4, targetId, true); return b; },
     partyLeader(targetId){ const {b,d}=hdr(8,MSG.C2S_PARTY_LEADER); d.setInt32(4, targetId, true); return b; },
     partyDisband(){ return hdr(4, MSG.C2S_PARTY_DISBAND).b; },
+    // ---- 거래 (USE_TRADE) ----
+    // C2S_TRADE_REQUEST: header(4) + targetId i32 = 8B · ANSWER: + requestId u32 + accept u8 = 9B
+    tradeRequest(targetId){ const {b,d}=hdr(8,MSG.C2S_TRADE_REQUEST); d.setInt32(4, targetId, true); return b; },
+    tradeAnswer(requestId, accept){ const {b,d}=hdr(9,MSG.C2S_TRADE_ANSWER); d.setUint32(4, requestId>>>0, true); d.setUint8(8, accept?1:0); return b; },
+    // C2S_TRADE_OFFER: header(4) + slot u16 + count i32 = 10B · MONEY: + amount i64 = 12B(더할 액수 — 증가분)
+    tradeOffer(slot, count){ const {b,d}=hdr(10,MSG.C2S_TRADE_OFFER); d.setUint16(4, slot, true); d.setInt32(6, count, true); return b; },
+    tradeMoney(amount){ const {b,d}=hdr(12,MSG.C2S_TRADE_MONEY); d.setBigInt64(4, BigInt(Math.trunc(amount)), true); return b; },
+    // C2S_TRADE_COMMIT(교환하기) · CANCEL: 몸 없음
+    tradeCommit(){ return hdr(4, MSG.C2S_TRADE_COMMIT).b; },
+    tradeCancel(){ return hdr(4, MSG.C2S_TRADE_CANCEL).b; },
     moveStart(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_START); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     moveStop(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_STOP); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     // C2S_CHAT: header + wchar_t[] UTF-16LE, 널 종단 포함, (len+1)*2 바이트만 전송 (서버가 header.size로 역산)
@@ -369,7 +411,8 @@
   };
 
   const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, EQUIP_SLOT, USE_FAIL, EQUIP_FAIL, SKILL_FAIL, BUFF_KIND, ZONE_FAIL, GROUND_APPEAR, GROUND_GONE, PICKUP_FAIL,
-                PARTY_ASK_KIND, PARTY_NOTICE, PARTY_MAX_MEMBERS, DISPLAY_MONSTER, DISPLAY_NPC, CREATE_ENTRY_BYTES, SHOP_FAIL, decodePacket, Reassembler, enc };
+                PARTY_ASK_KIND, PARTY_NOTICE, PARTY_MAX_MEMBERS, DISPLAY_MONSTER, DISPLAY_NPC, CREATE_ENTRY_BYTES, SHOP_FAIL,
+                TRADE_FAIL, TRADE_END, TRADE_MAX_ITEMS, decodePacket, Reassembler, enc };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else global.Proto = API;
 })(typeof window !== 'undefined' ? window : globalThis);

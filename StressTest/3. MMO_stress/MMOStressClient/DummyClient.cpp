@@ -283,6 +283,13 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     case MsgType::S2C_MONEY:              return sizeof(MSG_S2C_MONEY);
     // USE_SHOP: 사고팔기 거절 — 더미는 상점에 요청을 안 보내 올 일이 없지만 전례대로 크기만 등록한다.
     case MsgType::S2C_SHOP_FAIL:          return sizeof(MSG_S2C_SHOP_FAIL);
+    // USE_TRADE: 거래 — 더미는 거래를 하지 않지만(신청에 답을 안 한다) 사람이 화면에서 더미를 눌러 신청하면 S2C_TRADE_ASK 가 오고,
+    //   시간이 지나면 S2C_TRADE_ASK_END 가 온다. ★ 빠뜨리면 그 더미가 떨어진다(파티와 같은 함정). 나머지 셋은 올 일이 없지만 전례대로 크기만 등록한다.
+    case MsgType::S2C_TRADE_ASK:          return sizeof(MSG_S2C_TRADE_ASK);
+    case MsgType::S2C_TRADE_ASK_END:      return sizeof(MSG_S2C_TRADE_ASK_END);
+    case MsgType::S2C_TRADE_STATE:        return sizeof(MSG_S2C_TRADE_STATE);
+    case MsgType::S2C_TRADE_END:          return sizeof(MSG_S2C_TRADE_END);
+    case MsgType::S2C_TRADE_FAIL:         return sizeof(MSG_S2C_TRADE_FAIL);
     default: return 0;
     }
 }

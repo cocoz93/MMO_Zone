@@ -434,6 +434,15 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
     case MsgType::S2C_SHOP_FAIL:
         break;
 
+    // 거래(서버 USE_TRADE) — 콘솔 클라는 캐릭터를 눌러 고를 화면이 없어 거래를 하지 않는다. 다만 웹 사람이 콘솔 캐릭터를 눌러
+    //   신청하면 ASK 가, 시간이 지나면 ASK_END 가 온다 — 모르는 타입 로그만 막는다(파티와 같은 처리). 나머지 셋은 올 일이 없지만 전례대로 알고 넘긴다.
+    case MsgType::S2C_TRADE_ASK:
+    case MsgType::S2C_TRADE_ASK_END:
+    case MsgType::S2C_TRADE_STATE:
+    case MsgType::S2C_TRADE_END:
+    case MsgType::S2C_TRADE_FAIL:
+        break;
+
     default:
         LOG_ERROR_STREAM("Unknown message type: " << static_cast<int>(header->type));
         break;

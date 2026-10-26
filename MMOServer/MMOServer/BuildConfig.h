@@ -216,6 +216,19 @@
 	#error "USE_EQUIP requires USE_INVENTORY=1 (끼울 장비가 가방에서 온다)"
 #endif
 
+// 거래 — 가까이 선 두 사람이 가방 칸·돈을 맞바꾼다(trade-plan.md). 규칙은 CTradeSystem, 와이어는 Protocol.h 거래 절.
+//   두 사람 저장은 「짝 묶음」 하나 = 트랜잭션 하나(CCharacterStore::SaveTrade) — 따로 저장하다 죽으면 복사·증발이라서.
+//   1: 거래 활성 — 거래 요청을 받는다 [기본 = 가방을 따름]
+//   0: 거래 경로가 컴파일에서 빠짐 — 요청은 조용히 버려진다(크기 등록이 빠짐). 와이어 정의(Protocol.h)는 그대로 남는다.
+//      가방의 칸 잠금 코드는 남지만 잠그는 쪽이 없어 늘 풀려 있다
+#ifndef USE_TRADE
+#define USE_TRADE USE_INVENTORY
+#endif
+
+#if USE_TRADE && !USE_INVENTORY
+	#error "USE_TRADE requires USE_INVENTORY=1 (맞바꾸는 것이 가방 칸·돈이다)"
+#endif
+
 // 스킬 — 스킬 표(Run/bin/SkillTable.csv) 한 줄이 스킬 하나. 지금은 백호참(앞의 한 명 · 피해)·어검술(칸 목록 · 피해)·이중공격(자신 · 공격력 2배 30초) 셋.
 //   ★ 비용(체력·마력·쿨타임)은 대상 확인까지 모든 검사를 지난 뒤에만 뗀다 — 거절이면 아무것도 안 바뀐다(SkillSystem.h).
 //   지속 효과의 칸·규칙(Buff.h · CBuffSystem)은 이 토글이 아니라 USE_COMBAT 소유다 — 거는 쪽이 스킬만이 아니라서(아이템도 걸 수 있는 틀).
