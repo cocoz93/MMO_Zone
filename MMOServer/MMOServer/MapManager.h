@@ -90,8 +90,8 @@ public:
     // 특정 채널 조회 (없으면 nullptr)
     CZone* FindChannel(int32_t channelIndex);
 
-    // 정원 규칙 — 운영자거나 인원 < 정원이면 자리가 있다. 자동 배정과 지정 채널 이동이 이것 하나로 본다
-    bool HasRoom(const CZone* zone, bool isAdmin) const;
+    // 정원 규칙 — 운영자가 아니고 인원 >= 정원이면 가득 찬 것이다(운영자는 항상 false). 자동 배정과 지정 채널 이동이 이것 하나로 본다
+    bool IsChannelFull(const CZone* zone, bool isAdmin) const;
 
     // 빈 동적 채널 정리 (channelIndex > 0이고 플레이어 0명)
     //   onBeforeErase: 존을 실제로 지우기 직전에 부른다(비어 있으면 안 부른다). 받는 쪽은 CGameServer::OnErasingZone 하나다.

@@ -31,7 +31,7 @@ CZone* CMapInstance::FindOrCreateChannel(bool isAdmin)
     auto baseIt = _channels.find(0);
     if (baseIt != _channels.end())
     {
-        if (HasRoom(baseIt->second.get(), isAdmin))
+        if (!IsChannelFull(baseIt->second.get(), isAdmin))
             return baseIt->second.get();
     }
 
@@ -40,7 +40,7 @@ CZone* CMapInstance::FindOrCreateChannel(bool isAdmin)
     {
         if (channelIndex == 0)
             continue;
-        if (HasRoom(zone.get(), isAdmin))
+        if (!IsChannelFull(zone.get(), isAdmin))
             return zone.get();
     }
 
@@ -72,9 +72,9 @@ CZone* CMapInstance::FindChannel(int32_t channelIndex)
     return it->second.get();
 }
 
-bool CMapInstance::HasRoom(const CZone* zone, bool isAdmin) const
+bool CMapInstance::IsChannelFull(const CZone* zone, bool isAdmin) const
 {
-    return isAdmin || zone->GetPlayerCount() < _config.maxPlayersPerChannel;
+    return !isAdmin && zone->GetPlayerCount() >= _config.maxPlayersPerChannel;
 }
 
 void CMapInstance::CleanupEmptyChannels(const std::function<void(CZone*)>& onBeforeErase)
@@ -260,8 +260,8 @@ ZoneChangeTarget CMapManager::PickZoneChangeTarget(int32_t currentZoneId, int32_
     if (zone->GetZoneId() == currentZoneId)
         return { nullptr, ZoneChangeReject::SAME_ZONE };
 
-    // 인원 제한 체크 (admin은 스킵) — 자동 배정은 FindOrCreateChannel 이 같은 규칙(HasRoom)으로 이미 골랐다
-    if (pickedMap != nullptr && !pickedMap->HasRoom(zone, isAdmin))
+    // 인원 제한 체크 (admin은 스킵) — 자동 배정은 FindOrCreateChannel 이 같은 규칙(IsChannelFull)으로 이미 골랐다
+    if (pickedMap != nullptr && pickedMap->IsChannelFull(zone, isAdmin))
         return { nullptr, ZoneChangeReject::FULL };
 
     return { zone, ZoneChangeReject::NONE };
