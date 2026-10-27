@@ -66,7 +66,7 @@ void CMonsterManager::Tick(const MonsterContext& ctx, uint64_t frame)
 
     RegenDue(ctx, frame);
 
-    // 쉬는 존(사람 0 — CZone::IsIdle)은 판단을 건너뛴다. 존 틱(걷기)도 같은 판정으로 쉰다(CMapInstance::TickAll).
+    // 쉬는 존(사람 0 — CZone::IsIdle)은 판단을 건너뛴다. 존 틱(걷기)도 같은 판정으로 쉰다(CChannelTable::TickAll).
     //   리젠은 위에서 돈다 — 다음 리젠이 틱 번호라 쉬는 동안에도 제 시각에 깔리고, 기동 때 처음 깔기(로그 한 줄)도 그대로다.
     //   깨어나면 판단 시각(nextThinkFrame)이 지난 몬스터가 첫 틱에 같이 판단한다 — 대상이 없으니 대개 졸기(무작위 간격)로 다시 흩어진다.
     if (_zone.IsIdle())

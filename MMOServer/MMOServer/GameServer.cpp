@@ -278,7 +278,7 @@ void CGameServer::GameLoopThread()
         // [계측 오버헤드 절감] handle-latency 지역 누적분 → 전역 1회 반영
         _monitor._gameLoop.FlushHandleLatency();
 
-        // 5) 빈 동적 채널 정리
+        // 5) 빈 방 정리 — 일반 맵 채널은 비어도 안 지운다(쉬기만 — CZone::IsIdle · 10-27 전엔 빈 동적 채널도 여기서 지웠다)
         ++_cleanupFrameCount;
         if (_cleanupFrameCount >= CLEANUP_INTERVAL_FRAMES)
         {
@@ -289,7 +289,7 @@ void CGameServer::GameLoopThread()
             //   존과 같이 사라진다. 누가 정리를 틱 앞쪽으로 옮기면 여기서 걸린다.
             assert(!_sightBroadcaster.HasDirtyMovers());
             // 지우기 직전 알림 — 존 밖에서 이 존의 것을 든 곳을 정리하는 마지막 기회다. 받는 쪽은 아래 OnErasingZone 한 곳(조각마다 한 줄)
-            _mapManager.CleanupEmptyChannels([this](CZone* zone) { OnErasingZone(zone); });
+            _mapManager.CloseEmptyRooms([this](CZone* zone) { OnErasingZone(zone); });
         }
 
 #if USE_DB_WORKER
@@ -411,7 +411,8 @@ void CGameServer::OnLeavingGame(CPlayer* player)
     (void)player;   // 전투·파티를 다 끈 빌드엔 할 일이 없다
 }
 
-// ── 「존 지우기 직전」 알림 ── 빈 채널 정리(게임 루프 5 — CMapManager::CleanupEmptyChannels)가 지울 존마다 부른다. 계약은 MapManager.h 의 그 함수 주석.
+// ── 「존 지우기 직전」 알림 ── 빈 방 정리(게임 루프 5 — CMapManager::CloseEmptyRooms)가 지울 존마다 부른다. 계약은 MapManager.h 의 CRoomMap::CloseEmptyRooms 주석.
+//   지워지는 존은 이제 늘 방이다(일반 맵 채널은 안 지운다 — 10-27). 받는 쪽 셋은 방에도 다 걸린다(방 땅 아이템 · 뱀왕 격노 · 열린 방 수).
 //   받는 쪽을 게임 서버로 두는 까닭은 위 「떠남」과 같다 — 정리할 것이 가방·땅 조각 · 지속 효과 규칙 · 파티·방 조각에 흩어져 있다. 차례(땅 → 효과 → 방)는 여기 한 곳.
 //   이 함수는 토글 없이 늘 있다 — 전에 땅 아이템 정리만 USE_DROP 안에 묶어 두었더니 USE_DROP 0 이면 콜백이 아예 없어 버프 목록 정리도 같이 빠질 뻔했다.
 //   이때 그 존은 이미 조회표에서 빠졌다(GetZone 이 nullptr) — 받는 쪽은 zone 포인터와 그 번호로만 한다.

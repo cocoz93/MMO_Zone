@@ -118,7 +118,7 @@ void CChatHandler::RecvChat(CPlayer* player, CSerialBuffer* pMsg)
 // ── 운영자 인증 ──
 
 // 부하 테스트 도구용 고정 키 — 실서비스 인증 아님.
-// 와이어에 평문으로 흐르고 해시·시도 제한도 없다. admin 권한 효과는 채널 인원 제한 우회(CMapInstance::IsChannelFull)와
+// 와이어에 평문으로 흐르고 해시·시도 제한도 없다. admin 권한 효과는 채널 인원 제한 우회(CFieldMap::IsChannelFull)와
 //   다른 맵 지정 이동(CMapManager::PickZoneChangeTarget — 일반은 포털로만) 둘, 그리고 채팅 운영 명령이다.
 // 실계정 연동 단계에서 계정 DB 조회 기반 인증으로 교체한다.
 static constexpr char ADMIN_KEY[] = "admin1234";

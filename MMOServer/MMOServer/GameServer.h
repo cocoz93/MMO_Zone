@@ -138,7 +138,7 @@ private:
     void OnLeavingZone(CCharacter* player) override;   // 부활 대기열에서 빼기 (전투)
     void OnLeavingGame(CPlayer* player) override;      // 부활 대기열 · 지속 효과 목록 · 파티원·요청 표에서 빼기 (전투 · 파티)
 
-    // 「존 지우기 직전」 알림 — 빈 채널 정리(CMapManager::CleanupEmptyChannels)가 지울 존마다 부른다. 계약은 MapManager.h.
+    // 「존 지우기 직전」 알림 — 빈 방 정리(CMapManager::CloseEmptyRooms)가 지울 존마다 부른다. 계약은 MapManager.h.
     void OnErasingZone(CZone* zone);                   // 땅 아이템 세기 · 지속 효과 목록에서 빼기 · 방 닫힘 세기 (땅 · 전투 · 파티)
 
     // 받은 패킷의 분기 표를 채운다 — 패킷 번호마다 최소 크기와 처리기 한 줄(전에는 크기 표 GetExpectedSize 와 분기 switch 가 따로였다).

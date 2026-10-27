@@ -97,7 +97,7 @@ public:
     CMonsterManager& operator=(const CMonsterManager&) = delete;
 
     // 존 초기화 때 한 번(CZone::Init) — 구역마다 「점 전부 빔 · 다음 리젠 = 첫 틱」으로 세운다. 첫 틱이 다 깐다(처음 깔기).
-    //   생성자에서 안 하는 이유 — 그때는 맵 번호를 아직 모른다(CMapInstance::CreateChannel 이 만든 뒤 Init).
+    //   생성자에서 안 하는 이유 — 그때는 맵 번호를 아직 모른다(CChannelTable::Create 가 만든 뒤 Init).
     void Init();
 
     // 게임 루프 1-1) — 리젠 주기가 된 구역을 채우고, 몬스터마다 판단한다.

@@ -60,7 +60,7 @@ public:
     void EnterRoom(CPlayer* leader, CZone* oldZone, const PortalDef& portal);
 
     // 존 지우기 직전(빈 채널 정리 — CGameServer::OnErasingZone 이 부른다) — 방 맵의 존이면 열린 방 −1 · 닫힘 +1.
-    //   등식: 들어감(_entries[NONE]) = 닫힘 + 열림(GameMonitor.h _room). 방 번호는 이 뒤 다시 쓸 수 있다(CMapInstance::CreateRoom).
+    //   등식: 들어감(_entries[NONE]) = 닫힘 + 열림(GameMonitor.h _room). 방 번호는 이 뒤 다시 쓸 수 있다(CRoomMap::CreateRoom).
     void OnErasingZone(CZone* zone);
 
     // 방 다시 들어가기 잠금 넣기 — 방 보상이 사람마다 부른다(계정 · 방 맵 → 풀리는 틱). 같은 계정·맵이 있으면 덮는다(CRoomLocks::Lock).

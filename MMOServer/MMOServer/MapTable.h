@@ -31,7 +31,7 @@ enum class MapKind : uint8_t
 {
     TOWN,      // "town"    — 몬스터 구역 0 · 시작 구역 필수
     DUNGEON,   // "dungeon" — 몬스터 구역 ≥1 · 시작 구역은 있어도 되고 없어도 된다
-    INSTANCE,  // "instance" — 파티 전용 방. 채널 하나가 방 하나(채널 0 없음 · 자동 배정 안 됨 — CMapInstance) · 구역 ≥1 이고 regenSec 0(한 번만) · lockoutSec 필수
+    INSTANCE,  // "instance" — 파티 전용 방. 채널 하나가 방 하나(채널 0 없음 · 자동 배정 안 됨 · 비면 지움 — CRoomMap) · 구역 ≥1 이고 regenSec 0(한 번만) · lockoutSec 필수
     COUNT
 };
 

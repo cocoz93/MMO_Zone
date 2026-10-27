@@ -128,7 +128,7 @@ void CPartyHandler::EnterRoom(CPlayer* leader, CZone* oldZone, const PortalDef& 
     {
         room = _mapManager.CreateRoom(portal.targetMapId);
         if (room == nullptr)
-            result.reject = RoomEntryReject::FULL;   // 번호가 다 찼다(CMapInstance::CreateRoom)
+            result.reject = RoomEntryReject::FULL;   // 번호가 다 찼다(CRoomMap::CreateRoom)
     }
 
     rc._entries[static_cast<int>(result.reject)].Inc();
@@ -201,12 +201,12 @@ void CPartyHandler::TickRoomLocks()
 // 게임 루프 5(빈 채널 정리)의 콜백에 있던 몸 그대로(게임 서버 나누기 14 단계)
 void CPartyHandler::OnErasingZone(CZone* zone)
 {
-    // 빈 방 — 열린 방 수를 내린다(등식: 들어감 = 닫힘 + 열림 — GameMonitor.h _room). 방 번호는 이 뒤 다시 쓸 수 있다(CMapInstance::CreateRoom)
-    if (_mapManager.IsRoomMap(zone->GetMapId()))
-    {
-        _gameMonitor._room._active.Add(-1);
-        _gameMonitor._room._closed.Inc();
-    }
+    // 빈 방 — 열린 방 수를 내린다(등식: 들어감 = 닫힘 + 열림 — GameMonitor.h _room). 방 번호는 이 뒤 다시 쓸 수 있다(CRoomMap::CreateRoom)
+    //   지워지는 존은 늘 방이다(빈 방 정리 CRoomMap::CloseEmptyRooms — 일반 맵 채널은 안 지운다). 10-27 전엔 빈 동적 채널도 와서 방 맵인지 갈랐다
+    assert(_mapManager.IsRoomMap(zone->GetMapId()) && "지우는 존은 방뿐이다 — CMapManager::CloseEmptyRooms");
+    (void)zone;   // 릴리즈(NDEBUG)에선 위 단언이 사라진다
+    _gameMonitor._room._active.Add(-1);
+    _gameMonitor._room._closed.Inc();
 }
 
 // ==========================================================================
