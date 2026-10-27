@@ -173,6 +173,11 @@ public:
     int32_t GetPlayerCount() const { return _playerCount; }
     const std::vector<CCharacter*>& GetCharacters() const { return _characterList; }
 
+    // 쉬는 존인가 — 사람이 없으면 아무도 안 보므로 걷기(존 틱)와 몬스터 판단을 건너뛴다. 묻는 곳은 그 둘과 존 수 게이지뿐.
+    //   리젠·시야 대기열 비우기·땅 아이템 수명·NPC 는 쉬어도 돈다 — 리젠·수명은 틱 번호 비교라 실제 시간대로 가야 하고,
+    //   대기열은 비우는 자리라 건너뛰면 남은 항목이 깨어날 때 옛 좌표로 나간다(channel-split-plan.md 「1단계」).
+    bool IsIdle() const { return _playerCount == 0; }
+
     // 섹터매니저 접근 (이동 처리 등 외부에서 필요)
     CSectorManager& GetSectorManager() { return _sectorManager; }
     const CSectorManager& GetSectorManager() const { return _sectorManager; }

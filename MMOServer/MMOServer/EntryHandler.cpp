@@ -88,8 +88,17 @@ void CEntryHandler::TickInGameGauge()
     {
         _inGameGaugeFrameCount = 0;
         int64_t inGame = 0;   // 게임 중인 플레이어 수 — 존마다 덧셈 한 번
-        _mapManager.ForEachZone([&](CZone* zone) { inGame += zone->GetPlayerCount(); });
+        int64_t zones = 0, idle = 0;   // 존 수 · 그중 쉬는 존(사람 0 — 걷기·몬스터 판단을 건너뜀)
+        _mapManager.ForEachZone([&](CZone* zone)
+        {
+            inGame += zone->GetPlayerCount();
+            ++zones;
+            if (zone->IsIdle())
+                ++idle;
+        });
         _gameMonitor._enter._inGame.Store(inGame);   // 게이지 — 동접 = 게임 중 + 불러오는 중 (GameMonitor.h)
+        _gameMonitor._enter._zones.Store(zones);
+        _gameMonitor._enter._zonesIdle.Store(idle);
     }
 }
 

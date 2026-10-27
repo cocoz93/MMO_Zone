@@ -936,6 +936,14 @@ private:
         ss << "# TYPE mmo_players_ingame gauge\n";
         ss << "mmo_players_ingame " << e._inGame << "\n\n";
 
+        // 게이지 — 존 수와 그중 쉬는 존(사람 0 — 걷기·몬스터 판단을 건너뜀). 같은 순회라 같은 주기다
+        ss << "# HELP mmo_zones Zones (channels and rooms) that exist right now (refreshed with mmo_players_ingame)\n";
+        ss << "# TYPE mmo_zones gauge\n";
+        ss << "mmo_zones " << e._zones << "\n\n";
+        ss << "# HELP mmo_zones_idle Zones with no player right now - their movement and monster thinking are skipped\n";
+        ss << "# TYPE mmo_zones_idle gauge\n";
+        ss << "mmo_zones_idle " << e._zonesIdle << "\n\n";
+
         // 비누적 버킷 스냅샷 → 누적 변환 (mmo_tick_duration_seconds 와 같은 방식)
         int64_t cum[EC::LATENCY_BUCKET_COUNT];
         int64_t running = 0;

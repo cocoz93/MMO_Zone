@@ -5,7 +5,7 @@
 //  - 받은 패킷 셋의 처리기와 그 등록(RegisterRoutes — 존 이동 · 포털 · 입장 요청(USE_LOGIN — 끄면 크기만)) — 컨텐츠 조각이 자기 줄을 등록한다
 //  - 접속 이벤트(OnConnected) → 대기표에 자리 잡기 · 불러오기 요청(USE_DB_WORKER) 또는 곧바로 스폰
 //  - 입장 대기표(_pendingEnter — 입장 대기 · 불러오는 중)와 그 게이지 둘 · 끊긴 세션의 자리 비우기(DropPendingEnter) ·
-//    동접 게이지(_enter._inGame — 존 정원 카운터의 합, 약 0.5초마다 · TickInGameGauge)
+//    동접 게이지(_enter._inGame — 존 정원 카운터의 합, 약 0.5초마다 · TickInGameGauge) · 같은 순회의 존 수 게이지 둘(_enter._zones · _zonesIdle)
 //  - 불러오기 결과 알림(ICharacterLoadEvents — 찾음 · 없음 · 실패 판정 → 자리·레벨·가방·쿨타임) → 스폰(SpawnPlayer — 표시 속성 · 스탯 세우기 · 도착 차례)
 //  - 같은 계정 걷어내기(USE_LOGIN) · 존 이동 요청(맵 관리자의 목적지 고르기 → 배치) · 포털 요청(판정 넷 → 방 맵이면 파티·방 조각)
 //
@@ -99,6 +99,7 @@ public:
     //   대기표 게이지 둘과 한 묶음이라 여기 둔다 — 조용해지면 동접 = 게임 중 + 불러오는 중 + 입장 대기(GameMonitor.h).
     //   들고 날 때 ±1 하지 않고 존에서 다시 더하는 까닭: 존 정원 카운터가 정본이다 — 자리마다 ±1 하면 한 자리만 빠져도 영영 어긋나고,
     //   그러면 이 게이지를 쓰는 탐지(세션 없이 남은 플레이어 — GameMonitor.h 의 등식)가 제 숫자를 못 믿게 된다.
+    //   같은 순회에서 존 수 · 쉬는 존 수(CZone::IsIdle)도 센다 — 존을 따로 한 번 더 훑지 않으려고. 쉬기가 실제로 도는지 보는 값이다.
     void TickInGameGauge();
 
     // 동접 게이지 주기 — 13 × 40ms ≈ 0.5초. 옮기기 전 시야 조각의 주기 동기화(SYNC_INTERVAL_FRAMES)에 얹혀 돌던 주기 그대로다

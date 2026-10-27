@@ -789,6 +789,8 @@ public:
         Counter _inGame;         // [게이지] 지금 게임 중인 플레이어 수 (존 정원 카운터의 합, 약 0.5초마다 갱신)
                                  //   조용해지면 동접(mmo_session_count) = _inGame + _pending + _waiting 이어야 한다.
                                  //   세션은 없는데 플레이어만 남은 것(나간 세션의 결과로 스폰된 유령)은 이 등식으로만 보인다.
+        Counter _zones;          // [게이지] 지금 있는 존(채널·방) 수 — 위 _inGame 과 같은 순회·같은 주기
+        Counter _zonesIdle;      // [게이지] 그중 쉬는 존(사람 0 — CZone::IsIdle · 걷기·몬스터 판단 건너뜀). 사람이 다 나가면 _zones 와 같아야 한다
 
         // [쿨타임·버프 되살리기] 칸 단위 — 위 등식과 무관하다(행 하나에 칸이 여럿). 세는 곳은 CCharacterStore::RestoreCooldownsAndBuffs 한 곳.
         //   버프를 되살린 수는 여기가 아니라 _buff._restored 다 — 버프 등식(켜짐 = 끝남 + 지금)의 한 항이라 거기서 센다.

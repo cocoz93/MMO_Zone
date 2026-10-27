@@ -100,6 +100,9 @@ void CMapInstance::TickAll(float deltaTime, IZoneEvents& events)
 {
     for (auto& [channelIndex, zone] : _channels)
     {
+        // 쉬는 존(사람 0)은 안 걷는다 — 몬스터 판단도 같은 판정으로 쉰다(CMonsterManager::Tick). 하나만 쉬면 판단 없이 걷기만 이어진다
+        if (zone->IsIdle())
+            continue;
         zone->Tick(deltaTime, events);
     }
 }
