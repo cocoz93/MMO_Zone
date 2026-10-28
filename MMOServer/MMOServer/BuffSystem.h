@@ -89,7 +89,7 @@ private:
     IBuffEvents&  _events;
 
     // 살아 있는 칸이 하나라도 있는 캐릭터 — 틱이 이것만 훑는다(전원을 매 틱 돌면 동접만큼 게임 루프에 얹힌다).
-    //   켜는 곳 = Apply · Restore(첫 칸이 켜질 때) · 끄는 곳 = Tick(마지막 칸이 꺼질 때) · ClearAll · Forget
+    //   넣는 곳 = Apply · Restore(첫 칸이 켜질 때) · 빼는 곳 = Tick(마지막 칸이 꺼질 때) · ClearAll · Forget
     std::vector<CCharacter*> _buffed;
 };
 
