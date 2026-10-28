@@ -463,7 +463,7 @@ void DummyClient::HandleSectorUpdates(const char* packet)
         const SectorUpdateEntry& e = msg->entries[i];
         if (e.playerId == _playerId)
         {
-            _x      = DequantizePos(e.qx);   // 눈금 → 좌표 (엔트리는 좌표를 uint16 눈금으로 싣는다)
+            _x      = DequantizePos(e.qx);   // 양자화 값 → 좌표 (엔트리는 좌표를 uint16 양자화 값으로 싣는다)
             _y      = DequantizePos(e.qy);
             _moving = (UnpackState(e.dirState) != 0);
         }

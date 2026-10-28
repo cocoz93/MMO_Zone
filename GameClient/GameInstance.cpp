@@ -684,7 +684,7 @@ void CGameInstance::OnSectorUpdates(const MSG_S2C_SECTOR_UPDATES* msg)
         const SectorUpdateEntry& e = msg->entries[i];
 
         // moveState: 0=IDLE → MOVE_STOP, 그 외=MOVING → MOVE_START (두 이벤트 모두 x/y/direction 사용)
-        // 좌표·방향·이동상태는 엔트리에 눈금과 니블로 담겨 오므로 여기서 원래 값으로 되돌린다.
+        // 좌표·방향·이동상태는 엔트리에 양자화 값과 니블로 담겨 오므로 여기서 원래 값으로 되돌린다.
         ClientNetworkEvent event{};
         event.type      = (UnpackState(e.dirState) != 0)
             ? ClientNetworkEvent::Type::MOVE_START

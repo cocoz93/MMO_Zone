@@ -71,7 +71,7 @@ void CZone::EnterZoneAt(CCharacter* player, float x, float y)
     player->_direction = Direction::DOWN;
     player->_moveState = MoveState::IDLE;
 
-    // 스폰 좌표 설정 (맵의 들어오는 자리든 DB 에서 불러온 자리든 포털 도착 자리든 호출부가 정해서 준다)
+    // 스폰 좌표 설정 (맵의 시작 위치든 DB 에서 불러온 자리든 포털 도착 자리든 호출부가 정해서 준다)
     player->_x = x;
     player->_y = y;
 

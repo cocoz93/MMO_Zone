@@ -25,7 +25,7 @@ class CSpawnRegionTable;
 //
 // [자리 대조] 막힌 칸이 사람·몬스터가 「놓이는」 자리를 덮으면 안 된다 — 놓이는 순간 벽 안이라 못 움직인다.
 //        시작 구역 · 포털(선 자리와 도착 자리) · NPC 자리 · 몬스터 스폰 구역을 본다(CheckPlaces · CheckSpawnRegions).
-//        ★ 막힌 줄이 있는 맵은 시작 구역이 있어야 한다 — 없으면 들어오는 자리가 맵 전체 무작위(CZone::CalcSpawnPos)라
+//        ★ 막힌 줄이 있는 맵은 시작 구역이 있어야 한다 — 없으면 시작 위치가 맵 전체 무작위(CZone::CalcSpawnPos)라
 //          막힌 칸에 떨어질 수 있다. 이 대조가 있어 무작위 뽑기를 다시 뽑기 고리 없이 그대로 둔다.
 //
 // [마을 줄은 손으로 안 쓴다] 맵 0 줄은 WebClient/tools/town/blocks.js 가 집 배치(town0.js)에서 뽑아 쓴다.

@@ -12,7 +12,7 @@ bool CGameDataFiles::LoadAll(const std::string& dir)
     // 포털 표도 토글이 없다 — 맵 표만 대조한다(PortalTable.h [맵 대조])
     if (!_portal.Load(dir + "PortalTable.csv", _map))
         return false;
-    // 막힌 칸 표도 토글이 없다 — 맵 표만 대조한다. 놓이는 자리 대조는 뒤에서 표가 다 선 다음(BlockTable.h [자리 대조])
+    // 막힌 칸 표도 토글이 없다 — 맵 표만 대조한다. 배치 위치 대조는 뒤에서 표가 다 선 다음(BlockTable.h [자리 대조])
     if (!_block.Load(dir + "BlockTable.csv", _map))
         return false;
 #if USE_COMBAT   // 레벨 표는 전투를 따른다(바탕 스탯) — 경험치만 끈 빌드도 읽는다

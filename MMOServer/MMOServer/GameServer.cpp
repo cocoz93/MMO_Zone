@@ -50,7 +50,7 @@ bool CGameServer::Init(ServerMode mode, int port, int maxClients,
 
         for (int32_t i = 0; i < mapCount; ++i)
         {
-            // 섹터 묶음이 좌표를 눈금(uint16)으로 실어 나른다 — 맵이 상한(POS_QUANT_MAX_MAP_SIZE)을 넘으면 좌표가
+            // 섹터 묶음이 좌표를 양자화 값(uint16)으로 실어 나른다 — 맵이 상한(POS_QUANT_MAX_MAP_SIZE)을 넘으면 좌표가
             //   조용히 깨지므로 등록 전에 막는다. 와이어 사정이라 패킷을 모르는 맵 관리자가 아니라 여기서 본다(10-06).
             if (maps[i].mapWidth > POS_QUANT_MAX_MAP_SIZE || maps[i].mapHeight > POS_QUANT_MAX_MAP_SIZE)
             {

@@ -206,7 +206,7 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
     //   존 조회(FindOrCreateChannel)는 찾음·없음 분기에서만 한다 — 채널을 만들 수도 있는 함수라
     //   들여보내지 않을 분기(주인 없음·실패)에서는 부르면 안 된다.
     CZone* zone = nullptr;
-    EnterPlacement place;   // 기본값 = 그 맵의 들어오는 자리(시작 구역 · 없으면 무작위) · 다음 주기에 저장
+    EnterPlacement place;   // 기본값 = 그 맵의 시작 위치(시작 구역 · 없으면 무작위) · 다음 주기에 저장
     bool toTown = false;    // 찾음 분기 — 마을 밖에서 죽은 채 저장된 행이라 저장된 맵·자리를 버린다(부활 규칙, 아래 USE_COMBAT)
 
     static_assert(static_cast<int>(DBResultCode::COUNT) == 3, "DBResultCode 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
@@ -249,7 +249,7 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
         if (toTown)
         {
             // 마을 밖에서 죽은 채 저장됨 → 저장된 맵·자리를 버린다. zone 이 nullptr 로 남아 아래에서 기본 맵(마을)의
-            //   들어오는 자리(시작 구역)로 간다 — 접속 중에 죽어 3초 뒤 부활로 옮겨지는 자리와 같다. 자리가 DB 와 다르므로 dbDirty 는 기본값(true) 그대로.
+            //   시작 위치(시작 구역)로 간다 — 접속 중에 죽어 3초 뒤 부활로 옮겨지는 자리와 같다. 자리가 DB 와 다르므로 dbDirty 는 기본값(true) 그대로.
             SLOG_INFO("[DB] saved dead -> town start area (account={}, map={}, x={}, y={})",
                       result.accountId, result.mapId, result.x, result.y);
         }
@@ -262,7 +262,7 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
         }
         else
         {
-            // 맵이 없어졌거나 좌표가 맵 밖·숫자 아님·막힌 칸(저장 뒤에 그 자리에 집이 생김) → 그 맵의 들어오는 자리(시작 구역 · 없으면 무작위 — CZone::CalcSpawnPos). 그 자리는 DB 와 다르므로 dbDirty 는 기본값(true) 그대로.
+            // 맵이 없어졌거나 좌표가 맵 밖·숫자 아님·막힌 칸(저장 뒤에 그 자리에 집이 생김) → 그 맵의 시작 위치(시작 구역 · 없으면 무작위 — CZone::CalcSpawnPos). 그 자리는 DB 와 다르므로 dbDirty 는 기본값(true) 그대로.
             enter._fallback.Inc();
             SLOG_WARN("[DB] saved position unusable -> map entry spot, start area or random (account={}, map={}, x={}, y={})",
                       result.accountId, result.mapId, result.x, result.y);
@@ -320,7 +320,7 @@ CPlayer* CEntryHandler::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t 
     if (_playerSpeed > 0)
         player->_speed = _playerSpeed;   // 게임용 속도 — 0 이면 생성자의 25~50 무작위(부하 시험 기준) 그대로
 
-    // 저장된 자리가 있으면 그 자리에, 없으면 그 맵의 들어오는 자리에(시작 구역 · 없으면 무작위) (입장은 실패가 없다 — CZone::EnterZone 주석)
+    // 저장된 자리가 있으면 그 자리에, 없으면 그 맵의 시작 위치에(시작 구역 · 없으면 무작위) (입장은 실패가 없다 — CZone::EnterZone 주석)
     if (place.hasPos)
         zone->EnterZoneAt(player, place.x, place.y);
     else
@@ -341,7 +341,7 @@ CPlayer* CEntryHandler::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t 
 #if USE_DB_WORKER
     // 1단계 임시: playerId를 계정 식별자로 사용 (2단계는 접속 핸드셰이크로 수신)
     player->_accountId = accountId;
-    // 새 캐릭터·들어오는 자리면 true(첫 주기에 저장 → 신규 행 INSERT 유도), DB 에서 불러온 자리 그대로면 false
+    // 새 캐릭터·시작 위치면 true(첫 주기에 저장 → 신규 행 INSERT 유도), DB 에서 불러온 자리 그대로면 false
     player->_dbDirty   = place.dbDirty;
     // DB 가 들고 있는 값 — 아래 레벨 정산·체력 깎기가 바꾼 몫은 다음 주기 판정(ShouldSave)이 이 값과 견주어 싣는다.
     player->_dbSaved.level = place.level;

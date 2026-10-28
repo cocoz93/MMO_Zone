@@ -116,7 +116,7 @@ private:
     //     스폰 뒤에 바깥에서 넣으면 그 패킷이 기본값을 싣고 나간다.
     struct EnterPlacement
     {
-        bool    hasPos  = false;   // false = 그 맵의 들어오는 자리(CZone::CalcSpawnPos — 시작 구역 · 없으면 무작위)
+        bool    hasPos  = false;   // false = 그 맵의 시작 위치(CZone::CalcSpawnPos — 시작 구역 · 없으면 무작위)
         float   x       = 0.0f;
         float   y       = 0.0f;
         bool    dbDirty = true;    // 스폰 자리를 다음 주기에 저장할까 (DB 와 같은 값으로 들어왔으면 false)

@@ -93,7 +93,7 @@ private:
     CShopTable _shop;   // 아이템 표를 먼저 읽고 번호·담는 자리·값을 대조한다(LoadAll 순서)
 #endif
     CNpcTable _npc;     // 맵 표 · (상점을 켠 빌드면) 상점 표를 먼저 읽고 대조한다(LoadAll 순서). 토글 없음
-    CBlockTable _block; // 맵 표 바로 뒤에 읽고, 포털·NPC·스폰 표를 다 읽은 뒤 「놓이는 자리가 막힌 칸이 아닌가」를 본다(LoadAll 순서). 토글 없음
+    CBlockTable _block; // 맵 표 바로 뒤에 읽고, 포털·NPC·스폰 표를 다 읽은 뒤 「배치 위치가 막힌 칸이 아닌가」를 본다(LoadAll 순서). 토글 없음
 #if USE_MONSTER
     CMonsterTable _monster;
     CSpawnRegionTable _spawnRegion;   // 맵 표·몬스터 표를 먼저 읽고 그 결과로 대조한다(LoadAll 순서)

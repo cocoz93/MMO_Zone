@@ -125,7 +125,7 @@ bool CMapManager::RegisterMap(const MapConfig& config)
     if (config.maxPlayersPerChannel <= 0)
         return false;
 
-    // ※ 「맵이 패킷 좌표 눈금(uint16)에 담기는 크기인가」는 여기서 안 본다 — 와이어 사정이라 패킷을 아는
+    // ※ 「맵이 패킷 좌표 양자화 값(uint16)에 담기는 크기인가」는 여기서 안 본다 — 와이어 사정이라 패킷을 아는
     //   게임 서버가 RegisterMap 을 부르기 전에 본다(CGameServer::Init). 맵 관리자는 그 상한을 모른다.
 
     // 중복 맵 등록 방지 — 두 표를 다 본다(한 번호는 한 표에만)

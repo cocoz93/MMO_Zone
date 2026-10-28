@@ -113,7 +113,7 @@ namespace
 #if USE_SECTOR_AGGREGATION
     // 섹터 묶음 — dirty 플레이어 [0,count)의 최종 상태(위치·방향·이동상태)를 직렬화.
     // 스칼라 시퀀스(<<)라 SetData 불필요. count는 선기록(백패치 불필요).
-    // 좌표는 float 그대로가 아니라 눈금(QuantizePos)으로 싣는다 — 필드 순서는 SectorUpdateEntry와 같아야 한다.
+    // 좌표는 float 그대로가 아니라 양자화 값(QuantizePos)으로 싣는다 — 필드 순서는 SectorUpdateEntry와 같아야 한다.
     CSerialBuffer* MakeSectorUpdates(CCharacter** players, int count)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
