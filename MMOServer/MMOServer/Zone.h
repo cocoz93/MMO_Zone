@@ -117,8 +117,6 @@ public:
     bool IsPathBlocked(float x0, float y0, float x1, float y1) const;  // 두 자리 사이 선분이 막힌 칸을 지나나 — 클라가 보낸 좌표를 받을 때(벽 건너편 좌표 거절)
 
     // ── 섹터 이동 ── 좌표를 바꾼 쪽이 부른다. 좌표가 가리키는 섹터로 등록을 옮긴다.
-    //   화면(CREATE/DELETE)을 언제 고치느냐로 둘:
-    bool UpdateSector(CCharacter* character);           // 옮기기만. 옮겼으면 true — 화면은 부른 쪽이 바로 고친다
     void UpdateSectorAndQueue(CCharacter* character);   // 옮기고 섹터 이동 대기열에 — 화면은 틱 끝(게임 루프 3)에 시야 조각(CSightBroadcaster)이 고친다
 
     // 섹터 이동 대기열 — 이번 틱에 섹터를 넘은 캐릭터와 첫 출발 섹터. 게임 루프 3)에 TakeSightChanges 가 읽고 비운다.
@@ -202,6 +200,9 @@ public:
 private:
     // 스폰 좌표 계산 — 시작 구역이 있으면 그 안, 없으면 맵 전체 무작위(맵 표 StartArea)
     void CalcSpawnPos(float& outX, float& outY) const;
+
+    // 바깥에서 직접 부르면 땅 아이템 시야 송신을 빠뜨리기 쉽다 — UpdateSectorAndQueue 를 거칠 것
+    bool UpdateSector(CCharacter* character);
 
     // 섹터 이동 대기열에 추가 (같은 캐릭터는 최초 출발 섹터만 유지)
     void PushSectorChange(CCharacter* character, int32_t oldSectorX, int32_t oldSectorY);
