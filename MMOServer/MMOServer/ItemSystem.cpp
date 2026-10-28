@@ -72,12 +72,12 @@ UseItemReject CItemSystem::UseItem(CPlayer* player, uint16_t slot, uint64_t fram
     //   std::min 은 윈도 헤더의 min 매크로에 먹힌다
     if (def->healHp > 0)
     {
-        player->_health.Heal(def->healHp);   // 최대 넘으면 최대 — 규칙은 체력 부품
+        player->_health.Heal(def->healHp);   // 최대 넘으면 최대 — 규칙은 체력 컴포넌트
     }
 #if USE_SKILL
     if (def->healMp > 0)   // 스킬을 끈 빌드에선 여기 안 온다 — IsUsable 이 NOT_USABLE 로 막는다
     {
-        player->_attack.GainMp(def->healMp);   // 최대 넘으면 최대 — 규칙은 공격 부품
+        player->_attack.GainMp(def->healMp);   // 최대 넘으면 최대 — 규칙은 공격 컴포넌트
     }
 #endif
     player->_inventory.Remove(index, 1);

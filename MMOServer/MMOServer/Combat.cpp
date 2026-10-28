@@ -7,7 +7,7 @@
 namespace Combat
 {
 
-AttackReject CanAttack(const CHealthPart& attackerHealth, const CAttackPart& attackerAttack, uint64_t frame)
+AttackReject CanAttack(const CHealthComponent& attackerHealth, const CAttackComponent& attackerAttack, uint64_t frame)
 {
     if (attackerHealth.IsDead())
         return AttackReject::DEAD_SELF;
@@ -50,7 +50,7 @@ int32_t CalcDamage(int32_t attack, int32_t defense, bool& outFloored)
     return outFloored ? MIN_DAMAGE : raw;
 }
 
-bool IsRespawnDue(const CHealthPart& health, uint64_t frame)
+bool IsRespawnDue(const CHealthComponent& health, uint64_t frame)
 {
     if (!health.IsDead())
         return false;
@@ -60,7 +60,7 @@ bool IsRespawnDue(const CHealthPart& health, uint64_t frame)
 
 void Respawn(CCharacter& actor)
 {
-    assert(actor.Health() != nullptr && "체력 부품 없는 것을 되살림 — 죽을 수 없는 것이다");
+    assert(actor.Health() != nullptr && "체력 컴포넌트 없는 것을 되살림 — 죽을 수 없는 것이다");
     actor.Health()->Revive();
 
     // 죽을 때 IDLE 로 세웠어도 여기서 한 번 더 못 박는다 —

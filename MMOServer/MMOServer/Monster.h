@@ -7,7 +7,7 @@
 #if USE_MONSTER
 
 #include "Character.h"
-#include "CharacterParts.h"   // 부품을 값으로 든다
+#include "CharacterComponents.h"   // 컴포넌트를 값으로 든다
 
 struct MonsterDef;   // MonsterTable.h — 종류별 사양(몬스터 표의 한 행)
 
@@ -44,23 +44,23 @@ enum class AIState : uint8_t
 class CMonster : public CCharacter
 {
 public:
-    // 내 종류의 사양(몬스터 표의 한 행)으로 만든다 — 능력치를 부품(체력·공격)에 넣고 그 행을 가리킨다.
+    // 내 종류의 사양(몬스터 표의 한 행)으로 만든다 — 능력치를 컴포넌트(체력·공격)에 넣고 그 행을 가리킨다.
     explicit CMonster(const MonsterDef& def);
     ~CMonster() override;
 
     // As<CMonster> 판정 — Character.h As
     static bool IsA(const CCharacter& c) { return c._kind == CharacterKind::MONSTER; }
 
-    // ── 부품 — 몬스터도 셋을 다 든다(CharacterParts.h). 생성자 몸에서 CCharacter 부품 자리에 붙인다 ──
-    CHealthPart _health;
-    CAttackPart _attack;
+    // ── 컴포넌트 — 몬스터도 셋을 다 든다(CharacterComponents.h). 생성자 몸에서 CCharacter 컴포넌트 자리에 붙인다 ──
+    CHealthComponent _health;
+    CAttackComponent _attack;
 #if USE_COMBAT
-    CBuffPart   _buffs;
+    CBuffComponent   _buffs;
 #endif
 
     // 무슨 몬스터냐 — 몬스터 표의 한 행 (CCharacter::_kind 는 "몬스터냐"다).
     //   번호(드랍 표 찾기)·경험치(잡은 사람)·겉모습(와이어)은 여기서 읽는다. 표는 기동 뒤 안 바뀌어 가리킨 행이 안 흔들린다.
-    //   체력·공격·방어는 생성자가 부품으로, 속도는 CActor 칸으로 복사한다 — 전투·이동이 플레이어와 같은 부품·칸을 읽는다.
+    //   체력·공격·방어는 생성자가 컴포넌트로, 속도는 CActor 칸으로 복사한다 — 전투·이동이 플레이어와 같은 컴포넌트·칸을 읽는다.
     const MonsterDef& _def;
 
     AIState  _aiState        = AIState::IDLE;

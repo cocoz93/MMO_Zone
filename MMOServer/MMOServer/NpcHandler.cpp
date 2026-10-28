@@ -37,7 +37,7 @@ void CNpcHandler::OnNpcSpawn(CZone* zone, CNpc* npc)
     npc->_displayChar = DISPLAY_NPC;
     npc->_defId       = static_cast<uint16_t>(npc->_def.npcId);
 
-    // 이미 그 자리를 보고 있던 플레이어에게 CREATE(SPAWN) — 체력 부품이 없어 체력 0/0 이 실린다(클라는 막대를 안 그린다).
+    // 이미 그 자리를 보고 있던 플레이어에게 CREATE(SPAWN) — 체력 컴포넌트가 없어 체력 0/0 이 실린다(클라는 막대를 안 그린다).
     _sightBroadcaster.BroadcastSpawn(zone, npc, SpawnReason::SPAWN);
 
     // 델타 동기화 기준점을 지금 자리로 — 몬스터와 같은 꼴(NPC 는 안 움직여 이 뒤로 바뀌지 않는다)

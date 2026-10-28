@@ -23,7 +23,7 @@
 #include <Protocol/Protocol.h>
 #include "SerialBuffer.h"
 #include "Character.h"     // WriteSnapshot · WriteCreateEntry 가 캐릭터 칸을 읽는다
-#include "CharacterParts.h" // WriteSnapshot — 체력 부품(없으면 0/0)
+#include "CharacterComponents.h" // WriteSnapshot — 체력 컴포넌트(없으면 0/0)
 #if USE_PARTY
 #include "Player.h"        // 파티 조각 — 레벨(_level)은 플레이어 칸
 #include "MapManager.h"    // 파티원 한 줄 — 존 번호를 맵 번호로 푼다
@@ -58,11 +58,11 @@ namespace PacketBuild
 
     // 등장 상태 조각(Protocol.h ActorSnapshot) — MakeCreateMyPlayer(맨 끝) 와 WriteCreateEntry(CREATE_OTHER·묶음 — defId 앞) 둘이 부른다.
     //   조각에 필드를 늘리면 여기 한 줄 · proto.js readSnap 한 줄(Protocol.h 의 크기 단언이 알려 준다).
-    //   전투가 꺼진 빌드는 0 을 싣는다 — 체력 부품은 꺼져도 있지만 쓰는 곳이 없어 의미가 없다.
+    //   전투가 꺼진 빌드는 0 을 싣는다 — 체력 컴포넌트는 꺼져도 있지만 쓰는 곳이 없어 의미가 없다.
     CREATE_FORCEINLINE void WriteSnapshot(CSerialBuffer* buf, const CCharacter* ch)
     {
 #if USE_COMBAT
-        const CHealthPart* health = ch->Health();   // 체력 부품이 없으면 0/0 — 클라는 최대 체력 0 이면 막대를 안 그린다(Protocol.h ActorSnapshot)
+        const CHealthComponent* health = ch->Health();   // 체력 컴포넌트가 없으면 0/0 — 클라는 최대 체력 0 이면 막대를 안 그린다(Protocol.h ActorSnapshot)
         *buf << static_cast<int>(health != nullptr ? health->Hp() : 0);
         *buf << static_cast<int>(health != nullptr ? health->MaxHp() : 0);
 #else

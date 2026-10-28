@@ -19,7 +19,7 @@
 
 #include "BuildConfig.h"   // USE_COMBAT — 안 읽으면 아래 #if 가 조용히 0 이 된다
 #include "Character.h"
-#include "CharacterParts.h"   // 규칙 함수는 부품을 받는다(체력·공격)
+#include "CharacterComponents.h"   // 규칙 함수는 컴포넌트를 받는다(체력·공격)
 
 namespace Combat
 {
@@ -59,8 +59,8 @@ namespace Combat
     };
 
     // 휘두를 수 있나 — 쿨타임과 자기 생사만 본다. 대상은 아직 안 본다.
-    //   그래서 돌아올 수 있는 값은 NONE·COOLDOWN·DEAD_SELF 셋뿐이다. 때리는 쪽의 체력 부품(생사)·공격 부품(쿨타임)을 받는다.
-    AttackReject CanAttack(const CHealthPart& attackerHealth, const CAttackPart& attackerAttack, uint64_t frame);
+    //   그래서 돌아올 수 있는 값은 NONE·COOLDOWN·DEAD_SELF 셋뿐이다. 때리는 쪽의 체력 컴포넌트(생사)·공격 컴포넌트(쿨타임)을 받는다.
+    AttackReject CanAttack(const CHealthComponent& attackerHealth, const CAttackComponent& attackerAttack, uint64_t frame);
 
     // target이 attacker의 사거리(AttackReach — 몸 반지름 포함) 안이면서 정면에 있나. 맞으면 outDistSq에 거리제곱을 담는다.
     //   정면 조건은 몸 크기와 무관하게 두 중심의 방향이다.
@@ -75,14 +75,14 @@ namespace Combat
     constexpr int32_t MIN_DAMAGE = 1;
     int32_t CalcDamage(int32_t attack, int32_t defense, bool& outFloored);
 
-    // 피해 적용은 체력 부품(CHealthPart::TakeDamage)이 한다 — 체력 0 과 죽음 표시(생사·죽은 프레임)를 같이 적는다.
+    // 피해 적용은 체력 컴포넌트(CHealthComponent::TakeDamage)이 한다 — 체력 0 과 죽음 표시(생사·죽은 프레임)를 같이 적는다.
     //   플레이어의 죽은 목록은 전투 조각(CCombatHandler::OnDeath) 몫이다.
 
     // 부활할 때가 됐나 (살아 있으면 항상 false)
-    bool IsRespawnDue(const CHealthPart& health, uint64_t frame);
+    bool IsRespawnDue(const CHealthComponent& health, uint64_t frame);
 
     // 제자리 만피 부활 — 좌표는 건드리지 않는다. 부활 지점을 옮기려면 호출자가 좌표를 정하고 부른다.
-    //   체력 부품의 Revive + 걷기 멈춤(CCharacter 칸)이라 캐릭터를 받는다 — 죽는 것은 체력 부품이 있는 것뿐이다.
+    //   체력 컴포넌트의 Revive + 걷기 멈춤(CCharacter 칸)이라 캐릭터를 받는다 — 죽는 것은 체력 컴포넌트가 있는 것뿐이다.
     void Respawn(CCharacter& actor);
 
     // 부활 자리 규칙 한 곳 — 죽은 맵이 마을(기본 맵 = 맵 표 첫 줄)이 아니면 마을 시작 구역으로, 마을이면 제자리.

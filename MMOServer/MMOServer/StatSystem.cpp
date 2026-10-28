@@ -35,8 +35,8 @@ void CStatSystem::RecalcStats(CCharacter* character, bool refill)
     {
         CPlayer* player = As<CPlayer>(character);
         const CLevelTable& table = _tables.Level();
-        CHealthPart& health = player->_health;
-        CAttackPart& attack = player->_attack;
+        CHealthComponent& health = player->_health;
+        CAttackComponent& attack = player->_attack;
         health.SetMaxHp(table.MaxHp(player->_level));
         attack._attackPower = table.AttackPower(player->_level);
         health.SetDefense(table.Defense(player->_level));
@@ -83,20 +83,20 @@ void CStatSystem::RecalcStats(CCharacter* character, bool refill)
     }
 
     case CharacterKind::NPC:
-        // NPC 는 스탯이 없다(부품이 없다 — 맞지도 때리지도 않는다). 스탯을 세우는 자리(입장 · 레벨업 · 장비 · GM · 효과)는 NPC 를 안 받는다.
-        //   여기 닿으면 부르는 쪽 잘못이다 — 아래 공통 꼬리가 부품을 꺼내기 전에 돌아간다(Release 에서 널 역참조로 죽지 않게).
+        // NPC 는 스탯이 없다(컴포넌트가 없다 — 맞지도 때리지도 않는다). 스탯을 세우는 자리(입장 · 레벨업 · 장비 · GM · 효과)는 NPC 를 안 받는다.
+        //   여기 닿으면 부르는 쪽 잘못이다 — 아래 공통 꼬리가 컴포넌트를 꺼내기 전에 돌아간다(Release 에서 널 역참조로 죽지 않게).
         assert(false && "NPC 의 스탯을 세움 — 부르는 쪽이 사람·몬스터가 아니다");
         return;
     }
 
-    // 공통 꼬리의 부품 — 스탯을 세우는 것은 사람·몬스터뿐이라 부품 셋이 늘 있다(부르는 쪽 = 입장 · 레벨업 · 장비 · GM · 효과 걸림·풀림)
-    assert(character->Health() != nullptr && character->Attack() != nullptr && "부품 없는 것의 스탯을 세움");
-    CHealthPart& health = *character->Health();
-    CAttackPart& attack = *character->Attack();
+    // 공통 꼬리의 컴포넌트 — 스탯을 세우는 것은 사람·몬스터뿐이라 컴포넌트 셋이 늘 있다(부르는 쪽 = 입장 · 레벨업 · 장비 · GM · 효과 걸림·풀림)
+    assert(character->Health() != nullptr && character->Attack() != nullptr && "컴포넌트 없는 것의 스탯을 세움");
+    CHealthComponent& health = *character->Health();
+    CAttackComponent& attack = *character->Attack();
 
-    // ── 2) 지속 효과 배수 — 바탕 + 장비 "뒤". 칸은 CBuffSystem 만 켜고 끈다(CharacterParts.h CBuffPart) ──
+    // ── 2) 지속 효과 배수 — 바탕 + 장비 "뒤". 칸은 CBuffSystem 만 켜고 끈다(CharacterComponents.h CBuffComponent) ──
     {
-        assert(character->Buffs() != nullptr && "효과 부품 없는 것의 스탯을 세움");
+        assert(character->Buffs() != nullptr && "효과 컴포넌트 없는 것의 스탯을 세움");
         const BuffSlot& mul = character->Buffs()->_slots[static_cast<int>(BuffKind::ATTACK_MUL)];
         if (mul.IsActive())
             attack._attackPower *= mul.value;
@@ -124,7 +124,7 @@ void CStatSystem::RecalcStats(CCharacter* character, bool refill)
 //   최대치는 저장하지 않는다 — 레벨 표·장비로 다시 세우는 값이라, 표를 낮춘 패치·장비 변화 뒤엔 저장값이 최대를 넘을 수 있다.
 //   그래서 RecalcStats 가 최대치를 세운 "뒤"에 불러 넘은 몫을 깎는다(EntryHandler.cpp SpawnPlayer 의 순서).
 // ==========================================================================
-void CStatSystem::RestoreHpMp(CHealthPart& health, CAttackPart& attack, int32_t hp, int32_t mp)
+void CStatSystem::RestoreHpMp(CHealthComponent& health, CAttackComponent& attack, int32_t hp, int32_t mp)
 {
     // 체력 — 0 이하는 가득. 음수는 「저장된 적 없음」, 0(죽은 채 저장)은 부르는 쪽이 부활 규칙으로 이미 바꿨다(헤더 주석).
     health.RestoreHp(hp);

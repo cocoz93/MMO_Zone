@@ -7,15 +7,15 @@
 //  - 주변 9섹터 순회 시 커버 범위 60x60 → 클라 뷰(80x21)보다 넉넉
 //  - 섹터 크기 ≈ 클라 화면 반절, 시야보다 크게 잡아 화면 내 팝업 방지
 //
-// [목록 셋] 섹터 한 칸은 목록을 셋 든다 — 플레이어(CPlayer*) · 맞을 수 있는 나머지(CCharacter* — 체력 부품이 있는 비플레이어, 지금은 몬스터)
-//  · 그 밖(CCharacter* — 체력 부품이 없는 것, 지금은 마을 NPC). 한 캐릭터는 셋 중 한 목록에만 들어간다.
-//  목록을 묻는 자리는 AddCharacter·RemoveCharacter 둘뿐이고(종류와 부품은 생성자에서만 정해지므로 넣을 때와 뺄 때
-//  다른 목록을 고를 길이 없다 — Character.h 부품 자리), 그 뒤는 목록이 곧 「무엇을 할 수 있나」다.
+// [목록 셋] 섹터 한 칸은 목록을 셋 든다 — 플레이어(CPlayer*) · 맞을 수 있는 나머지(CCharacter* — 체력 컴포넌트가 있는 비플레이어, 지금은 몬스터)
+//  · 그 밖(CCharacter* — 체력 컴포넌트가 없는 것, 지금은 마을 NPC). 한 캐릭터는 셋 중 한 목록에만 들어간다.
+//  목록을 묻는 자리는 AddCharacter·RemoveCharacter 둘뿐이고(종류와 컴포넌트는 생성자에서만 정해지므로 넣을 때와 뺄 때
+//  다른 목록을 고를 길이 없다 — Character.h 컴포넌트 자리), 그 뒤는 목록이 곧 「무엇을 할 수 있나」다.
 //   - 패킷을 받는 쪽은 플레이어뿐 → 방송·팬아웃·digest 는 플레이어 목록만 돈다(뱀 거르기 검사가 없다)
 //   - "보이는 것 전부"가 필요한 자리(시야 진입·이탈 때 상대 목록)는 ForEachInSector 로 세 목록을 차례로 돈다
 //   - "맞을 수 있는 것 전부"가 필요한 자리(플레이어의 공격 대상 찾기)는 ForEachHittableInSector 로 앞 둘만 돈다
 //   - 몬스터 AI 의 대상 찾기·몬스터의 물기는 플레이어 목록만 돈다 → 뱀끼리 쫓거나 무는 일이 구조로 막힌다
-//  가르는 기준은 "무엇을 할 수 있나"(받을 수 있나 · 맞을 수 있나)다 — 종류마다 목록을 두지 않는다. 펫이 생겨도 체력 부품이 있으면 둘째 목록이다.
+//  가르는 기준은 "무엇을 할 수 있나"(받을 수 있나 · 맞을 수 있나)다 — 종류마다 목록을 두지 않는다. 펫이 생겨도 체력 컴포넌트가 있으면 둘째 목록이다.
 //
 // [땅의 아이템] 여기 없다 — 존의 땅 아이템 관리자가 같은 칸 번호로 든다(GroundItemManager.h).
 //  땅은 아이템을 담는 그릇이라 물건과 규칙을 그쪽이 함께 든다. 여기는 캐릭터 목록 셋만 — 격자 계산(CalcSectorX/Y · CellIndex · IsValidSector)은 빌려 준다.
@@ -27,7 +27,7 @@
 //  Init(mapWidth, mapHeight, sectorSize) → 존 생성 시 호출 (INI에서 로드된 값)
 //  CalcSectorX/Y()          → 월드 좌표에서 섹터 좌표 계산
 //  CellIndex/CellPos/Count  → 섹터 좌표 ↔ 칸 번호 · 칸 수 (평탄화 규칙 — 식은 여기뿐)
-//  AddCharacter/Remove      → 섹터에 캐릭터 등록/해제 (사람인가 → 체력 부품이 있나로 목록을 고른다)
+//  AddCharacter/Remove      → 섹터에 캐릭터 등록/해제 (사람인가 → 체력 컴포넌트가 있나로 목록을 고른다)
 //  GetSectorPlayers/Hittables/NonHittables → 한 섹터의 목록 셋 · ForEachInSector → 셋을 차례로 · ForEachHittableInSector → 앞 둘
 //  ForEachSectorInRange()   → 반경이 걸치는 섹터만 돌기 (공격 사거리·몬스터 시야·줍기 — 어느 섹터를 도나는 여기뿐)
 //  GetAroundPlayers()       → 주변 9섹터 플레이어 수집 (브로드캐스트 대상)
@@ -55,14 +55,14 @@ public:
     int32_t CalcSectorX(float worldX) const;
     int32_t CalcSectorY(float worldY) const;
 
-    // 캐릭터 등록/해제 — 사람인가 → 체력 부품이 있나로 목록을 고른다(SectorManager.cpp ListOf). 목록을 묻는 자리는 이 둘뿐이다
+    // 캐릭터 등록/해제 — 사람인가 → 체력 컴포넌트가 있나로 목록을 고른다(SectorManager.cpp ListOf). 목록을 묻는 자리는 이 둘뿐이다
     void AddCharacter(CCharacter* character, int32_t sectorX, int32_t sectorY);
     void RemoveCharacter(CCharacter* character, int32_t sectorX, int32_t sectorY);
 
     // 단일 섹터의 목록 셋 (범위 밖이면 빈 목록)
     const std::vector<CPlayer*>&    GetSectorPlayers(int32_t sectorX, int32_t sectorY) const;
-    const std::vector<CCharacter*>& GetSectorHittables(int32_t sectorX, int32_t sectorY) const;      // 맞을 수 있는 나머지 — 체력 부품 있음
-    const std::vector<CCharacter*>& GetSectorNonHittables(int32_t sectorX, int32_t sectorY) const;   // 그 밖 — 체력 부품 없음
+    const std::vector<CCharacter*>& GetSectorHittables(int32_t sectorX, int32_t sectorY) const;      // 맞을 수 있는 나머지 — 체력 컴포넌트 있음
+    const std::vector<CCharacter*>& GetSectorNonHittables(int32_t sectorX, int32_t sectorY) const;   // 그 밖 — 체력 컴포넌트 없음
 
     // 세 목록을 차례로 돈다 — "보이는 것 전부"가 필요한 자리 전용(시야 진입·이탈 때 상대 목록).
     //   한 자리에 모아 두는 이유 — 한쪽 목록을 빠뜨리면 컴파일이 아니라 화면에서 드러나므로, 빠뜨릴 자리를 이 하나로 줄인다.
@@ -78,8 +78,8 @@ public:
             fn(c);
     }
 
-    // 맞을 수 있는 것만 차례로 — 플레이어 + 맞을 수 있는 나머지(플레이어의 공격 대상 찾기). 그 밖 목록(체력 부품 없음)은 안 돈다.
-    //   한 자리에 모아 두는 이유 · 지킬 것은 ForEachInSector 와 같다. 여기서 나온 것은 체력 부품이 늘 있다(전투가 단언으로 꺼낸다).
+    // 맞을 수 있는 것만 차례로 — 플레이어 + 맞을 수 있는 나머지(플레이어의 공격 대상 찾기). 그 밖 목록(체력 컴포넌트 없음)은 안 돈다.
+    //   한 자리에 모아 두는 이유 · 지킬 것은 ForEachInSector 와 같다. 여기서 나온 것은 체력 컴포넌트가 늘 있다(전투가 단언으로 꺼낸다).
     template <typename Fn>
     void ForEachHittableInSector(int32_t sectorX, int32_t sectorY, Fn&& fn) const
     {

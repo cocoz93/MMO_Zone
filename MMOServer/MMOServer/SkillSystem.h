@@ -8,7 +8,7 @@
 //    지속 효과(걸림·되감김)는 CBuffSystem::Apply 가 IBuffEvents 로 알린다. 되살리기는 ISkillEvents::OnRevive 로 넘긴다(깔기는 몬스터 관리자).
 //    거절은 알림이 아니라 돌려주는 값이다(CItemSystem::UseItem 꼴) — 게임 서버가 와이어 SkillFail 로 바꿔 보낸다
 //
-// [세 칸] 정의 = 스킬 표(CSkillTable — 기획 데이터) · 진행 = 캐릭터마다의 쿨타임·마력·효과 칸(공격 부품의 쿨타임·마력 · 효과 부품 — CharacterParts.h) · 규칙 = 여기
+// [세 칸] 정의 = 스킬 표(CSkillTable — 기획 데이터) · 진행 = 캐릭터마다의 쿨타임·마력·효과 칸(공격 컴포넌트의 쿨타임·마력 · 효과 컴포넌트 — CharacterComponents.h) · 규칙 = 여기
 //   (효과 칸의 규칙은 CBuffSystem — 여기는 걸기만 부른다)
 //
 // [시전자] CCharacter 다 — 사람도 몬스터(보스)도 같은 규칙으로 쓴다(10-11). 일반 공격(CCombatSystem::PerformAttack)과 같은 꼴.
@@ -35,8 +35,8 @@
 
 class CZone;
 class CCharacter;
-class CHealthPart;
-class CAttackPart;
+class CHealthComponent;
+class CAttackComponent;
 class CGameDataFiles;
 class CGameMonitor;
 class CCombatSystem;
@@ -90,8 +90,8 @@ public:
 private:
     // 1) 시전자 — 번호·생사·쿨타임·체력·마력. 통과면 COUNT 이고 outDef 에 스킬, outHpCost 에 뗄 체력(4) 가 그대로 뗀다).
     //    뗄 마력은 표 값 그대로(SkillDef::costMp)라 따로 돌려주지 않는다.
-    //    시전자의 부품(체력·공격)은 UseSkill 이 입구에서 한 번 꺼내 넘긴다 — 시전자 자체는 종류(사람·몬스터)를 가르려고 받는다.
-    SkillReject CheckCaster(const CCharacter* caster, const CHealthPart& health, const CAttackPart& attack,
+    //    시전자의 컴포넌트(체력·공격)은 UseSkill 이 입구에서 한 번 꺼내 넘긴다 — 시전자 자체는 종류(사람·몬스터)를 가르려고 받는다.
+    SkillReject CheckCaster(const CCharacter* caster, const CHealthComponent& health, const CAttackComponent& attack,
                             int32_t skillId, uint64_t frame, const SkillDef*& outDef, int32_t& outHpCost) const;
 
     // 2) 대상 축 — _targets 를 채운다. 하나도 없으면 NO_TARGET, 있으면 COUNT.

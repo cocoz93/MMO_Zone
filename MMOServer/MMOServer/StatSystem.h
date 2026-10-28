@@ -2,7 +2,7 @@
 // StatSystem — 캐릭터 스탯·레벨 규칙 (USE_COMBAT)
 //
 // [책임]
-//  - 최대 체력·공격력·방어력·최대 마력 세우기 — 바탕(플레이어 = 레벨 표 + 착용 장비 · 몬스터 = 몬스터 표) 뒤에 지속 효과 배수(효과 부품 CBuffPart)
+//  - 최대 체력·공격력·방어력·최대 마력 세우기 — 바탕(플레이어 = 레벨 표 + 착용 장비 · 몬스터 = 몬스터 표) 뒤에 지속 효과 배수(효과 컴포넌트 CBuffComponent)
 //  - 입장 때 저장된 체력·마력 넣기 — 세운 최대치로 깎는다(RestoreHpMp)
 //  - 경험치 더하기와 레벨 올리기 · 표 밖 레벨 보정(플레이어만 — 레벨은 사람만 쌓는다)
 //  - 그 과정에서 정한 것(레벨업·보정)을 지표(CGameMonitor)로 센다 — 무엇을 정했는지는 여기서만 안다(CCombatSystem 과 같은 꼴)
@@ -27,8 +27,8 @@
 
 class CCharacter;
 class CPlayer;
-class CHealthPart;
-class CAttackPart;
+class CHealthComponent;
+class CAttackComponent;
 class CGameDataFiles;
 class CGameMonitor;
 
@@ -41,7 +41,7 @@ public:
     // 스탯 함수 — 최대 체력·공격력·방어력·최대 마력을 이 한 곳에서 세운다(입장·레벨업·끼우기·빼기·효과 걸림·풀림 공통).
     //   바탕은 종류로 갈린다(switch — 둘) : 플레이어 = 레벨 표(전투가 켜지면 늘 읽는다 — 코드 상수 없음, 10-06) + 착용 장비, 마력은
     //   스킬(USE_SKILL)이 켜졌을 때만 · 몬스터 = 몬스터 표(생성자가 넣은 것과 같은 값 — 효과가 풀릴 때 돌아갈 바탕이 여기서 다시 선다).
-    //   그 뒤 공통으로 지속 효과 배수(효과 부품 CBuffPart)를 곱한다 — 바탕 + 장비 "뒤"라서 장비를 바꿔도 효과가 안 날아간다.
+    //   그 뒤 공통으로 지속 효과 배수(효과 컴포넌트 CBuffComponent)를 곱한다 — 바탕 + 장비 "뒤"라서 장비를 바꿔도 효과가 안 날아간다.
     //   ★ USE_EXP 밖에 두는 이유 — 장착(USE_EQUIP)은 경험치를 꺼도 돌고, 그때도 공격력은 여기서 세워야 한다.
     //     USE_COMBAT 안인 이유 — 스탯을 읽는 곳이 전투뿐이고, 경험치·가방·장착이 전부 USE_COMBAT 을 요구한다.
     //   refill = 체력·마력을 가득 채우나(레벨업). false 면 둘 다 최대치를 넘은 몫만 깎는다. 몬스터는 false 로만 부른다.
@@ -51,8 +51,8 @@ public:
     // 입장 — DB 에서 불러온 체력·마력을 넣는다. ★ RecalcStats 뒤에 부를 것 — 최대치(레벨 표·장비)가 서 있어야 넘은 몫을 깎는다.
     //   체력 0 이하·마력 음수 = 가득. 음수는 「저장된 적 없음」(DB_HP_MP_UNSAVED)이고, 죽은 채 저장된 체력 0 은
     //   부르는 쪽(CEntryHandler::OnCharacterLoaded)이 부활 규칙대로 이미 바꿔 넘긴다. 마력 0 은 그대로다(다 쓰고 나간 값).
-    //   규칙(0·음수·최대 초과)은 부품이 든다(CHealthPart::RestoreHp · CAttackPart::RestoreMp) — 여기는 차례(RecalcStats 뒤)를 지키는 입구다.
-    void RestoreHpMp(CHealthPart& health, CAttackPart& attack, int32_t hp, int32_t mp);
+    //   규칙(0·음수·최대 초과)은 컴포넌트가 든다(CHealthComponent::RestoreHp · CAttackComponent::RestoreMp) — 여기는 차례(RecalcStats 뒤)를 지키는 입구다.
+    void RestoreHpMp(CHealthComponent& health, CAttackComponent& attack, int32_t hp, int32_t mp);
 
 #if USE_EXP
     // 경험치를 더하고, 올라갈 만큼 올린다. 레벨이 올랐으면 true(스탯도 다시 세우고 레벨업 수를 센다).

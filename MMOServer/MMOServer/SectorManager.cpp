@@ -9,7 +9,7 @@ const std::vector<CCharacter*> CSectorManager::EMPTY_CHARACTERS;
 namespace
 {
     // 어느 목록인가 — 갈래가 셋이라 값을 돌려주고 부르는 쪽이 switch 로 가른다(if/else 면 셋째가 둘째에 삼켜져도 안 보인다).
-    //   사람인가(받을 수 있나) → 체력 부품이 있나(맞을 수 있나). 종류·부품은 생성 뒤 안 바뀌므로 넣을 때와 뺄 때 같은 답이다.
+    //   사람인가(받을 수 있나) → 체력 컴포넌트가 있나(맞을 수 있나). 종류·컴포넌트는 생성 뒤 안 바뀌므로 넣을 때와 뺄 때 같은 답이다.
     enum class SectorList : uint8_t
     {
         PLAYERS,
@@ -42,7 +42,7 @@ namespace
         //   (Zone::LeaveZone·Zone::Tick, CMoveHandler::RecvMoveStart·RecvMoveStop)은 모두 직전까지
         //   등록돼 있던 캐릭터를 그 등록 섹터 좌표로 넘기고, 중복 호출 경로도 없다
         //   (LeaveZone 호출은 RemoveFromZone 단 한 곳, 그 뒤엔 슬롯이 비거나 새 존에 재등록된다).
-        //   어느 목록인지는 RemoveCharacter 가 AddCharacter 와 같은 기준(ListOf — 종류·부품)으로 고른다.
+        //   어느 목록인지는 RemoveCharacter 가 AddCharacter 와 같은 기준(ListOf — 종류·컴포넌트)으로 고른다.
         assert(idx >= 0 && idx < static_cast<int32_t>(list.size()) && list[idx] == c);
 
         T* back = list.back();
@@ -106,7 +106,7 @@ void CSectorManager::AddCharacter(CCharacter* character, int32_t sectorX, int32_
     if (!IsValidSector(sectorX, sectorY))
         return;
 
-    // 목록을 고른다 — 여기와 RemoveCharacter 둘뿐이다. 종류·부품은 생성자 뒤 안 바뀌므로 둘이 어긋날 길이 없다.
+    // 목록을 고른다 — 여기와 RemoveCharacter 둘뿐이다. 종류·컴포넌트는 생성자 뒤 안 바뀌므로 둘이 어긋날 길이 없다.
     switch (ListOf(character))
     {
     case SectorList::PLAYERS:       PushTo(PlayersAt(sectorY, sectorX), As<CPlayer>(character)); break;

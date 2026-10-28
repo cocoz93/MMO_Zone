@@ -155,7 +155,7 @@ void CCharacterStore::RecordSaved(CPlayer* player, const DBCharRow& row)
 }
 
 // ── 쿨타임·버프 ↔ DB 묶음 ─────────────────────────────────────────────────
-//   칸은 틱으로 들고(공격 부품 _skillReadyFrame · 효과 부품 _slots), DB 엔 실제 시각으로 묶어 넣는다(CooldownBuffBlob.h).
+//   칸은 틱으로 들고(공격 컴포넌트 _skillReadyFrame · 효과 컴포넌트 _slots), DB 엔 실제 시각으로 묶어 넣는다(CooldownBuffBlob.h).
 //   저장 = 돌고 있는 칸만 「끝나는 실제 시각」으로 · 입장 = 지난 것은 버리고 남은 몫을 틱으로.
 
 void CCharacterStore::PackCooldownsAndBuffs(const CPlayer* player, DBCharRow& row) const

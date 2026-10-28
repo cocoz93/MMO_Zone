@@ -7,7 +7,7 @@
 #include "SectorManager.h"   // 사거리가 걸치는 섹터 훑기
 #include "Player.h"          // GetSectorPlayers 가 CPlayer* 를 돌려준다 — CCharacter* 로 넘기려면 완전한 타입이 필요
 #include "GameMonitor.h"     // 공격·죽음 계수기
-#include "CharacterParts.h"  // 체력·공격 부품 — 입구에서 꺼내 쓴다
+#include "CharacterComponents.h"  // 체력·공격 컴포넌트 — 입구에서 꺼내 쓴다
 #include <cassert>
 #if USE_MONSTER
 #include "Monster.h"         // 죽음을 몬스터·플레이어로 갈라 셀 때 As<CMonster> — 완전한 타입이 필요
@@ -15,11 +15,11 @@
 
 namespace
 {
-    // 체력 부품 꺼내기 — 전투 후보·대상은 「맞을 수 있는 것」 목록에서만 온다(사람 · 맞을 수 있는 나머지). 그래서 늘 있다.
-    //   부품 없는 것(NPC)이 여기 오면 후보를 고르는 쪽(ForEachCandidate)의 잘못이다.
-    CHealthPart& HealthOf(CCharacter* c)
+    // 체력 컴포넌트 꺼내기 — 전투 후보·대상은 「맞을 수 있는 것」 목록에서만 온다(사람 · 맞을 수 있는 나머지). 그래서 늘 있다.
+    //   컴포넌트 없는 것(NPC)이 여기 오면 후보를 고르는 쪽(ForEachCandidate)의 잘못이다.
+    CHealthComponent& HealthOf(CCharacter* c)
     {
-        assert(c->Health() != nullptr && "체력 부품 없는 것이 전투 후보·대상 — 후보 목록이 잘못됐다");
+        assert(c->Health() != nullptr && "체력 컴포넌트 없는 것이 전투 후보·대상 — 후보 목록이 잘못됐다");
         return *c->Health();
     }
 
@@ -45,7 +45,7 @@ namespace
                 break;
 
             case CCombatSystem::CandidateList::ALL_HITTABLE:
-                sectors.ForEachHittableInSector(sx, sy, fn);   // 「그 밖」(체력 부품 없음)은 안 돈다 — 아래 HealthOf 가 기대는 보장
+                sectors.ForEachHittableInSector(sx, sy, fn);   // 「그 밖」(체력 컴포넌트 없음)은 안 돈다 — 아래 HealthOf 가 기대는 보장
                 break;
             }
         });
@@ -73,10 +73,10 @@ void CCombatSystem::PerformAttack(CZone* zone, CCharacter* player, uint64_t fram
     constexpr bool byMonster = false;
 #endif
 
-    // 때리는 쪽의 부품 — 부르는 쪽이 사람 요청 처리 · 몬스터 관리자라 둘 다 든다(사람·몬스터 = 체력 + 공격)
-    assert(player->Health() != nullptr && player->Attack() != nullptr && "부품 없는 것이 휘두름 — 부르는 쪽이 사람·몬스터가 아니다");
-    const CHealthPart& selfHealth = *player->Health();
-    CAttackPart&       selfAttack = *player->Attack();
+    // 때리는 쪽의 컴포넌트 — 부르는 쪽이 사람 요청 처리 · 몬스터 관리자라 둘 다 든다(사람·몬스터 = 체력 + 공격)
+    assert(player->Health() != nullptr && player->Attack() != nullptr && "컴포넌트 없는 것이 휘두름 — 부르는 쪽이 사람·몬스터가 아니다");
+    const CHealthComponent& selfHealth = *player->Health();
+    CAttackComponent&       selfAttack = *player->Attack();
 
     // ── 1) 휘두를 수 있나 (쿨타임·자기 생사) ──
     const Combat::AttackReject reject = Combat::CanAttack(selfHealth, selfAttack, frame);
@@ -126,7 +126,7 @@ void CCombatSystem::PerformAttack(CZone* zone, CCharacter* player, uint64_t fram
     //     뱀이 죽기까지 했다). 지금은 목록이 갈라져 있어 뱀은 후보에 아예 안 들어온다.
     //     AI 의 대상 찾기(FindAITarget)도 플레이어 목록만 돈다 — AI 는 "누구를 쫓을까"를 정할 뿐이고,
     //     실제로 무는 대상은 여기서 다시 고르므로 두 자리가 다 플레이어 목록이어야 한다.
-    //   플레이어가 때릴 때는 맞을 수 있는 것 전부(플레이어·몬스터)가 후보다 — NPC 는 체력 부품이 없어 「그 밖」 목록이라 안 든다
+    //   플레이어가 때릴 때는 맞을 수 있는 것 전부(플레이어·몬스터)가 후보다 — NPC 는 체력 컴포넌트가 없어 「그 밖」 목록이라 안 든다
     const CandidateList which = byMonster ? CandidateList::PLAYERS : CandidateList::ALL_HITTABLE;
     bool sawDeadInRange = false;   // 사거리 안에 있긴 했는데 시체였다 — "아무도 없었다"와 다르다
     CCharacter* target = FindFrontTarget(zone, player, which, sawDeadInRange);
@@ -242,13 +242,13 @@ void CCombatSystem::ApplyHit(CZone* zone, CCharacter* attacker, CCharacter* targ
     // ── 4) 피해 적용 ──
     //   ★ 한 번 센 값을 적용에도 방송에도 쓴다 — 두 자리가 따로 세면 깎인 체력과 화면의 숫자가 갈릴 수 있다.
     //   최소 1 로 올린 타격은 때린 쪽 종류와 무관하게 센다(뱀이 방어력 높은 사람을 문 것도 여기로 온다).
-    CHealthPart& targetHealth = HealthOf(target);   // 대상 = 후보 목록에서 고른 것(맞을 수 있는 것만 — 위 후보 훑기)
+    CHealthComponent& targetHealth = HealthOf(target);   // 대상 = 후보 목록에서 고른 것(맞을 수 있는 것만 — 위 후보 훑기)
     bool floored = false;
     const int32_t damage = Combat::CalcDamage(attackValue, targetHealth.Defense(), floored);
     if (floored)
         _gameMonitor._combat._damageFloored.Inc();
 
-    // 체력 0 이 되면 죽음 표시(생사·죽은 프레임)까지 체력 부품이 같이 적는다 — 아래 OnHit 이 불릴 때 이미 서 있다
+    // 체력 0 이 되면 죽음 표시(생사·죽은 프레임)까지 체력 컴포넌트가 같이 적는다 — 아래 OnHit 이 불릴 때 이미 서 있다
     //   (OnHit 받는 쪽은 그 칸을 안 읽는다 — CCombatHandler::OnHit 은 피해 방송만).
     const bool died = targetHealth.TakeDamage(damage, frame);
     const int32_t remainHp = targetHealth.Hp();
@@ -264,7 +264,7 @@ void CCombatSystem::ApplyHit(CZone* zone, CCharacter* attacker, CCharacter* targ
 
 void CCombatSystem::Kill(CZone* zone, CCharacter* target, uint64_t frame)
 {
-    CHealthPart& targetHealth = HealthOf(target);
+    CHealthComponent& targetHealth = HealthOf(target);
     if (targetHealth.IsDead())
         return;
 

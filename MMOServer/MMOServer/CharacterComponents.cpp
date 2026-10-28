@@ -1,10 +1,10 @@
-﻿#include "CharacterParts.h"
+﻿#include "CharacterComponents.h"
 
 #include <cassert>
 
-// ── 체력 부품 ──
+// ── 체력 컴포넌트 ──
 
-bool CHealthPart::TakeDamage(int32_t damage, uint64_t frame)
+bool CHealthComponent::TakeDamage(int32_t damage, uint64_t frame)
 {
     _hp -= damage;
     if (_hp < 0)
@@ -18,78 +18,78 @@ bool CHealthPart::TakeDamage(int32_t damage, uint64_t frame)
     return true;
 }
 
-void CHealthPart::SpendHp(int32_t cost)
+void CHealthComponent::SpendHp(int32_t cost)
 {
     assert(_hp - cost >= 1 && "자기 스킬로는 안 죽는다 — 부르는 쪽 앞선 검사(LOW_HP)가 막았어야 한다");
     _hp -= cost;
 }
 
-void CHealthPart::Heal(int32_t amount)
+void CHealthComponent::Heal(int32_t amount)
 {
     const int32_t healed = _hp + amount;
     _hp = (healed < _maxHp) ? healed : _maxHp;
 }
 
-void CHealthPart::FillToMax()
+void CHealthComponent::FillToMax()
 {
     _hp = _maxHp;
 }
 
-void CHealthPart::ClampToMax()
+void CHealthComponent::ClampToMax()
 {
     if (_hp > _maxHp)
         _hp = _maxHp;
 }
 
-void CHealthPart::RestoreHp(int32_t saved)
+void CHealthComponent::RestoreHp(int32_t saved)
 {
     _hp = (saved <= 0 || saved > _maxHp) ? _maxHp : saved;
 }
 
-void CHealthPart::Revive()
+void CHealthComponent::Revive()
 {
     _hp         = _maxHp;
     _isDead     = false;
     _deathFrame = 0;
 }
 
-// ── 공격 부품 — 마력 ──
+// ── 공격 컴포넌트 — 마력 ──
 #if USE_SKILL
 
-void CAttackPart::SpendMp(int32_t cost)
+void CAttackComponent::SpendMp(int32_t cost)
 {
     assert(_mp >= cost && "마력이 모자란 시전 — 부르는 쪽 앞선 검사(LOW_MP)가 막았어야 한다");
     _mp -= cost;
 }
 
-void CAttackPart::GainMp(int32_t amount)
+void CAttackComponent::GainMp(int32_t amount)
 {
     const int32_t filled = _mp + amount;
     _mp = (filled < _maxMp) ? filled : _maxMp;
 }
 
-void CAttackPart::FillMpToMax()
+void CAttackComponent::FillMpToMax()
 {
     _mp = _maxMp;
 }
 
-void CAttackPart::ClampMpToMax()
+void CAttackComponent::ClampMpToMax()
 {
     if (_mp > _maxMp)
         _mp = _maxMp;
 }
 
-void CAttackPart::RestoreMp(int32_t saved)
+void CAttackComponent::RestoreMp(int32_t saved)
 {
     _mp = (saved < 0 || saved > _maxMp) ? _maxMp : saved;
 }
 
 #endif // USE_SKILL
 
-// ── 효과 부품 ──
+// ── 효과 컴포넌트 ──
 #if USE_COMBAT
 
-bool CBuffPart::AnyActive() const
+bool CBuffComponent::AnyActive() const
 {
     for (const BuffSlot& slot : _slots)
     {

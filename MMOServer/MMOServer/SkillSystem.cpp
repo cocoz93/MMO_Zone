@@ -10,8 +10,8 @@
 #include "Combat.h"          // MAX_BODY_RADIUS — 범위 스킬 후보 반경에 쓰는 맞는 쪽 반지름 상한
 #include "CombatSystem.h"    // FindFrontTarget · CollectCandidates · ApplyHit — 일반 공격과 같이 쓴다
 #include "BuffSystem.h"      // Apply — 지속 효과 걸기(효과 축 BUFF_ATTACK_MUL)
-#include "Character.h"       // 종류 · 부품 자리 — 시전자는 CCharacter 다
-#include "CharacterParts.h"  // 체력·공격 부품 — 생사·체력·마력·쿨타임
+#include "Character.h"       // 종류 · 컴포넌트 자리 — 시전자는 CCharacter 다
+#include "CharacterComponents.h"  // 체력·공격 컴포넌트 — 생사·체력·마력·쿨타임
 #include <cassert>
 
 namespace
@@ -44,10 +44,10 @@ SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skil
     const bool byMonster = IsMonsterCaster(caster);
     auto& counters = _gameMonitor._skill;
 
-    // 시전자의 부품 — 부르는 쪽이 사람 요청 처리 · 몬스터 관리자라 둘 다 든다(사람·몬스터 = 체력 + 공격)
-    assert(caster->Health() != nullptr && caster->Attack() != nullptr && "부품 없는 것이 스킬을 씀 — 부르는 쪽이 사람·몬스터가 아니다");
-    CHealthPart& health = *caster->Health();
-    CAttackPart& attack = *caster->Attack();
+    // 시전자의 컴포넌트 — 부르는 쪽이 사람 요청 처리 · 몬스터 관리자라 둘 다 든다(사람·몬스터 = 체력 + 공격)
+    assert(caster->Health() != nullptr && caster->Attack() != nullptr && "컴포넌트 없는 것이 스킬을 씀 — 부르는 쪽이 사람·몬스터가 아니다");
+    CHealthComponent& health = *caster->Health();
+    CAttackComponent& attack = *caster->Attack();
 
     // ── 1) 시전자 검사 — 번호·생사·쿨타임·체력·마력. 뗄 체력은 여기서 세고 4) 가 그대로 뗀다 ──
     const SkillDef* def = nullptr;
@@ -81,7 +81,7 @@ SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skil
     return SkillReject::COUNT;
 }
 
-SkillReject CSkillSystem::CheckCaster(const CCharacter* caster, const CHealthPart& health, const CAttackPart& attack,
+SkillReject CSkillSystem::CheckCaster(const CCharacter* caster, const CHealthComponent& health, const CAttackComponent& attack,
                                       int32_t skillId, uint64_t frame, const SkillDef*& outDef, int32_t& outHpCost) const
 {
     // SkillReject 의 순서 그대로 본다 — 여럿이 겹치면 먼저 걸린 하나로 답한다(열거 순서가 곧 확인 순서).

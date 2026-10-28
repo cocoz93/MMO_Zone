@@ -1101,7 +1101,7 @@ struct MSG_S2C_ACTOR_MP
 
 static_assert(sizeof(MSG_S2C_ACTOR_MP) == 16, "ACTOR_MP 는 16B (proto.js 와 맞출 것)");
 
-// 지속 효과(버프)의 종류 — 와이어 값이자 서버 효과 칸의 색인(효과 부품 CBuffPart::_slots — InvTab 처럼 서버가 이 enum 을 그대로 쓴다).
+// 지속 효과(버프)의 종류 — 와이어 값이자 서버 효과 칸의 색인(효과 컴포넌트 CBuffComponent::_slots — InvTab 처럼 서버가 이 enum 을 그대로 쓴다).
 //   효과의 정체는 「어느 스킬이 걸었나」가 아니라 종류다 — 스킬이 걸든 아이템이 걸든 같은 칸이고, 같은 종류는 나중 것이 값·시간을 덮는다.
 //   ★ 끝에만 붙인다(값이 와이어에 실린다) — 가운데에 끼우면 옛 클라가 다른 효과로 읽는다.
 enum class BuffKind : uint8_t

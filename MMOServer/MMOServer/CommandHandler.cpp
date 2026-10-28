@@ -3,7 +3,7 @@
 #include "SightBroadcaster.h"
 #include "MapManager.h"
 #include "Zone.h"
-#include "Player.h"           // CPlayer · 운영자 표시 · GM 칸 · 체력 부품 · 가방(Inventory.h — USE_INVENTORY)
+#include "Player.h"           // CPlayer · 운영자 표시 · GM 칸 · 체력 컴포넌트 · 가방(Inventory.h — USE_INVENTORY)
 #include "PacketBuild.h"      // 머리 쓰기·닫기 · 체력 바뀜(MakeActorStats — /gm)
 #include "SerialBuffer.h"
 #include <Protocol/Protocol.h>

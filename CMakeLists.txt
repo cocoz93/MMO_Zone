@@ -161,7 +161,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/Zone.cpp
     ${SRV_DIR}/Player.cpp
     ${SRV_DIR}/Character.cpp
-    ${SRV_DIR}/CharacterParts.cpp
+    ${SRV_DIR}/CharacterComponents.cpp
     ${SRV_DIR}/Monster.cpp
     ${SRV_DIR}/MonsterAI.cpp
     ${SRV_DIR}/MonsterManager.cpp

@@ -10,11 +10,11 @@ CMonster::CMonster(const MonsterDef& def)
     // 자기 종류를 잡는다 — 파생이 정하는 게 규칙(Character.h [종류])
     _kind = CharacterKind::MONSTER;
 
-    // 부품 붙이기 — 몸이 돌 때는 멤버 부품이 이미 만들어져 있다(Character.h AttachParts)
+    // 컴포넌트 붙이기 — 몸이 돌 때는 멤버 컴포넌트가 이미 만들어져 있다(Character.h AttachComponents)
 #if USE_COMBAT
-    AttachParts(&_health, &_attack, &_buffs);
+    AttachComponents(&_health, &_attack, &_buffs);
 #else
-    AttachParts(&_health, &_attack);
+    AttachComponents(&_health, &_attack);
 #endif
 
     // 표시 문자(_displayChar)는 여기서 안 넣는다 — 클라에게 「뭘로 그려라」를 알리는 패킷 값이라
@@ -22,7 +22,7 @@ CMonster::CMonster(const MonsterDef& def)
     //   플레이어(CalcDisplayChar)와 같은 자리.
     _colorIndex  = 0;   // 뱀 한 종류라 색을 가를 일이 없다
 
-    // 스탯 — 내 종류의 표 값을 부품에 넣는다(부품 칸의 0 = 아직 안 정해짐 — Character.h)
+    // 스탯 — 내 종류의 표 값을 컴포넌트에 넣는다(컴포넌트 칸의 0 = 아직 안 정해짐 — Character.h)
     _health.SetMaxHp(def.maxHp);
     _health.FillToMax();
     _attack._attackPower = def.attack;

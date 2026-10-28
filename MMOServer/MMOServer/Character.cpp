@@ -14,17 +14,17 @@ CCharacter::~CCharacter()
 }
 
 #if USE_COMBAT
-void CCharacter::AttachParts(CHealthPart* health, CAttackPart* attack, CBuffPart* buffs)
+void CCharacter::AttachComponents(CHealthComponent* health, CAttackComponent* attack, CBuffComponent* buffs)
 #else
-void CCharacter::AttachParts(CHealthPart* health, CAttackPart* attack)
+void CCharacter::AttachComponents(CHealthComponent* health, CAttackComponent* attack)
 #endif
 {
-    assert(_healthPart == nullptr && _attackPart == nullptr && "부품은 생성자에서 한 번만 붙인다");
-    _healthPart = health;
-    _attackPart = attack;
+    assert(_healthComponent == nullptr && _attackComponent == nullptr && "컴포넌트는 생성자에서 한 번만 붙인다");
+    _healthComponent = health;
+    _attackComponent = attack;
 #if USE_COMBAT
-    assert(_buffPart == nullptr && "부품은 생성자에서 한 번만 붙인다");
-    _buffPart = buffs;
+    assert(_buffComponent == nullptr && "컴포넌트는 생성자에서 한 번만 붙인다");
+    _buffComponent = buffs;
 #endif
 }
 

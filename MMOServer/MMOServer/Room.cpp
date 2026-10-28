@@ -2,7 +2,7 @@
 
 #if USE_PARTY
 
-#include "Player.h"   // _zoneId · 체력 부품(생사) · _accountId
+#include "Player.h"   // _zoneId · 체력 컴포넌트(생사) · _accountId
 
 void CRoomLocks::Lock(int64_t accountId, int32_t mapId, uint64_t untilFrame)
 {
