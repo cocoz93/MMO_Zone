@@ -57,7 +57,7 @@ enum class ZoneChangeReject : uint8_t
     FULL,        // 지정한 채널이 정원 초과 (운영자는 안 걸림)
     SAME_ZONE,   // 지금 있는 존과 같음
     NOT_ALLOWED, // 다른 맵 지정(맵 번호·무작위)은 운영자만 — 다른 맵으로 가는 길은 포털이다. 같은 맵 채널 지정은 누구나
-    COUNT       // 개수 표시 — 요청 결과 계수기가 이 수만큼 칸을 잡는다(NONE 칸 = 성공, GameMonitor.h ZoneChangeResultName)
+    COUNT       // 개수 표시 — 요청 결과 카운터가 이 수만큼 칸을 잡는다(NONE 칸 = 성공, GameMonitor.h ZoneChangeResultName)
 };
 
 struct ZoneChangeTarget

@@ -29,7 +29,7 @@ class INpcEvents
 public:
     virtual ~INpcEvents() = default;
 
-    // 번호 하나 — 사건이 아니라 부탁이다. 번호 공간이 플레이어·몬스터와 하나라서(단일 증가 계수기) 여기서 못 뽑는다.
+    // 번호 하나 — 사건이 아니라 부탁이다. 번호 공간이 플레이어·몬스터와 하나라서(단일 증가 카운터) 여기서 못 뽑는다.
     virtual int32_t AllocActorId() = 0;
 
     // 등장 — 지금 자리 주변에 CREATE(SPAWN). 깔 때. 표시 문자·정의 번호(와이어 값)는 받는 쪽이 넣는다.

@@ -5,7 +5,7 @@
 #include <cassert>
 #include "Player.h"        // _partyId · 상태 비교가 읽는 체력·레벨·존 번호
 #include "MapManager.h"    // GetMapIdFromZoneId — 존 번호 → 맵 번호 풀기(정적 함수만)
-#include "GameMonitor.h"   // 파티 계수기
+#include "GameMonitor.h"   // 파티 카운터
 
 CPartySystem::CPartySystem(CGameMonitor& gameMonitor, IPartyEvents& events)
     : _gameMonitor(gameMonitor)

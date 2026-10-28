@@ -6,7 +6,7 @@
 #include "MonsterTable.h"    // MonsterDef — 깔 때 몬스터 표의 행을 넘긴다
 #include "MonsterAI.h"       // 판단 (Combat 과 같은 자리의 순수 판정 모듈)
 #include "Player.h"          // GetSectorPlayers 가 CPlayer* 를 돌려준다 — 후보의 생사·좌표를 읽는다
-#include "GameMonitor.h"     // 판단·전이·깐 수 계수기
+#include "GameMonitor.h"     // 판단·전이·깐 수 카운터
 #include "GameDataFiles.h"   // 쥔 기획 데이터에서 스폰 구역 표를 꺼낸다
 #if USE_COMBAT
 #include "CombatSystem.h"    // 공격 흐름 — 몬스터가 물 때 플레이어와 같은 것을 부른다

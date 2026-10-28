@@ -34,8 +34,8 @@
 //   규칙 클래스가 정하는 것: UseItemReject·EquipReject(ItemSystem.h — 10-08 판정이 게임 서버에서 CItemSystem 으로 옮겨 감) ·
 //                          SkillReject(SkillSystem.h)
 //   게임 서버가 정하는 것: PickupFail(와이어 enum 그대로 — 정하는 쪽이 패킷을 아는 층이라 변환이 없다) ·
-//                        InvLoadSkip·ChatCommandReject·PortalReject(계수기만 쓰는 사유라 여기)
-//   여기(계수기)는 COUNT 로 칸을 잡고 이름표를 두는 자리일 뿐, 사유를 정하지 않는다.
+//                        InvLoadSkip·ChatCommandReject·PortalReject(카운터만 쓰는 사유라 여기)
+//   여기(카운터)는 COUNT 로 칸을 잡고 이름표를 두는 자리일 뿐, 사유를 정하지 않는다.
 
 #if USE_TRADE
 // 거래의 지표 라벨 둘 — 거절(TradeFail)·끝(TradeEnd)은 와이어 enum 그대로다(Protocol.h 거래 절 · TradeSystem.h [와이어 enum 을 그대로 쓴다])
@@ -125,7 +125,7 @@ inline const char* ZoneChangeResultName(ZoneChangeReject r)
 }
 constexpr int ZONE_CHANGE_RESULT_COUNT = static_cast<int>(ZoneChangeReject::COUNT);
 
-// 포털 사용 거절 사유 — CEntryHandler::RecvPortalUse 가 정하고 계수기만 쓴다(와이어 값은 S2C_ZONE_CHANGE_FAIL 의 4·5 로 묶인다 —
+// 포털 사용 거절 사유 — CEntryHandler::RecvPortalUse 가 정하고 카운터만 쓴다(와이어 값은 S2C_ZONE_CHANGE_FAIL 의 4·5 로 묶인다 —
 //   클라에겐 「없음」과 「다른 맵의 포털」이 같은 답이지만, 세는 쪽에선 갈라 둬야 클라 버그인지 사람 조작인지 읽힌다).
 enum class PortalReject : uint8_t
 {
@@ -350,7 +350,7 @@ inline const char* SaveReplyResultName(SaveReplyResult r)
 #if USE_INVENTORY
 // 불러올 때 건너뛴 줄의 사유 — DB 행이 망가졌거나 표가 바뀌어 지금 규칙에 안 맞는 줄. 평소엔 전부 0 이다.
 //   칸·아이템 번호 사유는 게임 서버(LoadInventoryRows)가, 탭·개수 사유는 가방(LoadSlot → InvLoadResult)이 정한다.
-//   두 층의 사유를 한 계수기로 세므로 라벨은 여기 두고, 가방 사유는 게임 서버가 옮긴다(10-07).
+//   두 층의 사유를 한 카운터로 세므로 라벨은 여기 두고, 가방 사유는 게임 서버가 옮긴다(10-07).
 //   ★ 깎아서 넣지 않는다(수량 초과를 한도로 줄이는 식) — 깎으면 무엇이 사라졌는지 아무도 모른다. 세고 건너뛴다.
 enum class InvLoadSkip : uint8_t
 {
@@ -583,7 +583,7 @@ public:
     //   ★ 등식(조용해진 뒤): Σ _applied + Σ _restored = Σ _ended + _active — 끝나는 자리가 셋이라 사유마다 한 칸이다(드랍 등식과 같은 꼴).
     //     켜지는 자리도 둘이다(스킬로 걸림 · 입장 때 DB 저장값으로 되살림) — 되살림을 안 세면 그 효과가 끝날 때 오른쪽만 늘어 등식이 깨진다.
     //     한 자리라도 안 세면 등식이 영영 안 맞는다. _refreshed 는 등식 밖이다(칸이 이미 켜져 있어 _active 가 안 변한다).
-    //   토글 안에 두는 까닭 — 칸 수(BuffKind·BuffEnd)가 Buff.h 의 토글 안에 있다(스킬 계수기와 같은 꼴).
+    //   토글 안에 두는 까닭 — 칸 수(BuffKind·BuffEnd)가 Buff.h 의 토글 안에 있다(스킬 카운터와 같은 꼴).
     // ══════════════════════════════════════════════════════════════
     struct alignas(64) BuffCounters
     {
@@ -624,7 +624,7 @@ public:
                                         //   깐 수 − 죽은 수(_deathsTotal) = 지금 몬스터 수(빈 채널 정리로 같이 사라진 것과
                                         //   방 클리어로 사라진 것 — mmo_room_minions_cleared_total — 만 예외).
                                         //   지운 수는 따로 안 센다 — 죽는 순간 지우므로 죽은 수와 늘 같다
-                                        //   (사람 근처를 피해 다시 뽑던 계수기 둘은 그 검사와 함께 없앴다 — 10-09)
+                                        //   (사람 근처를 피해 다시 뽑던 카운터 둘은 그 검사와 함께 없앴다 — 10-09)
         Counter _revivedTotal;          // 되살리기 스킬(SkillEffect::REVIVE)로 깐 수 — _spawnedTotal 에도 든다. 세는 곳은 몬스터 관리자의 리젠(RegenDue)
     } _monster;
 #endif
@@ -759,10 +759,10 @@ public:
     //
     // ★ 맞아야 하는 등식 — 조용해진 뒤 requested = found + newCharacter + failed + orphaned.
     //   왼쪽은 요청을 넣는 자리, 오른쪽은 결과를 꺼내는 자리에서 따로 센다. 그래서 워커가
-    //   어느 분기에서 결과를 빠뜨리면 등식이 영영 안 맞는다. 분기마다 계수기를 둔 이유다 —
+    //   어느 분기에서 결과를 빠뜨리면 등식이 영영 안 맞는다. 분기마다 카운터를 둔 이유다 —
     //   한 통에 담으면 제일 흔한 하나(찾음)가 나머지를 삼킨다.
     //
-    // USE_DB_WORKER=0 이어도 계수기는 남아 0 으로 노출된다(전투 계수기와 같은 이유 —
+    // USE_DB_WORKER=0 이어도 카운터는 남아 0 으로 노출된다(전투 카운터와 같은 이유 —
     //   "꺼진 것"과 "노출을 빠뜨린 것"이 화면에서 똑같아 보이지 않게).
     //   단 _inGame 하나는 예외다 — 토글과 무관하게 게임 루프가 늘 갱신하므로 실제 인원이 나온다.
     // ══════════════════════════════════════════════════════════════

@@ -11,7 +11,7 @@
 
 struct ItemDef;
 
-// 넣기 결과 — 거절은 사유마다 계수기가 하나씩이라(GameMonitor) enum 과 이름 표로 둔다.
+// 넣기 결과 — 거절은 사유마다 카운터가 하나씩이라(GameMonitor) enum 과 이름 표로 둔다.
 //   ※ UNKNOWN_ITEM 은 TryAdd 가 돌려주지 않는다 — 표에 없는 번호는 부르는 쪽이 먼저 가른다.
 //     그래도 여기 두는 이유는 "넣기가 왜 안 됐나"를 한 벌의 사유로 세기 위해서다.
 enum class InvAddResult : uint8_t

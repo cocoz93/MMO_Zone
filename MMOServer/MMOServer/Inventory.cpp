@@ -38,7 +38,7 @@ namespace
 
 const char* InvAddResultName(InvAddResult r)
 {
-    // 값마다 한 줄 — 새 사유를 넣고 여기를 빠뜨리면 아래 단언이 막는다(라벨 없는 계수기가 안 생기게).
+    // 값마다 한 줄 — 새 사유를 넣고 여기를 빠뜨리면 아래 단언이 막는다(라벨 없는 카운터가 안 생기게).
     static_assert(static_cast<int>(InvAddResult::COUNT) == 5, "InvAddResult 를 늘렸으면 이름도 붙일 것");
     switch (r)
     {

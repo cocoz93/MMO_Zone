@@ -32,10 +32,10 @@ struct CGroundItem
 
 // ── 사유 enum 은 정하는 쪽의 어휘다(10-06, 아키텍처 전수검사 7번) ──
 //   아래 둘은 땅 아이템 관리자가 정한다. 와이어 값(Protocol.h GroundItemGone·PickupFail)으로 바꾸는 건 게임 서버의 일이고
-//   (ToZoneChangeFailReason 과 같은 꼴), 계수기(GameMonitor.h)는 COUNT 와 이름표만 빌린다. 이 헤더는 패킷을 모른다.
+//   (ToZoneChangeFailReason 과 같은 꼴), 카운터(GameMonitor.h)는 COUNT 와 이름표만 빌린다. 이 헤더는 패킷을 모른다.
 
 // 땅에서 빠진 까닭 — 와이어의 GroundItemGone 과 다르다(그쪽의 OUT_OF_SIGHT 는 빠진 게 아니라 안 보이는 것,
-//   CLEANED 는 알릴 사람이 없어 와이어에 안 나간다). 빼는 자리마다 한 칸이라 계수기 등식이 한 곳의 누락도 드러낸다.
+//   CLEANED 는 알릴 사람이 없어 와이어에 안 나간다). 빼는 자리마다 한 칸이라 카운터 등식이 한 곳의 누락도 드러낸다.
 enum class GroundItemRemoval : uint8_t
 {
     PICKED,    // 누가 주웠다

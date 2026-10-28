@@ -93,7 +93,7 @@ ShopReject CShopSystem::Buy(CPlayer* player, const CCharacter* npc, int32_t item
 
     player->_inventory.SpendMoney(cost);
     _gameMonitor._shop._bought.Inc();
-    _gameMonitor._inventory._itemsAdded.Add(count);   // /item · 줍기 · 방 보상과 같은 계수기 — 가방에 들어간 개수
+    _gameMonitor._inventory._itemsAdded.Add(count);   // /item · 줍기 · 방 보상과 같은 카운터 — 가방에 들어간 개수
     _gameMonitor._inventory._moneyOut[static_cast<int>(MoneySink::BUY)].Add(cost);
     return ShopReject::COUNT;
 }

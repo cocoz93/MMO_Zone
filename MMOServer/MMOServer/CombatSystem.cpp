@@ -6,7 +6,7 @@
 #include "Zone.h"            // GetSectorManager
 #include "SectorManager.h"   // 사거리가 걸치는 섹터 훑기
 #include "Player.h"          // GetSectorPlayers 가 CPlayer* 를 돌려준다 — CCharacter* 로 넘기려면 완전한 타입이 필요
-#include "GameMonitor.h"     // 공격·죽음 계수기
+#include "GameMonitor.h"     // 공격·죽음 카운터
 #include "CharacterComponents.h"  // 체력·공격 컴포넌트 — 입구에서 꺼내 쓴다
 #include <cassert>
 #if USE_MONSTER
@@ -63,7 +63,7 @@ CCombatSystem::CCombatSystem(CGameMonitor& gameMonitor, ICombatEvents& events)
 //   전부 CCharacter 것이라 갈라낼 수 있었다(CPlayer 전용 필드가 하나도 없다).
 //
 //   ★ 지표는 종류별로 가른다. 기준이 둘이다 —
-//     공격 계수기는 "때린 쪽"(attacker), 죽음 계수기는 "당한 쪽"(target)으로 간다.
+//     공격 카운터는 "때린 쪽"(attacker), 죽음 카운터는 "당한 쪽"(target)으로 간다.
 //     죽음을 때린 쪽으로 가르면 플레이어가 뱀을 죽인 것이 "플레이어 죽음"으로 세어진다.
 void CCombatSystem::PerformAttack(CZone* zone, CCharacter* player, uint64_t frame)
 {

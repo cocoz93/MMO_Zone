@@ -26,7 +26,7 @@ void CRewardHandler::GrantMonsterExp(CZone* zone, CPlayer* killer, int32_t rewar
 {
     {   // 옛 OnDeath 6) 의 몸 그대로(10-17 도우미로 뺌 — 막타 경로와 방 보상이 같이 부른다. killer = 받는 사람)
         // ★ 준 뒤에 센다 — GainExp 는 만렙이면 한 톨도 안 쌓는다.
-        //   먼저 세면 만렙 이후 잡은 수만큼 "줬다"가 늘어, 계수기가 실제와 갈린다.
+        //   먼저 세면 만렙 이후 잡은 수만큼 "줬다"가 늘어, 카운터가 실제와 갈린다.
         const int64_t beforeExp = killer->_exp;
         const bool leveled = _statSystem.GainExp(killer, reward);
         const bool gained  = (killer->_exp != beforeExp);
@@ -118,12 +118,12 @@ void CRewardHandler::RewardRoom(CZone* zone, CMonster* monster)
             const InvAddResult r = p->_inventory.TryAdd(*def, it.count);
             if (r == InvAddResult::OK)
             {
-                // 아이템 개수 계수기(가방 넣은 수 · 방 보상 가방 몫)는 칸에 드는 아이템만 — 돈의 개수는 금액(전)이라 단위가 달라 돈 들어옴에만 센다
+                // 아이템 개수 카운터(가방 넣은 수 · 방 보상 가방 몫)는 칸에 드는 아이템만 — 돈의 개수는 금액(전)이라 단위가 달라 돈 들어옴에만 센다
                 if (def->store == ItemStore::MONEY)
                     _gameMonitor._inventory._moneyIn[static_cast<int>(MoneySource::REWARD)].Add(it.count);   // 개수 = 금액(전)
                 else
                 {
-                    _gameMonitor._inventory._itemsAdded.Add(it.count);   // /item · 줍기와 같은 계수기 — 가방에 들어간 개수
+                    _gameMonitor._inventory._itemsAdded.Add(it.count);   // /item · 줍기와 같은 카운터 — 가방에 들어간 개수
                     _gameMonitor._room._rewardItemsBag.Add(it.count);
                 }
                 _selfNotifier.SendSystemMessage(p, "얻음 — " + def->name + " ×" + std::to_string(it.count));

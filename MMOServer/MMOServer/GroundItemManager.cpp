@@ -3,7 +3,7 @@
 #include "Zone.h"             // 나를 든 존 — 섹터·벽 선 자르기
 #include "SectorManager.h"    // 좌표 → 칸 번호 (CalcSectorX/Y)
 #include "Player.h"           // 줍는 사람의 생사·좌표·계정
-#include "GameMonitor.h"      // 드랍 계수기 (사유 enum 은 GroundItem.h — 이 파일은 Protocol.h 를 모른다, 10-06)
+#include "GameMonitor.h"      // 드랍 카운터 (사유 enum 은 GroundItem.h — 이 파일은 Protocol.h 를 모른다, 10-06)
 #include <cassert>
 
 const std::vector<CGroundItem> CGroundItemManager::EMPTY_ITEMS;

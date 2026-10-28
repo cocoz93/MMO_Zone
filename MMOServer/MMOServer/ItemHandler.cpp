@@ -340,7 +340,7 @@ void CItemHandler::RecvPickup(CPlayer* player, CSerialBuffer* /*pMsg*/)   // 몸
             if (def->store == ItemStore::MONEY)
                 _gameMonitor._inventory._moneyIn[static_cast<int>(MoneySource::PICKUP)].Add(g.item.count);   // 돈 무더기 — 개수 = 금액(전)
             else
-                _gameMonitor._inventory._itemsAdded.Add(g.item.count);   // /item 과 같은 계수기 — 가방에 들어간 개수(돈은 단위가 달라 위에만)
+                _gameMonitor._inventory._itemsAdded.Add(g.item.count);   // /item 과 같은 카운터 — 가방에 들어간 개수(돈은 단위가 달라 위에만)
             groundItems.Remove(MakeGroundItemContext(), at.sectorX, at.sectorY, at.index,
                                GroundItemRemoval::PICKED, player->_actorId);
             FlushInventory(player);   // 칸 패킷 + 그 틱 끝 저장 요청

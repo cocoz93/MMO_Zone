@@ -6,7 +6,7 @@
 #include <string>
 #include "Player.h"          // 가방 · 생사 · 자리 · 존 번호
 #include "GameDataFiles.h"   // 아이템 표(거래 가능 · 넣기의 정의)
-#include "GameMonitor.h"     // 거래 계수기
+#include "GameMonitor.h"     // 거래 카운터
 #include "Reach.h"           // 손 닿는 범위 식 — 포털·상점과 같은 한 곳
 #include "MapManager.h"      // GetMapIdFromZoneId — 존 번호 → 맵 번호 풀기(정적 함수만)
 #include <Common/ErrorLog.h>

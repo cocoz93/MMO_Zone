@@ -297,7 +297,7 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
 
     if (SpawnPlayer(result.sessionId, pending.actorId, pending.accountId, zone, place) == nullptr)
     {
-        // 분기 계수기는 위에서 이미 올랐다. 여기 오는 길은 채널 생성 실패뿐이라 계수기를 따로 두지 않는다(로그만).
+        // 분기 카운터는 위에서 이미 올랐다. 여기 오는 길은 채널 생성 실패뿐이라 카운터를 따로 두지 않는다(로그만).
         SLOG_ERROR("[DB] spawn failed after load -> disconnect (account={}, session={})", result.accountId, result.sessionId);
         _sessionHub.RequestDisconnect(result.sessionId);
     }
@@ -357,7 +357,7 @@ CPlayer* CEntryHandler::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t 
     //   ★ 무기 칸(900)도 여기서 들어온다. 아래 레벨 정산·스탯 세우기(RecalcStats)가 무기 몫을 더하므로,
     //     이 줄이 그보다 뒤에 있으면 무기를 끼운 채 나갔다 들어온 사람이 맨손 공격력으로 입장한다
     //     (컴파일도 되고 화면도 멀쩡하다 — 입장 직후 S2C_MY_STATS 의 공격력만 틀린다).
-    //   가방과 계수기만 만지는 일이라 앞당겨도 다른 것이 안 바뀐다. 전체 목록(SendInventory)은 그대로 아래에서 보낸다.
+    //   가방과 카운터만 만지는 일이라 앞당겨도 다른 것이 안 바뀐다. 전체 목록(SendInventory)은 그대로 아래에서 보낸다.
     if (place.loaded != nullptr)
         _characterStore.LoadInventoryRows(player, *place.loaded);
 #endif

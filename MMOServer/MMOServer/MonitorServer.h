@@ -494,7 +494,7 @@ private:
     }
 
     // 전투 지표 — _gameMonitor(게임 저장소)를 읽는 자리다. (아래 WriteEnterCounters 와 함께 둘뿐이다)
-    //   USE_COMBAT=0 이어도 계수기는 남아 0으로 노출된다. 조건부로 감추지 않는 이유는
+    //   USE_COMBAT=0 이어도 카운터는 남아 0으로 노출된다. 조건부로 감추지 않는 이유는
     //   USE_COMBAT 이 BuildConfig.h 에 있어 이 헤더가 그걸 안 읽으면 #if 가 조용히 0이 되고,
     //   그러면 "전투가 꺼진 것"과 "노출을 빠뜨린 것"이 화면에서 똑같아 보이기 때문이다.
     void WriteCombatCounters(std::ostringstream& ss)
