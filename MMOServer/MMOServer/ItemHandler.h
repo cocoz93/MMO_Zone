@@ -2,14 +2,14 @@
 // CItemHandler — 가방·땅: 물약·장착·줍기 요청과 가방 내보내기, 땅 아이템 알림 (게임 서버 나누기 6 단계 · C6 · USE_INVENTORY)
 //
 // [책임]
-//  - 받은 패킷 넷의 처리기와 그 등록(RegisterRoutes — 물약 · 끼우기 · 빼기 · 줍기) — 컨텐츠 조각이 자기 줄을 등록한다
+//  - 받은 패킷 넷의 처리기와 그 등록(RegisterRoutes — 물약 · 끼우기 · 빼기 · 줍기) — 컨텐츠 모듈이 자기 줄을 등록한다
 //  - 바뀐 칸 내보내기 한 곳(FlushInventory — 칸 패킷 + 그 틱 끝 저장 요청) · 거절 사유를 와이어 값으로(물약 · 장착 · 줍기)
 //  - 땅 아이템 알림(IGroundItemEvents — 번호 발급 · 떨어짐 · 빠짐)과 수명 훑기 틱 · 관리자에 넘길 묶음(MakeGroundItemContext) ·
 //    존 지우기 직전 남은 땅 아이템 세기(OnErasingZone)
 //
 // [경계]
 //  판정·적용은 규칙에 맡긴다 — 쓰기·장착은 CItemSystem, 줍기 고르기·땅 목록은 존의 CGroundItemManager. 여기는 받기와 내보내기.
-//  보내기는 조각에 맡긴다 — 한 사람 패킷(세션 허브) · 본인 상태(본인 알림) · 주변·땅 아이템 보이기(시야 방송). 칸 저장은 캐릭터 저장소.
+//  보내기는 다른 모듈에 맡긴다 — 한 사람 패킷(세션 허브) · 본인 상태(본인 알림) · 주변·땅 아이템 보이기(시야 방송). 칸 저장은 캐릭터 저장소.
 //  무엇이 떨어질지(굴림)는 처치 보상 쪽이다 — 여기는 떨어진 뒤의 알림과 줍기만.
 //
 // [모르는 것]
@@ -47,7 +47,7 @@ class CItemHandler
 #endif
 {
 public:
-    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(세 보내기 조각 · 저장소 · 아이템 규칙 · 맵 관리자 · 게임 지표 · 기획 데이터 · 틱 번호)보다
+    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(보내기 셋(CSessionHub · CSelfNotifier · CSightBroadcaster) · 저장소 · 아이템 규칙 · 맵 관리자 · 게임 지표 · 기획 데이터 · 틱 번호)보다
     //   뒤에 이것을 선언해야 한다(멤버는 선언 순서로 세워진다). 생성 중엔 쓰지 않는다.
     CItemHandler(CSessionHub& sessionHub, CSelfNotifier& selfNotifier, CSightBroadcaster& sightBroadcaster,
 #if USE_DB_WORKER
@@ -112,7 +112,7 @@ private:
                           int32_t sectorX, int32_t sectorY) override;         // 주변에 CREATE(DROP)
     void OnGroundItemGone(CZone* zone, int32_t sectorX, int32_t sectorY,
                           int32_t groundId, GroundItemRemoval why, int32_t pickerId) override;   // 주변 + 같은 틱 이동자에게 DELETE — 와이어 값 변환은 여기
-    //   두 알림의 보내기(주변 · 같은 틱 이동자 · 한 사람에게 보이기·지우기)는 시야 조각(_sightBroadcaster) — 게임 서버 나누기 3 단계
+    //   두 알림의 보내기(주변 · 같은 틱 이동자 · 한 사람에게 보이기·지우기)는 CSightBroadcaster(_sightBroadcaster) — 게임 서버 나누기 3 단계
 #endif
 
     CSessionHub&          _sessionHub;         // 한 사람 패킷(칸 · 거절)

@@ -9,7 +9,7 @@
 // [경계]
 //  틱 너머로 캐릭터를 드는 컨텐츠 목록(부활 대기열 · 지속 효과 · 파티)은 직접 안 만진다 — 「존에서 빠짐 · 떠남」 알림(IPlacementEvents)으로
 //  알리고 받는 쪽이 뺀다(게임 서버 나누기 0-③ ⑴⑶). 차례는 알림 앞뒤로 지킨다(시야 몫 → 알림 → 존 소속 · 저장 → 알림 → 칸 해제).
-//  보내기는 세 조각에 맡긴다 — 한 사람 패킷(세션 허브) · 본인 상태(본인 알림) · 주변(시야 방송). 저장은 캐릭터 저장소
+//  보내기는 세 클래스에 맡긴다 — 한 사람 패킷(세션 허브) · 본인 상태(본인 알림) · 주변(시야 방송). 저장은 캐릭터 저장소
 //  (단, 존 이동의 저장 표시 _dbDirty 는 TransferPlayer 가 직접 켠다 — 바꾼 쪽은 표시만, 언제 쓰는지는 저장소가 정한다 · 저장 플랜 C).
 //  들어갈 수 있는지(목적지·정원·같은 존·포털 규칙)는 부르는 쪽이 이미 봤다 — 입장은 실패가 없다(CZone::EnterZone 주석).
 //
@@ -35,7 +35,7 @@ class CCharacterStore;
 #endif
 
 // 배치가 캐릭터를 내보낼 때 알리는 통로 — 틱 너머로 그 캐릭터의 주소를 드는 목록이 거기서 뺀다(빼지 않으면 다음 틱이 해제된 메모리를 밟는다).
-//   CGameServer 가 구현한다 — 정리할 목록이 전투 조각 · 효과 규칙 · 파티 규칙에 흩어져 있어 게임 서버가 받아 차례대로 나눠 부른다(게임 서버 나누기 9 단계 결정). 순수 가상이라 빠뜨리면 컴파일이 안 된다.
+//   CGameServer 가 구현한다 — 정리할 목록이 CCombatHandler · 효과 규칙 · 파티 규칙에 흩어져 있어 게임 서버가 받아 차례대로 나눠 부른다(게임 서버 나누기 9 단계 결정). 순수 가상이라 빠뜨리면 컴파일이 안 된다.
 class IPlacementEvents
 {
 public:
@@ -65,7 +65,7 @@ public:
     // 옮길 자리 — 없으면(nullptr) 그 존의 「자리 없이 들어오는」 규칙(TransferPlayer 주석)
     struct SpawnAt { float x; float y; };
 
-    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(세 보내기 조각 · 저장소 · 맵 관리자 · 게임 지표)보다 뒤에 이것을 선언해야 한다
+    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(보내기 셋(CSessionHub · CSelfNotifier · CSightBroadcaster) · 저장소 · 맵 관리자 · 게임 지표)보다 뒤에 이것을 선언해야 한다
     //   (멤버는 선언 순서로 세워진다). 생성 중엔 쓰지 않는다.
     CPlayerPlacement(CSessionHub& sessionHub, CSelfNotifier& selfNotifier, CSightBroadcaster& sightBroadcaster,
 #if USE_DB_WORKER
@@ -88,7 +88,7 @@ public:
     //   들어갈 수 있는지(목적지·정원·같은 존)는 부르는 쪽이 이미 봤다 — 입장은 실패가 없다(CZone::EnterZone 주석).
     void TransferPlayer(CPlayer* player, CZone* oldZone, CZone* newZone, ArrivalKind kind, const SpawnAt* at);
 
-    //   RemoveFromZone     — 존에서 빼기: 시야 몫(시야 조각의 BroadcastLeaveZone) → 「존에서 빠짐」 알림(부활 대기열 정리) → CZone::LeaveZone. 종류를 안 가린다 —
+    //   RemoveFromZone     — 존에서 빼기: 시야 몫(CSightBroadcaster 의 BroadcastLeaveZone) → 「존에서 빠짐」 알림(부활 대기열 정리) → CZone::LeaveZone. 종류를 안 가린다 —
     //                        플레이어 퇴장·존 이동과 죽은 몬스터(OnDeath 끝)·사라지는 몬스터가 같이 쓴다
     void RemoveFromZone(CZone* zone, CCharacter* player);
 

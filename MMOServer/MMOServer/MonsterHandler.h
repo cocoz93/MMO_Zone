@@ -7,7 +7,7 @@
 //
 // [경계]
 //  몬스터 코드(깔기 · 판단 · 벽 앞 재판단 · 지우기)는 존마다 든 CMonsterManager. 공격·스킬은 플레이어와 같은 규칙(CCombatSystem · CSkillSystem)을 쓴다.
-//  보내기는 시야 조각, 존에서 빼기는 배치. 죽은 몬스터 지우기는 전투 조각의 처치 알림(CCombatHandler::OnDeath) 끝이다.
+//  보내기는 CSightBroadcaster, 존에서 빼기는 배치. 죽은 몬스터 지우기는 CCombatHandler::OnDeath(처치 알림) 끝이다.
 //
 // [모르는 것]
 //  보상 · 파티 · 가방 · 입장. 세션과 패킷 분기 표.
@@ -41,7 +41,7 @@ class CSkillSystem;
 class CMonsterHandler : private IMonsterEvents
 {
 public:
-    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(세션 허브 · 시야 조각 · 배치 · 규칙 셋 · 맵 관리자 · 게임 지표 · 틱 번호)보다
+    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(세션 허브 · CSightBroadcaster · 배치 · 규칙 셋 · 맵 관리자 · 게임 지표 · 틱 번호)보다
     //   뒤에 이것을 선언해야 한다(멤버는 선언 순서로 세워진다). 생성 중엔 쓰지 않는다.
     CMonsterHandler(CSessionHub& sessionHub, CSightBroadcaster& sightBroadcaster, CPlayerPlacement& placement,
 #if USE_COMBAT

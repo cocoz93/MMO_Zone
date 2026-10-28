@@ -5,7 +5,7 @@
 //  - NPC 객체 소유 (unique_ptr 목록) — 존과 같이 태어나고 같이 사라지므로 존이 이 관리자를 값으로 든다(몬스터 관리자와 형제)
 //  - 깔기 — 존의 첫 틱에 그 맵의 NPC 표 줄마다 하나씩. 그 뒤로 할 일이 없다(리젠·판단·죽음이 없다)
 //    채널이 새로 생겨도 그 존의 첫 틱이 깔아 준다 — 채널을 만드는 쪽이 NPC 를 몰라도 된다
-//  - 송신·번호 발급은 하지 않는다 — 일이 생기면 INpcEvents 로 알리고, 받는 쪽(NPC 조각 CNpcHandler)이 한다
+//  - 송신·번호 발급은 하지 않는다 — 일이 생기면 INpcEvents 로 알리고, 받는 쪽(CNpcHandler)이 한다
 //
 // [왜 첫 틱인가] 존을 만드는 곳(맵 관리자)에선 번호 발급기(세션 허브)를 모른다 — 몬스터가 첫 틱에 까는 것과 같은 까닭.
 //
@@ -22,7 +22,7 @@ class CZone;
 class CNpc;                // 전방 선언이면 된다 — unique_ptr 을 지우는 생성자·소멸자 몸체는 .cpp 에 둔다(Zone.h 와 같은 규칙)
 class CGameDataFiles;
 
-// NPC 쪽이 게임 서버에 부탁하는 것 — NPC 조각 CNpcHandler 가 구현한다(IMonsterEvents 와 같은 꼴).
+// NPC 쪽이 게임 서버에 부탁하는 것 — CNpcHandler 가 구현한다(IMonsterEvents 와 같은 꼴).
 //   ★ 순수 가상이라 하나를 빠뜨리면 컴파일이 안 된다.
 class INpcEvents
 {

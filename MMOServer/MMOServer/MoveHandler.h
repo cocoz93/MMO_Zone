@@ -2,12 +2,12 @@
 // CMoveHandler — 이동: 이동 시작·멈춤 요청과 좌표 수용 예산 (게임 서버 나누기 11 단계 · C2 · 토글 없음)
 //
 // [책임]
-//  - 받은 패킷 둘의 처리기와 그 등록(RegisterRoutes — 이동 시작 · 멈춤) — 컨텐츠 조각이 자기 줄을 등록한다
+//  - 받은 패킷 둘의 처리기와 그 등록(RegisterRoutes — 이동 시작 · 멈춤) — 컨텐츠 모듈이 자기 줄을 등록한다
 //  - 클라 예측 좌표 수용(IDLE → MOVING 때만 · 거리 한도 + 시간 비례 예산) · 벽 방향 차단 · 방향 전환
 //  - 이동 예산 거부 건수를 틱 안에서 모아 틱 끝에 지표로 한 번(ReportTickMetrics)
 //
 // [경계]
-//  좌표 이동·섹터 바뀜 판정은 존(CZone — 맵 경계 · 벽 · 섹터 대기열), 주변에 알리기는 시야 조각(이동 묶음 · 본인 되돌림).
+//  좌표 이동·섹터 바뀜 판정은 존(CZone — 맵 경계 · 벽 · 섹터 대기열), 주변에 알리기는 CSightBroadcaster(이동 묶음 · 본인 되돌림).
 //  매 틱 서버 주도 이동(speed × dt)은 존 틱이 한다 — 여기는 요청이 들어온 순간의 상태 바꾸기만.
 //
 // [모르는 것]
@@ -29,7 +29,7 @@ class CGameMonitor;
 class CMoveHandler
 {
 public:
-    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 넷(시야 조각 · 맵 관리자 · 게임 지표 · 틱 번호)보다 뒤에 이것을 선언해야 한다
+    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 넷(CSightBroadcaster · 맵 관리자 · 게임 지표 · 틱 번호)보다 뒤에 이것을 선언해야 한다
     //   (멤버는 선언 순서로 세워진다). 생성 중엔 쓰지 않는다.
     CMoveHandler(CSightBroadcaster& sightBroadcaster, CMapManager& mapManager, CGameMonitor& gameMonitor, const uint64_t& frameCount)
         : _sightBroadcaster(sightBroadcaster), _mapManager(mapManager), _gameMonitor(gameMonitor), _frameCount(frameCount) {}
@@ -37,7 +37,7 @@ public:
     // 받은 패킷 등록 — 이동 시작 · 멈춤. 게임 서버의 등록(RegisterRoutes)이 부른다. false = 등록 실패(기동 거절).
     bool RegisterRoutes(CPacketRoutes& routes);
 
-    // 틱 끝) 이동 예산 거부 건수를 지표에 한 번 반영하고 0 으로 — 게임 루프가 시야 조각의 틱 끝 지표 옆에서 부른다.
+    // 틱 끝) 이동 예산 거부 건수를 지표에 한 번 반영하고 0 으로 — 게임 루프가 CSightBroadcaster 의 틱 끝 지표 옆에서 부른다.
     void ReportTickMetrics();
 
 private:

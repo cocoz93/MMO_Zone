@@ -5,7 +5,7 @@
 //  - 사기: 살 수 있나(판정) → 가방에 넣기(전부 들어갈 때만) → 돈 빼기
 //  - 팔기: 팔 수 있나(판정) → 칸에서 빼기 → 돈 더하기
 //  - 사들이는 값(SellPriceOf — 파는 값의 절반 내림) · 그 과정에서 정한 것(성공 · 거절 사유 · 돈 들어옴·나감)을 지표로 센다
-//  - 보내기·저장은 하지 않는다 — 바뀐 칸·돈은 가방이 스스로 표시해 두고, 부르는 쪽(상점 조각 CShopHandler)이
+//  - 보내기·저장은 하지 않는다 — 바뀐 칸·돈은 가방이 스스로 표시해 두고, 부르는 쪽(CShopHandler)이
 //    FlushInventory(칸 패킷 + S2C_MONEY + 틱 끝 저장 요청)·거절 패킷을 낸다(CItemSystem 과 같은 꼴)
 //
 // [「돈만 빠지고 물건이 안 들어옴」을 막는 자리] ⑴ 메모리 — 게임 로직이 스레드 하나라 한 요청의 판정·넣기·빼기가 안 끊기고,
@@ -14,8 +14,8 @@
 //
 // [계층 경계]
 //  CPlayer·CCharacter(말 걸기 칸)·CInventory·아이템 표·상점 표·CGameMonitor 를 안다. 세션·패킷·CGameServer·존은 모른다.
-//  NPC 를 「찾는」 것은 부르는 쪽(존의 섹터를 아는 상점 조각)이다 — 여기는 찾은 캐릭터(없으면 nullptr)를 받아 판정만 한다.
-//  거절 사유는 이 층의 어휘(ShopReject) — 와이어 ShopFail 로 바꾸는 건 상점 조각이다(UseItemReject → UseItemFail 과 같은 꼴).
+//  NPC 를 「찾는」 것은 부르는 쪽(존의 섹터를 아는 CShopHandler)이다 — 여기는 찾은 캐릭터(없으면 nullptr)를 받아 판정만 한다.
+//  거절 사유는 이 층의 어휘(ShopReject) — 와이어 ShopFail 로 바꾸는 건 CShopHandler 다(UseItemReject → UseItemFail 과 같은 꼴).
 // ==========================================================================
 #pragma once
 
@@ -31,7 +31,7 @@ class CGameDataFiles;
 class CGameMonitor;
 struct ItemDef;
 
-// 사고팔기 거절 사유 — 와이어 ShopFail 과 같은 열(상점 조각이 switch 로 옮긴다).
+// 사고팔기 거절 사유 — 와이어 ShopFail 과 같은 열(CShopHandler 가 switch 로 옮긴다).
 //   확인 순서는 사기·팔기마다 다르다(아래 Buy · Sell 주석 — 플랜 「흐름」). 겹치면 먼저 걸린 하나로 답한다. 통과 = COUNT.
 enum class ShopReject : uint8_t
 {

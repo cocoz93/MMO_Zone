@@ -76,7 +76,7 @@ namespace Combat
     int32_t CalcDamage(int32_t attack, int32_t defense, bool& outFloored);
 
     // 피해 적용은 체력 컴포넌트(CHealthComponent::TakeDamage)이 한다 — 체력 0 과 죽음 표시(생사·죽은 프레임)를 같이 적는다.
-    //   플레이어의 죽은 목록은 전투 조각(CCombatHandler::OnDeath) 몫이다.
+    //   플레이어의 죽은 목록은 CCombatHandler::OnDeath 몫이다.
 
     // 부활할 때가 됐나 (살아 있으면 항상 false)
     bool IsRespawnDue(const CHealthComponent& health, uint64_t frame);
@@ -86,8 +86,8 @@ namespace Combat
     void Respawn(CCharacter& actor);
 
     // 부활 자리 규칙 한 곳 — 죽은 맵이 마을(기본 맵 = 맵 표 첫 줄)이 아니면 마을 시작 구역으로, 마을이면 제자리.
-    //   부르는 곳 둘: 전투 조각의 부활 틱(CCombatHandler::TickRespawn — 죽고 3초 뒤) · 입장 조각(CEntryHandler::OnCharacterLoaded — 죽은 채 저장된 행 —
-    //   나가기·부활 전 주기 저장·죽은 채 서버 다운). 두 조각이 같이 쓰는 규칙이라 서로 부르지 않게 여기 순수 함수로 둔다
+    //   부르는 곳 둘: CCombatHandler::TickRespawn(부활 틱 — 죽고 3초 뒤) · CEntryHandler::OnCharacterLoaded(죽은 채 저장된 행 —
+    //   나가기·부활 전 주기 저장·죽은 채 서버 다운). 두 클래스가 같이 쓰는 규칙이라 서로 부르지 않게 여기 순수 함수로 둔다
     //   (게임 서버 나누기 9 단계 — 전에는 CGameServer 멤버 함수였다).
     inline bool RespawnsToTown(int32_t deathMapId, int32_t townMapId) { return deathMapId != townMapId; }
 

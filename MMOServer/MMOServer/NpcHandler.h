@@ -1,12 +1,12 @@
 ﻿// ==========================================================================
-// CNpcHandler — NPC: 존마다 NPC 틱과 NPC 알림(등장 · 번호 부탁) (NPC·상점 플랜 4판 · 조각 C9 · 토글 없음)
+// CNpcHandler — NPC: 존마다 NPC 틱과 NPC 알림(등장 · 번호 부탁) (NPC·상점 플랜 4판 · 작업 C9 · 토글 없음)
 //
 // [책임]
 //  - 틱 1-1b — 존마다 NPC 관리자의 Tick(첫 틱이면 그 맵의 NPC 를 깐다)을 부른다
 //  - NPC 알림(INpcEvents) — 번호 발급(세션 허브의 발급기로) · 등장(부류 값 DISPLAY_NPC · 정의 번호 = npcId · 주변 CREATE · 지표)
 //
 // [경계]
-//  NPC 객체·깔기는 존마다 든 CNpcManager. 보내기는 시야 조각. 사고팔기 요청은 상점 조각(USE_SHOP) — 이 조각은 상점을 모른다.
+//  NPC 객체·깔기는 존마다 든 CNpcManager. 보내기는 CSightBroadcaster. 사고팔기 요청은 CShopHandler(USE_SHOP) — 이 클래스는 상점을 모른다.
 //  토글이 없다 — NPC 는 맵·포털처럼 세계 데이터라, 상점을 끈 빌드에도 서 있다(말 걸기만 된다).
 //
 // [모르는 것]
@@ -29,7 +29,7 @@ class CGameMonitor;
 class CNpcHandler : private INpcEvents
 {
 public:
-    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(세션 허브 · 시야 조각 · 맵 관리자 · 게임 지표)보다 뒤에 이것을 선언해야 한다.
+    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(세션 허브 · CSightBroadcaster · 맵 관리자 · 게임 지표)보다 뒤에 이것을 선언해야 한다.
     CNpcHandler(CSessionHub& sessionHub, CSightBroadcaster& sightBroadcaster, CMapManager& mapManager, CGameMonitor& gameMonitor)
         : _sessionHub(sessionHub), _sightBroadcaster(sightBroadcaster), _mapManager(mapManager), _gameMonitor(gameMonitor) {}
 

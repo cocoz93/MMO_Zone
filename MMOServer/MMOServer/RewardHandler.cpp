@@ -154,7 +154,7 @@ void CRewardHandler::RewardRoom(CZone* zone, CMonster* monster)
 
 #if USE_DROP
 // 드랍 굴림 — 땅의 아이템(값)과 놓기·수명·주인·줍기 고르기·개수는 존마다 든 CGroundItemManager(GroundItemManager.h) ·
-//   그 알림과 줍기는 가방·땅 조각(CItemHandler). 여기는 무엇이 떨어질지 굴려 관리자에 넘기기만(게임 서버 나누기 8 단계).
+//   그 알림과 줍기는 CItemHandler. 여기는 무엇이 떨어질지 굴려 관리자에 넘기기만(게임 서버 나누기 8 단계).
 void CRewardHandler::DropLoot(CZone* zone, CPlayer* killer, CMonster* monster)
 {
     _gameMonitor._drop._rolls.Inc();   // 아무것도 안 떨어져도 1 — "잡은 수"와 같아야 한다

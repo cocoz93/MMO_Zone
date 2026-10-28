@@ -37,7 +37,7 @@ class CCharacter;
 class CStatSystem;
 class CGameMonitor;
 
-// 효과가 바뀌었다 — 전투 조각 CCombatHandler 가 구현한다(패킷 조립·송신 — 게임 서버 나누기 9 단계). ICombatEvents 와 같은 꼴.
+// 효과가 바뀌었다 — CCombatHandler 가 구현한다(패킷 조립·송신 — 게임 서버 나누기 9 단계). ICombatEvents 와 같은 꼴.
 //   스탯은 이미 다시 세운 뒤에 온다 — 받는 쪽은 칸(효과 컴포넌트 CBuffComponent::_slots[kind])을 그대로 읽어 보내면 된다(비었으면 풀림 = remainMs 0).
 //   ★ 순수 가상이라 빠뜨리면 컴파일이 안 된다.
 class IBuffEvents

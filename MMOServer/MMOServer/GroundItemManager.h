@@ -6,7 +6,7 @@
 //    시야 송신(입장·섹터 이동)이 칸 단위로 읽는다(GetSectorItems). 넣고 빼는 자리는 이 클래스 안뿐이다
 //  - 땅 아이템의 규칙 — 놓을 자리·주인·수명 정하기(Drop) · 빼기(Remove) · 수명 훑기(TickExpire) ·
 //    주울 것 고르기(FindPickup) · 이 존에 있는 수 세기(_count, 채널 정리 때 ForgetAll)
-//  - 송신·번호 발급은 하지 않는다 — 일이 생기면 IGroundItemEvents 로 알리고, 받는 쪽(가방·땅 조각 CItemHandler)이 한다
+//  - 송신·번호 발급은 하지 않는다 — 일이 생기면 IGroundItemEvents 로 알리고, 받는 쪽(CItemHandler)이 한다
 //
 // [왜 떼어냈나]
 //  땅은 아이템이 있을 수 있는 그릇 중 하나다(가방·장비 칸과 같은 층) — 그릇이 자기 물건과 규칙을 함께 든다
@@ -17,7 +17,7 @@
 // [계층 경계]
 //  CZone·CSectorManager(좌표 → 섹터 좌표 · 칸 번호 · 격자 범위 계산만)·CPlayer(줍는 사람의 생사·좌표·계정만 읽는다)를 안다. 세션·패킷 조립·CGameServer 는 모른다.
 //  게임 서버 것(알림 통로·계수기)은 부를 때마다 GroundItemContext 로 받는다 — 몬스터 관리자와 같은 까닭
-//  (MonsterManager.h [계층 경계]). 무엇이 떨어질지(드랍 표 굴림)는 처치 보상 조각(CRewardHandler::DropLoot)이 정한다 — 잡은 사람에게 주는
+//  (MonsterManager.h [계층 경계]). 무엇이 떨어질지(드랍 표 굴림)는 CRewardHandler::DropLoot 가 정한다 — 잡은 사람에게 주는
 //  보상이라 경험치와 같은 자리다. 여기는 굴린 결과를 받아 땅에 놓는 데서 시작한다.
 // ==========================================================================
 #pragma once
@@ -40,7 +40,7 @@ class CGameMonitor;
 // 사유 enum(GroundItemRemoval·PickupReject)은 GroundItem.h — 이 층의 어휘다. 와이어 enum(Protocol.h GroundItemGone·PickupFail)은
 //   여기서 모른다. 바꾸는 건 게임 서버(10-06 — 전에는 이 관리자가 Protocol.h 를 포함하고 변환까지 했다).
 
-// 땅 아이템 쪽이 게임 서버에 부탁하는 것 — 가방·땅 조각(CItemHandler)이 구현한다(번호 계수기가 거기 있고, 송신은 시야 조각에 맡긴다).
+// 땅 아이템 쪽이 게임 서버에 부탁하는 것 — CItemHandler 가 구현한다(번호 계수기가 거기 있고, 송신은 CSightBroadcaster 에 맡긴다).
 //   IMonsterEvents 와 같은 꼴: "패킷을 보내라"가 아니라 "무슨 일이 있었다"로 알리고, 패킷 조립은 받는 쪽이 한다.
 //   ★ 순수 가상이라 하나를 빠뜨리면 컴파일이 안 된다.
 class IGroundItemEvents

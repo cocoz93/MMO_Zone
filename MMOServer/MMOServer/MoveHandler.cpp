@@ -10,7 +10,7 @@
 #include <Protocol/Protocol.h>
 #include <cmath>              // std::sqrt — 예산 소비 거리
 
-// 받은 패킷 등록 — 게임 서버 등록의 맨 앞 두 줄 그대로(게임 서버 나누기 0-④ 의 등록에서 이 조각 몫 둘 · 11 단계).
+// 받은 패킷 등록 — 게임 서버 등록의 맨 앞 두 줄 그대로(게임 서버 나누기 0-④ 의 등록에서 이 클래스 몫 둘 · 11 단계).
 bool CMoveHandler::RegisterRoutes(CPacketRoutes& routes)
 {
     bool ok = true;

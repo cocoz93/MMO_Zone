@@ -20,7 +20,7 @@
 #include <memory>             // std::make_unique — 스폰
 
 // ==========================================================================
-// 존 이동 거절 사유 → 와이어 값 — 이 조각만 부른다(GameServer.cpp 에서 옮김 · 몸·주석 그대로).
+// 존 이동 거절 사유 → 와이어 값 — 이 클래스만 부른다(GameServer.cpp 에서 옮김 · 몸·주석 그대로).
 // ==========================================================================
 namespace
 {
@@ -41,7 +41,7 @@ namespace
     }
 }
 
-// 받은 패킷 등록 — 옛 등록의 줄과 함정 주석을 그대로 옮겼다(게임 서버 나누기 0-④ 의 등록에서 이 조각 몫 셋 · 12 단계).
+// 받은 패킷 등록 — 옛 등록의 줄과 함정 주석을 그대로 옮겼다(게임 서버 나누기 0-④ 의 등록에서 이 클래스 몫 셋 · 12 단계).
 bool CEntryHandler::RegisterRoutes(CPacketRoutes& routes)
 {
     bool ok = true;
@@ -79,7 +79,7 @@ void CEntryHandler::DropPendingEnter(int64_t sessionId)
 }
 #endif
 
-// 동접 게이지 — 시야 조각의 주기 동기화 순회(CSightBroadcaster::TickPeriodicSync)에 얹혀 있던 셈을 떼어 옴(게임 서버 나누기 14 단계).
+// 동접 게이지 — CSightBroadcaster::TickPeriodicSync(주기 동기화 순회)에 얹혀 있던 계산을 떼어 옴(게임 서버 나누기 14 단계).
 //   주기·자리(틱 4 그 순회 바로 뒤)가 같아 같은 틱에 같은 값을 쓴다 — 사이에 존 인원을 바꾸는 일이 없다.
 void CEntryHandler::TickInGameGauge()
 {

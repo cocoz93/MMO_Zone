@@ -9,7 +9,7 @@
 // [경계]
 //  누가 보상을 받나(막타 길인가 방 길인가)는 부르는 쪽(처치 알림 OnDeath)이 고른다 — 여기는 고른 대로 준다.
 //  경험치·레벨 규칙은 CStatSystem, 무엇이 떨어지나는 순수 함수 RollDrops(DropTable.h), 땅에 놓기는 존의 CGroundItemManager.
-//  보내기는 조각에 맡긴다 — 본인 상태(본인 알림) · 주변 체력(시야 방송) · 가방 칸(가방·땅 조각). 즉시 저장은 캐릭터 저장소, 잠금 표는 파티·방 조각.
+//  보내기는 다른 모듈에 맡긴다 — 본인 상태(본인 알림) · 주변 체력(시야 방송) · 가방 칸(CItemHandler). 즉시 저장은 캐릭터 저장소, 잠금 표는 CPartyHandler.
 //
 // [모르는 것]
 //  공격 판정·죽음 처리·부활. 세션·패킷 분기·입장 절차.
@@ -46,7 +46,7 @@ class CPartyHandler;
 class CRewardHandler
 {
 public:
-    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(두 보내기 조각 · 저장소 · 가방·땅 조각 · 파티·방 조각 · 스탯 규칙 · 게임 지표 · 기획 데이터 · 틱 번호)보다
+    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(보내기 둘(CSelfNotifier · CSightBroadcaster) · 저장소 · CItemHandler · CPartyHandler · 스탯 규칙 · 게임 지표 · 기획 데이터 · 틱 번호)보다
     //   뒤에 이것을 선언해야 한다(멤버는 선언 순서로 세워진다). 생성 중엔 쓰지 않는다.
     CRewardHandler(CSelfNotifier& selfNotifier, CSightBroadcaster& sightBroadcaster,
 #if USE_DB_WORKER
@@ -86,7 +86,7 @@ public:
 #if USE_DROP
     // 사람이 몬스터를 잡으면 부른다(OnDeath 의 경험치 블록 뒤 — 같은 조건).
     //   표의 줄마다 굴리고, 결과를 존의 관리자에게 넘겨 땅에 놓는다(아이템마다 OnGroundItemDrop 으로 돌아온다).
-    //   주인 = 막타 친 계정 — 굴림은 잡은 사람에게 주는 보상이라 경험치와 같은 이 조각에서 한다.
+    //   주인 = 막타 친 계정 — 굴림은 잡은 사람에게 주는 보상이라 경험치와 같은 이 클래스에서 한다.
     void DropLoot(CZone* zone, CPlayer* killer, CMonster* monster);
 #endif
 

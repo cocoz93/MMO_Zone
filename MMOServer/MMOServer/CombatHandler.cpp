@@ -27,7 +27,7 @@
 using namespace PacketBuild;   // 아래 조립 함수들이 머리 쓰기·닫기를 이름만으로 부른다
 
 // ==========================================================================
-// 전투·스킬 S2C 조립과 스킬 거절 사유 → 와이어 값 — 이 조각만 부른다(GameServer.cpp 에서 옮김 · 몸·주석 그대로).
+// 전투·스킬 S2C 조립과 스킬 거절 사유 → 와이어 값 — 이 클래스만 부른다(GameServer.cpp 에서 옮김 · 몸·주석 그대로).
 //   쓰는 법(스칼라는 << · 고정배열·문자열은 SetData(raw) · pack(1))은 PacketBuild.h 머리의 [규칙] 주석과 같다.
 // ==========================================================================
 namespace
@@ -116,7 +116,7 @@ namespace
 #endif // USE_SKILL
 }
 
-// 받은 패킷 등록 — 옛 등록의 함정 주석을 그대로 옮겼다(게임 서버 나누기 0-④ 의 등록에서 이 조각 몫 둘 · 9 단계).
+// 받은 패킷 등록 — 옛 등록의 함정 주석을 그대로 옮겼다(게임 서버 나누기 0-④ 의 등록에서 이 클래스 몫 둘 · 9 단계).
 bool CCombatHandler::RegisterRoutes(CPacketRoutes& routes)
 {
     bool ok = true;
@@ -180,7 +180,7 @@ void CCombatHandler::OnHit(CZone* zone, CCharacter* attacker, CCharacter* target
 //   죽은 몬스터는 시체로 남는다(되살리지 않는다) — 죽은 목록은 플레이어 것만 든다.
 void CCombatHandler::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target)
 {
-    // 플레이어 죽은 목록 — 부활 자리·시간이 임시 사양(제자리 3초)이라 존이 아니라 이 조각이 든다(10-05 결정 — 그때는 게임 서버).
+    // 플레이어 죽은 목록 — 부활 자리·시간이 임시 사양(제자리 3초)이라 존이 아니라 이 클래스가 든다(10-05 결정 — 그때는 게임 서버).
     //   몬스터를 여기 넣으면 존이 지워질 때 밖에서 빼 줘야 하는 약속이 다시 생긴다(MonsterManager.h [왜 떼어냈나]).
     if (As<CPlayer>(target) != nullptr)
         _deadActors.push_back(target);
@@ -298,7 +298,7 @@ void CCombatHandler::OnRevive(CZone* zone, CCharacter* caster, int32_t monsterId
 #endif // USE_SKILL
 
 // ==========================================================================
-// 지속 효과 — 걸기·만료·정리는 CBuffSystem(BuffSystem.cpp), 여기는 알림을 받아 본인 알림 조각에 넘기기만
+// 지속 효과 — 걸기·만료·정리는 CBuffSystem(BuffSystem.cpp), 여기는 알림을 받아 CSelfNotifier 에 넘기기만
 // ==========================================================================
 
 // 효과가 바뀌었다(걸림·되감김·만료·죽음) — 스탯은 이미 다시 선 뒤라 MY_STATS 가 새 공격력이다. 와이어 = ACTOR_BUFF → MY_STATS.

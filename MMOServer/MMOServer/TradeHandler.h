@@ -8,9 +8,9 @@
 //  - 맞바꾼 직후 — 짝 저장(CCharacterStore::SaveTrade) · 두 사람 가방 내보내기(CItemHandler::FlushInventory)
 //
 // [경계]
-//  판정·거래창·맞바꾸기는 CTradeSystem. 칸·돈 내보내기와 그 틱 끝 저장 요청은 가방·땅 조각 한 곳(FlushInventory) —
+//  판정·거래창·맞바꾸기는 CTradeSystem. 칸·돈 내보내기와 그 틱 끝 저장 요청은 CItemHandler 한 곳(FlushInventory) —
 //  두 사람의 짝 묶음이 확정될 때까지 그 저장 요청은 저장소가 붙잡는다(CCharacterStore 「짝 저장」).
-//  거래 규칙 객체와 그 틱(CTradeSystem::Tick)·퇴장 정리(OnLeavingZone · Forget)는 게임 서버가 든다 — 이 조각은 그 참조를 빌려 부르고, 그 알림을 받는다.
+//  거래 규칙 객체와 그 틱(CTradeSystem::Tick)·퇴장 정리(OnLeavingZone · Forget)는 게임 서버가 든다 — 이 클래스는 그 참조를 빌려 부르고, 그 알림을 받는다.
 //
 // [모르는 것]
 //  전투 · 파티 · 상점 · 입장. 누가 무엇을 할 수 있나는 규칙 몫이다.
@@ -36,12 +36,12 @@ class CGameMonitor;
 class CCharacterStore;
 #endif
 
-// 거래 알림(ITradeEvents)은 공개 상속 — 게임 서버가 거래 규칙(_tradeSystem)에 이것을 알림 받는 쪽으로 꽂는다(파티·방 조각과 같은 꼴).
+// 거래 알림(ITradeEvents)은 공개 상속 — 게임 서버가 거래 규칙(_tradeSystem)에 이것을 알림 받는 쪽으로 꽂는다(CPartyHandler 와 같은 꼴).
 class CTradeHandler : public ITradeEvents
 {
 public:
-    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(세션 허브 · 가방·땅 조각 · 저장소 · 맵 관리자 · 게임 지표 · 틱 번호)보다 뒤에 이것을 선언해야 한다.
-    //   거래 규칙(tradeSystem)만 거꾸로 이것보다 뒤에 세워진다 — 그 알림 받는 쪽이 이 조각이라서. 그래서 생성 중엔 아무것도 쓰지 않는다.
+    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(세션 허브 · CItemHandler · 저장소 · 맵 관리자 · 게임 지표 · 틱 번호)보다 뒤에 이것을 선언해야 한다.
+    //   거래 규칙(tradeSystem)만 거꾸로 이것보다 뒤에 세워진다 — 그 알림 받는 쪽이 이 클래스라서. 그래서 생성 중엔 아무것도 쓰지 않는다.
     CTradeHandler(CSessionHub& sessionHub, CItemHandler& itemHandler,
 #if USE_DB_WORKER
                   CCharacterStore& characterStore,
@@ -82,7 +82,7 @@ private:
 #if USE_DB_WORKER
     CCharacterStore& _characterStore;  // 짝 저장
 #endif
-    CTradeSystem&    _tradeSystem;     // 거래 규칙 — 빌린 것(게임 서버가 들고, 이 조각보다 뒤에 세워진다)
+    CTradeSystem&    _tradeSystem;     // 거래 규칙 — 빌린 것(게임 서버가 들고, 이 클래스보다 뒤에 세워진다)
     CMapManager&     _mapManager;      // 존 찾기(주변 9섹터)
     CGameMonitor&    _gameMonitor;     // 보낸 수
     const uint64_t&  _frameCount;      // 게임 루프의 틱 번호 — 빌린 것, 읽기만(신청 시간 · 교환하기)

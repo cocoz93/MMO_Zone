@@ -14,17 +14,17 @@
 #include <Protocol/Protocol.h>
 #include <Common/ErrorLog.h>
 #include <cassert>
-#include "PacketBuild.h" // 머리 쓰기·닫기 · 파티 사람 조각·파티원 한 줄(WritePartyPerson · WritePartyMember) — 게임 서버 나누기 0-②
+#include "PacketBuild.h" // 머리 쓰기·닫기 · 파티원 정보·파티원 한 줄(WritePartyPerson · WritePartyMember) — 게임 서버 나누기 0-②
 
 using namespace PacketBuild;   // 아래 조립 함수들이 머리 쓰기·닫기를 이름만으로 부른다
 
 // ==========================================================================
-// 파티 S2C 조립 — 이 조각만 부른다(GameServer.cpp 에서 옮김 · 몸·주석 그대로).
+// 파티 S2C 조립 — 이 클래스만 부른다(GameServer.cpp 에서 옮김 · 몸·주석 그대로).
 //   쓰는 법(스칼라는 << · 고정배열·문자열은 SetData(raw) · pack(1))은 PacketBuild.h 머리의 [규칙] 주석과 같다.
 // ==========================================================================
 namespace
 {
-    // 파티 사람 조각·파티원 한 줄(WritePartyPerson · WritePartyMember)은 PacketBuild.h — 파티 패킷 여럿이 몸통에 끼워 쓴다
+    // 파티원 정보·파티원 한 줄(WritePartyPerson · WritePartyMember)은 PacketBuild.h — 파티 패킷 여럿이 몸통에 끼워 쓴다
 
     CSerialBuffer* MakePartyAsk(uint32_t requestId, PartyAskKind kind, const CPlayer* from, const CPlayer* about, uint32_t remainMs)
     {
@@ -98,7 +98,7 @@ namespace
     }
 }
 
-// 받은 패킷 등록 — 옛 등록의 함정 주석을 그대로 옮겼다(게임 서버 나누기 0-④ 의 등록에서 이 조각 몫 여섯 · 7 단계).
+// 받은 패킷 등록 — 옛 등록의 함정 주석을 그대로 옮겼다(게임 서버 나누기 0-④ 의 등록에서 이 클래스 몫 여섯 · 7 단계).
 bool CPartyHandler::RegisterRoutes(CPacketRoutes& routes)
 {
     bool ok = true;

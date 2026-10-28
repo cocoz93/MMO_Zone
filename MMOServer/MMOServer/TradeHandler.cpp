@@ -15,12 +15,12 @@
 #include "SerialBuffer.h"
 #include <Protocol/Protocol.h>
 #include <cassert>
-#include "PacketBuild.h"   // 머리 쓰기·닫기 · 사람 조각(WritePartyPerson — 거래도 같은 10B 조각을 싣는다)
+#include "PacketBuild.h"   // 머리 쓰기·닫기 · 사람 정보 쓰기(WritePartyPerson — 거래도 같은 10B 구조체를 싣는다)
 
 using namespace PacketBuild;
 
 // ==========================================================================
-// 거래 S2C 조립 — 이 조각만 부른다. 쓰는 법은 PacketBuild.h 머리의 [규칙] 주석과 같다(스칼라는 << · pack(1)).
+// 거래 S2C 조립 — 이 클래스만 부른다. 쓰는 법은 PacketBuild.h 머리의 [규칙] 주석과 같다(스칼라는 << · pack(1)).
 // ==========================================================================
 namespace
 {

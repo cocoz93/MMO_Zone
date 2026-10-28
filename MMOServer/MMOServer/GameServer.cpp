@@ -68,7 +68,7 @@ bool CGameServer::Init(ServerMode mode, int port, int maxClients,
         // 전체 서버 범위 버퍼도 maxPerChannel 기준 — 초과 시 자연 증가 후 capacity 유지
         int32_t maxPerChannel = maps[0].maxPlayersPerChannel;
         _sessionHub.Init(_network.get(), maxClients);   // 세션 칸 maxClients 개(전부 빈 칸) · 보내기에 쓸 네트워크
-        _entryHandler.Init(maxClients);   // 대기표 — 위 칸과 같은 크기·같은 색인 (불변식 공유 · DB 를 켠 빌드만 잡는다 — 입장 조각)
+        _entryHandler.Init(maxClients);   // 대기표 — 위 칸과 같은 크기·같은 색인 (불변식 공유 · DB 를 켠 빌드만 잡는다 — CEntryHandler)
         _sightBroadcaster.Init(maxPerChannel, maxClients);   // 주변 9섹터 단위 버퍼 둘 · 전체 서버 dirty (이동/sync 묶음 대상)
     }
 
@@ -208,12 +208,12 @@ void CGameServer::GameLoopThread()
         _npcHandler.TickNpcs();
 
         // 2) 게임 로직 갱신 (좌표 이동 + 섹터 변경 감지 + 경계 클램핑) — 섹터 변경은 존마다 대기열에 쌓인다
-        //   경계에 막혀 선 캐릭터는 존이 그 자리에서 알린다(OnCharacterMoveStop — 그 알림은 시야 조각이 받는다)
+        //   경계에 막혀 선 캐릭터는 존이 그 자리에서 알린다(OnCharacterMoveStop — 그 알림은 CSightBroadcaster 가 받는다)
         _mapManager.TickAll(deltaTime, _sightBroadcaster);
 
         // 3) 섹터 변경 배치 처리 — 존마다 대기열(이동 패킷 + 존 틱, 넣을 때 중복 차단)을 읽어 보내고 비운다.
         //   존마다 따로 도는 까닭: 대기열의 섹터 좌표는 그 존의 격자이고, 보내는 대상도 그 존 사람뿐이다.
-        //   보내기 · 같은 틱 쌍 보정 · 멤버십 구간 계측은 시야 조각(CSightBroadcaster::ProcessSightChanges)
+        //   보내기 · 같은 틱 쌍 보정 · 멤버십 구간 계측은 CSightBroadcaster::ProcessSightChanges
         _sightBroadcaster.ProcessSightChanges();
 
 #if USE_COMBAT
@@ -231,7 +231,7 @@ void CGameServer::GameLoopThread()
         //   존마다 돌지 않는다 — 파티는 존을 넘는다(목록이 게임 서버에 하나, PartySystem.h [왜 따로인가]).
         _partySystem.Tick(_frameCount);
 
-        // 방 다시 들어가기 잠금 — 초마다 풀린 것 빼기는 파티·방 조각(CPartyHandler::TickRoomLocks · 게임 서버 나누기 7 단계)
+        // 방 다시 들어가기 잠금 — 초마다 풀린 것 빼기는 CPartyHandler::TickRoomLocks(게임 서버 나누기 7 단계)
         _partyHandler.TickRoomLocks();
 #endif
 
@@ -247,10 +247,10 @@ void CGameServer::GameLoopThread()
 
         auto phaseT3 = Clock::now();
 
-        // 4) 주기적 위치 동기화 (MOVING 플레이어 → 주변 브로드캐스트) — 시야 조각
+        // 4) 주기적 위치 동기화 (MOVING 플레이어 → 주변 브로드캐스트) — CSightBroadcaster
         _sightBroadcaster.TickPeriodicSync();
 
-        // 4-1) 동접 게이지(_enter._inGame — 존 정원 카운터의 합, 약 0.5초마다) — 입장 조각. 위 순회에 얹혀 있던 자리 그대로(게임 서버 나누기 14 단계)
+        // 4-1) 동접 게이지(_enter._inGame — 존 정원 카운터의 합, 약 0.5초마다) — CEntryHandler. 위 순회에 얹혀 있던 자리 그대로(게임 서버 나누기 14 단계)
         _entryHandler.TickInGameGauge();
 
         // 이번 틱 보류물 비우기 — digest(USE_BROADCAST_BUNDLE) 또는 섹터 묶음(USE_SECTOR_AGGREGATION). 아래 flush가 묶어 보냄
@@ -270,10 +270,10 @@ void CGameServer::GameLoopThread()
         _monitor._gameLoop._phaseBroadcastSyncUs.Add(std::chrono::duration_cast<std::chrono::microseconds>(phaseT4 - phaseT3).count());
 
         // [계측] 비용종류별 — 틱 내 누적분을 1회씩 원자 반영 후 리셋 (송신은 flush 구간 직접 측정)
-        //   방송 쪽 다섯(주변 모으기 · 수신자별 처리 · 멤버십 횟수·시간 · 쌍 보정)은 시야 조각이 반영한다
+        //   방송 쪽 다섯(주변 모으기 · 수신자별 처리 · 멤버십 횟수·시간 · 쌍 보정)은 CSightBroadcaster 가 반영한다
         _sightBroadcaster.ReportTickMetrics();
         _monitor._gameLoop._flushSendUs.Add(std::chrono::duration_cast<std::chrono::microseconds>(flushT1 - flushT0).count());
-        _moveHandler.ReportTickMetrics();   // 이동 예산 거부 건수 — 이동 조각(게임 서버 나누기 11 단계)
+        _moveHandler.ReportTickMetrics();   // 이동 예산 거부 건수 — CMoveHandler(게임 서버 나누기 11 단계)
 
         // [계측 오버헤드 절감] handle-latency 지역 누적분 → 전역 1회 반영
         _monitor._gameLoop.FlushHandleLatency();
@@ -288,7 +288,7 @@ void CGameServer::GameLoopThread()
             //   이동 묶음은 틱 끝 송신이 비웠다. 섹터 이동 대기열은 존 안이라
             //   존과 같이 사라진다. 누가 정리를 틱 앞쪽으로 옮기면 여기서 걸린다.
             assert(!_sightBroadcaster.HasDirtyMovers());
-            // 지우기 직전 알림 — 존 밖에서 이 존의 것을 든 곳을 정리하는 마지막 기회다. 받는 쪽은 아래 OnErasingZone 한 곳(조각마다 한 줄)
+            // 지우기 직전 알림 — 존 밖에서 이 존의 것을 든 곳을 정리하는 마지막 기회다. 받는 쪽은 아래 OnErasingZone 한 곳(모듈마다 한 줄)
             _mapManager.CloseEmptyRooms([this](CZone* zone) { OnErasingZone(zone); });
         }
 
@@ -358,16 +358,16 @@ void CGameServer::OnDisconnected(int64_t sessionId)
 #if USE_DB_WORKER
         // 불러오는 중에 나간 세션 — 플레이어가 아직 없으니 저장도 방송도 없다. 대기표만 비운다.
         //   뒤늦게 오는 결과는 대기표에서 주인을 못 찾아 orphaned 로 세어진다.
-        _entryHandler.DropPendingEnter(sessionId);   // 대기표 자리 비우기 — 입장 조각(게임 서버 나누기 12 단계)
+        _entryHandler.DropPendingEnter(sessionId);   // 대기표 자리 비우기 — CEntryHandler(게임 서버 나누기 12 단계)
 #endif
         return;
     }
     _placement.LeaveGame(player);
 }
 
-// ── 「존에서 빠짐 · 떠남」 알림 (IPlacementEvents) ── 배치 조각(CPlayerPlacement)이 떠나보내기·놓기 안에서 부른다.
-//   받는 쪽은 게임 서버로 둔다(9 단계 결정) — 정리할 목록이 전투 조각(부활 대기열) ·
-//   지속 효과 규칙 · 파티 규칙 셋에 흩어져 있어, 한 조각이 받으면 그 조각이 남의 목록을 알게 된다. 차례(대기열 → 효과 → 파티)는 여기 한 곳.
+// ── 「존에서 빠짐 · 떠남」 알림 (IPlacementEvents) ── CPlayerPlacement 가 떠나보내기·놓기 안에서 부른다.
+//   받는 쪽은 게임 서버로 둔다(9 단계 결정) — 정리할 목록이 CCombatHandler(부활 대기열) ·
+//   지속 효과 규칙 · 파티 규칙 셋에 흩어져 있어, 한 클래스가 받으면 그 클래스가 남의 목록을 알게 된다. 차례(대기열 → 효과 → 파티)는 여기 한 곳.
 
 // 존에서 빠짐 — 시야 몫 뒤 · CZone::LeaveZone 앞(CPlayerPlacement::RemoveFromZone). 종류를 안 가린다(플레이어·몬스터).
 void CGameServer::OnLeavingZone(CCharacter* player)
@@ -413,7 +413,7 @@ void CGameServer::OnLeavingGame(CPlayer* player)
 
 // ── 「존 지우기 직전」 알림 ── 빈 방 정리(게임 루프 5 — CMapManager::CloseEmptyRooms)가 지울 존마다 부른다. 계약은 MapManager.h 의 CRoomMap::CloseEmptyRooms 주석.
 //   지워지는 존은 이제 늘 방이다(일반 맵 채널은 안 지운다 — 10-27). 받는 쪽 셋은 방에도 다 걸린다(방 땅 아이템 · 뱀왕 격노 · 열린 방 수).
-//   받는 쪽을 게임 서버로 두는 까닭은 위 「떠남」과 같다 — 정리할 것이 가방·땅 조각 · 지속 효과 규칙 · 파티·방 조각에 흩어져 있다. 차례(땅 → 효과 → 방)는 여기 한 곳.
+//   받는 쪽을 게임 서버로 두는 까닭은 위 「떠남」과 같다 — 정리할 것이 CItemHandler · 지속 효과 규칙 · CPartyHandler 에 흩어져 있다. 차례(땅 → 효과 → 방)는 여기 한 곳.
 //   이 함수는 토글 없이 늘 있다 — 전에 땅 아이템 정리만 USE_DROP 안에 묶어 두었더니 USE_DROP 0 이면 콜백이 아예 없어 버프 목록 정리도 같이 빠질 뻔했다.
 //   이때 그 존은 이미 조회표에서 빠졌다(GetZone 이 nullptr) — 받는 쪽은 zone 포인터와 그 번호로만 한다.
 void CGameServer::OnErasingZone(CZone* zone)
@@ -426,7 +426,7 @@ void CGameServer::OnErasingZone(CZone* zone)
     _buffSystem.ForgetZone(zone->GetZoneId());
 #endif
 #if USE_PARTY
-    _partyHandler.OnErasingZone(zone);   // 빈 방이면 열린 방 −1 · 닫힘 +1 — 열 때(+1, EnterRoom)와 같은 조각
+    _partyHandler.OnErasingZone(zone);   // 빈 방이면 열린 방 −1 · 닫힘 +1 — 열 때(+1, EnterRoom)와 같은 클래스
 #endif
     (void)zone;   // 땅·전투·파티를 다 끈 빌드엔 할 일이 없다
 }
@@ -491,31 +491,31 @@ void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
 bool CGameServer::RegisterRoutes()
 {
     bool ok = true;
-    // 이동 시작 · 멈춤 — 이동 조각이 자기 줄을 등록한다(CMoveHandler::RegisterRoutes · 게임 서버 나누기 11 단계)
+    // 이동 시작 · 멈춤 — CMoveHandler 가 자기 줄을 등록한다(CMoveHandler::RegisterRoutes · 게임 서버 나누기 11 단계)
     ok &= _moveHandler.RegisterRoutes(_routes);
-    // 채팅 · 운영자 로그인 — 채팅·운영 조각이 자기 줄을 등록한다(CChatHandler::RegisterRoutes · 게임 서버 나누기 13 단계)
+    // 채팅 · 운영자 로그인 — CChatHandler 가 자기 줄을 등록한다(CChatHandler::RegisterRoutes · 게임 서버 나누기 13 단계)
     ok &= _chatHandler.RegisterRoutes(_routes);
-    // 존 이동 · 포털 · 입장 요청(USE_LOGIN — 끄면 크기만) — 입장 조각이 자기 줄을 등록한다(CEntryHandler::RegisterRoutes · 게임 서버 나누기 12 단계)
+    // 존 이동 · 포털 · 입장 요청(USE_LOGIN — 끄면 크기만) — CEntryHandler 가 자기 줄을 등록한다(CEntryHandler::RegisterRoutes · 게임 서버 나누기 12 단계)
     ok &= _entryHandler.RegisterRoutes(_routes);
     ok &= _routes.Size(MsgType::C2S_HEARTBEAT, sizeof(MSG_C2S_HEARTBEAT));   // 처리기 없음 — 타임아웃 갱신은 IOCPServer 수신 시점
 #if USE_COMBAT
-    // 공격 · 스킬(USE_SKILL) — 전투 조각이 자기 줄을 등록한다(CCombatHandler::RegisterRoutes · 게임 서버 나누기 9 단계)
+    // 공격 · 스킬(USE_SKILL) — CCombatHandler 가 자기 줄을 등록한다(CCombatHandler::RegisterRoutes · 게임 서버 나누기 9 단계)
     ok &= _combatHandler.RegisterRoutes(_routes);
 #endif
 #if USE_INVENTORY
-    // 물약 · 끼우기·빼기(USE_EQUIP) · 줍기(USE_DROP) — 가방·땅 조각이 자기 줄을 등록한다(CItemHandler::RegisterRoutes · 게임 서버 나누기 6 단계)
+    // 물약 · 끼우기·빼기(USE_EQUIP) · 줍기(USE_DROP) — CItemHandler 가 자기 줄을 등록한다(CItemHandler::RegisterRoutes · 게임 서버 나누기 6 단계)
     ok &= _itemHandler.RegisterRoutes(_routes);
 #endif
 #if USE_PARTY
-    // 파티 요청 여섯 — 파티·방 조각이 자기 줄을 등록한다(CPartyHandler::RegisterRoutes · 게임 서버 나누기 7 단계)
+    // 파티 요청 여섯 — CPartyHandler 가 자기 줄을 등록한다(CPartyHandler::RegisterRoutes · 게임 서버 나누기 7 단계)
     ok &= _partyHandler.RegisterRoutes(_routes);
 #endif
 #if USE_SHOP
-    // 사기 · 팔기 — 상점 조각이 자기 줄을 등록한다(CShopHandler::RegisterRoutes · NPC·상점 플랜 4판 C10). 끄면 크기 줄도 없어 요청이 조용히 버려진다
+    // 사기 · 팔기 — CShopHandler 가 자기 줄을 등록한다(CShopHandler::RegisterRoutes · NPC·상점 플랜 4판 C10). 끄면 크기 줄도 없어 요청이 조용히 버려진다
     ok &= _shopHandler.RegisterRoutes(_routes);
 #endif
 #if USE_TRADE
-    // 거래 요청 여섯 — 거래 조각이 자기 줄을 등록한다(CTradeHandler::RegisterRoutes · trade-plan.md). 끄면 크기 줄도 없어 요청이 조용히 버려진다
+    // 거래 요청 여섯 — CTradeHandler 가 자기 줄을 등록한다(CTradeHandler::RegisterRoutes · trade-plan.md). 끄면 크기 줄도 없어 요청이 조용히 버려진다
     ok &= _tradeHandler.RegisterRoutes(_routes);
 #endif
     return ok;

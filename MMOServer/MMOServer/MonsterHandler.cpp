@@ -18,12 +18,12 @@
 // ==========================================================================
 // 몬스터 (USE_MONSTER)
 //   몬스터 코드(깔기·판단·벽 앞 재판단·죽은 몬스터 지우기)는 존마다 든 CMonsterManager 에 있다(MonsterManager.h).
-//   여기는 틱마다 그걸 부르고, 알림을 받아 송신·번호 발급만 한다. 죽은 몬스터를 존에서 빼고 지우라 부르는 것은 전투 조각의 OnDeath 끝(CCombatHandler).
+//   여기는 틱마다 그걸 부르고, 알림을 받아 송신·번호 발급만 한다. 죽은 몬스터를 존에서 빼고 지우라 부르는 것은 CCombatHandler::OnDeath 끝.
 // ==========================================================================
 
 MonsterContext CMonsterHandler::MakeMonsterContext()
 {
-    return MonsterContext{ *this, _sightBroadcaster, _gameMonitor   // 걷기·멈춤(IZoneEvents)은 시야 조각이 받는다
+    return MonsterContext{ *this, _sightBroadcaster, _gameMonitor   // 걷기·멈춤(IZoneEvents)은 CSightBroadcaster 가 받는다
 #if USE_COMBAT
                          , _combatSystem
 #endif
@@ -43,7 +43,7 @@ void CMonsterHandler::TickMonsters()
     });
 }
 
-// ── 몬스터 알림과 번호 부탁 (IMonsterEvents) ── 보내기는 시야 조각(BroadcastSpawn) · 존에서 빼기는 배치(RemoveFromZone).
+// ── 몬스터 알림과 번호 부탁 (IMonsterEvents) ── 보내기는 CSightBroadcaster(BroadcastSpawn) · 존에서 빼기는 배치(RemoveFromZone).
 
 int32_t CMonsterHandler::AllocActorId()
 {
@@ -53,7 +53,7 @@ int32_t CMonsterHandler::AllocActorId()
 void CMonsterHandler::OnMonsterSpawn(CZone* zone, CMonster* monster)
 {
     // 표시 문자 · 정의 번호 — 클라가 사람 대신 몬스터로 그리고(부류 DISPLAY_MONSTER) 어느 몬스터인지 고르는(defId = monsterId) 패킷 값.
-    //   플레이어의 CalcDisplayChar 처럼 게임 서버 쪽(이 몬스터 조각)이 넣는다 — 존 층(몬스터 생성자)은 이 값을 모른다(10-06).
+    //   플레이어의 CalcDisplayChar 처럼 게임 서버 쪽(여기 CMonsterHandler)이 넣는다 — 존 층(몬스터 생성자)은 이 값을 모른다(10-06).
     //   깔 때 존 입장 직후 이 콜백을 곧바로 부르므로, 아래 CREATE 보다 늦는 일이 없다.
     //   그림 이름은 서버가 모른다 — 웹이 같은 몬스터 표(MonsterTable.csv sprite 칸)를 읽어 defId 로 찾는다.
     static_assert(CMonsterTable::MAX_MONSTER_ID <= UINT16_MAX, "몬스터 번호가 defId(u16)에 안 들어간다");
@@ -71,7 +71,7 @@ void CMonsterHandler::OnMonsterSpawn(CZone* zone, CMonster* monster)
     monster->_lastSyncY = monster->_y;
 }
 
-// 사라짐 — 방 클리어로 남은 몬스터를 지울 때 하나마다(CMonsterManager::VanishAll). 죽은 몬스터 지우기 앞(전투 조각의 OnDeath 3·8)과 같은 두 일:
+// 사라짐 — 방 클리어로 남은 몬스터를 지울 때 하나마다(CMonsterManager::VanishAll). 죽은 몬스터 지우기 앞(CCombatHandler::OnDeath 3·8)과 같은 두 일:
 //   효과 목록에서 빼고(이 뒤에 관리자가 해제한다 — 목록에 주소가 남으면 안 된다) · 존에서 뺀다(주변 DELETE · 같은 틱 이동자 · 대기열 — 플레이어 퇴장과 같은 길).
 //   죽음(DEATH)은 안 보낸다 — 죽은 게 아니라 사라진 것이다.
 void CMonsterHandler::OnMonsterVanish(CZone* zone, CMonster* monster)

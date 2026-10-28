@@ -16,7 +16,7 @@
 
 using namespace PacketBuild;   // 아래 조립 함수들이 머리 쓰기·닫기를 이름만으로 부른다
 
-// 채팅·운영 S2C 조립 — 이 조각만 부른다(GameServer.cpp 에서 옮김 · 몸·주석 그대로).
+// 채팅·운영 S2C 조립 — 이 클래스만 부른다(GameServer.cpp 에서 옮김 · 몸·주석 그대로).
 //   쓰는 법(스칼라는 << · 고정배열·문자열은 SetData(raw) · pack(1))은 PacketBuild.h 머리의 [규칙] 주석과 같다.
 
 namespace
@@ -57,7 +57,7 @@ namespace
     }
 }
 
-// 받은 패킷 등록 — 게임 서버 등록의 채팅 · 운영자 로그인 두 줄 그대로(게임 서버 나누기 0-④ 의 등록에서 이 조각 몫 둘 · 13 단계).
+// 받은 패킷 등록 — 게임 서버 등록의 채팅 · 운영자 로그인 두 줄 그대로(게임 서버 나누기 0-④ 의 등록에서 이 클래스 몫 둘 · 13 단계).
 bool CChatHandler::RegisterRoutes(CPacketRoutes& routes)
 {
     bool ok = true;
@@ -97,7 +97,7 @@ void CChatHandler::RecvChat(CPlayer* player, CSerialBuffer* pMsg)
     //   토글이 없다 — 명령이 하나도 없는 빌드에서도 가로챈다(명령 줄만 토글을 본다 · 게임 서버 나누기 14 단계 전에는 USE_INVENTORY 안).
     if (msgLen > 0 && recvMsg.message[0] == u'/')
     {
-        _commandHandler.Handle(player, recvMsg.message, msgLen);   // 채팅 명령 조각(CommandHandler.h)
+        _commandHandler.Handle(player, recvMsg.message, msgLen);   // CCommandHandler(CommandHandler.h)
         return;
     }
 

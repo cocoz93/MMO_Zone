@@ -5,7 +5,7 @@
 //  - 신청 표(시간 지남) · 거래창(TradeSession — 두 사람 · 올린 칸·개수·돈 · 닫힘 둘) · 요청마다 판정 · 칸·돈 잠그기/풀기(가방에 맡김)
 //  - 맞바꾸기 — 두 가방의 복사본에 풀기 → 빼기 → 넣기 → 돈을 해 보고, 둘 다 되면 원본에 대입한다(하나라도 안 되면 원본 무변경 · 거래 끝)
 //  - 그 과정에서 정한 것을 지표(CGameMonitor)로 센다 · 성사마다 로그 한 줄([TRADE] — 아이템 고유 번호가 없어 문의 추적은 이 줄뿐이다)
-//  - 보내기·저장은 하지 않는다 — 거래 조각(CTradeHandler)이 알림(ITradeEvents)을 받아 패킷·가방 내보내기·짝 저장을 한다
+//  - 보내기·저장은 하지 않는다 — CTradeHandler 가 알림(ITradeEvents)을 받아 패킷·가방 내보내기·짝 저장을 한다
 //
 // [규칙 — 10-26 사용자 결정, Protocol.h 거래 절 머리말]
 //  어디서 — 마을(MapKind::TOWN)·사냥터(DUNGEON)에서만. 파티 방(INSTANCE)은 신청을 NOT_HERE 로 거절한다(TradeAllowedOn — 맵 종류마다 한 줄).
@@ -28,7 +28,7 @@
 //  거래는 존을 안 넘는다 — 맵을 옮기면 끝난다(파티와 다르다).
 //
 // [계층 경계] CPlayer · CInventory · 아이템 표 · CGameMonitor 를 안다. 세션·패킷·섹터·저장소는 모른다 —
-//  누른 사람을 주변에서 찾는 일은 거래 조각(CTradeHandler::FindPlayerAround)이 하고 찾은 사람(없으면 nullptr)을 넘긴다.
+//  누른 사람을 주변에서 찾는 일은 CTradeHandler::FindPlayerAround 가 하고 찾은 사람(없으면 nullptr)을 넘긴다.
 //  객체는 CGameServer 가 멤버로 든다 — _gameMonitor · _gameDataFiles · 알림 받는 _tradeHandler 뒤에 선언한다(그 참조를 받는다).
 //
 // [와이어 enum 을 그대로 쓴다] 거절(TradeFail)·끝(TradeEnd)은 정하는 쪽과 와이어가 1:1 이라 두 벌을 두지 않는다(파티 PartyNotice 와 같은 꼴).
@@ -48,7 +48,7 @@ class CPlayer;
 class CGameDataFiles;
 class CGameMonitor;
 
-// 거래창 한쪽 — 그 사람 · 올린 칸(올린 순서) · 올린 돈 · 닫힘. 와이어의 한쪽(Protocol.h TradeSide)은 거래 조각이 이것을 읽어 만든다.
+// 거래창 한쪽 — 그 사람 · 올린 칸(올린 순서) · 올린 돈 · 닫힘. 와이어의 한쪽(Protocol.h TradeSide)은 CTradeHandler 가 이것을 읽어 만든다.
 struct TradeHalf
 {
     struct Offer
@@ -71,7 +71,7 @@ struct TradeSession
     uint64_t  readyFrame = 0;       // 둘 다 닫힌 틱 — 0 = 아직(저장 기다림 TRADE_SAVE_WAIT_FRAMES 의 기준)
 };
 
-// 거래가 정한 것을 내보낸다 — 거래 조각 CTradeHandler 가 구현한다(IPartyEvents 와 같은 꼴). ★ 순수 가상이라 빠뜨리면 컴파일이 안 된다.
+// 거래가 정한 것을 내보낸다 — CTradeHandler 가 구현한다(IPartyEvents 와 같은 꼴). ★ 순수 가상이라 빠뜨리면 컴파일이 안 된다.
 class ITradeEvents
 {
 public:
@@ -103,7 +103,7 @@ public:
 
     CTradeSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor, ITradeEvents& events);
 
-    // 화면에서 누른 사람에게 신청 — target 은 거래 조각이 주변에서 찾은 사람(없으면 nullptr → NO_TARGET)
+    // 화면에서 누른 사람에게 신청 — target 은 CTradeHandler 가 주변에서 찾은 사람(없으면 nullptr → NO_TARGET)
     void Request(CPlayer* me, CPlayer* target, uint64_t frame);
     // 받은 신청에 답한다 — 수락이면 거래창이 열린다(두 사람에게 상태 한 장)
     void Answer(CPlayer* me, uint32_t requestId, bool accept);

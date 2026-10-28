@@ -10,12 +10,12 @@
 #include "SerialBuffer.h"
 #include <Protocol/Protocol.h>
 #include <cassert>
-#include "PacketBuild.h" // 머리 쓰기·닫기 · 등장 상태(WriteSnapshot — 내 캐릭터 생성이 같은 조각을 쓴다) — 게임 서버 나누기 0-②
+#include "PacketBuild.h" // 머리 쓰기·닫기 · 등장 상태(WriteSnapshot — 내 캐릭터 생성이 같은 함수를 쓴다) — 게임 서버 나누기 0-②
 
 using namespace PacketBuild;   // 아래 조립 함수들이 머리 쓰기·닫기를 이름만으로 부른다
 
 // ==========================================================================
-// 배치 S2C 조립 — 이 조각만 부른다(GameServer.cpp 에서 옮김 · 몸·주석 그대로).
+// 배치 S2C 조립 — 이 클래스만 부른다(GameServer.cpp 에서 옮김 · 몸·주석 그대로).
 //   쓰는 법(스칼라는 << · 고정배열·문자열은 SetData(raw) · pack(1))은 PacketBuild.h 머리의 [규칙] 주석과 같다.
 // ==========================================================================
 namespace
@@ -256,7 +256,7 @@ void CPlayerPlacement::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind k
     _sightBroadcaster.BroadcastEnterZone(zone, player, rule.reason);
 }
 
-// 존에서 빼기 — 시야 몫(시야 조각의 BroadcastLeaveZone) → 「존에서 빠짐」 알림(부활 대기열 정리) → 존에서 빼기, 이 순서
+// 존에서 빼기 — 시야 몫(CSightBroadcaster 의 BroadcastLeaveZone) → 「존에서 빠짐」 알림(부활 대기열 정리) → 존에서 빼기, 이 순서
 //   (쪼개기 전 BroadcastLeaveZone 한 몸일 때의 순서 그대로 — 게임 서버 나누기 0-③).
 //   플레이어 퇴장·존 이동과 죽은 몬스터(OnDeath 끝)·사라지는 몬스터(OnMonsterVanish)가 같이 쓴다 — 종류를 안 가린다.
 void CPlayerPlacement::RemoveFromZone(CZone* zone, CCharacter* player)

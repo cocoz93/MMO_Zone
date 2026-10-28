@@ -11,12 +11,12 @@
 #include <cassert>
 #include <chrono>
 #include <cstddef>  // offsetof
-#include "PacketBuild.h" // 머리 쓰기·닫기 · 등장 조각(WriteCreateEntry — CREATE 와 CREATE 묶음이 같은 함수) — 게임 서버 나누기 0-②
+#include "PacketBuild.h" // 머리 쓰기·닫기 · 등장 항목 쓰기(WriteCreateEntry — CREATE 와 CREATE 묶음이 같은 함수) — 게임 서버 나누기 0-②
 
 using namespace PacketBuild;   // 아래 조립 함수들이 머리 쓰기·닫기를 이름만으로 부른다
 
 // ==========================================================================
-// 시야 방송 S2C 조립 — 이 조각만 부른다(GameServer.cpp 에서 옮김 · 몸·주석 그대로).
+// 시야 방송 S2C 조립 — 이 클래스만 부른다(GameServer.cpp 에서 옮김 · 몸·주석 그대로).
 //   쓰는 법(스칼라는 << · 고정배열·문자열은 SetData(raw) · pack(1))은 PacketBuild.h 머리의 [규칙] 주석과 같다.
 // ==========================================================================
 namespace
@@ -236,7 +236,7 @@ void CSightBroadcaster::TickPeriodicSync()
                 NotifyMoveSync(zone, player);  // 본인 포함 (이동 중 클라-서버 좌표 드리프트 보정)
             }
         });
-        // 동접 게이지(_enter._inGame)는 이 순회에 얹혀 있다가 입장 조각으로 갔다 — CEntryHandler::TickInGameGauge (게임 서버 나누기 14 단계)
+        // 동접 게이지(_enter._inGame)는 이 순회에 얹혀 있다가 CEntryHandler 로 갔다 — CEntryHandler::TickInGameGauge (게임 서버 나누기 14 단계)
     }
 }
 

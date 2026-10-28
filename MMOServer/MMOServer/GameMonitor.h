@@ -125,7 +125,7 @@ inline const char* ZoneChangeResultName(ZoneChangeReject r)
 }
 constexpr int ZONE_CHANGE_RESULT_COUNT = static_cast<int>(ZoneChangeReject::COUNT);
 
-// 포털 사용 거절 사유 — 입장 조각(CEntryHandler::RecvPortalUse)이 정하고 계수기만 쓴다(와이어 값은 S2C_ZONE_CHANGE_FAIL 의 4·5 로 묶인다 —
+// 포털 사용 거절 사유 — CEntryHandler::RecvPortalUse 가 정하고 계수기만 쓴다(와이어 값은 S2C_ZONE_CHANGE_FAIL 의 4·5 로 묶인다 —
 //   클라에겐 「없음」과 「다른 맵의 포털」이 같은 답이지만, 세는 쪽에선 갈라 둬야 클라 버그인지 사람 조작인지 읽힌다).
 enum class PortalReject : uint8_t
 {
@@ -197,7 +197,7 @@ inline const char* PartyAskKindName(PartyAskKind r)
     return "?";
 }
 
-// 방 들어가기 결과 — 판정(Room.h CheckRoomEntry)과 파티·방 조각(번호 다 참 — CPartyHandler::EnterRoom)이 정한다. NONE 칸 = 방을 만들어 옮김
+// 방 들어가기 결과 — 판정(Room.h CheckRoomEntry)과 CPartyHandler::EnterRoom(번호 다 참)이 정한다. NONE 칸 = 방을 만들어 옮김
 inline const char* RoomEntryResultName(RoomEntryReject r)
 {
     static_assert(static_cast<int>(RoomEntryReject::COUNT) == 7, "RoomEntryReject 를 늘렸으면 이름도 붙일 것");
@@ -252,7 +252,7 @@ inline const char* PartyNoticeName(PartyNotice r)
 #endif
 
 // 채팅 명령 거절 사유 — 넣기 거절(InvAddResult)과 따로 센다. 명령이 틀린 것과 가방이 찬 것은 다른 사실이다.
-//   토글 밖 — 명령 틀(채팅 명령 조각 CCommandHandler 의 명령 표)은 늘 있고 명령 줄만 토글을 본다(_chat 묶음 · 게임 서버 나누기 14 단계 전에는 USE_INVENTORY 안).
+//   토글 밖 — 명령 틀(CCommandHandler 의 명령 표)은 늘 있고 명령 줄만 토글을 본다(_chat 묶음 · 게임 서버 나누기 14 단계 전에는 USE_INVENTORY 안).
 enum class ChatCommandReject : uint8_t
 {
     NOT_ADMIN,         // 운영자가 아니다
@@ -447,7 +447,7 @@ inline const char* EquipRejectName(EquipReject r)
 #endif
 
 #if USE_SHOP
-// 사고팔기 거절의 지표 라벨 — 사유 enum 은 CShopSystem 이 정한다(ShopSystem.h). 와이어 값으로는 상점 조각이 바꾼다.
+// 사고팔기 거절의 지표 라벨 — 사유 enum 은 CShopSystem 이 정한다(ShopSystem.h). 와이어 값으로는 CShopHandler 가 바꾼다.
 inline const char* ShopRejectName(ShopReject r)
 {
     static_assert(static_cast<int>(ShopReject::COUNT) == 11, "ShopReject 를 늘렸으면 이름도 붙일 것");
@@ -883,7 +883,7 @@ public:
     } _portal;
 
     // ══════════════════════════════════════════════════════════════
-    // 채팅 명령 — 세는 곳은 채팅 명령 조각(CCommandHandler — 명령 표 · /gm · /die · /item 의 인자 거절 · 10-26 채팅·운영 조각에서 떼어 냄).
+    // 채팅 명령 — 세는 곳은 CCommandHandler(명령 표 · /gm · /die · /item 의 인자 거절 · 10-26 CChatHandler 에서 떼어 냄).
     //   토글 없음 — 명령 틀은 늘 있고 명령 줄만 토글을 본다(/item USE_INVENTORY · /gm USE_COMBAT). 줄이 빠진 빌드의 칸은 0 으로 남는다.
     //   게임 서버 나누기 14 단계 전에는 인벤토리 묶음(_inventory) 안에 있었다 — 노출 이름(mmo_chat_*)은 그대로.
     // ══════════════════════════════════════════════════════════════
@@ -895,7 +895,7 @@ public:
 
 #if USE_PARTY
     // ══════════════════════════════════════════════════════════════
-    // 파티 (USE_PARTY) — 세는 곳은 CPartySystem 안(보내기 몫 넷만 파티·방 조각 CPartyHandler 의 알림 함수 한 곳씩).
+    // 파티 (USE_PARTY) — 세는 곳은 CPartySystem 안(보내기 몫 넷만 CPartyHandler 의 알림 함수 한 곳씩).
     //   ★ 등식 셋(조용해진 뒤) — 바꾸는 자리가 여럿이라 한 곳만 안 세도 영영 안 맞는다:
     //     _created = _ended + _active · _memberAdded = Σ _memberRemoved + _members · Σ _requests = Σ _requestsEnded + _pending
     // ══════════════════════════════════════════════════════════════
@@ -922,8 +922,8 @@ public:
     } _party;
 
     // ══════════════════════════════════════════════════════════════
-    // 파티 전용 방 (USE_PARTY — 방은 파티 위에 선다) — 세는 곳은 파티·방 조각(포털 방 갈래 EnterRoom · 방 닫힘 OnErasingZone · 잠금 넣기·훑기 — CPartyHandler) ·
-    //   처치 보상 조각(방 보상 RewardRoom — CRewardHandler) · 전투 조각(방 클리어 OnDeath — CCombatHandler) · 몬스터 조각(사라짐 OnMonsterVanish — CMonsterHandler).
+    // 파티 전용 방 (USE_PARTY — 방은 파티 위에 선다) — 세는 곳은 CPartyHandler(포털 방 갈래 EnterRoom · 방 닫힘 OnErasingZone · 잠금 넣기·훑기) ·
+    //   CRewardHandler(방 보상 RewardRoom) · CCombatHandler(방 클리어 OnDeath) · CMonsterHandler(사라짐 OnMonsterVanish).
     //   ★ 등식 둘: _entries[entered] = _closed + _active · Σ _entries(entered 뺀 칸) = mmo_portal_rejected_total{reason="room"}
     // ══════════════════════════════════════════════════════════════
     struct alignas(64) RoomCounters
@@ -943,7 +943,7 @@ public:
 
 #if USE_TRADE
     // ══════════════════════════════════════════════════════════════
-    // 거래 (USE_TRADE) — 세는 곳은 CTradeSystem 안(보내기 몫 넷만 거래 조각 CTradeHandler 의 알림 함수 한 곳씩).
+    // 거래 (USE_TRADE) — 세는 곳은 CTradeSystem 안(보내기 몫 넷만 CTradeHandler 의 알림 함수 한 곳씩).
     //   ★ 등식 둘(조용해진 뒤): _requests = _opened + Σ _requestsEnded + _pending · _opened = Σ _ended + _active
     // ══════════════════════════════════════════════════════════════
     struct alignas(64) TradeCounters

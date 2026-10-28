@@ -20,7 +20,7 @@
 //        알림·자리·종류가 필요한 시스템 입구는 CCharacter* 를 받아 입구에서 컴포넌트를 꺼낸다(없으면 단언).
 //
 // [세션] 조종 세션(_sessionId)은 여기 없고 CPlayer 에 있다. 패킷을 받는 쪽은 플레이어뿐이라
-//        보내는 함수(CSessionHub::SendPacket 과 게임 서버·그 조각들의 SendXxx)는 전부 CPlayer* 만 받는다 — 몬스터에게
+//        보내는 함수(CSessionHub::SendPacket 과 게임 서버·그 모듈들의 SendXxx)는 전부 CPlayer* 만 받는다 — 몬스터에게
 //        보내는 코드는 컴파일이 안 된다. 섹터 목록(CCharacter*)에서 받는 쪽을 고를 때는
 //        As<CPlayer>(아래 As) 로 확인 후 내려 바꾼다. 코드 전체에서 내려 바꾸는 자리는 그 한 곳뿐이다.
 //
@@ -70,7 +70,7 @@ public:
     uint8_t _displayChar;   // 표시 문자 (ASCII: A-Z, a-z, 0-9) · 사람이 아니면 부류(Protocol.h DISPLAY_MONSTER · DISPLAY_NPC)
     uint8_t _colorIndex;    // 색상 인덱스 (0-6)
     // 정의 번호 — 몬스터 = monsterId · NPC = npcId · 사람 = 0. 등장 엔트리 끝에 실린다(Protocol.h CreatePlayerEntry::defId).
-    //   표시 문자와 같이 와이어 값이라 존 층은 안 넣는다 — 등장 알림을 받는 게임 서버 조각이 넣는다(CMonsterHandler::OnMonsterSpawn).
+    //   표시 문자와 같이 와이어 값이라 존 층은 안 넣는다 — 등장 알림을 받는 게임 서버 모듈이 넣는다(CMonsterHandler::OnMonsterSpawn).
     uint16_t _defId = 0;
 
     // 몸 반지름(타일) — 사거리를 잴 때 중심 거리에서 몸 크기만큼 뺀다. 0 = 점(사람·작은 몬스터).

@@ -192,7 +192,7 @@ void CCommandHandler::RunGmCommand(CPlayer* player, const std::vector<std::strin
 
 // /die — 그 자리에서 쓰러지기(10-26). 쓰러짐이 끝내는 것(거래 · 효과)을 몬스터 없이 바로 보려고 넣었다.
 //   맞지 않고 죽는 길(CCombatSystem::Kill) — 죽음 표시 · 걷기 멈춤 · 죽음 계수 · 죽은 목록 · DEATH 방송 · 효과 풀림이 맞아 죽을 때와 같은 한 길이고,
-//   부활도 같다(전투 조각의 부활 대기열 — CCombatHandler::TickRespawn). 피해 방송(DAMAGE)은 없다 — 맞은 게 아니라서.
+//   부활도 같다(CCombatHandler::TickRespawn 의 부활 대기열). 피해 방송(DAMAGE)은 없다 — 맞은 게 아니라서.
 void CCommandHandler::RunDieCommand(CPlayer* player, const std::vector<std::string>& words)
 {
     CGameMonitor::ChatCounters& counters = _gameMonitor._chat;
@@ -211,7 +211,7 @@ void CCommandHandler::RunDieCommand(CPlayer* player, const std::vector<std::stri
         return;
     }
 
-    // 채팅 조각(RecvChat)은 존을 찾은 뒤에만 명령을 넘긴다 — 없을 수 없지만 /gm 과 같이 본다
+    // CChatHandler::RecvChat 은 존을 찾은 뒤에만 명령을 넘긴다 — 없을 수 없지만 /gm 과 같이 본다
     CZone* zone = _mapManager.GetZone(player->_zoneId);
     if (zone == nullptr)
         return;

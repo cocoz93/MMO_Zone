@@ -9,10 +9,10 @@
 //  - 캐릭터 입장/퇴장, 섹터 등록/해제 등 데이터 관리
 //  - 맵 경계 규칙(맵 안 검사·클램프·벽 판정) — 맵 크기를 든 곳이 여기라서
 //  - 막힌 칸 판정 — 그 맵의 칸 격자(CBlockTable 이 세운 CWalkGrid)를 Init 에서 받아 든다. 걷기·출발·좌표 받기·저장 자리가 다 여기를 지난다
-//  - 섹터 이동 대기열 — 담긴 옛 섹터 좌표가 이 존의 격자라서. 읽어서 CREATE/DELETE 를 보내는 것은 게임 서버의 시야 조각(CSightBroadcaster)
+//  - 섹터 이동 대기열 — 담긴 옛 섹터 좌표가 이 존의 격자라서. 읽어서 CREATE/DELETE 를 보내는 것은 게임 서버의 CSightBroadcaster
 //  - 땅 아이템 관리자 소유 (_groundItemManager, 값) — 땅 아이템 목록과 놓기·수명·줍기 고르기·개수는 그쪽
-//    (GroundItemManager.h). 무엇이 떨어질지(굴림)는 게임 서버의 처치 보상 조각(CRewardHandler), 알림 받기·송신은 가방·땅 조각(CItemHandler)·시야 조각
-//  - 패킷 처리는 CGameServer · 브로드캐스트는 그 시야 조각(CSightBroadcaster), 몬스터 판단은 CMonsterManager 가 담당
+//    (GroundItemManager.h). 무엇이 떨어질지(굴림)는 게임 서버의 CRewardHandler, 알림 받기·송신은 CItemHandler·CSightBroadcaster
+//  - 패킷 처리는 CGameServer · 브로드캐스트는 CSightBroadcaster, 몬스터 판단은 CMonsterManager 가 담당
 //
 // [설계]
 //  - 싱글스레드 전제 (게임 로직 스레드 1개에서만 호출)
@@ -39,7 +39,7 @@ class CZone;
 class CGameDataFiles;   // GameDataFiles.h — 몬스터 관리자에 건넨다(존이 읽는 것은 막힌 칸 표뿐 — Init 이 그 맵 격자를 꺼낸다)
 class CBlockTable;
 
-// 존 안에서 정한 걷기·멈춤을 게임 서버에 알리는 통로 — 게임 서버의 시야 조각(CSightBroadcaster)이 구현한다(존은 게임 서버를 모른다).
+// 존 안에서 정한 걷기·멈춤을 게임 서버에 알리는 통로 — 게임 서버의 CSightBroadcaster 가 구현한다(존은 게임 서버를 모른다).
 //   존 틱의 벽 멈춤과 몬스터 판단(CMonsterManager)이 같이 쓴다. 패킷으로 걷고 멈추는 플레이어는 안 온다.
 //   부를 때마다 받는다(Tick 인자 · MonsterContext) — 존을 만드는 곳이 MapManager 안뿐이라서(MonsterManager.h 와 같은 까닭).
 class IZoneEvents
@@ -76,7 +76,7 @@ public:
     bool Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHeight, int32_t sectorSize, const StartArea& start);
 
     // 캐릭터 입장 — 스폰 좌표 설정, 섹터 등록
-    // actorId 발급은 게임 서버(세션 허브 CSessionHub::AllocActorId)가 담당 — 객체를 만들고 지우는 것은 플레이어는 입장 조각(만들기 — CEntryHandler::SpawnPlayer)과 배치(놓기 — CPlayerPlacement::ReleasePlayer · 칸 주인은 세션 허브),
+    // actorId 발급은 게임 서버(세션 허브 CSessionHub::AllocActorId)가 담당 — 객체를 만들고 지우는 것은 플레이어는 CEntryHandler::SpawnPlayer(만들기)와 배치(놓기 — CPlayerPlacement::ReleasePlayer · 칸 주인은 세션 허브),
     //   몬스터는 그 존의 몬스터 관리자(CMonsterManager)가 한다
     // ★ 실패가 없다 — 들어갈 수 있는지(정원·같은 존 등)는 부르는 쪽이 들어가기 "전에" 다 본다
     //   (존 이동은 CMapManager::PickZoneChangeTarget). 그래서 존 이동은 「확인 → 옛 존 나가기 → 여기」 순서이고,
@@ -117,7 +117,7 @@ public:
     bool IsPathBlocked(float x0, float y0, float x1, float y1) const;  // 두 자리 사이 선분이 막힌 칸을 지나나 — 클라가 보낸 좌표를 받을 때(벽 건너편 좌표 거절)
 
     // ── 섹터 이동 ── 좌표를 바꾼 쪽이 부른다. 좌표가 가리키는 섹터로 등록을 옮긴다.
-    void UpdateSectorAndQueue(CCharacter* character);   // 옮기고 섹터 이동 대기열에 — 화면은 틱 끝(게임 루프 3)에 시야 조각(CSightBroadcaster)이 고친다
+    void UpdateSectorAndQueue(CCharacter* character);   // 옮기고 섹터 이동 대기열에 — 화면은 틱 끝(게임 루프 3)에 CSightBroadcaster 가 고친다
 
     // 섹터 이동 대기열 — 이번 틱에 섹터를 넘은 캐릭터와 첫 출발 섹터. 게임 루프 3)에 TakeSightChanges 가 읽고 비운다.
     //   퇴장하는 캐릭터는 LeaveZone 이 뺀다. 존이 지워지면 같이 사라진다.
@@ -127,7 +127,7 @@ public:
     static bool IsReturnedHome(const SectorChangeInfo& change);
 
     // ── 시야 변화 ── 섹터 이동 대기열을 읽어 「누가 누구를 새로 보게 / 못 보게 됐나」를 정한다.
-    //   보내는 것(패킷·송신 방식·계수)은 게임 서버의 시야 조각(CSightBroadcaster) 몫이다 — 여기는 명단만 만든다(존 계층은 세션·패킷을 모른다).
+    //   보내는 것(패킷·송신 방식·계수)은 게임 서버의 CSightBroadcaster 몫이다 — 여기는 명단만 만든다(존 계층은 세션·패킷을 모른다).
     //   명단은 섹터 단위다 — 받는 쪽이 섹터별 digest 로 묶어 보내므로 사람 단위로 펼치지 않는다.
 
     // 섹터를 넘은 캐릭터 하나 — 못 보게 된 섹터 · 새로 보게 된 섹터(GetSectorDiff 출력 그대로)

@@ -11,7 +11,7 @@ CNpc::CNpc(const NpcDef& def)
     // 컴포넌트는 안 붙인다(맞지도 때리지도 않는다 — 섹터 「그 밖」 목록). 말 걸기 칸만 — 생성자 몸에서 한 번(Character.h 컴포넌트 자리와 같은 규칙)
     AttachTalk(&def);
 
-    // 표시 문자(_displayChar)·정의 번호(_defId)는 여기서 안 넣는다 — 와이어 값이라 등장 알림을 받는 게임 서버의 NPC 조각이 넣는다
+    // 표시 문자(_displayChar)·정의 번호(_defId)는 여기서 안 넣는다 — 와이어 값이라 등장 알림을 받는 게임 서버의 CNpcHandler 가 넣는다
     //   (CNpcHandler::OnNpcSpawn — 몬스터와 같은 자리).
     _colorIndex = 0;
 

@@ -31,7 +31,7 @@ int32_t CNpcHandler::AllocActorId()
 void CNpcHandler::OnNpcSpawn(CZone* zone, CNpc* npc)
 {
     // 표시 문자 · 정의 번호 — 클라가 사람 대신 NPC 로 그리고(부류 DISPLAY_NPC) 어느 NPC 인지 고르는(defId = npcId) 패킷 값.
-    //   존 층(NPC 생성자)은 이 값을 모른다 — 몬스터 조각(CMonsterHandler::OnMonsterSpawn)과 같은 자리.
+    //   존 층(NPC 생성자)은 이 값을 모른다 — CMonsterHandler::OnMonsterSpawn 과 같은 자리.
     //   이름·생김새·인사는 서버가 안 싣는다 — 웹이 같은 NPC 표(NpcTable.csv)를 읽어 번호로 찾는다.
     static_assert(CNpcTable::MAX_NPC_ID <= UINT16_MAX, "NPC 번호가 defId(u16)에 안 들어간다");
     npc->_displayChar = DISPLAY_NPC;

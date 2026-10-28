@@ -2,16 +2,16 @@
 // CCombatHandler — 전투: 공격·스킬 요청과 공격·시전·효과 알림, 부활 대기열 (게임 서버 나누기 9 단계 · C3 · USE_COMBAT)
 //
 // [책임]
-//  - 받은 패킷 둘의 처리기와 그 등록(RegisterRoutes — 공격 · 스킬(USE_SKILL)) — 컨텐츠 조각이 자기 줄을 등록한다
+//  - 받은 패킷 둘의 처리기와 그 등록(RegisterRoutes — 공격 · 스킬(USE_SKILL)) — 컨텐츠 모듈이 자기 줄을 등록한다
 //  - 공격 알림(ICombatEvents — 휘두름 · 맞음 · 죽음) · 시전 알림(ISkillEvents — 시전 · 되살려라) · 효과 알림(IBuffEvents)을 받아 세계에 적용
 //    (주변 방송 · 본인 알림 · 죽은 목록 등록 · 처치 보상 부르기 · 죽은 몬스터 지우기) · 스킬 거절 사유를 와이어 값으로
 //  - 부활 대기열(_deadActors) — 죽은 플레이어 담기 · 틱마다 부활(제자리 방송 또는 마을로 옮기기) · 퇴장 때 빼기(RemoveFromDeadActors)
 //
 // [경계]
 //  판정은 규칙에 맡긴다 — 공격 흐름은 CCombatSystem, 스킬은 CSkillSystem, 지속 효과는 CBuffSystem, 쿨타임·피해·부활 시각은 namespace Combat.
-//  보상은 처치 보상 조각(CRewardHandler), 옮기기·존에서 빼기는 배치(CPlayerPlacement), 보내기는 세 보내기 조각.
-//  규칙 객체 셋과 효과 틱(CBuffSystem::Tick)은 게임 서버가 든다 — 이 조각은 그 참조를 빌려 부르고, 그 알림을 받는다.
-//  퇴장 정리는 게임 서버가 배치의 「존에서 빠짐 · 떠남」 알림을 받아 차례대로 나눠 부른다(이 조각엔 부활 대기열 빼기 하나).
+//  보상은 CRewardHandler, 옮기기·존에서 빼기는 배치(CPlayerPlacement), 보내기는 보내기 셋(CSessionHub · CSelfNotifier · CSightBroadcaster).
+//  규칙 객체 셋과 효과 틱(CBuffSystem::Tick)은 게임 서버가 든다 — 이 클래스는 그 참조를 빌려 부르고, 그 알림을 받는다.
+//  퇴장 정리는 게임 서버가 배치의 「존에서 빠짐 · 떠남」 알림을 받아 차례대로 나눠 부른다(이 클래스엔 부활 대기열 빼기 하나).
 //
 // [모르는 것]
 //  파티·가방·입장 절차. 세션 번호. 패킷 분기 표는 자기 줄을 등록할 때(RegisterRoutes)만 쓴다.
@@ -46,7 +46,7 @@ class CRewardHandler;
 #endif
 
 // 알림 셋은 공개 상속 — 게임 서버가 규칙 셋(_combatSystem · _skillSystem · _buffSystem)에 이것을 알림 받는 쪽으로 꽂는다
-//   (시야 조각의 IZoneEvents 와 같은 꼴). 알림 함수 자체는 비공개 — 규칙이 인터페이스로만 부른다.
+//   (CSightBroadcaster 의 IZoneEvents 와 같은 꼴). 알림 함수 자체는 비공개 — 규칙이 인터페이스로만 부른다.
 class CCombatHandler
     : public ICombatEvents
     , public IBuffEvents
@@ -55,7 +55,7 @@ class CCombatHandler
 #endif
 {
 public:
-    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(세 보내기 조각 · 배치 · 처치 보상 조각 · 규칙 셋 · 맵 관리자 · 게임 지표 · 틱 번호)보다
+    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(보내기 셋(CSessionHub · CSelfNotifier · CSightBroadcaster) · 배치 · CRewardHandler · 규칙 셋 · 맵 관리자 · 게임 지표 · 틱 번호)보다
     //   뒤에 이것을 선언해야 한다(멤버는 선언 순서로 세워진다). 생성 중엔 쓰지 않는다.
     //   거꾸로 규칙 셋은 이것보다 앞에 세워지며 이것의 참조를 묶기만 한다(알림 받는 쪽 — 게임 서버가 *this 를 넘기던 것과 같은 꼴).
     //   기본 맵 번호(마을 부활)는 맵 관리자에게 묻는다(CMapManager::GetDefaultMapId — 게임 서버 나누기 14 단계 전에는 게임 서버가 들고 빌려 줬다).
@@ -101,7 +101,7 @@ private:
     void OnDeath(CZone* zone, CCharacter* attacker, CCharacter* target) override;   // 죽은 목록 → DEATH → 경험치 → 드랍 → 몬스터면 지움
 
     // ── 지속 효과 (USE_COMBAT) ──
-    // 걸기·만료·정리는 CBuffSystem(_buffSystem) — 여기는 알림을 받아 본인 알림 조각에 넘기기만. 틱 3-2b 가 만료를 훑고,
+    // 걸기·만료·정리는 CBuffSystem(_buffSystem) — 여기는 알림을 받아 CSelfNotifier 에 넘기기만. 틱 3-2b 가 만료를 훑고,
     //   사라지는 두 길(놓기의 「떠남」 알림 — 게임 서버의 OnLeavingGame → Forget · OnDeath → ClearAll)이 목록에서 뺀다(BuffSystem.h [목록은 틱 너머로 주소를 든다]).
     // 효과 알림 (IBuffEvents) — 스탯은 이미 다시 선 뒤다. 사람이면 S2C_ACTOR_BUFF(본인) → S2C_MY_STATS(바뀐 공격력). 몬스터면 보낼 세션이 없다.
     void OnBuffChanged(CCharacter* target, BuffKind kind) override;
@@ -138,10 +138,10 @@ private:
     // 죽어서 부활을 기다리는 플레이어. 여기만 틱 너머로 포인터를 든다 —
     //   퇴장 경로(배치의 「존에서 빠짐 · 떠남」 알림을 받는 게임 서버의 OnLeavingZone · OnLeavingGame)가 반드시 회수해야 한다.
     //   몬스터는 여기 안 들어온다 — 죽는 순간 지운다(OnDeath 끝 → 존의 몬스터 관리자 Despawn).
-    //   같은 규율이 이미 dirtyMovers(시야 조각) 와 존의 섹터 이동 대기열(CZone::LeaveZone 이 뺀다)에 있다.
+    //   같은 규율이 이미 dirtyMovers(CSightBroadcaster) 와 존의 섹터 이동 대기열(CZone::LeaveZone 이 뺀다)에 있다.
     std::vector<CCharacter*> _deadActors;
     // 마을 부활로 옮길 사람과 목적지 채널 — TickRespawn 이 대기열을 다 돈 뒤에 옮긴다(도는 중에 옮기면 퇴장이 대기열을 지운다).
-    //   틱 너머로 안 든다(그 함수 안에서 채우고 비운다) — 멤버인 까닭은 틱마다 할당하지 않으려는 것뿐(시야 조각의 _eventAroundBuffer 와 같은 꼴)
+    //   틱 너머로 안 든다(그 함수 안에서 채우고 비운다) — 멤버인 까닭은 틱마다 할당하지 않으려는 것뿐(CSightBroadcaster 의 _eventAroundBuffer 와 같은 꼴)
     std::vector<std::pair<CPlayer*, CZone*>> _respawnTransferBuffer;
 };
 

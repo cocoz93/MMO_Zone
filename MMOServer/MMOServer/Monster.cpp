@@ -18,7 +18,7 @@ CMonster::CMonster(const MonsterDef& def)
 #endif
 
     // 표시 문자(_displayChar)는 여기서 안 넣는다 — 클라에게 「뭘로 그려라」를 알리는 패킷 값이라
-    //   패킷을 아는 게임 서버의 몬스터 조각이 스폰 콜백(CMonsterHandler::OnMonsterSpawn)에서 부류 값과 정의 번호(_defId)를 넣는다.
+    //   패킷을 아는 게임 서버의 CMonsterHandler 가 스폰 콜백(CMonsterHandler::OnMonsterSpawn)에서 부류 값과 정의 번호(_defId)를 넣는다.
     //   플레이어(CalcDisplayChar)와 같은 자리.
     _colorIndex  = 0;   // 뱀 한 종류라 색을 가를 일이 없다
 

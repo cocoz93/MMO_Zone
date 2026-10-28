@@ -22,7 +22,7 @@
 using namespace PacketBuild;   // 아래 조립 함수들이 머리 쓰기·닫기를 이름만으로 부른다
 
 // ==========================================================================
-// 가방·땅 S2C 조립과 거절 사유 → 와이어 값 — 이 조각만 부른다(GameServer.cpp 에서 옮김 · 몸·주석 그대로).
+// 가방·땅 S2C 조립과 거절 사유 → 와이어 값 — 이 클래스만 부른다(GameServer.cpp 에서 옮김 · 몸·주석 그대로).
 //   쓰는 법(스칼라는 << · 고정배열·문자열은 SetData(raw) · pack(1))은 PacketBuild.h 머리의 [규칙] 주석과 같다.
 // ==========================================================================
 namespace
@@ -151,7 +151,7 @@ namespace
 #endif // USE_DROP
 }
 
-// 받은 패킷 등록 — 줄마다 옛 크기 표의 함정 주석을 그대로 옮겼다(게임 서버 나누기 0-④ 의 등록에서 이 조각 몫 넷 · 6 단계).
+// 받은 패킷 등록 — 줄마다 옛 크기 표의 함정 주석을 그대로 옮겼다(게임 서버 나누기 0-④ 의 등록에서 이 클래스 몫 넷 · 6 단계).
 bool CItemHandler::RegisterRoutes(CPacketRoutes& routes)
 {
     bool ok = true;
@@ -285,7 +285,7 @@ int32_t CItemHandler::AllocGroundId()
 
 void CItemHandler::OnGroundItemDrop(CZone* zone, const CGroundItem& item, int32_t sectorX, int32_t sectorY)
 {
-    _sightBroadcaster.BroadcastGroundItemCreate(zone, item, sectorX, sectorY);   // 주변에 CREATE(DROP) — 몸은 시야 조각으로 옮겼다(3 단계)
+    _sightBroadcaster.BroadcastGroundItemCreate(zone, item, sectorX, sectorY);   // 주변에 CREATE(DROP) — 몸은 CSightBroadcaster 로 옮겼다(3 단계)
 }
 
 void CItemHandler::OnGroundItemGone(CZone* zone, int32_t sectorX, int32_t sectorY,
@@ -293,7 +293,7 @@ void CItemHandler::OnGroundItemGone(CZone* zone, int32_t sectorX, int32_t sector
 {
     const GroundItemGone wire = ToGroundItemGone(why);   // 사유 → 와이어 값은 여기서 — 관리자는 패킷을 모른다
 
-    // 주변 + 같은 틱 이동자에게 DELETE — 몸은 시야 조각으로 옮겼다(3 단계)
+    // 주변 + 같은 틱 이동자에게 DELETE — 몸은 CSightBroadcaster 로 옮겼다(3 단계)
     _sightBroadcaster.BroadcastGroundItemDelete(zone, sectorX, sectorY, groundId, wire, pickerId);
 }
 

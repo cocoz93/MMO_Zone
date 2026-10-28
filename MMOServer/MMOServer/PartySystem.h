@@ -5,7 +5,7 @@
 //  - 파티 맺기·가입·나가기·내보내기·파티장 넘기기·해산과 요청 표(초대·가입 신청·추천 — 시간 지남)의 규칙
 //  - 파티원 상태(체력·최대 체력·레벨·맵)를 지난번 보낸 사본과 견줘 바뀐 줄을 알린다(0.5초마다)
 //  - 그 과정에서 정한 것을 지표(CGameMonitor)로 센다 — CBuffSystem 과 같은 꼴
-//  - 보내기는 하지 않는다 — 파티·방 조각(CPartyHandler)이 알림(IPartyEvents)을 받아 S2C_PARTY_* 로 보낸다
+//  - 보내기는 하지 않는다 — CPartyHandler 가 알림(IPartyEvents)을 받아 S2C_PARTY_* 로 보낸다
 //
 // [규칙 — 10-16~17 사용자 결정, Protocol.h 파티 절 머리말]
 //  최대 8명 · 받는 사람은 늘 수락해야 들어간다 · 파티원이 부른 사람은 파티장 승인을 먼저 거친다(추천) ·
@@ -23,7 +23,7 @@
 //  죽음·존 이동은 같은 CPlayer 가 그대로라 빼지 않는다. 빠뜨리면 다음 틱이 해제된 메모리를 밟는다.
 //
 // [계층 경계] CPlayer·CGameMonitor 와 존 번호 → 맵 번호 풀기(CMapManager 정적 함수)만 안다. 세션·패킷·섹터는 모른다 —
-//  누른 사람을 주변 9섹터에서 찾는 일은 파티·방 조각(CPartyHandler::FindPlayerAround)이 하고 찾은 사람(없으면 nullptr)을 넘긴다.
+//  누른 사람을 주변 9섹터에서 찾는 일은 CPartyHandler::FindPlayerAround 가 하고 찾은 사람(없으면 nullptr)을 넘긴다.
 //  객체는 CGameServer 가 멤버로 든다 — _gameMonitor · 알림 받는 _partyHandler 뒤에 선언한다(그 참조를 받는다 — 멤버는 선언 순서로 세워진다).
 //
 // [와이어 enum 을 그대로 쓴다] 알림·요청 종류(Protocol.h PartyNotice · PartyAskKind)는 정하는 쪽과 와이어가 1:1 이라
@@ -88,7 +88,7 @@ struct Party
     std::vector<Member> members;   // 가입 순서(파티장 포함) — 파티장이 빠지면 이 순서로 넘긴다
 };
 
-// 파티가 정한 것을 내보낸다 — 파티·방 조각 CPartyHandler 가 구현한다(패킷 조립·송신 — 게임 서버 나누기 7 단계). IBuffEvents 와 같은 꼴. ★ 순수 가상이라 빠뜨리면 컴파일이 안 된다.
+// 파티가 정한 것을 내보낸다 — CPartyHandler 가 구현한다(패킷 조립·송신 — 게임 서버 나누기 7 단계). IBuffEvents 와 같은 꼴. ★ 순수 가상이라 빠뜨리면 컴파일이 안 된다.
 //   받는 사람(to)은 늘 CPlayer — 몬스터는 파티에 없다.
 class IPartyEvents
 {
@@ -117,7 +117,7 @@ public:
 
     CPartySystem(CGameMonitor& gameMonitor, IPartyEvents& events);
 
-    // 화면에서 누른 사람과 파티 — target 은 파티·방 조각이 누른 사람 주변 9섹터에서 찾은 사람(없으면 nullptr → NO_TARGET).
+    // 화면에서 누른 사람과 파티 — target 은 CPartyHandler 가 누른 사람 주변 9섹터에서 찾은 사람(없으면 nullptr → NO_TARGET).
     //   두 사람의 처지로 초대·가입 신청·추천 중 하나를 요청 표에 넣고 받는 사람에게 묻는다(흐름 = MyDocs/claude-plans/party-plan.md 「흐름」 표).
     void Request(CPlayer* me, CPlayer* target, uint64_t frame);
 
@@ -136,7 +136,7 @@ public:
     // 퇴장 — 파티에서 빼고(남은 사람에게 알림) 낀 요청을 지운다. 이 사람에게는 아무것도 안 보낸다(세션이 없다). 두 번 불러도 무해.
     void Forget(CPlayer* player);
 
-    // 알림 한 줄 — 번호별로 세고(_party._notices) 내보낸다. 방 들어가기 거절(파티 없음 · 파티장 아님 · 방 거절 셋)도 파티·방 조각(SendRoomReject)이 이 길로 보낸다 —
+    // 알림 한 줄 — 번호별로 세고(_party._notices) 내보낸다. 방 들어가기 거절(파티 없음 · 파티장 아님 · 방 거절 셋)도 CPartyHandler::SendRoomReject 가 이 길로 보낸다 —
     //   보내는 자리가 둘로 갈려도 세는 자리는 여기 하나다
     void Notice(CPlayer* to, PartyNotice code, int32_t actorId);
 
