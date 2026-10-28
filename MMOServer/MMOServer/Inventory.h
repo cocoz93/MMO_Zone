@@ -56,7 +56,7 @@ constexpr bool IsWornIndex(int index) { return index >= WORN_BASE_INDEX && index
 //        넣기(TryAdd)는 아이템 탭의 구간만 돌아 착용 칸에 저절로 안 들어간다.
 //
 // [돈] 칸이 아니라 숫자 하나(_money · 0~MONEY_MAX)다. 땅·드랍에서는 「돈」 아이템(아이템 표 store = MONEY) 한 덩이로 다니다가
-//        넣기(TryAdd)가 담는 자리를 보고 칸 대신 돈에 더한다 — 줍기·보상·명령에 돈 갈래가 따로 없다. 상한을 넘으면 아무것도 안 바꾸고 MONEY_FULL.
+//        넣기(TryAdd)가 담는 자리를 보고 칸 대신 돈에 더한다 — 줍기·보상·명령에 돈 분기가 따로 없다. 상한을 넘으면 아무것도 안 바꾸고 MONEY_FULL.
 //        화면용 표시는 「돈 바뀜」 하나(FlushInventory 가 S2C_MONEY 를 보내며 지운다). 저장 표시는 따로 없다 — 돈은 캐릭터 행의 열이라
 //        저장소가 마지막으로 실은 값과 견준다(CCharacterStore::ShouldSave · Player.h _dbSaved — 체력·경험치와 같은 규칙).
 //
@@ -96,7 +96,7 @@ public:
     //   물약 쓰기는 1 개, 상점에 팔기는 count 개.
     void Remove(int index, int32_t count);
 
-    // ── 돈 ── 위 [돈]. 되는지(상한 · 모자람)는 부르는 쪽이 판정에서 이미 봤다 — 더하기만 상한을 스스로 본다(넣기 갈래가 여럿이라)
+    // ── 돈 ── 위 [돈]. 되는지(상한 · 모자람)는 부르는 쪽이 판정에서 이미 봤다 — 더하기만 상한을 스스로 본다(넣는 경로가 여럿이라)
     int64_t Money() const { return _money; }
     bool    TryAddMoney(int64_t amount);   // amount ≥ 1 · 상한을 넘으면 false(아무것도 안 바뀜)
     void    SpendMoney(int64_t amount);    // amount ≥ 1 · 가진 돈 이하(어기면 단언)

@@ -28,7 +28,7 @@ CStatSystem::CStatSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor
 // ==========================================================================
 void CStatSystem::RecalcStats(CCharacter* character, bool refill)
 {
-    // ── 1) 바탕 — 종류마다 표가 다르다. 갈래 둘이라 switch 다(하나가 나머지를 삼키지 않게) ──
+    // ── 1) 바탕 — 종류마다 표가 다르다. 경우가 둘이라 switch 다(하나가 나머지를 삼키지 않게) ──
     switch (character->_kind)
     {
     case CharacterKind::PLAYER:
@@ -70,7 +70,7 @@ void CStatSystem::RecalcStats(CCharacter* character, bool refill)
     {
 #if USE_MONSTER
         // 몬스터 표 행 — 생성자가 넣은 것과 같은 값(Monster.cpp 생성자와 서로 가리킨다). 마력은 안 건드린다(몬스터는 마력 0 — 몬스터 스킬은 비용 0 만 허용한다, MonsterSkillTable.h).
-        //   보스의 자기 버프(격노)가 이 갈래를 탄다 — 효과가 걸리면 이 바탕에서 다시 세우고 배수를 곱한다(공격력 10 → 20 → 풀리면 10, 10-14 실서버로 확인).
+        //   보스의 자기 버프(격노)가 이 분기를 탄다 — 효과가 걸리면 이 바탕에서 다시 세우고 배수를 곱한다(공격력 10 → 20 → 풀리면 10, 10-14 실서버로 확인).
         CMonster* monster = As<CMonster>(character);
         const MonsterDef& def = monster->_def;
         monster->_health.SetMaxHp(def.maxHp);

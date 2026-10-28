@@ -348,7 +348,7 @@ void CItemHandler::RecvPickup(CPlayer* player, CSerialBuffer* /*pMsg*/)   // 몸
         }
 
         // 드랍 아이템은 표에 있고 개수 1 이상이라 TryAdd 가 돌려줄 거절은 둘 — 그 탭이 가득(칸 아이템) · 돈 상한(돈 아이템).
-        //   둘 다 아이템은 땅에 그대로. 그 밖의 값은 올 수 없다(위 두 조건이 막는다) — 갈래를 하나로 박지 않고 다 적는다
+        //   둘 다 아이템은 땅에 그대로. 그 밖의 값은 올 수 없다(위 두 조건이 막는다) — 경우를 하나로 뭉치지 않고 다 적는다
         _gameMonitor._inventory._addRejected[static_cast<int>(r)].Inc();
         switch (r)
         {

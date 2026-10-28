@@ -959,7 +959,7 @@ void CCharacterStore::ProcessDbResults()
         {
         case DBJobKind::LOAD_CHARACTER:
             // 불러오기 차례 — 그 계정의 떠난 기록이 아직 확정 안 됐으면 이 결과는 옛 값일 수 있다 → 실패로 돌려 끊는다
-            //   (받는 쪽 FAILED 갈래 그대로 — 클라가 다시 접속하는 것이 재시도다). 옛 값으로 들여보내면 아이템이 되돌아간다.
+            //   (받는 쪽 FAILED 분기 그대로 — 클라가 다시 접속하는 것이 재시도다). 옛 값으로 들여보내면 아이템이 되돌아간다.
             if (result.code != DBResultCode::FAILED && _leaveRecords.count(result.accountId) != 0)
             {
                 SLOG_WARN("[DB] load blocked — leave record not confirmed yet (account={}, session={})",

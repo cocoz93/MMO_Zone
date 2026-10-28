@@ -438,7 +438,7 @@ function monMeta(o){
   const k=MON_SPRITE.get(o.defId);
   return (k && window.MON_META && MON_META[k]) ? Object.assign({kind:k}, MON_META[k]) : null;
 }
-// 몬스터 그림 열 — 주문 동작(스킬을 쓴 직후 CAST_ANIM_LIFE 동안) → 걷기 → 서 있음 순으로 고른다(갈래 셋이라 순서대로 return).
+// 몬스터 그림 열 — 주문 동작(스킬을 쓴 직후 CAST_ANIM_LIFE 동안) → 걷기 → 서 있음 순으로 고른다(경우가 셋이라 순서대로 return).
 //   뱀은 walk[0] 이 서 있는 그림이고 주문 동작이 없다 · 뱀왕(사람형)은 idle(열 0)·cast(9~15)가 따로 있다 — 메타에 없으면 옛 그림 그대로
 function monFrame(mon,o,t){
   if(mon.cast && o.castAnimT>0){
@@ -692,7 +692,7 @@ function onPacket(p){
   }
 }
 // 전투 패킷은 대상이 나일 수도 남일 수도 있다 — 한 곳에서 고른다.
-//   갈래를 호출부마다 쓰면 다섯 자리 중 하나를 빠뜨리기 쉽다.
+//   분기를 호출부마다 쓰면 다섯 자리 중 하나를 빠뜨리기 쉽다.
 function actorOf(id){
   if(self && id===self.id) return self;
   return others.get(id) || null;

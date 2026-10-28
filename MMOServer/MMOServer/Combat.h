@@ -47,7 +47,7 @@ namespace Combat
     constexpr uint64_t ATTACK_COOLDOWN_FRAMES = 12;   // 12 × 40ms ≈ 480ms — 바람의나라류 체감(틱 수로 정한 값이라 유도하지 않는다)
     constexpr uint64_t RESPAWN_DELAY_FRAMES   = 3 * FRAME_PER_SEC;   // 3초
 
-    // 공격이 안 먹힌 사유 — 갈래가 넷이다. 하나로 뭉치면 제일 흔한 하나가 나머지를 삼켜
+    // 공격이 안 먹힌 사유 — 경우가 넷이다. 하나로 뭉치면 제일 흔한 하나가 나머지를 삼켜
     //   "헛스윙이 많은 건지 쿨타임에 막힌 건지"를 못 읽는다.
     enum class AttackReject : uint8_t
     {
@@ -70,7 +70,7 @@ namespace Combat
 
     // 피해 계산 — 공격력 − 방어력, 최소 MIN_DAMAGE. 방어력이 아무리 높아도 한 대는 한 대다
     //   (0 이면 "맞았는데 아무 일 없음"이라 클라가 그릴 것도, 시험이 셀 것도 없어진다).
-    //   최소로 올렸으면 outFloored = true — 표로는 거의 안 닿는 갈래라 호출자가 계수기로 센다.
+    //   최소로 올렸으면 outFloored = true — 표로는 거의 안 닿는 분기라 호출자가 계수기로 센다.
     //   때린 쪽·맞는 쪽이 플레이어든 몬스터든 같은 식이다.
     constexpr int32_t MIN_DAMAGE = 1;
     int32_t CalcDamage(int32_t attack, int32_t defense, bool& outFloored);

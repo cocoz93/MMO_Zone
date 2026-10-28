@@ -26,7 +26,7 @@
 // [와이어 상한은 여기서 안 본다] 섹터 묶음이 좌표를 실어 나르는 눈금의 상한(POS_QUANT_MAX_MAP_SIZE)은
 //        와이어 사정이라 패킷을 아는 게임 서버가 맵을 등록하기 전에 본다(CGameServer::Init).
 // ==========================================================================
-// 맵 종류 — 표의 글자는 MapTable.cpp 의 이름표(KIND_NAMES)다. 갈래가 늘면 둘을 같이 넓힌다(개수 static_assert).
+// 맵 종류 — 표의 글자는 MapTable.cpp 의 이름표(KIND_NAMES)다. 종류가 늘면 둘을 같이 넓힌다(개수 static_assert).
 enum class MapKind : uint8_t
 {
     TOWN,      // "town"    — 몬스터 구역 0 · 시작 구역 필수

@@ -109,7 +109,7 @@ public:
 private:
     // ── 입장(스폰) ──
     // 불러온 결과를 "스폰이 쓸 꼴"로 바꾼 것. 판정하는 쪽(OnCharacterLoaded·OnConnected)이
-    //   채우고 SpawnPlayer 가 쓴다. 판정과 스폰을 가른 이유 — 갈래(찾음·없음·맵 없음·좌표 불량)는
+    //   채우고 SpawnPlayer 가 쓴다. 판정과 스폰을 가른 이유 — 분기(찾음·없음·맵 없음·좌표 불량)는
     //   넷인데 스폰 절차는 하나다.
     //   ★ USE_DB_WORKER 밖에 둔다 — 토글을 끈 빌드의 접속 처리도 SpawnPlayer 를 부른다.
     //   ★ level·exp 가 여기 있는 이유 — 스폰이 패킷을 보내기 "전"에 값이 서 있어야 한다.
@@ -125,12 +125,12 @@ private:
         int32_t hp      = DB_HP_MP_UNSAVED;   // 불러온 체력 — 모름(-1)이면 가득. 죽은 채 저장된 0 은 판정하는 쪽이 부활 규칙대로 바꿔 넘긴다
         int32_t mp      = DB_HP_MP_UNSAVED;   // 불러온 마력 — 모름(-1)이면 가득
 #if USE_DB_WORKER && USE_INVENTORY
-        // 불러온 가방 줄이 든 결과 — 찾음·없음 갈래에서 채운다(없음이어도 가방 줄은 있을 수 있다). nullptr = 가방 없음.
+        // 불러온 가방 줄이 든 결과 — 찾음·없음 분기에서 채운다(없음이어도 가방 줄은 있을 수 있다). nullptr = 가방 없음.
         //   회신 큐의 원소를 가리킨다 — OnCharacterLoaded 가 SpawnPlayer 를 동기로 부르는 동안만 살아 있다.
         const DBResult* loaded = nullptr;
 #endif
 #if USE_DB_WORKER
-        // 불러온 쿨타임·버프 묶음(characters.skill_cooldowns · buffs)이 든 결과 — 찾음 갈래에서만 채운다. nullptr = 되살릴 것 없음(새 캐릭터).
+        // 불러온 쿨타임·버프 묶음(characters.skill_cooldowns · buffs)이 든 결과 — 찾음 분기에서만 채운다. nullptr = 되살릴 것 없음(새 캐릭터).
         //   loaded 와 같은 수명이다. 풀기·검사·칸 채우기는 SpawnPlayer 의 RestoreCooldownsAndBuffs 가 한다.
         const DBResult* cooldownsAndBuffs = nullptr;
         bool            dropBuffs         = false;   // 죽은 채 저장된 행 — 버프는 버린다(죽으면 버프가 지워지는 규칙). 쿨타임은 되살린다(죽어도 남는 규칙)

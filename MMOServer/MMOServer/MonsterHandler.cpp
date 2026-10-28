@@ -81,7 +81,7 @@ void CMonsterHandler::OnMonsterVanish(CZone* zone, CMonster* monster)
 #endif
     _placement.RemoveFromZone(zone, monster);
 #if USE_PARTY
-    _gameMonitor._room._minionsCleared.Inc();   // 클리어는 방 갈래만 건다(OnDeath) — 사라짐은 곧 방 클리어로 지운 수다
+    _gameMonitor._room._minionsCleared.Inc();   // 클리어는 방 분기만 건다(OnDeath) — 사라짐은 곧 방 클리어로 지운 수다
 #endif
 }
 

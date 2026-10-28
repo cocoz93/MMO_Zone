@@ -108,7 +108,7 @@ inline const char* PickupFailName(PickupFail r)
 #endif
 
 // 존 이동 요청 결과의 지표 라벨 — 사유 enum 은 맵 관리자가 정한다(MapManager.h ZoneChangeReject). NONE 칸이 성공이다 —
-//   성공·거절을 한 배열로 세야 「요청 수 = 칸의 합」이 되고, 한 갈래를 빼먹으면 합이 안 맞아 드러난다. 세는 곳은 RecvZoneChange 한 곳.
+//   성공·거절을 한 배열로 세야 「요청 수 = 칸의 합」이 되고, 한 분기를 빼먹으면 합이 안 맞아 드러난다. 세는 곳은 RecvZoneChange 한 곳.
 inline const char* ZoneChangeResultName(ZoneChangeReject r)
 {
     static_assert(static_cast<int>(ZoneChangeReject::COUNT) == 5, "ZoneChangeReject 를 늘렸으면 이름도 붙일 것");
@@ -759,7 +759,7 @@ public:
     //
     // ★ 맞아야 하는 등식 — 조용해진 뒤 requested = found + newCharacter + failed + orphaned.
     //   왼쪽은 요청을 넣는 자리, 오른쪽은 결과를 꺼내는 자리에서 따로 센다. 그래서 워커가
-    //   어느 갈래에서 결과를 빠뜨리면 등식이 영영 안 맞는다. 갈래마다 계수기를 둔 이유다 —
+    //   어느 분기에서 결과를 빠뜨리면 등식이 영영 안 맞는다. 분기마다 계수기를 둔 이유다 —
     //   한 통에 담으면 제일 흔한 하나(찾음)가 나머지를 삼킨다.
     //
     // USE_DB_WORKER=0 이어도 계수기는 남아 0 으로 노출된다(전투 계수기와 같은 이유 —
@@ -773,7 +773,7 @@ public:
 
         Counter _found;          // 결과: 행이 있었다
         Counter _newCharacter;   // 결과: 행이 없었다 (새 캐릭터 — 정상)
-        Counter _failed;         // 결과: 조회 실패 ("없음"과 섞이면 안 되는 갈래)
+        Counter _failed;         // 결과: 조회 실패 ("없음"과 섞이면 안 되는 분기)
         Counter _orphaned;       // 결과가 왔는데 주인(세션)이 이미 나가고 없다 — 코드는 안 본다
 
         // [2단계] 등식 밖의 여섯 — 위 등식에 더하지 않는다.
@@ -873,7 +873,7 @@ public:
     } _sector;
 
     // ══════════════════════════════════════════════════════════════
-    // 포털 — 세는 곳은 RecvPortalUse 한 곳. 칸의 합(_used + Σ _rejected) = 받은 C2S_PORTAL_USE 수(방어 갈래 둘 빼고 — 그 함수 주석).
+    // 포털 — 세는 곳은 RecvPortalUse 한 곳. 칸의 합(_used + Σ _rejected) = 받은 C2S_PORTAL_USE 수(방어 분기 둘 빼고 — 그 함수 주석).
     //   토글 없음 — 맵 표처럼 세계 데이터다(PortalTable.h). 포털 표가 비면 늘 0 이다.
     // ══════════════════════════════════════════════════════════════
     struct alignas(64) PortalCounters
@@ -915,14 +915,14 @@ public:
         Counter _memberSent;                                                      // S2C_PARTY_MEMBER 보낸 수(게임 서버 한 곳)
         Counter _askSent;                                                         // S2C_PARTY_ASK 보낸 수(게임 서버 한 곳) — Σ _requests 와 같아야 한다
         Counter _askEndSent;                                                      // S2C_PARTY_ASK_END 보낸 수(게임 서버 한 곳)
-        // 공격 후보에서 같은 파티라 건너뛴 수 — 후보 함수가 둘이라 둘(세는 자리도 갈래다).
+        // 공격 후보에서 같은 파티라 건너뛴 수 — 후보 함수가 둘이라 둘(세는 자리도 분기마다 따로다).
         //   Front = FindFrontTarget(평타·백호참 — 사거리 안의 파티원) · Area = CollectCandidates(범위 스킬 — 모양 판정 전, 훑은 반경 안의 파티원)
         Counter _mateSkippedFront;
         Counter _mateSkippedArea;
     } _party;
 
     // ══════════════════════════════════════════════════════════════
-    // 파티 전용 방 (USE_PARTY — 방은 파티 위에 선다) — 세는 곳은 CPartyHandler(포털 방 갈래 EnterRoom · 방 닫힘 OnErasingZone · 잠금 넣기·훑기) ·
+    // 파티 전용 방 (USE_PARTY — 방은 파티 위에 선다) — 세는 곳은 CPartyHandler(포털 방 분기 EnterRoom · 방 닫힘 OnErasingZone · 잠금 넣기·훑기) ·
     //   CRewardHandler(방 보상 RewardRoom) · CCombatHandler(방 클리어 OnDeath) · CMonsterHandler(사라짐 OnMonsterVanish).
     //   ★ 등식 둘: _entries[entered] = _closed + _active · Σ _entries(entered 뺀 칸) = mmo_portal_rejected_total{reason="room"}
     // ══════════════════════════════════════════════════════════════
@@ -936,7 +936,7 @@ public:
         Counter _rewardItemsBag;                                          // 방 보상으로 가방에 바로 들어간 아이템 개수(돈은 빼고 — 금액은 _inventory._moneyIn)
         Counter _rewardItemsGround;                                       // 가방이 차서 그 사람 발밑 땅으로 간 개수(땅 계수 _drop._dropped 에도 들어간다 · 돈은 빼고)
         Counter _locks;                                                   // [게이지] 다시 들어가기 잠금 표 크기(넣을 때 · 초마다 훑은 뒤)
-        Counter _cleared;                                                 // 클리어된 방 = 방에서 죽은 보스 수(OnDeath 의 방 갈래 — 몬스터 표 boss)
+        Counter _cleared;                                                 // 클리어된 방 = 방에서 죽은 보스 수(OnDeath 의 방 분기 — 몬스터 표 boss)
         Counter _minionsCleared;                                          // 클리어로 사라진 몬스터 수(OnMonsterVanish — 방에서 깐 수 = 잡힌 수 + 이것 + 방이 닫힐 때 남은 수)
     } _room;
 #endif

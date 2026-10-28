@@ -189,12 +189,12 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
 {
     CGameMonitor::EnterCounters& enter = _gameMonitor._enter;
 
-    // 지연은 주인이 있든 없든 잰다 — "꺼낸 결과 전부"가 분모라야 아래 갈래 합과 맞대 볼 수 있다.
+    // 지연은 주인이 있든 없든 잰다 — "꺼낸 결과 전부"가 분모라야 아래 분기 합과 맞대 볼 수 있다.
     enter.RecordLatencyUs((nowNs - result.requestNs) / 1000);
 
     // 주인 확인 — 대기표의 세션 번호 "전체"가 같아야 한다(같은 자리에 다른 사람이 들어왔으면 안 맞는다).
     //   불러오는 사이에 나갔으면 OnDisconnected 가 대기표를 이미 비웠다 → 결과는 버린다.
-    //   코드(찾음·없음·실패)는 보지 않고 이 갈래 하나로 센다.
+    //   코드(찾음·없음·실패)는 보지 않고 이 분기 하나로 센다.
     PendingEnter pending;
     if (!TakePendingEnter(result.sessionId, pending))
     {
@@ -203,11 +203,11 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
     }
 
     // [2단계] 결과를 "어느 존에 · 어느 자리에 · 저장할까"로 바꾼 뒤 스폰한다.
-    //   존 조회(FindOrCreateChannel)는 찾음·없음 갈래에서만 한다 — 채널을 만들 수도 있는 함수라
-    //   들여보내지 않을 갈래(주인 없음·실패)에서는 부르면 안 된다.
+    //   존 조회(FindOrCreateChannel)는 찾음·없음 분기에서만 한다 — 채널을 만들 수도 있는 함수라
+    //   들여보내지 않을 분기(주인 없음·실패)에서는 부르면 안 된다.
     CZone* zone = nullptr;
     EnterPlacement place;   // 기본값 = 그 맵의 들어오는 자리(시작 구역 · 없으면 무작위) · 다음 주기에 저장
-    bool toTown = false;    // 찾음 갈래 — 마을 밖에서 죽은 채 저장된 행이라 저장된 맵·자리를 버린다(부활 규칙, 아래 USE_COMBAT)
+    bool toTown = false;    // 찾음 분기 — 마을 밖에서 죽은 채 저장된 행이라 저장된 맵·자리를 버린다(부활 규칙, 아래 USE_COMBAT)
 
     static_assert(static_cast<int>(DBResultCode::COUNT) == 3, "DBResultCode 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
     switch (result.code)
@@ -217,7 +217,7 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
 
         // 레벨·경험치는 자리(좌표·맵) 판정과 무관하게 행의 값을 그대로 쓴다.
         //   좌표가 못 쓸 값이어도 레벨까지 버릴 이유는 없다 — 다른 사실이다.
-        //   ★ 표 범위 검사와 레벨 정산은 여기가 아니라 SpawnPlayer 가 한다 — 새 캐릭터·못 읽음 갈래도 거기를 지난다.
+        //   ★ 표 범위 검사와 레벨 정산은 여기가 아니라 SpawnPlayer 가 한다 — 새 캐릭터·못 읽음 분기도 거기를 지난다.
         place.level = result.level;
         place.exp   = result.exp;
         place.hp    = result.hp;   // 최대치로 깎기는 SpawnPlayer 가 한다(최대치가 장비·레벨 정산 뒤에 선다)
@@ -236,7 +236,7 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
         if (result.hp == 0)
         {
             enter._deadRespawn.Inc();
-            place.hp = DB_HP_MP_UNSAVED;   // 가득 — 마을이면 제자리(아래 저장된 자리 갈래)에서
+            place.hp = DB_HP_MP_UNSAVED;   // 가득 — 마을이면 제자리(아래 저장된 자리 분기)에서
             toTown   = Combat::RespawnsToTown(result.mapId, _mapManager.GetDefaultMapId());
             place.dropBuffs = true;        // 버프는 버린다(죽으면 지워지는 규칙 — 쿨타임은 죽어도 남아 되살린다)
         }
@@ -297,7 +297,7 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
 
     if (SpawnPlayer(result.sessionId, pending.actorId, pending.accountId, zone, place) == nullptr)
     {
-        // 갈래 계수기는 위에서 이미 올랐다. 여기 오는 길은 채널 생성 실패뿐이라 계수기를 따로 두지 않는다(로그만).
+        // 분기 계수기는 위에서 이미 올랐다. 여기 오는 길은 채널 생성 실패뿐이라 계수기를 따로 두지 않는다(로그만).
         SLOG_ERROR("[DB] spawn failed after load -> disconnect (account={}, session={})", result.accountId, result.sessionId);
         _sessionHub.RequestDisconnect(result.sessionId);
     }
@@ -366,9 +366,9 @@ CPlayer* CEntryHandler::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t 
     // ── 레벨 정산 — 스탯을 표에서 다시 세우고, 불러온 값이 표와 어긋나면 바로잡는다 ──
     //   ★ NotifyArrival 보다 앞이다. 그 안의 SendCreateMyPlayer 가 곧바로 최대 체력을 실어 보내므로
     //     여기서 안 세우면 첫 화면의 막대가 생성자 기본값(100)으로 나간다.
-    //   갈래 둘 — ⑴ 레벨이 표 밖(표를 줄인 패치) ⑵ 경험치가 이미 다음 레벨 몫을 넘음
+    //   경우 둘 — ⑴ 레벨이 표 밖(표를 줄인 패치) ⑵ 경험치가 이미 다음 레벨 몫을 넘음
     //     (표의 필요치를 낮춘 패치, 또는 만렙 상한에 걸려 안 오른 채 저장된 행).
-    //     둘 다 "행은 멀쩡한데 표가 바뀐" 경우라 평소엔 한 번도 안 도는 갈래다.
+    //     둘 다 "행은 멀쩡한데 표가 바뀐" 경우라 평소엔 한 번도 안 도는 분기다.
     //   규칙과 보정·레벨업 지표는 CStatSystem. 바로잡은 값은 DB 와 다르다 — 다음 주기 판정(ShouldSave)이
     //     위 _dbSaved 와 견주어 싣는다(예전엔 여기서 _dbDirty 를 켰다 — 안 켜면 영영 틀린 채로 남았다).
     _statSystem.ClampLevelToTable(player);
@@ -420,7 +420,7 @@ void CEntryHandler::OnConnected(int64_t sessionId)
     //     "동접 = 게임 중 + 불러오는 중 + 입장 대기" 등식이 늘 틀린 채로 울린다.
     //   ※ 입장 요청을 끝내 안 보내는 세션은 여기 남는다. 네트워크 계층의 유휴 타임아웃은
     //     하트비트만 보내도 갱신되므로 안 끊는다 — 그래서 게이지(mmo_enter_waiting)로 지켜본다.
-    //     값이 올라가서 안 내려오면 그때 쓸어내기를 넣는다(지금 넣으면 한 번도 안 도는 갈래다).
+    //     값이 올라가서 안 내려오면 그때 쓸어내기를 넣는다(지금 넣으면 한 번도 안 도는 분기다).
     SetPendingEnter(sessionId, 0, 0, EnterState::WAITING_ENTER);
 #else
     // 번호는 접속 때 뽑는다 — 지금은 계정 번호 = 캐릭터 번호(임시)라 조회 열쇠로 먼저 필요하다.
@@ -540,7 +540,7 @@ void CEntryHandler::RecvEnterGame(int64_t sessionId, CSerialBuffer* pMsg)
     // [불변식] 여기 오는 동안 저장소의 DB 워커는 떠 있다(_characterStore.IsRunning) — InitDB 가 실패하면 main 이 서버를 아예
     //   안 띄우고(main.cpp:109~113), 내리는 쪽은 게임 스레드를 join 한 "뒤"다(Stop, :428~437).
     //   USE_LOGIN 은 USE_DB_WORKER 를 요구하므로 "DB 없는 빌드"도 여기 못 온다.
-    //   ※ 널 대비 분기를 두지 않는다 — 한 번도 안 타는 갈래이고, 혹시 탄다면 불러오기 없이 스폰해
+    //   ※ 널 대비 분기를 두지 않는다 — 한 번도 안 타는 분기이고, 혹시 탄다면 불러오기 없이 스폰해
     //     다음 저장이 남의 행을 덮는 쪽이라 조용한 오동작이 된다. 차라리 여기서 멈추는 게 낫다.
     assert(_characterStore.IsRunning());
 
@@ -621,7 +621,7 @@ void CEntryHandler::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
 //   판정 = 살았나 · 표에 있나 · 지금 맵의 포털인가 · 반경 안인가. 넷을 다 지나야 옮긴다(옮긴 뒤 되돌리는 길은 없다 — TransferPlayer).
 //   목적지가 방 맵이면 넷 뒤에 파티 판정이 하나 더 있다(EnterRoom — 파티장이 누르면 파티원 전원이 새 방으로).
 //   실패 답은 S2C_ZONE_CHANGE_FAIL 을 같이 쓴다(4 포털에서 멂 · 5 포털 없음 — Protocol.h). 죽은 채면 답이 없다(존 이동 요청과 같다).
-//   세는 곳은 여기 한 곳 — 칸의 합(_used + Σ _rejected) = 받은 요청 수(GameMonitor.h _portal). 방어 갈래 둘(존 없음 ·
+//   세는 곳은 여기 한 곳 — 칸의 합(_used + Σ _rejected) = 받은 요청 수(GameMonitor.h _portal). 방어 분기 둘(존 없음 ·
 //   목적지 채널 못 얻음)은 안 센다 — 지금 일어나는 길이 없고, 일어나면 앞엣것은 조용히, 뒤엣것은 로그로 드러난다.
 void CEntryHandler::RecvPortalUse(CPlayer* player, CSerialBuffer* pMsg)
 {

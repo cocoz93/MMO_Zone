@@ -103,7 +103,7 @@ private:
     CGameMonitor&     _gameMonitor;   // 파티 보내기 · 포털 · 방 지표
     const uint64_t&   _frameCount;    // 게임 루프의 틱 번호 — 빌린 것, 읽기만(요청 시간 · 잠금 판정 · 쓸기 주기)
 
-    // 방 다시 들어가기 잠금(계정 · 방 맵 → 풀리는 틱) — 보상을 줄 때 넣고(OnDeath 방 갈래의 방 보상 → LockRoomReentry) 들어가기 판정이 본다. 서버 메모리만(재시작하면 풀림).
+    // 방 다시 들어가기 잠금(계정 · 방 맵 → 풀리는 틱) — 보상을 줄 때 넣고(OnDeath 방 분기의 방 보상 → LockRoomReentry) 들어가기 판정이 본다. 서버 메모리만(재시작하면 풀림).
     //   풀린 것은 파티 틱 옆에서 초마다 훑어 뺀다(TickRoomLocks — 게임 루프 3-2c)
     CRoomLocks _roomLocks;
 };

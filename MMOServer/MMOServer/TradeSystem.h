@@ -88,7 +88,7 @@ public:
     virtual void OnTradeSwapped(CPlayer* a, CPlayer* b) = 0;
 };
 
-// 이 맵 종류에서 거래가 되나 — 종류마다 한 줄(새 종류가 생기면 여기서 정한다 · 빠뜨리면 COUNT 갈래로 「안 됨」)
+// 이 맵 종류에서 거래가 되나 — 종류마다 한 줄(새 종류가 생기면 여기서 정한다 · 빠뜨리면 COUNT case 로 「안 됨」)
 bool TradeAllowedOn(MapKind kind);
 
 class CTradeSystem

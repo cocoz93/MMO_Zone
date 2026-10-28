@@ -172,7 +172,7 @@ void CPlayerPlacement::SendZoneChangeFail(CPlayer* target, uint8_t reason)
 void CPlayerPlacement::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind kind)
 {
     // 길마다 다른 셋 — 내 캐릭터를 CREATE_MY 로 알리나(아니면 ZONE_CHANGE_OK) · 가방·스탯까지 보내나 · 등장 사유.
-    //   ArrivalKind 마다 한 줄. 줄 수가 길 수와 다르면 컴파일이 막는다(switch 는 이 빌드들에서 빠진 갈래를 경고하지 않는다).
+    //   ArrivalKind 마다 한 줄. 줄 수가 길 수와 다르면 컴파일이 막는다(switch 는 이 빌드들에서 빠진 case 를 경고하지 않는다).
     //   revive — 마을 부활만. 다른 맵에서 되살아났다는 사실은 ZONE_CHANGE_OK 가 못 싣는다(체력이 없다) — 본인에게 RESPAWN 한 장.
     struct ArrivalRule { bool createMy; bool firstEntry; SpawnReason reason; bool revive; };
     static constexpr ArrivalRule ARRIVAL_RULES[] = {
@@ -240,7 +240,7 @@ void CPlayerPlacement::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind k
         //     조용히 아무것도 안 보게 된다.
         _selfNotifier.SendInventory(player);
 
-        // 3-1b) 가진 돈 — 가방 전체 바로 뒤 한 장(돈은 가방의 일부 · 존 이동 때는 안 보낸다 — 가방과 같은 갈래).
+        // 3-1b) 가진 돈 — 가방 전체 바로 뒤 한 장(돈은 가방의 일부 · 존 이동 때는 안 보낸다 — 가방과 같은 분기).
         //   ★ 부하 더미도 이 한 장을 반드시 받는다 — 가방 전체와 같은 함정(더미 크기 표에서 빠지면 전원 떨어진다).
         _selfNotifier.SendMoney(player);
 #endif

@@ -8,7 +8,7 @@ const std::vector<CCharacter*> CSectorManager::EMPTY_CHARACTERS;
 
 namespace
 {
-    // 어느 목록인가 — 갈래가 셋이라 값을 돌려주고 부르는 쪽이 switch 로 가른다(if/else 면 셋째가 둘째에 삼켜져도 안 보인다).
+    // 어느 목록인가 — 경우가 셋이라 값을 돌려주고 부르는 쪽이 switch 로 가른다(if/else 면 셋째가 둘째에 삼켜져도 안 보인다).
     //   사람인가(받을 수 있나) → 체력 컴포넌트가 있나(맞을 수 있나). 종류·컴포넌트는 생성 뒤 안 바뀌므로 넣을 때와 뺄 때 같은 답이다.
     enum class SectorList : uint8_t
     {

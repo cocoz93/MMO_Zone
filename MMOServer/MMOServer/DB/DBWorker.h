@@ -157,7 +157,7 @@ struct DBSaveCounters;
 
 // 작업 종류 — 큐 원소에 붙는 표시. 워커와 게임 루프가 switch 로 가른다.
 //   ※ 종류를 늘리면 COUNT 가 바뀌고, 각 switch 옆의 static_assert 가 컴파일을 막아
-//     빠뜨린 갈래를 찾아가게 한다. (이 프로젝트 빌드 옵션엔 -Wswitch·C4062 가 꺼져 있어
+//     빠뜨린 case 를 찾아가게 한다. (이 프로젝트 빌드 옵션엔 -Wswitch·C4062 가 꺼져 있어
 //     컴파일러 경고로는 못 잡는다 — 그래서 경고 대신 단언에 맡긴다.)
 enum class DBJobKind : uint8_t
 {

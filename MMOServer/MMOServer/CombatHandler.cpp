@@ -340,7 +340,7 @@ void CCombatHandler::TickRespawn()
         _gameMonitor._combat._respawnsTotal.Inc();
 
         // 어디서 되살아나나 — 죽은 맵이 마을(기본 맵 = 맵 표 첫 줄)이 아니면 마을 시작 구역으로, 마을이면 제자리.
-        //   지금은 마을에서 죽는 길이 없다(몬스터 구역 0 · 대인전은 던전에서만 일어난다) — 그 갈래는 예전 그대로 남겨 둔다.
+        //   지금은 마을에서 죽는 길이 없다(몬스터 구역 0 · 대인전은 던전에서만 일어난다) — 그 분기는 예전 그대로 남겨 둔다.
         //   마을 채널은 여기서 고른다(자리 있는 채널 — 존 이동 요청과 같은 규칙). 못 얻으면 제자리로 — 되살리지 못한 채 두지 않는다
         CZone* zone = _mapManager.GetZone(dead->_zoneId);
         CPlayer* player = As<CPlayer>(dead);

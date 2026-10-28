@@ -103,7 +103,7 @@ public:
 #endif
 
     // 입장 — 묶음을 풀어 실제 시각 → 틱으로 칸을 채운다(SpawnPlayer).
-    //   cooldownsAndBuffs = 불러온 행(찾음 갈래에서만 — nullptr 이면 되살릴 것 없음) · dropBuffs = 죽은 채 저장된 행이라 버프는 버린다
+    //   cooldownsAndBuffs = 불러온 행(찾음 분기에서만 — nullptr 이면 되살릴 것 없음) · dropBuffs = 죽은 채 저장된 행이라 버프는 버린다
     //   (전에는 입장 배치 구조체(지금 CEntryHandler::EnterPlacement)를 통째로 받았다 — 저장소가 입장 구조체를 모르게 쓰는 두 칸만 받는다, 4 단계).
     void RestoreCooldownsAndBuffs(CPlayer* player, const DBResult* cooldownsAndBuffs, bool dropBuffs);
 

@@ -63,7 +63,7 @@ public:
     void PerformAttack(CZone* zone, CCharacter* attacker, uint64_t frame);
 
     // 대상 찾기(앞 한 칸 · 범위)에 넣을 후보 — 섹터의 어느 목록을 보나(SectorManager.h [목록 셋]).
-    //   어느 갈래든 「그 밖」 목록(체력 컴포넌트 없음 — NPC)은 안 본다 — 맞을 수 없는 것은 후보가 아니다.
+    //   어느 분기든 「그 밖」 목록(체력 컴포넌트 없음 — NPC)은 안 본다 — 맞을 수 없는 것은 후보가 아니다.
     enum class CandidateList : uint8_t
     {
         PLAYERS,        // 플레이어 목록만 — 몬스터가 때리거나 스킬을 쓸 때(몬스터는 몬스터를 못 때린다)

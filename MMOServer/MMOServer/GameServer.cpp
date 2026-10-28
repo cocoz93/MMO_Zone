@@ -389,7 +389,7 @@ void CGameServer::OnLeavingZone(CCharacter* player)
 void CGameServer::OnLeavingGame(CPlayer* player)
 {
 #if USE_COMBAT
-    // 부활 대기열 회수 — 끊김 길에서는 RemoveFromZone 이 이미 하지만, 존을 못 찾은 갈래는 그걸 건너뛴다.
+    // 부활 대기열 회수 — 끊김 길에서는 RemoveFromZone 이 이미 하지만, 존을 못 찾은 분기는 그걸 건너뛴다.
     //   그 상태로 죽어 있을 수는 없어도, 아래 해제 뒤에 대기열이 그 주소를 들고 있으면
     //   다음 틱이 해제된 메모리를 밟는다. 두 번 불러도 무해하므로 여기서도 뺀다.
     _combatHandler.RemoveFromDeadActors(player);
@@ -405,7 +405,7 @@ void CGameServer::OnLeavingGame(CPlayer* player)
 #endif
 
 #if USE_TRADE
-    // 신청·거래창도 같은 까닭으로 — 존에서 빠질 때 이미 지웠지만, 존을 못 찾은 갈래는 그걸 건너뛴다(두 번 불러도 무해)
+    // 신청·거래창도 같은 까닭으로 — 존에서 빠질 때 이미 지웠지만, 존을 못 찾은 분기는 그걸 건너뛴다(두 번 불러도 무해)
     _tradeSystem.Forget(player);
 #endif
     (void)player;   // 전투·파티를 다 끈 빌드엔 할 일이 없다

@@ -87,7 +87,7 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMapTable& maps, con
             return false;
         }
 
-        // ⑶-2 보스는 방 맵에만 — 필드에서 죽으면 클리어할 방이 없다(방 클리어는 방 맵 갈래 — CCombatHandler::OnDeath).
+        // ⑶-2 보스는 방 맵에만 — 필드에서 죽으면 클리어할 방이 없다(방 클리어는 방 맵 분기 — CCombatHandler::OnDeath).
         //   방 맵마다 하나인지는 줄을 다 읽은 뒤 아래 ⑹ 이 센다
         if (monster->boss && map->kind != MapKind::INSTANCE)
         {
@@ -139,7 +139,7 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMapTable& maps, con
     }
 
     // ⑹ 맵 종류마다 구역 개수 — 던전·방은 하나 이상(뱀을 깔 자리가 없는 던전을 만들지 않는다), 마을은 0(마을에 몬스터를 깔지 않는다).
-    //    틀린 맵을 다 적고 끝낸다. 종류가 늘면 갈래가 하나 는다(빠지면 컴파일러가 아니라 COUNT 갈래가 막는다)
+    //    틀린 맵을 다 적고 끝낸다. 종류가 늘면 case 가 하나 는다(빠지면 컴파일러가 아니라 COUNT case 가 막는다)
     bool ok = true;
     for (const MapDef& m : maps.All())
     {

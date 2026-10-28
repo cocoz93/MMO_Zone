@@ -176,7 +176,7 @@ void CPartySystem::Request(CPlayer* me, CPlayer* target, uint64_t frame)
         return;
     }
 
-    // 두 사람의 처지로 셋 중 하나 — 남은 갈래: (없음·없음) · (있음·없음) · (없음·있음)
+    // 두 사람의 처지로 셋 중 하나 — 남은 경우: (없음·없음) · (있음·없음) · (없음·있음)
     PartyAskKind kind;
     PartyNotice  sent;
     CPlayer*     to    = target;

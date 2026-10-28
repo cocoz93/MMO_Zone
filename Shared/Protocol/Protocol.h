@@ -1495,7 +1495,7 @@ enum class TradeFail : uint8_t
 };
 
 // 신청·거래가 끝난 사유 (S2C_TRADE_END — 두 사람 · S2C_TRADE_ASK_END — 받는 사람). ★ 값이 와이어에 실린다 — 끝(COUNT 앞)에만 붙인다.
-//   맞바꾸기 갈래의 실패(NOT_IN_REACH 아래 다섯)는 「아무것도 안 바뀌었다」 — 빼기가 없어 창을 열어 둬도 고칠 길이 없으므로 거래를 끝낸다.
+//   맞바꾸기에서 나는 실패(NOT_IN_REACH 아래 다섯)는 「아무것도 안 바뀌었다」 — 빼기가 없어 창을 열어 둬도 고칠 길이 없으므로 거래를 끝낸다.
 enum class TradeEnd : uint8_t
 {
     DONE,          // 맞바꿨다

@@ -160,7 +160,7 @@ Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame
         return d;
     }
 
-    // 갈래가 넷이라 switch 로 쓴다 — if/else 면 else 하나가 나머지를 삼킨다.
+    // 경우가 넷이라 switch 로 쓴다 — if/else 면 else 하나가 나머지를 삼킨다.
     switch (monster._aiState)
     {
     case AIState::IDLE:
