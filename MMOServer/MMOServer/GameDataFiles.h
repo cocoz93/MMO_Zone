@@ -55,7 +55,7 @@ public:
     const CMapTable& Maps() const { return _map; }
     const CPortalTable& Portals() const { return _portal; }
     const CNpcTable& Npcs() const { return _npc; }   // 토글 없음 — 맵·포털과 같은 세계 데이터(NpcTable.h [토글 없음])
-    const CBlockTable& Blocks() const { return _block; }   // 토글 없음 — 막힌 칸. 존이 자기 맵 격자를 꺼낸다(CZone::Init)
+    const CBlockTable& Blocks() const { return _block; }   // 토글 없음 — 막힌 칸. 존이 자기 맵의 CWalkGrid 를 꺼낸다(CZone::Init)
 #if USE_COMBAT
     const CLevelTable& Level() const { return _level; }
 #endif

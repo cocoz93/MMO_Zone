@@ -18,9 +18,9 @@
 //  가르는 기준은 "무엇을 할 수 있나"(받을 수 있나 · 맞을 수 있나)다 — 종류마다 목록을 두지 않는다. 펫이 생겨도 체력 컴포넌트가 있으면 둘째 목록이다.
 //
 // [땅의 아이템] 여기 없다 — 존의 땅 아이템 관리자가 같은 칸 번호로 든다(GroundItemManager.h).
-//  땅은 아이템을 담는 그릇이라 물건과 규칙을 그쪽이 함께 든다. 여기는 캐릭터 목록 셋만 — 격자 계산(CalcSectorX/Y · CellIndex · IsValidSector)은 빌려 준다.
+//  땅은 아이템을 담는 그릇이라 물건과 규칙을 그쪽이 함께 든다. 여기는 캐릭터 목록 셋만 — 그리드 계산(CalcSectorX/Y · CellIndex · IsValidSector)은 빌려 준다.
 //
-// [격자 규칙은 여기 한 곳] 섹터 좌표 ↔ 칸 번호(CellIndex/CellPos) · 칸 수(CellCount) · 주변 9섹터(GetAroundSectorList) ·
+// [그리드 규칙은 여기 한 곳] 섹터 좌표 ↔ 칸 번호(CellIndex/CellPos) · 칸 수(CellCount) · 주변 9섹터(GetAroundSectorList) ·
 //  서로 보이나(IsAdjacent). 섹터별로 무언가를 두는 쪽(땅 아이템 관리자 · 게임 서버 송신 보류 버퍼)은 식을 베끼지 않고 이걸 부른다.
 //
 // [사용 흐름]
@@ -89,7 +89,7 @@ public:
             fn(c);
     }
 
-    // 반경이 걸치는 섹터만 돈다 — 「어느 섹터를 도나」(격자 규칙)는 여기, 「그 섹터에서 무엇을 보나」는 fn 이 정한다.
+    // 반경이 걸치는 섹터만 돈다 — 「어느 섹터를 도나」(그리드 규칙)는 여기, 「그 섹터에서 무엇을 보나」는 fn 이 정한다.
     //   fn 은 (sectorX, sectorY) 를 받는다. 중심 ± range 를 CalcSectorX/Y 로 자르므로 맵 밖은 가장자리 섹터로 묶인다.
     //   GetAroundPlayers(3×3 고정 · 벡터 복사) 대신 참조로 훑는 자리가 쓴다 — 공격 사거리 · 몬스터 시야 · 줍기 반경.
     //   섹터가 20타일이라 대부분 1칸, 경계에 서 있을 때만 2~4칸이다. 도는 동안 목록을 바꾸지 말 것(ForEachInSector 와 같음).
@@ -128,7 +128,7 @@ public:
     int32_t GetSectorCountX() const { return _sectorCountX; }
     int32_t GetSectorCountY() const { return _sectorCountY; }
 
-    // 칸 번호 — 격자를 한 줄 배열에 까는 규칙(행 우선: y × 가로칸수 + x). 섹터별로 무언가를 두는 쪽
+    // 칸 번호 — 그리드를 한 줄 배열에 까는 규칙(행 우선: y × 가로칸수 + x). 섹터별로 무언가를 두는 쪽
     //   (여기의 목록 셋 · 땅 아이템 관리자의 목록 · 게임 서버의 송신 보류 버퍼)이 전부 이 둘을 쓴다 —
     //   식과 가로칸수를 여기 한 곳에만 둔다(사본 금지). CellCount 는 그 배열의 크기.
     int32_t CellIndex(int32_t sectorX, int32_t sectorY) const { return sectorY * _sectorCountX + sectorX; }
@@ -139,7 +139,7 @@ public:
     }
     int32_t CellCount() const { return _sectorCountX * _sectorCountY; }
 
-    // 격자 안의 섹터 좌표인가 — 땅 아이템 관리자도 같은 격자를 쓰므로 공개
+    // 그리드 안의 섹터 좌표인가 — 땅 아이템 관리자도 같은 그리드를 쓰므로 공개
     bool IsValidSector(int32_t sectorX, int32_t sectorY) const;
 
     static constexpr int32_t MAX_AROUND_SECTORS = 9;
@@ -153,7 +153,7 @@ public:
     // 두 섹터가 서로의 시야(주변 9섹터) 안인가 — 체비쇼프 거리 ≤ 1.
     //   GetAroundSectorList(SectorManager.cpp)가 dx,dy ∈ [-1,1]을 모으는 것과 같은 판정을
     //   섹터 목록을 만들지 않고 좌표만으로 계산한다(맵 밖 섹터는 애초에 주민이 없어 결과 동일).
-    //   ※ 섹터 좌표는 존마다 별개 격자이므로, 호출부에서 반드시 같은 존인지 먼저 확인할 것.
+    //   ※ 섹터 좌표는 존마다 별개 그리드이므로, 호출부에서 반드시 같은 존인지 먼저 확인할 것.
     static bool IsAdjacent(int32_t x1, int32_t y1, int32_t x2, int32_t y2)
     {
         int32_t dx = x1 - x2;

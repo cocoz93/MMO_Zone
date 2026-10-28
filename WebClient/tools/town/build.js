@@ -4,7 +4,7 @@
 //   만드는 것
 //     땅   — town0.js 의 모양을 [LPC] Terrains 의 모서리 지형 표(terrain-v7.tsx, 칸마다 terrain="왼위,오위,왼아래,오아래")로 칸 번호로 바꾼다.
 //            없는 모서리 조합이 하나라도 나오면 멈춘다(그 칸이 빈 채로 그려지므로). 쓰는 칸만 모아 아틀라스 한 장으로
-//     집   — [LPC] Thatched-roof Cottage 미리보기(preview_280.png)에서 다섯 채를 오려 낸다. 미리보기의 땅은 32px 격자(PREVIEW.ox·oy)에 맞춰
+//     집   — [LPC] Thatched-roof Cottage 미리보기(preview_280.png)에서 다섯 채를 오려 낸다. 미리보기의 땅은 32px 그리드(PREVIEW.ox·oy)에 맞춰
 //            깔려 있어서 「그 자리 땅 타일 색과 같은 픽셀」을 지우면 집만 남는다 · 세 색이 같은 비율로 어두워진 픽셀은 그림자(반투명 검정)
 //            · 얇은 선(땅 경계선)을 2px 깎아 한 채씩 나누고 · 테두리가 6px 안으로 닿는 조각은 다시 잇고 · 바깥에서 이어진 초록만 지운다
 //            + 작은 초가 한 채는 조각(cottage.png · thatched-roof.png · windows-doors.png)으로 조립
@@ -24,11 +24,11 @@ const pngSize = f => { const b = png(f); return [b.readUInt32BE(16), b.readUInt3
 const fail = (...a) => { console.error('!!', ...a); process.exit(1); };
 
 // ---- 미리보기에서 집 오리기 — 미리보기 그림의 성질(바뀌지 않는 값) ----
-//   ox·oy = 미리보기 땅 격자의 어긋남(지붕 칸이 가장 많이 맞는 값으로 찾음) · 빌드가 땅 픽셀 일치율로 다시 확인한다
-//   regions = 집이 있는 칸 범위(격자 칸 번호 [x0,y0,x1,y1]) · names = 그 안의 집을 넓이 큰 순으로 붙일 이름
+//   ox·oy = 미리보기 땅 그리드의 어긋남(지붕 칸이 가장 많이 맞는 값으로 찾음) · 빌드가 땅 픽셀 일치율로 다시 확인한다
+//   regions = 집이 있는 칸 범위(그리드 칸 번호 [x0,y0,x1,y1]) · names = 그 안의 집을 넓이 큰 순으로 붙일 이름
 const PREVIEW = {
   ox: -13, oy: -23,
-  groundCheck: [640, 400, 760, 470],              // 땅만 있는 자리 — 여기 픽셀의 90% 이상이 땅 색이어야 격자가 맞은 것
+  groundCheck: [640, 400, 760, 470],              // 땅만 있는 자리 — 여기 픽셀의 90% 이상이 땅 색이어야 그리드가 맞은 것
   regions: [
     { cells: [5, 2, 24, 19], names: ['house_lshape', 'house_twostory', 'house_annex'] },
     { cells: [27, 4, 43, 11], names: ['house_gate'] },

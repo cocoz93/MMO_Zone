@@ -1077,7 +1077,7 @@ function castCellSpan(f, side, rc){
 function castRadius(o){ const m=monMeta(o); return (m && m.radius>0) ? m.radius : 0; }
 // 범위 스킬(target=shape) 시전 칸 — 표의 칸 목록을 시전자 기준으로 잠깐 붉게 깐다(땅 층 — 맞은 상대 고리 아래).
 //   칸은 [앞, 옆] — 옆은 바라보는 쪽 기준 오른쪽이 +, 오른쪽 = (−앞.y, 앞.x). 서버 칸 판정(SkillTable.h IsInShape)과 같은 기준이다.
-//   시전자의 실제 좌표 기준이라 땅 타일 격자와는 반 칸 어긋날 수 있다(서버도 타일에 붙이지 않는다).
+//   시전자의 실제 좌표 기준이라 땅 타일 그리드와는 반 칸 어긋날 수 있다(서버도 타일에 붙이지 않는다).
 //   백호참(front)은 안 깐다 — S2C_SKILL_CAST 주석. 1단계의 앞 한 칸 깔기(25a473f)와 같은 그림을 칸 목록으로 넓힌 것이다.
 //   몸이 큰 시전자(구렁이)는 칸이 몸 가장자리부터다 — 위 castCellSpan.
 function drawSkillCast(o){
@@ -1160,7 +1160,7 @@ function drawSectorGrid(t){
   const s=ZONE.sectorSize;
   const u0=Math.floor((cam.x-VW/2/ZOOM)/s)*s, u1=cam.x+VW/2/ZOOM+s;
   const v0=Math.floor((cam.y-VH/2/ZOOM)/s)*s, v1=cam.y+VH/2/ZOOM+s;
-  // 격자 (약간 더 진하게)
+  // 그리드 선 (약간 더 진하게)
   ctx.strokeStyle='rgba(55,230,214,.24)'; ctx.lineWidth=1; ctx.beginPath();
   for(let u=u0;u<=u1;u+=s){ const p=sx(u); ctx.moveTo(p,VY); ctx.lineTo(p,VY+VH); }
   for(let v=v0;v<=v1;v+=s){ const p=sy(v); ctx.moveTo(VX,p); ctx.lineTo(VX+VW,p); }
@@ -1188,7 +1188,7 @@ function drawSectorGrid(t){
   ctx.fillStyle='rgba(70,235,215,'+pulse.toFixed(3)+')'; ctx.fillRect(sx(cs*s),sy(rs*s),s*ZOOM,s*ZOOM);
   ctx.strokeStyle='rgba(125,245,230,.9)'; ctx.lineWidth=2; ctx.strokeRect(sx(cs*s)+1,sy(rs*s)+1,s*ZOOM-2,s*ZOOM-2);
 }
-// 섹터 라벨은 격자·하이라이트(바닥)와 달리 "읽으라고" 띄운 글자다. 바닥과 같이 그리면 나무·캐릭터가
+// 섹터 라벨은 그리드·하이라이트(바닥)와 달리 "읽으라고" 띄운 글자다. 바닥과 같이 그리면 나무·캐릭터가
 // 덮어 읽을 수 없어지므로(소나무에 '(AOI ±1)' 이 가려지는 것을 캡처로 확인), 월드 위에 따로 올린다.
 function drawSectorLabels(){
   const s=ZONE.sectorSize;
@@ -1292,7 +1292,7 @@ function drawHUD(){
   const cxp=mx+ms/2, cyp=my+ms/2, s=ZONE.sectorSize;
   const RANGE=s*2.5, sc=(ms-8)/(RANGE*2);          // 표시 반경(월드 단위) → px
   const ox=self?self.rx:ZONE.mapWidth/2, oy=self?self.ry:ZONE.mapHeight/2;
-  // 로컬 섹터 격자
+  // 로컬 섹터 그리드
   ctx.strokeStyle='rgba(120,220,210,.16)'; ctx.lineWidth=1;
   for(let gx=Math.ceil((ox-RANGE)/s)*s; gx<=ox+RANGE; gx+=s){ const p=cxp+(gx-ox)*sc; ctx.beginPath(); ctx.moveTo(p,my+3); ctx.lineTo(p,my+ms-3); ctx.stroke(); }
   for(let gy=Math.ceil((oy-RANGE)/s)*s; gy<=oy+RANGE; gy+=s){ const p=cyp+(gy-oy)*sc; ctx.beginPath(); ctx.moveTo(mx+3,p); ctx.lineTo(mx+ms-3,p); ctx.stroke(); }
@@ -1807,7 +1807,7 @@ function drawPartyAsk(){
 }
 
 // ---- 거래 (USE_TRADE) — 그리기와 마우스 판정이 같은 자리 계산(tradeLayout · tradeAskLayout)을 쓴다(상점·파티와 같은 꼴) ----
-//   거래 창 = 게임 화면 위 가운데(상점 창 자리). 왼쪽 「내가 줄 것」 · 오른쪽 「받을 것」 — 칸 20(5×4 · 가방 한 탭과 같은 격자) · 돈 · 교환하기 누름 표시
+//   거래 창 = 게임 화면 위 가운데(상점 창 자리). 왼쪽 「내가 줄 것」 · 오른쪽 「받을 것」 — 칸 20(5×4 · 가방 한 탭과 같은 칸 배치) · 돈 · 교환하기 누름 표시
 //   아래 = 돈 더 올리기 셋(+100 · +1,000 · +10,000 — 깎는 길이 없다) · 교환하기 · 취소. 올리기는 가방 칸을 누른다(가방 창이 같이 열린다)
 const TR_CELL=32, TR_GAP=4, TR_COLS=5, TR_ROWS=4;   // 칸 32 — 28 이면 물약 그림이 1배로 줄어 점처럼 보였다(10-26 사진 · 가방 36 칸은 2배)
 function tradeLayout(){

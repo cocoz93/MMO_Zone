@@ -2,8 +2,8 @@
 
 #if USE_MONSTER
 
-#include <algorithm>   // min·max — 격자
-#include <cmath>       // ceil·sqrt — 격자
+#include <algorithm>   // min·max — 그리드 계산
+#include <cmath>       // ceil·sqrt — 그리드 계산
 
 #include <Common/ErrorLog.h>
 

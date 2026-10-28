@@ -928,7 +928,7 @@ void CSightBroadcaster::BroadcastSectorPacket(CZone* zone, int32_t sectorX, int3
 
 // 존 최초 등록 — 칸 배열 크기 확정 (맵 크기는 부팅 후 불변). 방송(items)/직송(directItems)
 // 어느 쪽이 먼저 등록해도 1회만 초기화 (ready 플래그 — items.empty()는 직송 선행 시 오판).
-//   격자 크기·칸 번호 식·주변 9섹터 규칙은 전부 섹터 관리자 것(CellCount·CellIndex·CellPos·GetAroundSectorList)을 쓴다 —
+//   그리드 크기·칸 번호 식·주변 9섹터 규칙은 전부 섹터 관리자 것(CellCount·CellIndex·CellPos·GetAroundSectorList)을 쓴다 —
 //   여기 사본을 두지 않는다(아키텍처 전수검사 2번, 10-06).
 void CSightBroadcaster::EnsureZonePending(CZone* zone, SectorOutbox::ZonePending& zp)
 {

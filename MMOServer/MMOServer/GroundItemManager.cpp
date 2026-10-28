@@ -15,7 +15,7 @@ CGroundItemManager::CGroundItemManager(CZone& zone)
 
 void CGroundItemManager::Init()
 {
-    // 칸 수·칸 번호는 섹터 관리자 것 — 여기서 격자 크기를 베껴 들지 않는다(식이 두 벌이 되지 않게)
+    // 칸 수·칸 번호는 섹터 관리자 것 — 여기서 섹터 그리드 크기를 베껴 들지 않는다(식이 두 벌이 되지 않게)
     _items.resize(static_cast<size_t>(_zone.GetSectorManager().CellCount()));
 }
 

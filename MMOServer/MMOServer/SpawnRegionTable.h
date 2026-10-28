@@ -20,7 +20,7 @@ class CMonsterTable;
 //        뱀마다 따로 재지 않는 이유 — 바람의나라 서술 「굴마다 젠 속도·양이 다르고 여러 마리가 한꺼번에 젠」
 //        (MyDocs/claude-plans/baram-spawn-reference.md, 10-09 사용자 결정).
 //
-// [깔 자리 — 점] 읽을 때 구역을 count 칸 이상의 격자로 나눠 점(칸) 하나마다 「칸 안쪽 범위」를 계산해 둔다(spots).
+// [깔 자리 — 점] 읽을 때 구역을 count 칸 이상의 그리드로 나눠 점(칸) 하나마다 「칸 안쪽 범위」를 계산해 둔다(spots).
 //        몬스터 한 마리가 점 하나를 맡고, 깔 때는 그 범위 안에서 난수만 뽑는다 — 한쪽에 몰리지 않고(10-09 사용자 결정)
 //        깔 때마다 계산하지 않는다. 칸 나누기는 구역 크기·마릿수에서 나오는 배치 규칙이라 파일에는 없다.
 //        기획이 점을 직접 찍고 싶어지면(맵 편집기) 그 점들로 spots 를 채우면 되고, 깔기 코드는 그대로다.
@@ -59,7 +59,7 @@ struct SpawnRegion
     int32_t count     = 0;   // 이 구역에 유지할 마릿수
     int32_t regenFrames = 0;   // 리젠 주기 — 표의 regenSec × FRAME_PER_SEC(읽을 때 틱 수로 바꿔 둔다). 0 = 한 번만(방 맵 줄만)
     int32_t fileLine  = 0;   // 틀렸을 때 가리킬 줄
-    std::vector<SpawnSpot> spots;   // 점 count 개 — 읽을 때 격자로 계산해 둔다([깔 자리 — 점]). 색인 = 점 번호(CMonster::_spawnPoint)
+    std::vector<SpawnSpot> spots;   // 점 count 개 — 읽을 때 그리드로 계산해 둔다([깔 자리 — 점]). 색인 = 점 번호(CMonster::_spawnPoint)
 };
 
 class CSpawnRegionTable
@@ -83,7 +83,7 @@ public:
     }
 
 private:
-    // 구역을 count 칸 이상의 격자로 나눠 점마다 칸 안쪽 범위를 채운다([깔 자리 — 점]).
+    // 구역을 count 칸 이상의 그리드로 나눠 점마다 칸 안쪽 범위를 채운다([깔 자리 — 점]).
     static void BuildSpots(SpawnRegion& r);
 
     std::vector<std::vector<SpawnRegion>> _byMap;   // 색인 = 맵 번호 (맵 표가 번호 상한을 본다 — CMapTable::MAX_MAP_ID)

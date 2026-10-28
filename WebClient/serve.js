@@ -28,7 +28,7 @@ const DATA = new Map([
   ['/data/MonsterTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'MonsterTable.csv')], // 몬스터 번호(defId) → 그림 이름(sprite 칸)
   ['/data/NpcTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'NpcTable.csv')],         // NPC 번호(defId) → 이름·생김새·인사·상점
   ['/data/ShopTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'ShopTable.csv')],       // 상점마다 파는 것 · 사들이는 것
-  ['/data/BlockTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'BlockTable.csv')],     // 막힌 칸 — 서버와 같은 격자로 미리 걷는다(live.html walkResolve)
+  ['/data/BlockTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'BlockTable.csv')],     // 막힌 칸 — 서버와 같은 표로 미리 걷는다(live.html walkResolve)
 ]);
 
 http.createServer((req, res) => {

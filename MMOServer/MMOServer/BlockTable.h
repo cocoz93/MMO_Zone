@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include <World/WalkGrid.h>   // 맵마다 하나 세우는 칸 격자 — 콘솔 클라와 같은 식
+#include <World/WalkGrid.h>   // 맵마다 하나 세우는 막힌 칸 정보(CWalkGrid) — 콘솔 클라와 같은 식
 
 #include "BuildConfig.h"
 
@@ -16,8 +16,8 @@ class CSpawnRegionTable;
 // ==========================================================================
 // CBlockTable — 막힌 칸 (Run/bin/BlockTable.csv)
 //
-// [무엇] 한 줄 = 그 맵의 막힌 칸 사각형 하나(칸 번호 · 양끝 포함). 읽은 뒤 맵마다 칸 격자(CWalkGrid) 하나로 펼친다.
-//        같은 맵의 채널(존)은 그 격자 하나를 읽기만으로 같이 본다(CZone::Init 이 GridOf 로 받는다).
+// [무엇] 한 줄 = 그 맵의 막힌 칸 사각형 하나(칸 번호 · 양끝 포함). 읽은 뒤 맵마다 CWalkGrid 하나로 펼친다.
+//        같은 맵의 채널(존)은 그 CWalkGrid 하나를 읽기만으로 같이 본다(CZone::Init 이 GridOf 로 받는다).
 //
 // [토글 없음] 맵 표와 같은 세계 데이터다(MapTable.h [토글 없음]). 값 줄이 0 이어도 된다 — 막힌 칸 없는 세계.
 //
@@ -44,7 +44,7 @@ struct BlockRect
 class CBlockTable
 {
 public:
-    // 파일을 읽어 표를 세우고 맵마다 격자를 펼친다. 실패하면 false 이고 까닭을 로그로 남긴다 — main 이 서버를 안 띄운다.
+    // 파일을 읽어 표를 세우고 맵마다 CWalkGrid 를 펼친다. 실패하면 false 이고 까닭을 로그로 남긴다 — main 이 서버를 안 띄운다.
     //   maps — 맵 번호·크기를 대조할 표(먼저 읽은 것)
     bool Load(const std::string& path, const CMapTable& maps);
 
@@ -56,7 +56,7 @@ public:
     bool CheckSpawnRegions(const CMapTable& maps, const CSpawnRegionTable& regions) const;
 #endif
 
-    // 그 맵의 격자 — 막힌 줄이 없는 맵이면 nullptr(존은 판정을 통째로 건너뛴다)
+    // 그 맵의 CWalkGrid — 막힌 줄이 없는 맵이면 nullptr(존은 판정을 통째로 건너뛴다)
     const CWalkGrid* GridOf(int32_t mapId) const;
 
     const std::vector<BlockRect>& All() const { return _rows; }

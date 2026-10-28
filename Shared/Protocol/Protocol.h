@@ -1469,7 +1469,7 @@ static_assert(static_cast<uint16_t>(MsgType::S2C_MONEY)    == 1064, "새 타입 
 //   규칙의 몸은 서버 CTradeSystem(TradeSystem.h) — 여기는 와이어만. 사람은 번호(actorId)와 글자·색으로 가리킨다(파티 절 PartyPerson).
 //   ★ 부하 더미·콘솔 클라도 받을 수 있다 — 웹 사람이 그 캐릭터를 눌러 신청하면 S2C_TRADE_ASK 가, 시간이 지나면 S2C_TRADE_ASK_END 가 간다.
 //     둘 다 S2C 다섯을 다 등록할 것(DummyClient.cpp · GameClient/ClientNetwork.cpp).
-constexpr int TRADE_MAX_ITEMS = 20;   // 사용자 결정 값(10-26) — 가방 한 탭 칸 수와 같다(웹이 같은 격자를 쓴다). S2C_TRADE_STATE 의 줄 수 상한이기도 하다
+constexpr int TRADE_MAX_ITEMS = 20;   // 사용자 결정 값(10-26) — 가방 한 탭 칸 수와 같다(웹이 같은 칸 배치를 쓴다). S2C_TRADE_STATE 의 줄 수 상한이기도 하다
 
 // 요청 거절 사유 (S2C_TRADE_FAIL — 본인). ★ 값이 와이어에 실린다 — 끝(COUNT 앞)에만 붙인다. WebClient/proto.js 에 같은 순서로 옮겨 둔다.
 enum class TradeFail : uint8_t

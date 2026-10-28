@@ -1,7 +1,7 @@
 ﻿#include "Zone.h"
 #include "Character.h"
 #include "Monster.h"   // USE_MONSTER — 벽에 막힌 캐릭터를 CMonster 로 내려 관리자에 넘긴다(헤더 안에서 스스로 토글을 본다)
-#include "GameDataFiles.h"   // 막힌 칸 표(Blocks) — 맵 격자를 꺼낸다
+#include "GameDataFiles.h"   // 막힌 칸 표(Blocks) — 맵의 CWalkGrid 를 꺼낸다
 #include <algorithm>
 #include <cassert>
 #include <cmath>       // std::isfinite — IsInsideMap
@@ -41,7 +41,7 @@ bool CZone::Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHei
     _mapWidth = mapWidth;
     _mapHeight = mapHeight;
     _start = start;   // 맵 안인지는 맵 표가 읽을 때 봤다(CMapTable::Load ⑷)
-    // 막힌 칸 — 같은 맵의 채널은 격자 하나를 같이 읽는다. 크기는 같은 맵 표에서 왔으니 다를 수 없다(다르면 표 읽기 쪽 잘못)
+    // 막힌 칸 — 같은 맵의 채널은 CWalkGrid 하나를 같이 읽는다. 크기는 같은 맵 표에서 왔으니 다를 수 없다(다르면 표 읽기 쪽 잘못)
     _walk = _blocks.GridOf(mapId);
     assert(_walk == nullptr || (_walk->Width() == mapWidth && _walk->Height() == mapHeight));
 #if USE_MONSTER
@@ -137,7 +137,7 @@ void CZone::Tick(float deltaTime, IZoneEvents& events)
         player->_x += step.x * dist;
         player->_y += step.y * dist;
 
-        // 맵 경계 클램핑 — 그다음 막힌 칸(막은 축만 그 칸 경계 앞으로 — WalkGrid.h [멈추는 자리]). 순서가 바뀌면 맵 밖 좌표로 격자를 본다
+        // 맵 경계 클램핑 — 그다음 막힌 칸(막은 축만 그 칸 경계 앞으로 — WalkGrid.h [멈추는 자리]). 순서가 바뀌면 맵 밖 좌표로 막힌 칸을 본다
         bool clamped = ClampToMap(player->_x, player->_y);
         if (_walk != nullptr && _walk->ResolveStep(fromX, fromY, player->_x, player->_y))
             clamped = true;

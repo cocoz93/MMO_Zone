@@ -212,7 +212,7 @@ void CGameServer::GameLoopThread()
         _mapManager.TickAll(deltaTime, _sightBroadcaster);
 
         // 3) 섹터 변경 배치 처리 — 존마다 대기열(이동 패킷 + 존 틱, 넣을 때 중복 차단)을 읽어 보내고 비운다.
-        //   존마다 따로 도는 까닭: 대기열의 섹터 좌표는 그 존의 격자이고, 보내는 대상도 그 존 사람뿐이다.
+        //   존마다 따로 도는 까닭: 대기열의 섹터 좌표는 그 존의 섹터 그리드 기준이고, 보내는 대상도 그 존 사람뿐이다.
         //   보내기 · 같은 틱 쌍 보정 · 멤버십 구간 계측은 CSightBroadcaster::ProcessSightChanges
         _sightBroadcaster.ProcessSightChanges();
 

@@ -86,7 +86,7 @@ void CMoveHandler::RecvMoveStart(CPlayer* player, CSerialBuffer* pMsg)
         float dy = recvMsg.y - player->_y;
         const float distSq = dx * dx + dy * dy;
         // 맵 경계 클램핑 후 수용 — 서버 자리에서 그 자리까지 막힌 칸을 지나면 안 받는다(집이 8타일보다 얇아 벽 건너편 좌표로 뚫고 나가지 못하게).
-        //   정상 클라는 같은 격자로 미리 걸으므로 벽을 넘은 좌표를 보낼 일이 없다. 예산보다 먼저 본다 — 거절한 좌표로 예산을 깎지 않게
+        //   정상 클라는 서버와 같은 막힌 칸으로 미리 걸으므로 벽을 넘은 좌표를 보낼 일이 없다. 예산보다 먼저 본다 — 거절한 좌표로 예산을 깎지 않게
         float acceptX = recvMsg.x;
         float acceptY = recvMsg.y;
         zone->ClampToMap(acceptX, acceptY);

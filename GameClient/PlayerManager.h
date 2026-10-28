@@ -2,7 +2,7 @@
 
 #include "ClientPlayer.h"
 #include "../Shared/Protocol/Protocol.h"
-#include "ClientBlockTable.h"   // 막힌 칸 격자 — 서버와 같은 표 · 같은 식(Shared/World/WalkGrid.h)
+#include "ClientBlockTable.h"   // 막힌 칸(CWalkGrid) — 서버와 같은 표 · 같은 식(Shared/World/WalkGrid.h)
 #include <unordered_map>
 
 // 내 캐릭터 + 주변 플레이어 목록 관리

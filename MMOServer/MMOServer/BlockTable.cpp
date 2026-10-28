@@ -76,7 +76,7 @@ bool CBlockTable::Load(const std::string& path, const CMapTable& maps)
         _rows.push_back(r);
     }
 
-    // 맵마다 격자 하나로 펼친다 — 줄이 있는 맵만(없는 맵은 GridOf 가 nullptr)
+    // 맵마다 CWalkGrid 하나로 펼친다 — 줄이 있는 맵만(없는 맵은 GridOf 가 nullptr)
     for (const BlockRect& r : _rows)
     {
         MapGrid* found = nullptr;
