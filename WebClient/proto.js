@@ -95,7 +95,7 @@
   const U16LE = new TextDecoder('utf-16le');
   const U8 = new TextDecoder('utf-8');
 
-  // 등장 상태 조각 — Protocol.h ActorSnapshot(CREATE_MY 는 맨 끝 · 엔트리는 defId 앞). 필드를 늘리면 여기와 아래 묶음 보폭을 같이 고칠 것
+  // 등장 상태 구조체 — Protocol.h ActorSnapshot(CREATE_MY 는 맨 끝 · 엔트리는 defId 앞). 필드를 늘리면 여기와 아래 묶음 보폭을 같이 고칠 것
   function readSnap(dv, o) { return { hp:dv.getInt32(o,true), maxHp:dv.getInt32(o+4,true) }; }
   const CREATE_ENTRY_BYTES = 31;   // Protocol.h CreatePlayerEntry = 몸통 21 + ActorSnapshot 8 + defId 2
   // 남의 캐릭터 한 명분 — Protocol.h CreatePlayerEntry. CREATE_OTHER 의 몸통이자 묶음 엔트리라 둘이 이것 하나를 부른다
@@ -106,7 +106,7 @@
       x:dv.getFloat32(o+9,true), y:dv.getFloat32(o+13,true), speed:dv.getInt32(o+17,true),
       ...readSnap(dv, o+21), defId:dv.getUint16(o+29,true) };
   }
-  // 파티 사람 조각 — Protocol.h PartyPerson 10B = actorId i32 · displayChar u8 · colorIndex u8 · level i32
+  // 파티원 정보 구조체 — Protocol.h PartyPerson 10B = actorId i32 · displayChar u8 · colorIndex u8 · level i32
   function readPartyPerson(dv, o) {
     return { actorId:dv.getInt32(o,true), displayChar:dv.getUint8(o+4), colorIndex:dv.getUint8(o+5), level:dv.getInt32(o+6,true) };
   }

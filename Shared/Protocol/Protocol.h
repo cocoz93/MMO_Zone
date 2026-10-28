@@ -262,7 +262,7 @@ struct MSG_S2C_MOVE_STOP
 constexpr uint8_t DISPLAY_MONSTER = 0x01;   // 몬스터 — defId = 몬스터 표(MonsterTable.csv) monsterId
 constexpr uint8_t DISPLAY_NPC     = 0x02;   // NPC — defId = NPC 표(NpcTable.csv) npcId
 
-// 등장할 때 같이 알아야 하는 상태 — CREATE 셋(MY·OTHER·묶음 엔트리)이 같은 조각으로 싣는다(MY 는 맨 끝 · 엔트리는 defId 바로 앞).
+// 등장할 때 같이 알아야 하는 상태 — CREATE 셋(MY·OTHER·묶음 엔트리)이 같은 구조체로 싣는다(MY 는 맨 끝 · 엔트리는 defId 바로 앞).
 //   캐릭터가 화면에 생기는 순간 체력까지 완성된다. 예전엔 CREATE 뒤에 S2C_ACTOR_STATS 를 따로 붙였는데,
 //   그 줄을 송신 경로마다 기억해야 해서 한 경로에서 빠뜨린 적이 있다(남의 체력 막대만 안 뜸).
 //   ★ 넣는 기준 = "남의 화면에 그려지는가". 본인만 보는 수치(MP·공격력 등)는 여기 말고 본인 전용 패킷으로
@@ -1243,7 +1243,7 @@ enum class PartyNotice : uint8_t
     COUNT
 };
 
-// 사람 하나를 가리키는 조각 — 이름이 없어 번호·글자·색·레벨로 보여 준다(10B, pack(1))
+// 사람 하나를 가리키는 구조체 — 이름이 없어 번호·글자·색·레벨로 보여 준다(10B, pack(1))
 struct PartyPerson
 {
     int32_t actorId;      // 0 = 없음
