@@ -33,7 +33,7 @@ class CSelfNotifier
 public:
     // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 넷(세션 허브 · 지표 · 기획 데이터 · 틱 번호)보다 뒤에 이것을 선언해야 한다
     //   (멤버는 선언 순서로 세워진다). 생성 중엔 쓰지 않는다.
-    //   frameCount = 게임 루프의 틱 번호(CGameServer::_frameCount) — 읽기만 한다. 남은 시간 셈의 「지금」이다.
+    //   frameCount = 게임 루프의 틱 번호(CGameServer::_frameCount) — 읽기만 한다. 남은 시간 계산의 「지금」이다.
     CSelfNotifier(CSessionHub& sessionHub, CGameMonitor& gameMonitor, const CGameDataFiles& gameDataFiles, const uint64_t& frameCount)
         : _sessionHub(sessionHub), _gameMonitor(gameMonitor), _gameDataFiles(gameDataFiles), _frameCount(frameCount) {}
 

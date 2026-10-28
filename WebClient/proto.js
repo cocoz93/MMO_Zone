@@ -252,7 +252,7 @@
       case MSG.S2C_PICKUP_FAIL:
         p.reason=dv.getUint8(o); p.reasonName=PICKUP_FAIL[p.reason] || ('?'+p.reason); p.itemId=dv.getInt32(o+1,true); break;
       // ---- 스탯·장착 (USE_COMBAT · USE_EQUIP) ----
-      //   MY_STATS 12B = attack i32 · defense i32 — 최종값(레벨 표 + 착용 장비). 클라는 합을 셈하지 않는다
+      //   MY_STATS 12B = attack i32 · defense i32 — 최종값(레벨 표 + 착용 장비). 클라는 합을 계산하지 않는다
       case MSG.S2C_MY_STATS:
         p.attack=dv.getInt32(o,true); p.defense=dv.getInt32(o+4,true); break;
       //   EQUIP_FAIL 7B = slot u16 · reason u8 (요청에 실린 칸 번호 그대로)

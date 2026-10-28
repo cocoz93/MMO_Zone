@@ -85,7 +85,7 @@ Party::Sent CPartySystem::SnapshotOf(const CPlayer* p)
     return s;
 }
 
-// ── 보내기 대행 — 알림과 셈을 한 자리에서 ──
+// ── 보내기 대행 — 알림과 계산을 한 자리에서 ──
 
 void CPartySystem::Notice(CPlayer* to, PartyNotice code, int32_t actorId)
 {

@@ -108,7 +108,7 @@ const LEVELUP_LIFE = 1.6;                    // 레벨업 문구 표시 시간(�
 //   존을 넘을 때 통째로 새로 만들어져서 레벨이 같이 날아가기 때문이다(서버가 다시 보내 주긴 한다).
 //   level===null = "아직 한 장도 못 받음" → HUD 에 레벨 줄을 안 그린다.
 //   공격력·방어력(attack·defense)도 여기 — 서버가 보낸 최종값(S2C_MY_STATS, 레벨 표 + 착용 장비 → 지속 효과 배수)을 그대로 쓴다. 효과(버프)는 내 액터(self.buffs)에.
-//     클라는 합을 셈하지 않는다(판정은 서버). null = 아직 한 장도 못 받음 → 상태창에 「—」.
+//     클라는 합을 계산하지 않는다(판정은 서버). null = 아직 한 장도 못 받음 → 상태창에 「—」.
 //   돈(money)도 여기 — 서버가 보낸 최종값(S2C_MONEY — 입장 때 가방 전체 바로 뒤 한 장 · 바뀔 때마다). null = 아직 못 받음 → 상태창에 「—」.
 //     moneyDelta·moneyT = 방금 바뀐 몫과 그 표시 시간(초) — 상점 창 아래에 잠깐(사고팔기는 성공 알림이 따로 없다 — 돈·칸 패킷이 결과)
 const me = { level:null, exp:0, base:0, next:0, levelUpT:0, attack:null, defense:null, money:null, moneyDelta:0, moneyT:0 };
@@ -134,7 +134,7 @@ const playerSkillIds = () => [...SKILLS.keys()].filter(id=>!isMonsterSkill(id)).
 // 내 스킬 쿨타임 — 자기 SKILL_CAST 를 받은 순간부터 표의 cooldownMs 를 센다. skillId -> 끝나는 시각(ms)
 //   입장·존 이동 때는 서버가 아직 돌고 있는 쿨타임을 S2C_SKILL_COOLDOWN_REMAIN 으로 준다(다시 접속하면 DB 에서 되살린 값) — 그걸로 덮는다.
 const skillReadyAt = new Map();
-const skillState = { casts:0, lastFail:null };                          // 헤드리스 검증용 셈
+const skillState = { casts:0, lastFail:null };                          // 헤드리스 검증용 계산
 // buffs = 내 지속 효과 [종류, 배수, 남은 ms] — S2C_ACTOR_BUFF 가 바꾼다(self.buffs). 값은 서버가 보낸 그대로(remainMs 를 받은 시각부터 깎는다)
 function skillChanged(){ document.documentElement.setAttribute('data-skill', JSON.stringify({ skills:playerSkillIds().length, monsterSkills:SKILLS.size-playerSkillIds().length, casts:skillState.casts, lastFail:skillState.lastFail,
   buffs: self && self.buffs ? [...self.buffs].map(([k,b])=>[k, b.value, Math.max(0, Math.round(b.until-performance.now()))]) : [],
@@ -150,7 +150,7 @@ const SKILL_FAIL_TEXT = {
 //   못 받으면 땅은 풀 · 포털이 안 보이고 F 키도 안 보낸다(번호를 모른다). 없다는 사실은 콘솔 경고와 data-portal 에 남는다.
 const MAPS = new Map();                                                 // mapId -> {kind:'town'|'dungeon'|'instance'} — instance = 파티 전용 방 맵(땅은 던전처럼 풀)
 const PORTALS = [];                                                     // {id, mapId, x, y, radius, targetMapId, name}
-const portalState = { sent:0, lastFail:null };                          // 헤드리스 검증용 셈
+const portalState = { sent:0, lastFail:null };                          // 헤드리스 검증용 계산
 // 맵 이동 실패 사유(P.ZONE_FAIL 이름) → 채팅 칸 [System] 문구. 존 이동 요청·포털 공통(S2C_ZONE_CHANGE_FAIL)
 const ZONE_FAIL_TEXT = {
   NOT_FOUND:'갈 곳이 없습니다', FULL:'채널이 가득 찼습니다', SAME_ZONE:'이미 그 채널에 있습니다',
@@ -277,7 +277,7 @@ function portalChanged(){ const r=portalInReach(); document.documentElement.setA
 const ADMIN_KEY = q.get('admin') || '';
 let adminSent = false;
 // 헤드리스 검증용 — 가방 요약을 속성 하나로 내놓는다(data-err·data-ready 와 같은 자리). 바뀔 때만 쓴다.
-//   ★ 무기 칸(900)도 bag.slots 에 같이 담긴다(서버가 같은 칸 목록으로 보낸다) — 여기 셈에서는 가방 칸과 가른다(worn).
+//   ★ 무기 칸(900)도 bag.slots 에 같이 담긴다(서버가 같은 칸 목록으로 보낸다) — 여기 계산에서는 가방 칸과 가른다(worn).
 function bagChanged(){
   let n=0, total=0, worn=0;   // 개수 합 — 물약을 쓰면 칸 수는 그대로이고 이것만 준다
   bag.slots.forEach((e,slot)=>{ if(slot>=P.EQUIP_SLOT.WEAPON) worn++; else { n++; total+=e.c; } });
@@ -471,7 +471,7 @@ function secIdx(v,s,len){ const n=Math.ceil(len/s); return Math.max(0, Math.min(
 function sectorOf(x,y){ const s=ZONE.sectorSize; return secIdx(x,s,ZONE.mapWidth)+','+secIdx(y,s,ZONE.mapHeight); }
 
 function onPacket(p){
-  bump(p.name);                             // 패킷 이름별 개수(묶음 1개는 1로 셈)
+  bump(p.name);                             // 패킷 이름별 개수(묶음 1개는 1로 계산)
   // 진입/이탈은 낱개·묶음 두 경로로 오므로 따로 센다 — 묶음은 안에 든 인원수만큼 더한다.
   switch(p.type){
     // 존 정보 — 접속·존 이동(요청·포털)·마을 부활마다 맨 먼저 온다. 올 때마다 옛 존의 남·땅 아이템을 비운다:
@@ -532,7 +532,7 @@ function onPacket(p){
       break; }
     case P.MSG.S2C_ACTOR_BUFF: {
       // 지속 효과(걸림·되감김·만료·죽음·존 이동) — 본인 것만 온다. remainMs 0 = 풀림(칸을 지운다). 종류마다 칸 하나 — 되감김은 같은 칸을 덮는다.
-      //   공격력 숫자는 뒤따르는 S2C_MY_STATS 가 준다 — 여기서 곱하지 않는다(클라는 셈하지 않는다 — 마력·체력과 같은 규칙).
+      //   공격력 숫자는 뒤따르는 S2C_MY_STATS 가 준다 — 여기서 곱하지 않는다(클라는 계산하지 않는다 — 마력·체력과 같은 규칙).
       const a=actorOf(p.actorId);
       if(a){
         if(!a.buffs) a.buffs=new Map();
@@ -542,7 +542,7 @@ function onPacket(p){
       break; }
     case P.MSG.S2C_SKILL_COOLDOWN_REMAIN: {
       // 아직 돌고 있는 쿨타임(입장·존 이동) — 본인 것만 온다. 다시 접속하면 서버가 DB 에서 되살린 쿨타임이 여기로 처음 온다.
-      //   시전 순간의 쿨타임은 지금처럼 SKILL_CAST 로 센다 — 이 장은 그 셈을 서버 값으로 맞출 뿐이다(remainMs 는 늘 1 이상).
+      //   시전 순간의 쿨타임은 지금처럼 SKILL_CAST 로 센다 — 이 장은 그 계산을 서버 값으로 맞출 뿐이다(remainMs 는 늘 1 이상).
       if(self && p.actorId===self.id){ skillReadyAt.set(p.skillId, performance.now()+p.remainMs); skillChanged(); }
       break; }
     case P.MSG.S2C_ACTOR_SPEED: {
@@ -2090,7 +2090,7 @@ function parseItemTable(text){
     // 탭 칸 값 money = 돈 줄(칸이 아니라 숫자에 더해진다 — 서버 ItemDef::store). 탭 번호는 -1(어느 칸 구간도 아니다) — 땅의 돈 그림·이름에 쓴다
     const money = c[2]==='money', tab = money ? -1 : INV_TAB_FILE.get(c[2]);
     if(c.length<6 || tab===undefined) continue;
-    // attack(7번째 칸) = 끼우면 더하는 공격력 — 보여 주기만 한다(무기 줄의 「공격력 +5」). 합은 서버가 셈한다
+    // attack(7번째 칸) = 끼우면 더하는 공격력 — 보여 주기만 한다(무기 줄의 「공격력 +5」). 합은 서버가 계산한다
     // healMp(8번째 칸) = 마력 회복량(10-11) — 툴팁에만 쓴다. 쓸 수 있는지는 서버가 정한다(스킬을 끈 서버면 NOT_USABLE)
     // price(9번째 칸) = 상점 값(전 · 10-21) — 사기 창 값 · 팔기 툴팁(절반 내림)에 보여 주기만. 받고 내는 돈은 서버가 정한다
     // trade(10번째 칸) = 거래창에 올릴 수 있나(1 · 0 — 10-26) — 거래 중 툴팁에만. 막는 것은 서버(NOT_TRADABLE)

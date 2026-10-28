@@ -110,7 +110,7 @@ InvAddResult CInventory::TryAdd(const ItemDef& def, int32_t count)
     if (count < 1)
         return InvAddResult::BAD_COUNT;
 
-    // 담는 자리 — 돈이면 칸 구간을 안 쓴다(돈 줄의 탭은 개수 표시라 아래 구간 셈에 넣으면 배열 밖이다 · 헤더 [돈])
+    // 담는 자리 — 돈이면 칸 구간을 안 쓴다(돈 줄의 탭은 개수 표시라 아래 구간 계산에 넣으면 배열 밖이다 · 헤더 [돈])
     switch (def.store)
     {
     case ItemStore::MONEY:

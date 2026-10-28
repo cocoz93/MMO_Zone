@@ -14,7 +14,7 @@ class CItemTable;
 // CShopTable — 상점마다 파는 것 · 사들이는 것 (Run/bin/ShopTable.csv · USE_SHOP)
 //
 // [무엇] 한 줄 = 「이 상점은 이 물건을 판다(sells) · 사들인다(buys)」. 값은 여기 없다 — 아이템 표의 price 하나가 정본이고
-//        사들이는 값은 상점 규칙이 그 값에서 셈한다(CShopSystem::SellPriceOf). 어느 NPC 가 어느 상점인지는 NPC 표(shopId).
+//        사들이는 값은 상점 규칙이 그 값에서 계산한다(CShopSystem::SellPriceOf). 어느 NPC 가 어느 상점인지는 NPC 표(shopId).
 //        원본처럼 상점마다 목록이 다르고 「팔지 않고 사들이기만 하는 물건」이 있다(npc-shop-plan.md 따라 나온 것 2).
 //
 // [아이템 대조] 아이템 표에 있는 번호 · 돈 줄 금지(돈은 사고팔 물건이 아니다) · 값 0 금지(따라 나온 것 4) ·
