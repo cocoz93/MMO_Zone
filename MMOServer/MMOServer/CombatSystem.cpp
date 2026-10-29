@@ -225,7 +225,7 @@ void CCombatSystem::CollectCandidates(CZone* zone, float x, float y, float range
         if (candidate == exclude || HealthOf(candidate).IsDead())
             return;   // 본인 · 시체는 안 맞는다
 #if USE_PARTY
-        // 같은 파티는 대상이 아니다 — FindFrontTarget 과 같은 판정. 모양 판정 전이라 훑은 반경 안의 파티원을 센다(지금 사람 스킬은 몬스터 목록만 봐서 늘 0 — 그래도 둔다, MyDocs/claude-plans/party-plan.md ③).
+        // 같은 파티는 대상이 아니다 — FindFrontTarget 과 같은 판정. 모양 판정 전이라 훑은 반경 안의 파티원을 센다(지금 사람 스킬은 몬스터 목록만 봐서 늘 0 — 그래도 둔다).
         if (myParty != 0 && PartyIdOf(candidate) == myParty)
         {
             _gameMonitor._party._mateSkippedArea.Inc();

@@ -470,7 +470,7 @@ void CPartySystem::RemoveMember(Party& party, CPlayer* p, PartyLeave why, bool n
         Notice(p, code, p->_actorId);
     }
 
-    // 순서 = 빼기 → 한 명 남으면 해산 → 아니면 파티장이었으면 넘기기 → INFO (MyDocs/claude-plans/party-plan.md 「함정」)
+    // 순서 = 빼기 → 한 명 남으면 해산 → 아니면 파티장이었으면 넘기기 → INFO
     if (party.members.size() <= 1)
     {
         DisbandParty(party);

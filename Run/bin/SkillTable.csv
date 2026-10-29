@@ -17,9 +17,8 @@
 #                revive = the monsterId to bring back (MonsterTable.csv) - not a boss, and born in every map the caster is born in (checked at startup).
 #   cooldownMs : rounded UP to server ticks (40ms) - 480 = 12 ticks, the same as a normal attack.
 #   The cost (hp, mana, cooldown) is paid only after every check passes, target included - a refused cast changes nothing.
-#   Values are Baram classic (warrior) as-is - not tuned to the current monsters (snake hp 30). Lv1 Baekhocham: pay 400, hit 800.
 #   costMp     : mana paid on cast, a fixed amount (not %). 0..the largest maxMp in LevelTable.csv - above it no level could ever cast.
-#                Refused (LOW_MP) when mp is below it. Baekhocham 10 (Baram classic 60 is on the classic mana scale; ours is small, 2026-10-01).
+#                Refused (LOW_MP) when mp is below it. Baekhocham 10 (2026-10-01).
 #   shape      : cells for target=shape, "forward:side" joined by ';'. forward 1..5 (in front only), side -5..5 (+ = the caster's right).
 #                Measured from the caster's exact position, not snapped to tiles - cell k covers [k-0.5, k+0.5). Up to 16 cells, no repeats.
 #                Must be empty for target=front - the cell may be left out (8 cells), since a trailing empty cell is dropped anyway.

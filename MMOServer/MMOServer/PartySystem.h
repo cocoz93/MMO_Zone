@@ -118,7 +118,7 @@ public:
     CPartySystem(CGameMonitor& gameMonitor, IPartyEvents& events);
 
     // 화면에서 누른 사람과 파티 — target 은 CPartyHandler 가 누른 사람 주변 9섹터에서 찾은 사람(없으면 nullptr → NO_TARGET).
-    //   두 사람의 처지로 초대·가입 신청·추천 중 하나를 요청 표에 넣고 받는 사람에게 묻는다(흐름 = MyDocs/claude-plans/party-plan.md 「흐름」 표).
+    //   두 사람의 처지로 초대·가입 신청·추천 중 하나를 요청 표에 넣고 받는 사람에게 묻는다.
     void Request(CPlayer* me, CPlayer* target, uint64_t frame);
 
     // 받은 요청에 답한다 — 내가 받은 요청이 아니면 NO_REQUEST.

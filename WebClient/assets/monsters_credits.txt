@@ -1,12 +1,13 @@
 몬스터 그림(assets/monsters.js) 크레딧
 
 ==== snake · guryungi ====
-LPC monsters (OpenGameArt, CC-BY-SA 3.0) — monsters.js 머리 주석의 표기 그대로. guryungi 는 snake 시트의 색만 바꾼 것(MyDocs/claude-plans/boss-art/make_boss_sprite.py).
+"[LPC] Monsters" by Charles Sanchez (CharlesGabriel), bagzie, bluecarrot16 — https://opengameart.org/content/lpc-monsters
+License: CC-BY-SA 3.0 / GPL 3.0. snake.png 를 썼다. guryungi 는 snake 시트의 색만 바꾼 것.
 
 ==== snakeking · fakeking (10-18) ====
 Universal LPC Spritesheet Character Generator — https://github.com/liberatedpixelcup/Universal-LPC-Spritesheet-Character-Generator
 커밋 9bf06be193b053db256b2536824af426de046aa2 의 CREDITS.csv 에서 쓴 층의 줄을 그대로 옮긴다(머리줄 + 12줄).
-겹친 뒤 몸·꼬리 살색을 초록으로 바꿨다(MyDocs/claude-plans/boss-art/make_snakeking_sprite.py). 도포는 색별 파일이지만 크레딧은 동작별 한 줄이다.
+겹친 뒤 몸·꼬리 살색을 초록으로 바꿨다. 도포는 색별 파일이지만 크레딧은 동작별 한 줄이다.
 지팡이는 universal/walk/{background,foreground}.png 를 썼는데 CREDITS.csv 에는 그 자리의 줄이 없다 — gnarled 줄 12개가 전부 같은 작가·라이선스
 (bluecarrot16 · OGA-BY 3.0+, GPL 3.0, CC-BY 4.0)라 universal/{background,foreground}/walk.png 두 줄을 옮긴다.
 

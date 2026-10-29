@@ -2,12 +2,12 @@
 #   UTF-8 without BOM (names are Korean). No commas inside a cell.
 #   tab      : equip | use | etc  (bag tabs - slot ranges live in Protocol.h INV_TAB_RANGES) | money (2026-10-21)
 #              money = the money row: it goes to the bag's money, not a slot. One money row at most; maxStack up to 100000
-#              (one pile on the ground - the original 'drop at most 100000 jeon'); healHp, healMp, attack and price must be 0.
+#              (one pile on the ground); healHp, healMp, attack and price must be 0.
 #   maxStack : items per slot. equip must be 1 (equipment never stacks).
 #   healHp   : HP restored when used. A use item needs healHp or healMp >= 1 - one effect per potion, never both. Others 0.
 #   icon     : cell index on the LPC item sheet (16 cells per row, 32px). Server ignores it.
 #              Checked by eye on a numbered grid (09-23): 83 red bottle, 85 green bottle, 136 hide, 7 dagger; 84 blue bottle = mana potion (10-11).
-#              147 green hooked staff = the Snake King's Staff (10-18 - MyDocs/claude-plans/room-boss-ref/reward_weapon_candidates.png).
+#              147 green hooked staff = the Snake King's Staff (10-18).
 #   attack   : added to attack power while worn (2026-09-30). equip items only - others must be 0.
 #              Every equip item goes to the weapon slot (Protocol.h EquipSlot has one part for now).
 #              Lv1 attack 10 kills a snake (30 HP) in 3 hits; the dagger (+5) makes it 2.
@@ -17,8 +17,8 @@
 #   Lv1 HP is 800 and a snake bite is 5, so a small potion (200) is 40 bites.
 #   Lv1 mana is 100 and Baekhocham costs 10, so a mana potion (50) is 5 casts.
 #   price    : shop price in jeon (2026-10-21, appended last). A shop buys it back for half, rounded down (CShopSystem).
-#              0 = cannot be bought or sold (the Snake King's Staff). Values follow the original Baram (npc-shop-plan.md value table):
-#              small 40 (snake meat) · big 100 (snake tail) · hide 40 · dagger 20 (wooden sword) · mana 10 (dongdongju).
+#              0 = cannot be bought or sold (the Snake King's Staff). Values (npc-shop-plan.md value table):
+#              small 40 · big 100 · hide 40 · dagger 20 · mana 10.
 #   7 = money (jeon): one ground pile is one row of count jeon. icon 36 = the money bag cell of the item sheet (WebClient/assets/items.js - LPC "Money bag").
 #   trade    : 1 = can be put on the trade window, 0 = cannot (2026-10-26, appended last - trade-plan.md). Only 0 or 1.
 #              Every item is tradable for now. The money row is not a slot - money moves through the trade window's money field; its value is unused.
