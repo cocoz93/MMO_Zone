@@ -16,6 +16,15 @@
     color:#eaf3e0;font:13px system-ui,"Malgun Gothic",sans-serif;padding:0 12px;outline:none;text-overflow:ellipsis}
   .chatbox:focus{border-color:rgba(120,220,150,.6);background:rgba(12,20,14,.96)}
   .chatbox::placeholder{color:rgba(200,220,200,.4)}
+  /* 캔버스 글꼴 — Galmuri(픽셀, SIL OFL 1.1 · fonts/galmuri/LICENSE.txt). 고르는 규칙은 아래 uiFont() */
+  @font-face{font-family:Galmuri7;src:url('fonts/galmuri/Galmuri7.woff2') format('woff2')}
+  @font-face{font-family:Galmuri9;src:url('fonts/galmuri/Galmuri9.woff2') format('woff2')}
+  @font-face{font-family:Galmuri11;font-weight:400;src:url('fonts/galmuri/Galmuri11.woff2') format('woff2')}
+  @font-face{font-family:Galmuri11;font-weight:700;src:url('fonts/galmuri/Galmuri11-Bold.woff2') format('woff2')}
+  @font-face{font-family:Galmuri14;src:url('fonts/galmuri/Galmuri14.woff2') format('woff2')}
+  @font-face{font-family:GalmuriMono7;src:url('fonts/galmuri/GalmuriMono7.woff2') format('woff2')}
+  @font-face{font-family:GalmuriMono9;src:url('fonts/galmuri/GalmuriMono9.woff2') format('woff2')}
+  @font-face{font-family:GalmuriMono11;src:url('fonts/galmuri/GalmuriMono11.woff2') format('woff2')}
 </style>
 </head>
 <body>
@@ -35,8 +44,25 @@ const cv = document.getElementById('v'), ctx = cv.getContext('2d');
 const connEl = document.getElementById('conn');
 const chatbox = document.getElementById('chatbox');
 function typing(){ return document.activeElement===chatbox; }
-const SANS = 'system-ui,"Malgun Gothic",sans-serif';
+const SANS = 'system-ui,"Malgun Gothic",sans-serif';   // Galmuri 를 못 받았을 때 떨어질 글꼴
 const MONO = 'ui-monospace,Consolas,monospace';
+// 캔버스 글꼴 한 곳 — 픽셀 글꼴은 정해진 크기에서만 또렷해서(그 밖은 번진다) 코드가 원하는 크기를 가장 가까운 벌로 붙인다.
+//   Galmuri7 = 8px · Galmuri9 = 10px · Galmuri11(굵게 있음) = 12px · Galmuri14 = 15px (Galmuri README 의 크기표)
+//   18px 이상은 Galmuri11 의 2배(24px). 숫자 칸(mono)은 GalmuriMono — 고정폭은 11 까지라 14px 이상은 Galmuri14 로 대신한다.
+//   굵게는 Galmuri11 만 있다 — 다른 크기에 굵게를 달면 브라우저가 가짜 굵게로 번지므로 굵기를 넘기지 않는다
+function uiFont(px, weight, mono){
+  const bold = weight>=600;
+  if(px>=18) return (bold?'700 ':'')+'24px Galmuri11,'+SANS;
+  if(px>=14) return '15px Galmuri14,'+SANS;
+  if(px>=12) return mono ? '12px GalmuriMono11,'+MONO : (bold?'700 ':'')+'12px Galmuri11,'+SANS;
+  if(px>=10) return mono ? '10px GalmuriMono9,'+MONO : '10px Galmuri9,'+SANS;
+  return mono ? '8px GalmuriMono7,'+MONO : '8px Galmuri7,'+SANS;
+}
+// 첫 그림 전에 글꼴을 받아 둔다 — 안 기다리면 첫 장면 글자가 대체 글꼴로 그려지고 다음 장면에서 바뀐다(?snap 은 한 장뿐이라 그대로 남는다)
+function loadFonts(){
+  const faces=['8px Galmuri7','10px Galmuri9','12px Galmuri11','700 12px Galmuri11','15px Galmuri14','8px GalmuriMono7','10px GalmuriMono9','12px GalmuriMono11'];
+  return Promise.all(faces.map(f=>document.fonts.load(f))).catch(()=>{});   // 못 받아도 멈추지 않는다 — SANS·MONO 로 그린다
+}
 const q = new URLSearchParams(location.search);
 const SNAP = q.has('snap');                 // headless verify: render one frame from snapshot.json
 const WS_URL = q.get('ws') || 'ws://127.0.0.1:9000';
@@ -995,7 +1021,7 @@ function drawChar(o,isMe,t,fade=1){
   const isNpc = o.disp===P.DISPLAY_NPC, npc = isNpc ? npcOf(o) : null;
   const tag = mon ? mon.label : isNpc ? (npc ? npc.name : 'NPC') : String.fromCharCode(o.disp||63);
   ctx.save(); ctx.globalAlpha=fade;       // 이름표·막대도 몸과 같이 흐려진다
-  ctx.font = isNpc ? '600 12px '+SANS : '600 12px '+MONO; ctx.textAlign='center';
+  ctx.font = uiFont(12,600,!isNpc); ctx.textAlign='center';
   const nw=ctx.measureText(tag).width+12;
   ctx.fillStyle = o.dead ? 'rgba(80,24,24,.85)' : isMe ? 'rgba(40,90,60,.92)' : isNpc ? 'rgba(70,52,14,.88)' : 'rgba(18,26,18,.72)';
   rr(px-nw/2,ny-14,nw,15,4); ctx.fill();
@@ -1048,7 +1074,7 @@ function drawDamage(o,px,py){
   const dx=px+16;                                  // 살짝 오른쪽 — 내 캐릭터 화살표와 겹치지 않게
   ctx.save();
   ctx.globalAlpha=Math.max(0,1-k*k);
-  ctx.font='700 16px '+MONO; ctx.textAlign='center';
+  ctx.font=uiFont(16,700,true); ctx.textAlign='center';
   ctx.lineWidth=3; ctx.strokeStyle='rgba(0,0,0,.75)';
   ctx.strokeText('-'+o.hitDmg,dx,y);
   ctx.fillStyle='#ff6f5c'; ctx.fillText('-'+o.hitDmg,dx,y);
@@ -1148,7 +1174,7 @@ function fitText(s, maxW){ s=s||''; if(ctx.measureText(s).width<=maxW) return s;
 function drawBubble(o){
   const a=Math.max(0,Math.min(1,o.chatT/0.6));   // 마지막 0.6초만 페이드아웃
   const px=sx(o.rx), py=Math.max(VY+30, sy(o.ry)-3.0*ZOOM*0.92-18);   // 게임 화면 위쪽으로 넘치지 않게
-  ctx.font='13px '+SANS; const txt=fitText(o.chat,230); const w=ctx.measureText(txt).width+20;
+  ctx.font=uiFont(13); const txt=fitText(o.chat,230); const w=ctx.measureText(txt).width+20;
   ctx.globalAlpha=a; ctx.fillStyle='rgba(255,255,255,.96)'; rr(px-w/2,py-24,w,26,8); ctx.fill();
   ctx.beginPath(); ctx.moveTo(px-6,py+1); ctx.lineTo(px+6,py+1); ctx.lineTo(px,py+9); ctx.closePath(); ctx.fill();
   ctx.fillStyle='#20301f'; ctx.textAlign='center'; ctx.fillText(txt,px,py-6);
@@ -1194,18 +1220,18 @@ function drawSectorLabels(){
   const s=ZONE.sectorSize;
   const u0=Math.floor((cam.x-VW/2/ZOOM)/s)*s, u1=cam.x+VW/2/ZOOM+s;
   const v0=Math.floor((cam.y-VH/2/ZOOM)/s)*s, v1=cam.y+VH/2/ZOOM+s;
-  ctx.fillStyle='rgba(130,205,215,.32)'; ctx.font='10px '+MONO; ctx.textAlign='left';
+  ctx.fillStyle='rgba(130,205,215,.32)'; ctx.font=uiFont(10,400,true); ctx.textAlign='left';
   for(let u=u0;u<=u1;u+=s)for(let v=v0;v<=v1;v+=s){
     if(u<0||v<0||u>=ZONE.mapWidth||v>=ZONE.mapHeight) continue;
     ctx.fillText((u/s)+','+(v/s), sx(u)+4, sy(v)+13);
   }
   if(!self) return;
   const cs=secIdx(self.x,s,ZONE.mapWidth), rs=secIdx(self.y,s,ZONE.mapHeight);
-  ctx.fillStyle='rgba(160,250,238,.95)'; ctx.font='600 11px '+MONO;
+  ctx.fillStyle='rgba(160,250,238,.95)'; ctx.font=uiFont(11,600,true);
   ctx.fillText('내 섹터 '+cs+','+rs, sx(cs*s)+6, sy(rs*s)+16);
   // 화면 밖으로 밀리면 안쪽으로 붙인다 (좁은 창에서 왼쪽이 잘리던 문제)
   //   기준은 캔버스가 아니라 게임 화면이다 — 유효범위(60)가 화면(30)보다 커서 이 라벨은 늘 화면 왼쪽 위 모서리에 붙는다.
-  ctx.fillStyle='rgba(120,240,225,.85)'; ctx.font='600 10px '+MONO;
+  ctx.fillStyle='rgba(120,240,225,.85)'; ctx.font=uiFont(10,600,true);
   ctx.fillText('유효 섹터 '+aoiValid+'개 (AOI ±1)',
     Math.max(VX+6, sx((cs-1)*s)+6), Math.max(VY+12, sy((rs-1)*s)-6));
 }
@@ -1220,14 +1246,14 @@ function drawHUD(){
   // player banner (top-left) — 레벨을 받기 전에는 아래 경험치 칸만큼 낮게 그린다
   const hasLv = me.level!==null;
   panel(14,14,220, hasLv?84:58);
-  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font='600 15px '+SANS; ctx.fillText('주우진', 26, 36);
-  ctx.fillStyle='rgba(180,210,180,.8)'; ctx.font='11px '+SANS;
+  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(15,600); ctx.fillText('주우진', 26, 36);
+  ctx.fillStyle='rgba(180,210,180,.8)'; ctx.font=uiFont(11);
   // 어느 맵인가 — 맵 표의 kind(마을·던전)와 채널. 표를 못 받았으면 번호만
   const mk=(MAPS.get(ZONE.mapId)||{}).kind, mapTxt = ZONE.mapId<0 ? '' : ' · '+(mk==='town'?'마을':mk==='dungeon'?'던전':'맵 '+ZONE.mapId)+(ZONE.channel?' ch'+ZONE.channel:'');
   ctx.fillText('내 캐릭터 '+(self?('· '+String.fromCharCode(self.disp)+' #'+self.id):'')+mapTxt, 26, 54);
-  ctx.textAlign='right'; ctx.fillStyle='#8fd6a0'; ctx.font='600 13px '+SANS;
+  ctx.textAlign='right'; ctx.fillStyle='#8fd6a0'; ctx.font=uiFont(13,600);
   ctx.fillText('시야 '+others.size+'명', 220, 36);
-  ctx.fillStyle='rgba(180,210,180,.7)'; ctx.font='11px '+SANS; ctx.fillText('AOI 실시간', 220, 54); ctx.textAlign='left';
+  ctx.fillStyle='rgba(180,210,180,.7)'; ctx.font=uiFont(11); ctx.fillText('AOI 실시간', 220, 54); ctx.textAlign='left';
 
   if(hasLv){
     // 경험치 막대 — 누적 기준이라 "이 레벨에서 번 것 / 이 레벨이 요구하는 것"으로 환산해 그린다.
@@ -1239,7 +1265,7 @@ function drawHUD(){
     ctx.fillStyle='rgba(255,255,255,.10)'; rr(bx,by,bw,bh,3.5); ctx.fill();
     ctx.fillStyle= maxed?'#e7d16a':'#8fd6a0'; rr(bx,by,Math.max(2,bw*ratio),bh,3.5); ctx.fill();
 
-    ctx.font='600 11px '+MONO; ctx.fillStyle='#cfe8c8';
+    ctx.font=uiFont(11,600,true); ctx.fillStyle='#cfe8c8';
     ctx.fillText('Lv.'+me.level, 26, 84);
     ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.75)';
     ctx.fillText(maxed?'MAX':((me.exp-me.base)+' / '+span), 208, 84);
@@ -1253,7 +1279,7 @@ function drawHUD(){
     const a=Math.min(1,me.levelUpT/0.5);
     ctx.save();
     ctx.globalAlpha=a; ctx.textAlign='center';
-    ctx.font='700 22px '+SANS;
+    ctx.font=uiFont(22,700);
     ctx.lineWidth=4; ctx.strokeStyle='rgba(0,0,0,.55)';
     ctx.strokeText('LEVEL UP!  Lv.'+me.level, VX+VW/2, VY+64);
     ctx.fillStyle='#ffe98a';
@@ -1265,7 +1291,7 @@ function drawHUD(){
   const pw=232, ph=195, px=W-14-pw, py=14;
   ctx.fillStyle='rgba(6,14,18,.8)'; rr(px,py,pw,ph,10); ctx.fill();
   ctx.strokeStyle='rgba(55,230,214,.28)'; ctx.lineWidth=1; ctx.stroke();
-  ctx.fillStyle='rgba(150,245,235,.9)'; ctx.font='600 11px '+MONO; ctx.textAlign='left';
+  ctx.fillStyle='rgba(150,245,235,.9)'; ctx.font=uiFont(11,600,true); ctx.textAlign='left';
   ctx.fillText('SERVER INTERNALS · LIVE', px+12, py+18);
   ctx.strokeStyle='rgba(55,230,214,.15)'; ctx.beginPath(); ctx.moveTo(px+12,py+24); ctx.lineTo(px+pw-12,py+24); ctx.stroke();
   const r=stat.rate||{}, rows=[
@@ -1283,7 +1309,7 @@ function drawHUD(){
     ['CHAT', (r.S2C_CHAT||0)+'/s'],
     ['수신', stat.kbps.toFixed(1)+' KB/s'],
   ];
-  ctx.font='11px '+MONO;
+  ctx.font=uiFont(11,400,true);
   rows.forEach((kv,i)=>{ const yy=py+42+i*13.2;
     ctx.fillStyle='rgba(120,180,200,.65)'; ctx.fillText(kv[0], px+12, yy);
     ctx.fillStyle= kv[0]==='접속'&&stat.connected?'#5fe6cf':'rgba(200,224,232,.92)';
@@ -1315,7 +1341,7 @@ function drawHUD(){
   // 나
   ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(cxp,cyp,3.2,0,7); ctx.fill();
   ctx.restore();
-  ctx.fillStyle='rgba(200,230,200,.75)'; ctx.font='600 10px '+SANS; ctx.fillText('레이더 · 주변(AOI)', mx+10, my+16);
+  ctx.fillStyle='rgba(200,230,200,.75)'; ctx.font=uiFont(10,600); ctx.fillText('레이더 · 주변(AOI)', mx+10, my+16);
 
   // chat box (bottom-left) — real chat (입력창 자리 확보 위해 위로)
   // '주변' 채팅이다 — 서버가 채팅을 존 전체가 아니라 AOI(내 섹터 ±1)로만 뿌린다
@@ -1323,9 +1349,9 @@ function drawHUD(){
   // 5,000명 전원 브로드캐스트로 읽혀 오히려 설계를 깎아먹는다.
   const bw=CHAT_W, bh=172, bx=14, by=H-52-bh;   // 폭은 resize() 가 왼쪽 여백에 맞춰 정한다
   panel(bx,by,bw,bh);
-  ctx.fillStyle='rgba(180,225,180,.9)'; ctx.font='600 12px '+SANS; ctx.fillText('주변 채팅', bx+14, by+20);
+  ctx.fillStyle='rgba(180,225,180,.9)'; ctx.font=uiFont(12,600); ctx.fillText('주변 채팅', bx+14, by+20);
   ctx.strokeStyle='rgba(150,200,150,.14)'; ctx.beginPath(); ctx.moveTo(bx+14,by+27); ctx.lineTo(bx+bw-14,by+27); ctx.stroke();
-  ctx.font='13px '+SANS;
+  ctx.font=uiFont(13);
   for(let i=0;i<chatLog.length;i++){ const e=chatLog[i], yy=by+45+i*16;
     // 서버 알림(e.sys)·내가 친 명령(e.cmd)은 이름표 대신 표시를 달리한다 — 남의 말과 섞여 보이지 않게
     const nm = e.sys ? '[System] ' : e.cmd ? '> ' : '['+String.fromCharCode(e.disp)+'] ';
@@ -1366,8 +1392,8 @@ function skillBarLayout(){
 // 마력 막대 — 이름 · 숫자 · 막대(남은 마력만큼 파랑). 값은 서버가 보낸 그대로(S2C_ACTOR_MP — 클라는 스스로 깎지 않는다)
 function drawMpBar(m){
   panel(m.x,m.y,m.w,m.h);
-  ctx.textAlign='left'; ctx.fillStyle='#9ec8ff'; ctx.font='600 12px '+SANS; ctx.fillText('마력', m.x+10, m.y+19);
-  ctx.textAlign='right'; ctx.fillStyle='#eaf3e0'; ctx.font='600 12px '+MONO; ctx.fillText(self.mp+' / '+self.maxMp, m.x+m.w-10, m.y+19);
+  ctx.textAlign='left'; ctx.fillStyle='#9ec8ff'; ctx.font=uiFont(12,600); ctx.fillText('마력', m.x+10, m.y+19);
+  ctx.textAlign='right'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(12,600,true); ctx.fillText(self.mp+' / '+self.maxMp, m.x+m.w-10, m.y+19);
   const b=m.bar, r=Math.max(0, Math.min(1, self.mp/self.maxMp));
   ctx.fillStyle='rgba(0,0,0,.45)'; ctx.fillRect(b.x,b.y,b.w,b.h);
   ctx.fillStyle='#3d7bff'; ctx.fillRect(b.x,b.y,Math.round(b.w*r),b.h);
@@ -1379,15 +1405,15 @@ function drawSkillBar(){
   L.cells.forEach(c=>{
     const id=c.id, s=SKILLS.get(id), x=c.x, y0=c.y;
     panel(x,y0,SKILL_CELL_W,SKILL_CELL_H);
-    ctx.textAlign='left'; ctx.fillStyle='#ffd84d'; ctx.font='700 12px '+MONO; ctx.fillText(String(id), x+8, y0+17);   // 키 번호 = 스킬 번호
-    ctx.textAlign='center'; ctx.fillStyle='#eaf3e0'; ctx.font='600 13px '+SANS; ctx.fillText(fitText(s.name, SKILL_CELL_W-12), x+SKILL_CELL_W/2, y0+38);
+    ctx.textAlign='left'; ctx.fillStyle='#ffd84d'; ctx.font=uiFont(12,700,true); ctx.fillText(String(id), x+8, y0+17);   // 키 번호 = 스킬 번호
+    ctx.textAlign='center'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(13,600); ctx.fillText(fitText(s.name, SKILL_CELL_W-12), x+SKILL_CELL_W/2, y0+38);
     const left=(skillReadyAt.get(id)||0)-now;
     if(left>0 && s.cooldownMs>0){
       const r=Math.min(1,left/s.cooldownMs);
       ctx.save(); rr(x,y0,SKILL_CELL_W,SKILL_CELL_H,10); ctx.clip();
       ctx.fillStyle='rgba(0,0,0,.6)'; ctx.fillRect(x,y0,SKILL_CELL_W,SKILL_CELL_H*r);
       ctx.restore();
-      ctx.textAlign='right'; ctx.fillStyle='#ffffff'; ctx.font='700 11px '+MONO; ctx.fillText((left/1000).toFixed(1), x+SKILL_CELL_W-7, y0+17);
+      ctx.textAlign='right'; ctx.fillStyle='#ffffff'; ctx.font=uiFont(11,700,true); ctx.fillText((left/1000).toFixed(1), x+SKILL_CELL_W-7, y0+17);
     }
     // 지속 효과 띠 — 이 칸의 효과 종류(buff_<종류>)가 내게 걸려 있을 때만. 덮개 뒤에 그려 쿨타임이 돌아도 보인다
     if(s.effect && s.effect.startsWith('buff_') && self && self.buffs){
@@ -1400,7 +1426,7 @@ function drawSkillBar(){
         ctx.fillStyle='rgba(0,0,0,.45)'; ctx.fillRect(x,by,SKILL_CELL_W,bh);
         ctx.fillStyle='rgba(95,211,138,.95)'; ctx.fillRect(x,by,Math.round(SKILL_CELL_W*r),bh);
         ctx.restore();
-        ctx.textAlign='center'; ctx.fillStyle='#ffffff'; ctx.font='700 9px '+MONO; ctx.fillText('×'+b.value+' '+(bl/1000).toFixed(1)+'s', x+SKILL_CELL_W/2, by+7);
+        ctx.textAlign='center'; ctx.fillStyle='#ffffff'; ctx.font=uiFont(9,700,true); ctx.fillText('×'+b.value+' '+(bl/1000).toFixed(1)+'s', x+SKILL_CELL_W/2, by+7);
       }
     }
   });
@@ -1449,7 +1475,7 @@ function drawItemIcon(x,y,box,id){
   const it=ITEMS.get(id);
   if(!it || !ITEM_SHEET){
     ctx.fillStyle='rgba(255,255,255,.08)'; rr(x+3,y+3,box-6,box-6,4); ctx.fill();
-    ctx.fillStyle='rgba(200,210,200,.7)'; ctx.font='600 10px '+MONO; ctx.textAlign='center'; ctx.fillText('#'+id, x+box/2, y+box/2+3); ctx.textAlign='left';
+    ctx.fillStyle='rgba(200,210,200,.7)'; ctx.font=uiFont(10,600,true); ctx.textAlign='center'; ctx.fillText('#'+id, x+box/2, y+box/2+3); ctx.textAlign='left';
     return;
   }
   const b=iconBox(it.icon), s=Math.max(1,Math.min(3,Math.floor((box-4)/Math.max(b.w,b.h)))), w=b.w*s, h=b.h*s;
@@ -1459,13 +1485,13 @@ function drawItemIcon(x,y,box,id){
 function drawBag(){
   const L=bagLayout(), px=L.px, py=L.py, pw=L.pw, ph=L.ph;
   panel(px,py,pw,ph);
-  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font='600 13px '+SANS; ctx.fillText('가방', px+12, py+21);
-  ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font='11px '+SANS; ctx.fillText('I 키로 닫기', px+pw-12, py+21);
+  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(13,600); ctx.fillText('가방', px+12, py+21);
+  ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(11); ctx.fillText('I 키로 닫기', px+pw-12, py+21);
   ctx.strokeStyle='rgba(150,200,150,.14)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(px+12,py+30); ctx.lineTo(px+pw-12,py+30); ctx.stroke();
   L.tabs.forEach((t,i)=>{ const on=i===bag.tab;
     ctx.fillStyle = on ? 'rgba(143,214,160,.22)' : 'rgba(255,255,255,.05)'; rr(t.x,t.y,t.w,t.h,6); ctx.fill();
     if(on){ ctx.strokeStyle='rgba(143,214,160,.55)'; ctx.lineWidth=1; ctx.stroke(); }
-    ctx.textAlign='center'; ctx.fillStyle = on ? '#dff3d8' : 'rgba(190,210,190,.65)'; ctx.font=(on?'600 ':'')+'12px '+SANS;
+    ctx.textAlign='center'; ctx.fillStyle = on ? '#dff3d8' : 'rgba(190,210,190,.65)'; ctx.font=uiFont(12,on?600:400);
     ctx.fillText(INV_TAB_NAMES[i], t.x+t.w/2, t.y+15); });
   ctx.textAlign='left';
   let used=0, hover=null;
@@ -1481,16 +1507,16 @@ function drawBag(){
     if(tradeOffered(c.slot)){   // 거래창에 올린 칸 — 가방이 잠갔다(쓰기·팔기·끼우기가 안 된다). 어둡게 + 「거래」
       ctx.fillStyle='rgba(0,0,0,.45)'; rr(c.x,c.y,BAG_CELL,BAG_CELL,5); ctx.fill();
       ctx.strokeStyle='rgba(158,200,255,.9)'; ctx.lineWidth=2; rr(c.x+1,c.y+1,BAG_CELL-2,BAG_CELL-2,5); ctx.stroke(); ctx.lineWidth=1;
-      ctx.fillStyle='#cfe3ff'; ctx.font='600 9px '+SANS; ctx.textAlign='left'; ctx.fillText('거래', c.x+3, c.y+11); }
-    if(e.c>1){ ctx.font='600 10px '+MONO; ctx.textAlign='right';
+      ctx.fillStyle='#cfe3ff'; ctx.font=uiFont(9,600); ctx.textAlign='left'; ctx.fillText('거래', c.x+3, c.y+11); }
+    if(e.c>1){ ctx.font=uiFont(10,600,true); ctx.textAlign='right';
       ctx.lineWidth=3; ctx.strokeStyle='rgba(0,0,0,.85)'; ctx.strokeText(String(e.c), c.x+BAG_CELL-3, c.y+BAG_CELL-4);
       ctx.fillStyle='#ffffff'; ctx.fillText(String(e.c), c.x+BAG_CELL-3, c.y+BAG_CELL-4); ctx.textAlign='left'; }
     if(c.slot===bag.hover) hover={c,e};
   }
-  ctx.fillStyle='rgba(180,210,180,.6)'; ctx.font='11px '+SANS;
+  ctx.fillStyle='rgba(180,210,180,.6)'; ctx.font=uiFont(11);
   ctx.fillText(INV_TAB_NAMES[bag.tab]+'  '+used+' / '+L.cells.length+'칸', px+12, py+ph-9);
   // 가진 돈 — 오른쪽 아래(돈은 칸이 아니라 숫자 하나 — Inventory.h [돈])
-  ctx.textAlign='right'; ctx.fillStyle='#ffe98a'; ctx.font='600 11px '+MONO; ctx.fillText(fmtMoney(me.money), px+pw-12, py+ph-9); ctx.textAlign='left';
+  ctx.textAlign='right'; ctx.fillStyle='#ffe98a'; ctx.font=uiFont(11,600,true); ctx.fillText(fmtMoney(me.money), px+pw-12, py+ph-9); ctx.textAlign='left';
   if(hover) drawItemTip(px, hover.c.y, hover.e);
 }
 // 마우스를 올린 칸의 설명 — 창 왼쪽(게임 화면 쪽)에 띄운다. 창 위에 띄우면 옆 칸을 가린다.
@@ -1521,10 +1547,10 @@ function drawItemTip(winX, y, e){
   ctx.strokeStyle='rgba(255,233,138,.35)'; ctx.lineWidth=1; ctx.stroke();
   ctx.fillStyle='rgba(0,0,0,.35)'; rr(tx+10,ty+10,36,36,5); ctx.fill();
   drawItemIcon(tx+10,ty+10,36,e.id);
-  ctx.textAlign='left'; ctx.fillStyle='#f2f6ec'; ctx.font='600 13px '+SANS; ctx.fillText(fitText(name, tw-66), tx+56, ty+25);
-  ctx.fillStyle='rgba(180,210,180,.6)'; ctx.font='11px '+SANS; ctx.fillText(it ? (it.money ? '돈' : INV_TAB_NAMES[it.tab]) : '', tx+56, ty+41);
+  ctx.textAlign='left'; ctx.fillStyle='#f2f6ec'; ctx.font=uiFont(13,600); ctx.fillText(fitText(name, tw-66), tx+56, ty+25);
+  ctx.fillStyle='rgba(180,210,180,.6)'; ctx.font=uiFont(11); ctx.fillText(it ? (it.money ? '돈' : INV_TAB_NAMES[it.tab]) : '', tx+56, ty+41);
   ctx.strokeStyle='rgba(150,200,150,.14)'; ctx.beginPath(); ctx.moveTo(tx+10,ty+54); ctx.lineTo(tx+tw-10,ty+54); ctx.stroke();
-  lines.forEach((l,i)=>{ ctx.fillStyle=l[1]; ctx.font='12px '+SANS; ctx.fillText(l[0], tx+12, ty+72+i*17); });
+  lines.forEach((l,i)=>{ ctx.fillStyle=l[1]; ctx.font=uiFont(12); ctx.fillText(l[0], tx+12, ty+72+i*17); });
 }
 // 장비 탭 칸인가 — 두 번 누르기가 끼우기(C2S_EQUIP)냐 쓰기(C2S_USE_ITEM)냐를 칸 번호 구간으로만 가른다(판정은 서버)
 function isEquipTabSlot(slot){ const r=P.INV_TAB_RANGES[INV_TAB_FILE.get('equip')]; return slot>=r.first && slot<r.first+r.n; }
@@ -1548,8 +1574,8 @@ function statusHit(x,y){
 function drawStatus(){
   const L=statusLayout(), px=L.px, py=L.py, pw=L.pw, ph=L.ph, c=L.cell;
   panel(px,py,pw,ph);
-  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font='600 13px '+SANS; ctx.fillText('상태', px+12, py+21);
-  ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font='11px '+SANS; ctx.fillText('C 키로 닫기', px+pw-12, py+21);
+  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(13,600); ctx.fillText('상태', px+12, py+21);
+  ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(11); ctx.fillText('C 키로 닫기', px+pw-12, py+21);
   ctx.strokeStyle='rgba(150,200,150,.14)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(px+12,py+ST_TOP); ctx.lineTo(px+pw-12,py+ST_TOP); ctx.stroke();
   // 경험치 숫자는 바로 위 이름표에 이미 있다 — 여기엔 레벨만(겹쳐 쓰지 않는다)
   const rows=[
@@ -1562,8 +1588,8 @@ function drawStatus(){
   ];
   let y=py+ST_TOP+12+14;
   for(const [k,v] of rows){
-    ctx.textAlign='left'; ctx.fillStyle='rgba(180,210,180,.75)'; ctx.font='12px '+SANS; ctx.fillText(k, px+14, y);
-    ctx.textAlign='right'; ctx.fillStyle='#eaf3e0'; ctx.font='600 13px '+MONO; ctx.fillText(v, px+pw-14, y);
+    ctx.textAlign='left'; ctx.fillStyle='rgba(180,210,180,.75)'; ctx.font=uiFont(12); ctx.fillText(k, px+14, y);
+    ctx.textAlign='right'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(13,600,true); ctx.fillText(v, px+pw-14, y);
     y+=ST_ROW;
   }
   // 무기 칸 — 그림 + 이름 + 아이템 표의 공격력(보여 주기만 — 위 공격력 줄이 이미 서버가 더한 값이다)
@@ -1574,20 +1600,20 @@ function drawStatus(){
   ctx.textAlign='left';
   if(w){
     drawItemIcon(c.x,c.y,c.w,w.id);
-    ctx.fillStyle='#eaf3e0'; ctx.font='600 12px '+SANS; ctx.fillText(fitText(it ? it.name : '#'+w.id, pw-c.w-40), c.x+c.w+10, c.y+16);
-    ctx.fillStyle='#8fd6a0'; ctx.font='11px '+SANS; ctx.fillText(it && it.attack>0 ? '공격력 +'+it.attack : '', c.x+c.w+10, c.y+32);
+    ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(12,600); ctx.fillText(fitText(it ? it.name : '#'+w.id, pw-c.w-40), c.x+c.w+10, c.y+16);
+    ctx.fillStyle='#8fd6a0'; ctx.font=uiFont(11); ctx.fillText(it && it.attack>0 ? '공격력 +'+it.attack : '', c.x+c.w+10, c.y+32);
   } else {
-    ctx.fillStyle='rgba(180,210,180,.45)'; ctx.font='12px '+SANS; ctx.fillText('무기 없음', c.x+c.w+10, c.y+25);
+    ctx.fillStyle='rgba(180,210,180,.45)'; ctx.font=uiFont(12); ctx.fillText('무기 없음', c.x+c.w+10, c.y+25);
   }
-  ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font='11px '+SANS;
+  ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(11);
   ctx.fillText(w ? '무기 칸 두 번 누르면 벗기' : '가방 장비를 두 번 누르면 끼우기', px+14, py+ph-10);
   // 무기 칸 설명 — 창 오른쪽(게임 화면 쪽)에 띄운다. 가방 창 설명이 창 왼쪽(게임 화면 쪽)에 뜨는 것과 같은 규칙
   if(stw.hover && w){
     const tx=px+pw+8, ty=c.y-4, tw=150, th=44;
     ctx.fillStyle='rgba(8,12,10,.97)'; rr(tx,ty,tw,th,6); ctx.fill();
     ctx.strokeStyle='rgba(255,233,138,.35)'; ctx.stroke();
-    ctx.fillStyle='#f2f6ec'; ctx.font='600 12px '+SANS; ctx.fillText(fitText(it ? it.name : '#'+w.id, tw-20), tx+10, ty+17);
-    ctx.fillStyle='rgba(255,233,138,.9)'; ctx.font='11px '+SANS; ctx.fillText('두 번 눌러 벗기', tx+10, ty+34);
+    ctx.fillStyle='#f2f6ec'; ctx.font=uiFont(12,600); ctx.fillText(fitText(it ? it.name : '#'+w.id, tw-20), tx+10, ty+17);
+    ctx.fillStyle='rgba(255,233,138,.9)'; ctx.font=uiFont(11); ctx.fillText('두 번 눌러 벗기', tx+10, ty+34);
   }
 }
 
@@ -1660,13 +1686,13 @@ function drawShop(){
   const L=shopLayout(); if(!L) return;
   const { x, y, w, h } = L, n=L.s.n;
   ctx.fillStyle='rgba(8,12,10,.97)'; rr(x,y,w,h,10); ctx.fill(); ctx.strokeStyle='rgba(255,233,138,.45)'; ctx.lineWidth=1; ctx.stroke();
-  ctx.textAlign='left'; ctx.fillStyle='#ffe7a8'; ctx.font='600 14px '+SANS; ctx.fillText(n ? n.name : 'NPC', x+14, y+24);
-  ctx.textAlign='right'; ctx.fillStyle='rgba(200,215,200,.6)'; ctx.font='11px '+SANS;
+  ctx.textAlign='left'; ctx.fillStyle='#ffe7a8'; ctx.font=uiFont(14,600); ctx.fillText(n ? n.name : 'NPC', x+14, y+24);
+  ctx.textAlign='right'; ctx.fillStyle='rgba(200,215,200,.6)'; ctx.font=uiFont(11);
   ctx.fillText(shop.mode==='buy' ? '사기' : shop.mode==='sell' ? '팔기' : 'Esc 로 닫기', x+w-14, y+24);
   ctx.textAlign='left';
   if(shop.mode==='menu'){
-    ctx.fillStyle='#eaf3e0'; ctx.font='13px '+SANS; ctx.fillText(fitText(n ? n.greeting : '', w-28), x+14, y+50);
-    if(!L.sells.length && !L.buys.length){ ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font='11px '+SANS; ctx.fillText('사고팔 것이 없습니다', x+14, y+68); }
+    ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(13); ctx.fillText(fitText(n ? n.greeting : '', w-28), x+14, y+50);
+    if(!L.sells.length && !L.buys.length){ ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(11); ctx.fillText('사고팔 것이 없습니다', x+14, y+68); }
     if(L.btns.buy)  smallBtn(L.btns.buy,'사기',shopHover('buy'),false);
     if(L.btns.sell) smallBtn(L.btns.sell,'팔기',shopHover('sell'),false);
     smallBtn(L.btns.close,'닫기',shopHover('close'),false);
@@ -1676,20 +1702,20 @@ function drawShop(){
     for(const r of L.rows){ const it=ITEMS.get(r.itemId);
       ctx.fillStyle='rgba(0,0,0,.30)'; rr(x+12,r.y+3,28,28,5); ctx.fill();
       drawItemIcon(x+12,r.y+3,28,r.itemId);
-      ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font='600 12px '+SANS; ctx.fillText(fitText(it ? it.name : '#'+r.itemId, 140), x+48, r.y+15);
-      ctx.fillStyle='#ffd98a'; ctx.font='11px '+MONO; ctx.fillText(it ? fmtMoney(it.price) : '—', x+48, r.y+29);
+      ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(12,600); ctx.fillText(fitText(it ? it.name : '#'+r.itemId, 140), x+48, r.y+15);
+      ctx.fillStyle='#ffd98a'; ctx.font=uiFont(11,400,true); ctx.fillText(it ? fmtMoney(it.price) : '—', x+48, r.y+29);
       smallBtn(r.b1,'1개',shopHover('buy1',r.itemId),false); smallBtn(r.b10,'10개',shopHover('buy10',r.itemId),false);
     }
   } else {
-    ctx.fillStyle='#eaf3e0'; ctx.font='13px '+SANS; ctx.fillText('가방에서 팔 물건을 누르세요', x+14, y+50);
-    ctx.fillStyle='rgba(180,210,180,.6)'; ctx.font='11px '+SANS; ctx.fillText(fitText('누르면 1개 · Shift 누른 채면 그 칸 전부', w-28), x+14, y+68);   // 받을 값은 칸 툴팁에(산 값의 절반)
+    ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(13); ctx.fillText('가방에서 팔 물건을 누르세요', x+14, y+50);
+    ctx.fillStyle='rgba(180,210,180,.6)'; ctx.font=uiFont(11); ctx.fillText(fitText('누르면 1개 · Shift 누른 채면 그 칸 전부', w-28), x+14, y+68);   // 받을 값은 칸 툴팁에(산 값의 절반)
   }
   // 아래 — 가진 돈(방금 바뀐 몫을 잠깐) · 뒤로
   const fy=y+h-17;
-  ctx.textAlign='left'; ctx.fillStyle='rgba(200,215,200,.75)'; ctx.font='12px '+SANS; ctx.fillText('가진 돈', x+14, fy);
-  ctx.fillStyle='#ffe98a'; ctx.font='600 12px '+MONO; const mt=fmtMoney(me.money); ctx.fillText(mt, x+62, fy);
+  ctx.textAlign='left'; ctx.fillStyle='rgba(200,215,200,.75)'; ctx.font=uiFont(12); ctx.fillText('가진 돈', x+14, fy);
+  ctx.fillStyle='#ffe98a'; ctx.font=uiFont(12,600,true); const mt=fmtMoney(me.money); ctx.fillText(mt, x+62, fy);
   if(me.moneyT>0){ const dx=x+62+ctx.measureText(mt).width+8;
-    ctx.fillStyle = me.moneyDelta<0 ? '#f0a89c' : '#9fe0a8'; ctx.font='11px '+MONO; ctx.fillText((me.moneyDelta>0?'+':'')+me.moneyDelta.toLocaleString('ko-KR'), dx, fy); }
+    ctx.fillStyle = me.moneyDelta<0 ? '#f0a89c' : '#9fe0a8'; ctx.font=uiFont(11,400,true); ctx.fillText((me.moneyDelta>0?'+':'')+me.moneyDelta.toLocaleString('ko-KR'), dx, fy); }
   smallBtn(L.btns.back,'뒤로',shopHover('back'),false);
 }
 // 받은 요청 창 — 게임 화면 위 가운데(레벨업 문구 아래). 단추 둘
@@ -1751,7 +1777,7 @@ function mapName(id){ const k=(MAPS.get(id)||{}).kind; return k==='town' ? '마�
 function smallBtn(r, label, on, danger){
   ctx.fillStyle = on ? (danger?'rgba(226,87,74,.35)':'rgba(143,214,160,.30)') : 'rgba(255,255,255,.07)'; rr(r.x,r.y,r.w,r.h,5); ctx.fill();
   ctx.strokeStyle = danger ? 'rgba(226,120,100,.5)' : 'rgba(143,214,160,.45)'; ctx.lineWidth=1; ctx.stroke();
-  ctx.textAlign='center'; ctx.fillStyle = danger ? '#f3c4bc' : '#dff3d8'; ctx.font='600 11px '+SANS; ctx.fillText(label, r.x+r.w/2, r.y+r.h/2+4); ctx.textAlign='left';
+  ctx.textAlign='center'; ctx.fillStyle = danger ? '#f3c4bc' : '#dff3d8'; ctx.font=uiFont(11,600); ctx.fillText(label, r.x+r.w/2, r.y+r.h/2+4); ctx.textAlign='left';
 }
 const isHover=(where,btn,id)=>!!party.hover && party.hover.where===where && party.hover.btn===btn && (id===undefined || party.hover.id===id);
 function drawPartyPanel(){
@@ -1759,29 +1785,29 @@ function drawPartyPanel(){
   const {px,py,pw,ph}=L;
   panel(px,py,pw,ph);
   const n = party.info ? party.info.members.length : 0;
-  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font='600 13px '+SANS; ctx.fillText(party.info ? '파티  '+n+' / '+P.PARTY_MAX_MEMBERS : '파티', px+12, py+21);
-  ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font='11px '+SANS; ctx.fillText(party.open ? 'P 키로 닫기' : 'P 키로 관리', px+pw-12, py+21);
+  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(13,600); ctx.fillText(party.info ? '파티  '+n+' / '+P.PARTY_MAX_MEMBERS : '파티', px+12, py+21);
+  ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(11); ctx.fillText(party.open ? 'P 키로 닫기' : 'P 키로 관리', px+pw-12, py+21);
   ctx.strokeStyle='rgba(150,200,150,.14)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(px+12,py+PT_TOP); ctx.lineTo(px+pw-12,py+PT_TOP); ctx.stroke();
   ctx.textAlign='left';
   if(!party.info){   // 관리 창을 열었는데 파티가 없다 — 맺는 법
-    ctx.fillStyle='rgba(200,220,200,.75)'; ctx.font='12px '+SANS;
+    ctx.fillStyle='rgba(200,220,200,.75)'; ctx.font=uiFont(12);
     ctx.fillText('파티가 없습니다', px+14, py+PT_TOP+22);
-    ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font='11px '+SANS;
+    ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(11);
     ctx.fillText('화면의 캐릭터를 눌러 파티를 맺습니다', px+14, py+PT_TOP+40);
     return;
   }
   for(const r of L.rows){ const m=r.m, y=r.y, me = self && m.actorId===self.id;
     if(me){ ctx.fillStyle='rgba(143,214,160,.08)'; rr(px+6,y-2,pw-12,PT_ROW-2,5); ctx.fill(); }
-    if(m.actorId===party.info.leaderId){ ctx.fillStyle='#ffd84d'; ctx.font='600 12px '+SANS; ctx.fillText('★', px+10, y+14); }   // 파티장
+    if(m.actorId===party.info.leaderId){ ctx.fillStyle='#ffd84d'; ctx.font=uiFont(12,600); ctx.fillText('★', px+10, y+14); }   // 파티장
     ctx.fillStyle = me ? 'rgba(40,90,60,.92)' : 'rgba(18,26,18,.72)'; rr(px+26,y,20,19,4); ctx.fill();   // 머리 위 이름표와 같은 바탕색
-    ctx.textAlign='center'; ctx.fillStyle = me ? '#bff0c9' : '#eaf3e0'; ctx.font='600 12px '+MONO; ctx.fillText(String.fromCharCode(m.displayChar), px+36, y+14); ctx.textAlign='left';
-    ctx.fillStyle='rgba(200,220,200,.8)'; ctx.font='600 11px '+MONO; ctx.fillText('Lv.'+m.level, px+52, y+14);
+    ctx.textAlign='center'; ctx.fillStyle = me ? '#bff0c9' : '#eaf3e0'; ctx.font=uiFont(12,600,true); ctx.fillText(String.fromCharCode(m.displayChar), px+36, y+14); ctx.textAlign='left';
+    ctx.fillStyle='rgba(200,220,200,.8)'; ctx.font=uiFont(11,600,true); ctx.fillText('Lv.'+m.level, px+52, y+14);
     const bx=px+96, bw = party.open ? (r.leader ? 46 : 150) : 70, bh=6, by=y+7;   // 체력 막대 — 머리 위 막대와 같은 색 규칙
     const ratio = m.maxHp>0 ? Math.max(0,Math.min(1,m.hp/m.maxHp)) : 0;
     ctx.fillStyle='rgba(28,38,28,.95)'; rr(bx,by,bw,bh,3); ctx.fill();
     ctx.fillStyle = ratio>0.5 ? '#54d46e' : ratio>0.25 ? '#e6c24a' : '#e2574a'; if(ratio>0){ rr(bx,by,Math.max(3,bw*ratio),bh,3); ctx.fill(); }
-    if(m.hp<=0){ ctx.fillStyle='#f0b8b8'; ctx.font='10px '+SANS; ctx.fillText('쓰러짐', bx, by-1); }
-    if(!party.open && m.mapId!==ZONE.mapId){ ctx.textAlign='right'; ctx.fillStyle='rgba(158,200,255,.85)'; ctx.font='11px '+SANS; ctx.fillText(mapName(m.mapId), px+pw-12, y+14); ctx.textAlign='left'; }   // 다른 맵이면 어디인지
+    if(m.hp<=0){ ctx.fillStyle='#f0b8b8'; ctx.font=uiFont(10); ctx.fillText('쓰러짐', bx, by-1); }
+    if(!party.open && m.mapId!==ZONE.mapId){ ctx.textAlign='right'; ctx.fillStyle='rgba(158,200,255,.85)'; ctx.font=uiFont(11); ctx.fillText(mapName(m.mapId), px+pw-12, y+14); ctx.textAlign='left'; }   // 다른 맵이면 어디인지
     if(r.leader){ smallBtn(r.leader,'넘기기',isHover('panel','leader',m.actorId),false); smallBtn(r.kick,'내보내기',isHover('panel','kick',m.actorId),true); }
   }
   if(L.btns.leave) smallBtn(L.btns.leave,'나가기',isHover('panel','leave'),false);
@@ -1792,8 +1818,8 @@ function drawPartyMenu(){
   if(!others.has(party.menu.id)){ party.menu=null; partyChanged(); return; }   // 누른 사람이 화면에서 사라졌다
   const L=partyMenuLayout(), o=others.get(party.menu.id);
   ctx.fillStyle='rgba(8,12,10,.96)'; rr(L.x,L.y,L.w,L.h,8); ctx.fill(); ctx.strokeStyle='rgba(255,233,138,.35)'; ctx.lineWidth=1; ctx.stroke();
-  ctx.textAlign='left'; ctx.fillStyle='#f2f6ec'; ctx.font='600 12px '+MONO; ctx.fillText(String.fromCharCode(o.disp), L.x+12, L.y+18);
-  ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font='11px '+SANS; ctx.fillText('#'+party.menu.id, L.x+28, L.y+18);
+  ctx.textAlign='left'; ctx.fillStyle='#f2f6ec'; ctx.font=uiFont(12,600,true); ctx.fillText(String.fromCharCode(o.disp), L.x+12, L.y+18);
+  ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(11); ctx.fillText('#'+party.menu.id, L.x+28, L.y+18);
   smallBtn(L.req,'파티',isHover('menu','request'),false);
   smallBtn(L.trade,'거래',isHover('menu','trade'),false);
 }
@@ -1805,9 +1831,9 @@ function drawPartyAsk(){
   const line = a.kind==='SUGGEST' ? personName(a.about)+'  Lv.'+a.about.level+'  ·  파티원 '+personName(a.from)+' 의 추천'
              : personName(a.from)+'  Lv.'+a.from.level+(a.kind==='INVITE' && a.about.actorId ? '  ·  파티원 '+personName(a.about)+' 의 추천' : '');
   const left = Math.max(0, Math.ceil((a.until-performance.now())/1000));
-  ctx.textAlign='left'; ctx.fillStyle='#ffe98a'; ctx.font='600 14px '+SANS; ctx.fillText(title, L.x+14, L.y+24);
-  ctx.textAlign='right'; ctx.fillStyle='rgba(200,215,200,.6)'; ctx.font='11px '+SANS; ctx.fillText(left+'초', L.x+L.w-14, L.y+24);
-  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font='13px '+SANS; ctx.fillText(fitText(line, L.w-28), L.x+14, L.y+46);
+  ctx.textAlign='left'; ctx.fillStyle='#ffe98a'; ctx.font=uiFont(14,600); ctx.fillText(title, L.x+14, L.y+24);
+  ctx.textAlign='right'; ctx.fillStyle='rgba(200,215,200,.6)'; ctx.font=uiFont(11); ctx.fillText(left+'초', L.x+L.w-14, L.y+24);
+  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(13); ctx.fillText(fitText(line, L.w-28), L.x+14, L.y+46);
   smallBtn(L.accept,'수락 (Y)',isHover('ask','accept'),false);
   smallBtn(L.decline,'거절 (N)',isHover('ask','decline'),true);
 }
@@ -1851,30 +1877,30 @@ function tradeClick(h){
 }
 const tradeHover=(where,btn)=>!!trade.hover && trade.hover.where===where && trade.hover.btn===btn;
 function drawTradeSide(L, sd, half, title, closed){
-  ctx.textAlign='left'; ctx.fillStyle='rgba(200,215,200,.8)'; ctx.font='600 12px '+SANS; ctx.fillText(title, sd.gx, L.y+50);
-  if(closed){ ctx.textAlign='right'; ctx.fillStyle='#9fe0a8'; ctx.font='600 11px '+SANS; ctx.fillText('교환하기 누름', sd.gx+L.gw, L.y+50); ctx.textAlign='left'; }
+  ctx.textAlign='left'; ctx.fillStyle='rgba(200,215,200,.8)'; ctx.font=uiFont(12,600); ctx.fillText(title, sd.gx, L.y+50);
+  if(closed){ ctx.textAlign='right'; ctx.fillStyle='#9fe0a8'; ctx.font=uiFont(11,600); ctx.fillText('교환하기 누름', sd.gx+L.gw, L.y+50); ctx.textAlign='left'; }
   sd.cells.forEach((c,i)=>{ const it=half.items[i];
     ctx.fillStyle='rgba(0,0,0,.30)'; rr(c.x,c.y,TR_CELL,TR_CELL,4); ctx.fill();
     ctx.strokeStyle = closed ? 'rgba(143,214,160,.40)' : 'rgba(150,200,150,.16)'; ctx.lineWidth=1; ctx.stroke();
     if(!it) return;
     drawItemIcon(c.x,c.y,TR_CELL,it.itemId);
-    if(it.count>1){ ctx.font='600 10px '+MONO; ctx.textAlign='right'; ctx.lineWidth=3; ctx.strokeStyle='rgba(0,0,0,.85)'; ctx.strokeText(String(it.count), c.x+TR_CELL-2, c.y+TR_CELL-3);
+    if(it.count>1){ ctx.font=uiFont(10,600,true); ctx.textAlign='right'; ctx.lineWidth=3; ctx.strokeStyle='rgba(0,0,0,.85)'; ctx.strokeText(String(it.count), c.x+TR_CELL-2, c.y+TR_CELL-3);
       ctx.fillStyle='#ffffff'; ctx.fillText(String(it.count), c.x+TR_CELL-2, c.y+TR_CELL-3); ctx.textAlign='left'; } });
   const my=L.y+58+L.gh+18;
-  ctx.fillStyle='rgba(200,215,200,.75)'; ctx.font='12px '+SANS; ctx.fillText('돈', sd.gx, my);
-  ctx.fillStyle='#ffe98a'; ctx.font='600 12px '+MONO; ctx.fillText(fmtMoney(half.money), sd.gx+22, my);
+  ctx.fillStyle='rgba(200,215,200,.75)'; ctx.font=uiFont(12); ctx.fillText('돈', sd.gx, my);
+  ctx.fillStyle='#ffe98a'; ctx.font=uiFont(12,600,true); ctx.fillText(fmtMoney(half.money), sd.gx+22, my);
 }
 function drawTrade(){
   const L=tradeLayout(); if(!L) return;
   const t=trade.win, { x, y, w, h } = L;
   ctx.fillStyle='rgba(8,12,10,.97)'; rr(x,y,w,h,10); ctx.fill(); ctx.strokeStyle='rgba(158,200,255,.45)'; ctx.lineWidth=1; ctx.stroke();
-  ctx.textAlign='left'; ctx.fillStyle='#cfe3ff'; ctx.font='600 14px '+SANS; ctx.fillText('거래  ·  '+personName(t.partner)+'  Lv.'+t.partner.level, x+14, y+24);
-  ctx.textAlign='right'; ctx.fillStyle='rgba(200,215,200,.6)'; ctx.font='11px '+SANS; ctx.fillText('올린 것은 못 뺍니다 — 잘못 올렸으면 취소', x+w-14, y+24);
+  ctx.textAlign='left'; ctx.fillStyle='#cfe3ff'; ctx.font=uiFont(14,600); ctx.fillText('거래  ·  '+personName(t.partner)+'  Lv.'+t.partner.level, x+14, y+24);
+  ctx.textAlign='right'; ctx.fillStyle='rgba(200,215,200,.6)'; ctx.font=uiFont(11); ctx.fillText('올린 것은 못 뺍니다 — 잘못 올렸으면 취소', x+w-14, y+24);
   ctx.strokeStyle='rgba(150,200,150,.14)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x+14,y+34); ctx.lineTo(x+w-14,y+34); ctx.stroke();
   drawTradeSide(L, L.mine, t.mine, '내가 줄 것', t.mine.closed);
   drawTradeSide(L, L.theirs, t.theirs, '받을 것', t.theirs.closed);
   const hy=L.y+58+L.gh+36;
-  ctx.textAlign='left'; ctx.fillStyle='rgba(158,200,255,.75)'; ctx.font='11px '+SANS;
+  ctx.textAlign='left'; ctx.fillStyle='rgba(158,200,255,.75)'; ctx.font=uiFont(11);
   ctx.fillText(fitText(t.mine.closed ? (t.theirs.closed ? '맞바꾸는 중…' : '상대가 교환하기를 누르면 맞바꿉니다') : '가방 칸을 누르면 그 칸 전부 · Shift 면 1개', w-28), x+14, hy);
   const off=t.mine.closed;   // 닫았으면 돈·교환하기는 흐리게(눌러도 서버가 CLOSED — 표시만)
   smallBtn(L.btns.m100,'+100',!off && tradeHover('win','m100'),false);
@@ -1888,9 +1914,9 @@ function drawTradeAsk(){
   const a=trade.ask, L=tradeAskLayout();
   ctx.fillStyle='rgba(8,12,10,.97)'; rr(L.x,L.y,L.w,L.h,10); ctx.fill(); ctx.strokeStyle='rgba(158,200,255,.45)'; ctx.lineWidth=1; ctx.stroke();
   const left=Math.max(0, Math.ceil((a.until-performance.now())/1000));
-  ctx.textAlign='left'; ctx.fillStyle='#cfe3ff'; ctx.font='600 14px '+SANS; ctx.fillText('거래 신청', L.x+14, L.y+24);
-  ctx.textAlign='right'; ctx.fillStyle='rgba(200,215,200,.6)'; ctx.font='11px '+SANS; ctx.fillText(left+'초', L.x+L.w-14, L.y+24);
-  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font='13px '+SANS; ctx.fillText(fitText(personName(a.from)+'  Lv.'+a.from.level+'  ·  거래하시겠습니까?', L.w-28), L.x+14, L.y+46);
+  ctx.textAlign='left'; ctx.fillStyle='#cfe3ff'; ctx.font=uiFont(14,600); ctx.fillText('거래 신청', L.x+14, L.y+24);
+  ctx.textAlign='right'; ctx.fillStyle='rgba(200,215,200,.6)'; ctx.font=uiFont(11); ctx.fillText(left+'초', L.x+L.w-14, L.y+24);
+  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(13); ctx.fillText(fitText(personName(a.from)+'  Lv.'+a.from.level+'  ·  거래하시겠습니까?', L.w-28), L.x+14, L.y+46);
   smallBtn(L.accept, party.ask ? '수락' : '수락 (Y)', tradeHover('ask','accept'), false);
   smallBtn(L.decline, party.ask ? '거절' : '거절 (N)', tradeHover('ask','decline'), true);
 }
@@ -1961,11 +1987,11 @@ function drawPortalLabels(){
   for(const pt of portalsInView()){
     const X=sx(pt.x), Y=sy(pt.y), R=pt.radius*ZOOM, on=(reach===pt);
     const y1=Y+R*0.5+16;
-    ctx.save(); ctx.textAlign='center'; ctx.font='600 12px '+SANS;
+    ctx.save(); ctx.textAlign='center'; ctx.font=uiFont(12,600);
     ctx.fillStyle='rgba(0,0,0,.6)'; ctx.fillText(pt.name, X+1, y1+1);
     ctx.fillStyle='#e6dcff'; ctx.fillText(pt.name, X, y1);
     if(on){
-      ctx.font='700 12px '+SANS;
+      ctx.font=uiFont(12,700);
       ctx.fillStyle='rgba(0,0,0,.6)'; ctx.fillText('F 키로 이동', X+1, y1+17);
       ctx.fillStyle='#fff4b0'; ctx.fillText('F 키로 이동', X, y1+16);
     }
@@ -1983,7 +2009,7 @@ function drawGroundItems(){
     const X=cx-box/2, Y=cy-box/2-lift;
     drawItemIcon(X, Y, box, g.itemId);
     if(g.count>1){
-      ctx.font='700 '+Math.max(9,Math.round(ZOOM*0.45))+'px '+MONO; ctx.textAlign='right';
+      ctx.font=uiFont(Math.max(9,Math.round(ZOOM*0.45)),700,true); ctx.textAlign='right';
       ctx.fillStyle='rgba(0,0,0,.7)'; ctx.fillText(String(g.count), X+box+1, Y+box+1);
       ctx.fillStyle='#f4f4ec'; ctx.fillText(String(g.count), X+box, Y+box); ctx.textAlign='left';
     }
@@ -2186,7 +2212,7 @@ function parsePortalTable(text){
     PORTALS.push({ id:Number(c[0]), mapId:Number(c[1]), x:Number(c[2]), y:Number(c[3]), radius:Number(c[4]), targetMapId:Number(c[5]), name:c[8] });
 }
 async function boot(){
-  resize(); await loadAssets(); await loadTown(); checkLayers(); await loadItems(); await loadSkills(); await loadWorldTables();
+  resize(); await loadFonts(); await loadAssets(); await loadTown(); checkLayers(); await loadItems(); await loadSkills(); await loadWorldTables();
   if(SNAP){
     // headless verification: load a real snapshot, render one frame, expose PNG
     // 전투 확인용 스냅샷을 따로 두려고 파일명을 열어 둔다 (?snap&file=snapshot-combat.json)

@@ -14,7 +14,7 @@ const MIME = {
   '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8',
   '.json':'application/json; charset=utf-8', '.css':'text/css; charset=utf-8',
   '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.gif':'image/gif',
-  '.svg':'image/svg+xml', '.ico':'image/x-icon', '.csv':'text/csv; charset=utf-8',
+  '.svg':'image/svg+xml', '.ico':'image/x-icon', '.woff2':'font/woff2', '.csv':'text/csv; charset=utf-8',
 };
 
 // 기획 데이터 — 웹 클라가 아이템 이름·그림 번호를 서버와 "같은 파일"에서 읽는다(두 벌로 적으면 어긋난다).
