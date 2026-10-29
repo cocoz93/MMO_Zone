@@ -339,7 +339,8 @@ CPlayer* CEntryHandler::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t 
     player->_exp   = place.exp;
 
 #if USE_DB_WORKER
-    // 1단계 임시: playerId를 계정 식별자로 사용 (2단계는 접속 핸드셰이크로 수신)
+    // 계정 번호 — USE_LOGIN=1 이면 입장 요청(C2S_ENTER_GAME)에서 받은 값(0 이면 actorId 로 자동 발급),
+    //   USE_LOGIN=0 이면 접속 때 뽑은 actorId 와 같은 값(OnConnected)
     player->_accountId = accountId;
     // 새 캐릭터·시작 위치면 true(첫 주기에 저장 → 신규 행 INSERT 유도), DB 에서 불러온 자리 그대로면 false
     player->_dbDirty   = place.dbDirty;
