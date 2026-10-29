@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face{font-family:'Pretendard';src:url('fonts/PretendardVariable.woff2') format('woff2');
+    font-weight:100 900;font-style:normal;font-display:block}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:840px;height:520px;overflow:hidden;background:#ffffff;
+    font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased}
+  svg{display:block}
+  text{font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;fill:#111111}
+  .lane{font-size:14px;font-weight:800}
+  .h{font-size:14.5px;font-weight:700}
+  .s{font-size:12.5px;font-weight:500;fill:#444444}
+  .cap{font-size:12px;font-weight:500;fill:#666666}
+  .big{font-size:22px;font-weight:800}
+  .r{fill:#c00000}
+</style>
+</head>
+<body>
+<svg width="840" height="520" viewBox="0 0 840 520" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#333333"/>
+    </marker>
+    <marker id="arR" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#c00000"/>
+    </marker>
+  </defs>
+
+  <text x="40" y="38" font-size="19" font-weight="800">중복 접속 — <tspan class="r">순서</tspan>가 전부다</text>
+  <text class="s" x="40" y="64">같은 계정은 같은 워커 큐를 타고 앞에서부터 실행된다. 그래서 큐에 넣는 차례가 결과를 정한다</text>
+
+  <!-- ══════ 맞는 순서 ══════ -->
+  <text class="lane" x="40" y="106">정리를 먼저 — 지금 코드</text>
+
+  <rect x="40" y="120" width="150" height="62" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="115" y="144" text-anchor="middle">옛 탭</text>
+  <text class="cap" x="115" y="162" text-anchor="middle">걸어서 (63, 73)</text>
+  <text class="cap" x="115" y="176" text-anchor="middle">아직 저장 안 됨</text>
+
+  <line x1="190" y1="151" x2="228" y2="151" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+
+  <rect x="230" y="120" width="300" height="62" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="cap" x="246" y="140">워커 큐 — 앞에서부터 실행</text>
+  <rect x="246" y="148" width="130" height="26" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="cap" x="311" y="165" text-anchor="middle">① 최종 저장 (63, 73)</text>
+  <rect x="384" y="148" width="130" height="26" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="cap" x="449" y="165" text-anchor="middle">② 새 탭의 조회</text>
+
+  <line x1="530" y1="151" x2="568" y2="151" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+
+  <rect x="570" y="120" width="230" height="62" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="cap" x="586" y="140">새 탭이 시작하는 자리</text>
+  <text class="big" x="586" y="170">(63, 73)</text>
+
+  <!-- ══════ 뒤집으면 ══════ -->
+  <text class="lane r" x="40" y="238">조회를 먼저 넣었다면</text>
+
+  <rect x="40" y="252" width="150" height="62" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="115" y="276" text-anchor="middle">옛 탭</text>
+  <text class="cap" x="115" y="294" text-anchor="middle">걸어서 (63, 73)</text>
+  <text class="cap" x="115" y="308" text-anchor="middle">아직 저장 안 됨</text>
+
+  <line x1="190" y1="283" x2="228" y2="283" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+
+  <rect x="230" y="252" width="300" height="62" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="cap r" x="246" y="272">워커 큐 — 차례가 뒤집힘</text>
+  <rect x="246" y="280" width="130" height="26" fill="#ffffff" stroke="#c00000" stroke-width="1.4"/>
+  <text class="cap r" x="311" y="297" text-anchor="middle">① 새 탭의 조회</text>
+  <rect x="384" y="280" width="130" height="26" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="cap" x="449" y="297" text-anchor="middle">② 최종 저장 (63, 73)</text>
+
+  <line x1="530" y1="283" x2="568" y2="283" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+
+  <rect x="570" y="252" width="230" height="62" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="cap r" x="586" y="272">읽히는 값은 옛 자리</text>
+  <text class="big r" x="586" y="302">(50, 60)</text>
+
+  <!-- ══════ 왜 새로 안 짰나 ══════ -->
+  <text class="lane" x="40" y="370">정리 코드를 새로 안 쓰고 평소 끊김 처리를 그대로 부른 까닭</text>
+
+  <rect x="40" y="384" width="180" height="70" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="cap" x="56" y="406">퇴장 방송</text>
+  <text class="cap" x="56" y="424">슬롯 해제</text>
+  <text class="cap" x="56" y="442">부활 대기열 회수</text>
+
+  <rect x="232" y="384" width="290" height="70" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="cap r" x="248" y="406" font-weight="700">틱 중간 대기열에서 빼기</text>
+  <text class="s" x="248" y="426">같은 틱에 그 플레이어가 이동 정지로</text>
+  <text class="s" x="248" y="444">섹터 대기열에 들어가 있을 수 있음</text>
+
+  <rect x="534" y="384" width="266" height="70" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="cap" x="550" y="406">최종 저장 투입</text>
+  <text class="s" x="550" y="426">이것이 위 ① — 새 조회보다</text>
+  <text class="s" x="550" y="444">큐에서 앞서야 하는 그 한 건</text>
+
+  <text class="s" x="40" y="492"><tspan font-weight="700" fill="#111111">빨강 칸이 새로 짰으면 빠뜨렸을 자리</tspan> — 회수를 놓치면 틱 끝에서 해제된 주소를 밟는다</text>
+</svg>
+</body>
+</html>

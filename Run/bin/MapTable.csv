@@ -1,0 +1,25 @@
+# Maps - design data, read once at startup (CMapTable). Every build reads it (no toggle) - the map is the world itself.
+#   One row = one map. The first row is the default map players enter and must be a town (death sends you back there).
+#   mapId  : 0..1000, no duplicates. SpawnRegion.csv points at a map by mapId.
+#   width / height : tiles. The wire carries coordinates on a grid of at most 128 (Protocol.h POS_QUANT_MAX_MAP_SIZE) -
+#                    a bigger map is refused at startup.
+#   kind   : town | dungeon | instance. A dungeon needs >= 1 spawn region (SpawnRegion.csv); a town must have none.
+#            instance = a party room map: every room is its own channel, made when a party leader uses the portal
+#            (no channel 0, never auto-assigned). It needs >= 1 spawn region with regenSec 0 (spawned once per room).
+#   startX0,startY0,startX1,startY1 : start area - where you appear when you enter this map without a given spot
+#                    (new character, unusable saved spot, moved here from another map). Inside the map, start <= end.
+#                    A town must have one. Leave all four empty for a dungeon to use the whole map at random (old behavior).
+#   lockoutSec : instance only, and required (1..86400) - after a reward, that account cannot enter this map again for this long
+#                    (server memory only - a restart clears it). Leave it empty for town and dungeon.
+#   Sector size and channel capacity are server operation values - MMOServerConfig.ini [MapDefault] / [MapN].
+#   (until 10-09 the map count and size were MMOServerConfig.ini MapCount / Width / Height)
+#   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
+#   map 1 = snake dungeon 1 (entered from the town) · map 2 = snake dungeon 2 (entered from map 1, PortalTable.csv) - the boss
+#   Guryungi (monster 2) is born only in map 2 (SpawnRegion.csv), so map 1 stays a beginner field (2026-10-15).
+#   map 3 = party room (instance), entered from the south end of map 2 (2026-10-17, sizes are placeholders).
+#     The boss was a placeholder Guryungi until 10-18; now the Snake King (SpawnRegion.csv). There is no map name cell - the web names it by kind.
+mapId,width,height,kind,startX0,startY0,startX1,startY1,lockoutSec
+0,60,60,town,27,27,33,33
+1,120,120,dungeon
+2,80,80,dungeon
+3,30,30,instance,13,21,17,23,1800

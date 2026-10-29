@@ -1,0 +1,20 @@
+# Blocked cells - design data, read once at startup (CBlockTable). Every build reads it (no toggle) - like MapTable.csv.
+#   One row = one blocked rectangle of cells on mapId. Nobody walks into a blocked cell (server CZone, web live.html, console GameClient).
+#   A cell is (floor(x), floor(y)). x0,y0,x1,y1 are cell numbers, both ends included, inside the map, x0 <= x1, y0 <= y1.
+#   The map edge is not in this table - it stays the old clamp (0..width-1).
+#   A map with any row must have a start area (MapTable.csv). Start areas, portals (both ends), NPCs and spawn regions
+#   must not touch a blocked cell - the server refuses to start otherwise.
+#   Map 0 (town) rows are written by WebClient/tools/town/blocks.js from town0.js - do not edit them by hand
+#   (blocks.js --check fails when they drift). Rows of other maps are hand-written and kept by blocks.js.
+#   note : free text (house sprite name for the town). No commas.
+#   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
+mapId,x0,y0,x1,y1,note
+0,2,14,15,17,house_lshape
+0,19,13,27,16,house_gate
+0,32,13,40,16,house_gate
+0,44,16,56,19,house_dormer
+0,3,32,10,34,house_twostory
+0,48,41,53,44,house_annex
+0,7,53,19,55,house_dormer
+0,23,53,26,56,cottage_small
+0,33,54,46,56,house_lshape

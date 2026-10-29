@@ -13,34 +13,43 @@
 //  Port=6000
 //  MaxClients=1000
 //  MonitorPort=9090
-//  MapCount=1
 //
-//  [MapDefault]
-//  Width=120
-//  Height=120
+//  [MapDefault]        ← 맵의 운영 값 — 맵 목록·크기는 기획 데이터라 MapTable.csv (10-09)
 //  SectorSize=20
 //  MaxPlayersPerChannel=100
 //
-//  [Map1]              ← 개별 오버라이드 (없으면 MapDefault 적용)
-//  Width=600
+//  [Map1]              ← 개별 오버라이드 (없으면 MapDefault 적용, N = 맵 번호)
+//  SectorSize=10
 // ==========================================================================
 
 #include <string>
-#include <vector>
 #include <iostream>
 #include <cstdlib>      // strtol (ServerCores 범위 파싱)
 
 #include "IniFile.h"              // 플랫폼 독립 INI 리더 (GetPrivateProfile* 대체)
 #include "Platform/Platform.h"    // Platform::GetExecutableDir
 #include "Common.h"
-#include "MapManager.h"
 #include <Common/ErrorLog.h>
+
+// 맵 하나의 운영 값 — 섹터 크기는 시야·송신량, 채널 정원은 부하를 조절한다.
+//   맵 크기는 세계의 모양이라 기획 데이터(맵 표 MapTable.csv)다. 둘을 엮어 MapConfig 를 만드는 곳은 main.
+struct MapOps
+{
+    int32_t sectorSize;
+    int32_t maxPlayersPerChannel;   // 채널당 최대 인원 (소프트 리밋)
+};
 
 struct ServerConfig
 {
+    // ── 기본값은 여기 한 벌 (10-08 아키텍처 2차 검사 5번) ──
+    //   INI 파일이 없을 때(Load 가 일찍 돌아감)도, 파일은 있는데 키가 없을 때(GetInt 의 세 번째 인자)도
+    //   아래 멤버 초기값과 이 상수들을 쓴다. Load 안에 숫자를 다시 적지 말 것 — 한쪽만 고쳐지면 두 경우가 갈린다.
+    static constexpr int    MAX_CLIENTS_DEFAULT = 1000;          // 범위 밖 값을 되돌릴 때도 이 값
+    static constexpr MapOps DEFAULT_MAP_OPS     = { 20, 100 };   // 섹터 크기 · 채널 정원
+
     ServerMode  mode         = ServerMode::GameServer;
     int         port         = 6000;
-    int         maxClients   = 1000;
+    int         maxClients   = MAX_CLIENTS_DEFAULT;
     int         monitorPort  = 9090;
     bool        monitorEnabled = false;
     unsigned long long affinityMask = 0;   // 프로세스를 묶을 CPU 코어 마스크 (0=미적용)
@@ -56,24 +65,33 @@ struct ServerConfig
     //   ※ 기준 3,000은 추정 — 정상 큐 길이 미측정. mmo_event_queue_size 관측 후 재설정할 것.
     int         eventQueueAcceptLimit = 60000;
 
+    // [Game] 플레이어 이동 속도(칸/초) — 0 이면 지금까지의 동작 그대로다(부하 시험 기준).
+    //   부하 시험은 섹터를 자주 넘나들어야 시야 갱신 부하가 생기므로 사람을 25~50 무작위로 빠르게 둔다.
+    //   그 속도는 캐릭터 키(약 2.4칸)의 10~20배/초라 게임으로 플레이하면 너무 빠르다.
+    //   게임으로 플레이할 때만 INI 에 [Game] 을 넣는다 — 권장 사람 7(키의 3배/초).
+    //   ★ 기본값을 0 으로 두는 이유: INI 에 [Game] 이 없으면 부하 시험의 속도 분포가 한 바이트도 안 바뀐다.
+    //   몬스터 속도·존당 마릿수는 여기 없다 — 몬스터 표(MonsterTable.csv)·스폰 표(SpawnRegion.csv)에 있다(10-08).
+    int         playerSpeed = 0;   // 0 = 25~50 무작위(CPlayer 생성자) · N>0 = 모든 플레이어 N
+
     // 게임스레드 코어 격리 (실험용) — GameCore INI에서 도출. 빈값/부적합이면 gameCore=-1, 마스크 0(=off).
     int                gameCore     = -1;  // 게임루프 전용 물리코어 (-1=격리 off). ServerCores 안의 코어여야 함.
     unsigned long long gameCoreMask = 0;   // 게임코어 HT 논리쌍 마스크
     unsigned long long ioCoreMask   = 0;   // ServerCores에서 게임코어를 뺀 나머지(=I/O 스레드용)
 
     // [DB] 저장 파이프라인 설정 (값은 USE_DB_WORKER 토글과 무관하게 항상 로드)
+    //   Workers·SavePeriodSec·QueueMax 는 INI 필수 — 코드에 기본값이 없다. 없거나 0 이하면 InitDB 가 서버를 안 띄운다(10-07)
     std::string dbHost              = "127.0.0.1";
     int         dbPort              = 3306;
     std::string dbUser              = "root";
     std::string dbPassword;
     std::string dbDatabase          = "gamedb";
-    int         dbWorkers           = 1;    // 1단계는 단일 워커
-    int         dbSavePeriodSec     = 10;   // dirty 저장 주기(초)
+    int         dbWorkers           = 0;
+    int         dbSavePeriodSec     = 0;    // dirty 저장 주기(초)
     int         dbConnectTimeoutSec = 3;
     int         dbRwTimeoutSec      = 5;    // 읽기/쓰기 소켓 타임아웃(초) — DB 무응답 시 재연결 판단
-    int         dbQueueMax          = 20000; // 백프레셔: 워커당 큐 상한(초과분 드롭)
+    int         dbQueueMax          = 0;    // 백프레셔: 워커당 큐 상한(초과분 드롭)
 
-    std::vector<MapConfig> maps;
+    MapOps      mapDefault = DEFAULT_MAP_OPS;   // [MapDefault] — [MapN] 이 없는 맵의 운영 값
 
     // 실행 파일 경로 기준으로 MMOServerConfig.ini 로드
     bool Load()
@@ -81,34 +99,34 @@ struct ServerConfig
         // 실행 파일 디렉토리 기준 INI 경로 (플랫폼 독립)
         std::string iniPath = Platform::GetExecutableDir() + "MMOServerConfig.ini";
 
-        CIniFile ini;
+        CIniFile& ini = _ini;   // 맵별 운영 값([MapN])은 맵 표를 읽은 뒤 MapOpsOf 가 꺼내므로 들고 있는다
         if (!ini.Load(iniPath))
         {
             SLOG_INFO("[ServerConfig] MMOServerConfig.ini not found. Using defaults.");
-            SetDefaultMaps();
             return false;
         }
 
-        // [Server] 섹션
-        mode        = ParseServerMode(ini.GetString("Server", "Mode", "GameServer"));
-        port        = ini.GetInt("Server", "Port", 6000);
+        // [Server] 섹션 — 키가 없으면 멤버 초기값(맨 위 한 벌)이 그대로 남는다
+        const std::string modeStr = ini.GetString("Server", "Mode", "");
+        if (!modeStr.empty())
+            mode = ParseServerMode(modeStr);
+        port        = ini.GetInt("Server", "Port", port);
 
         // INI에 음수를 적으면 파서(strtol)가 그대로 음수로 넘긴다.
         //   이 값이 GameServer::Init의 vector::assign에 들어가면 size_t로 확대되어 length_error를
         //   던지고, catch가 없어 "Init failed" 로그 대신 크래시 덤프를 남기며 죽는다.
         //   Start()의 범위 검사는 Init보다 뒤라 여기서 막지 않으면 도달하지 못한다.
         constexpr int MAX_CLIENTS_LIMIT   = 65535;  // 세션 인덱스가 SessionID 상위 16bit
-        constexpr int MAX_CLIENTS_DEFAULT = 1000;
 
-        maxClients  = ini.GetInt("Server", "MaxClients", MAX_CLIENTS_DEFAULT);
+        maxClients  = ini.GetInt("Server", "MaxClients", maxClients);
         if (maxClients <= 0 || maxClients > MAX_CLIENTS_LIMIT)
         {
             SLOG_ERROR("[ServerConfig] MaxClients({}) out of range (1~{}). Using default {}.",
                        maxClients, MAX_CLIENTS_LIMIT, MAX_CLIENTS_DEFAULT);
             maxClients = MAX_CLIENTS_DEFAULT;
         }
-        monitorPort = ini.GetInt("Server", "MonitorPort", 9090);
-        monitorEnabled = (ini.GetInt("Server", "MonitorEnabled", 0) != 0);
+        monitorPort = ini.GetInt("Server", "MonitorPort", monitorPort);
+        monitorEnabled = (ini.GetInt("Server", "MonitorEnabled", monitorEnabled ? 1 : 0) != 0);
 
         // ServerCores: 물리코어 범위("0-5")를 받아 논리코어 비트마스크로 변환
         // (HT 형제 자동 포함 — 한 물리코어를 서버/클라가 쪼개 쓰는 격리 깨짐을 방지)
@@ -119,70 +137,77 @@ struct ServerConfig
         DeriveGameCoreIsolation(ini.GetString("Server", "GameCore", ""));
 
         // WorkerThreads: IOCP 워커 스레드 수 (0=서버 affinity 코어 수로 자동)
-        workerThreads = ini.GetInt("Server", "WorkerThreads", 0);
+        workerThreads = ini.GetInt("Server", "WorkerThreads", workerThreads);
 
         // SendWorkers: 전용 송신 워커 수 (0/1=단일 스레드, 2+=uniqueId%K 워커 풀)
         //   분배 키가 sessionId 였을 때는 인덱스 비트가 쏠려 워커 한쪽만 일했다 — uniqueId 로 고쳤다.
-        sendWorkers = ini.GetInt("Server", "SendWorkers", 0);
+        sendWorkers = ini.GetInt("Server", "SendWorkers", sendWorkers);
 
         // RioWorkers: RIO 전송 워커 수 (USE_RIO_TRANSPORT=1 빌드에서만 사용, 0=자동 2)
-        rioWorkers = ini.GetInt("Server", "RioWorkers", 0);
+        rioWorkers = ini.GetInt("Server", "RioWorkers", rioWorkers);
 
         // CompletionBatch: 완료 수거 방식 A/B (IOCP 빌드 전용, 재빌드 없이 팔 전환)
         //   0 = GetQueuedCompletionStatus — 완료 1건마다 syscall 1회 (기존 동작, 기본값)
         //   N>0 = GetQueuedCompletionStatusEx — 한 번에 최대 N건 수거 (상한은 IOCPServer::Start에서 clamp)
-        completionBatch = ini.GetInt("Server", "CompletionBatch", 0);
+        completionBatch = ini.GetInt("Server", "CompletionBatch", completionBatch);
 
         // SendDepth: 세션당 동시 송신 제출 상한 A/B (양팔 공통, 재빌드 없이 깊이 전환)
         //   1=기존 1-pending. 2의 거듭제곱만 유효하고(1/2/4/8) 그 외 값은 서버가 아래쪽으로 내린다.
-        sendDepth = ini.GetInt("Server", "SendDepth", 1);
+        sendDepth = ini.GetInt("Server", "SendDepth", sendDepth);
 
         // EventQueueAcceptLimit: 게임 이벤트 큐 과부하 시 신규 accept 차단 임계 (0=끄기)
-        eventQueueAcceptLimit = ini.GetInt("Server", "EventQueueAcceptLimit", 60000);
+        eventQueueAcceptLimit = ini.GetInt("Server", "EventQueueAcceptLimit", eventQueueAcceptLimit);
         if (eventQueueAcceptLimit < 0)
             eventQueueAcceptLimit = 0;
 
+        // [Game] 플레이어 이동 속도 — 없으면 0(지금까지의 동작). 음수는 0 으로 본다.
+        playerSpeed = ini.GetInt("Game", "PlayerSpeed", playerSpeed);
+        if (playerSpeed < 0) playerSpeed = 0;
+
         // [DB] 섹션 — DB 저장 파이프라인 (값은 파서가 narrow std::string으로 반환)
-        dbHost              = ini.GetString("DB", "Host", "127.0.0.1");
-        dbPort              = ini.GetInt("DB", "Port", 3306);
-        dbUser              = ini.GetString("DB", "User", "root");
-        dbPassword          = ini.GetString("DB", "Password", "");
-        dbDatabase          = ini.GetString("DB", "Database", "gamedb");
-        dbWorkers           = ini.GetInt("DB", "Workers", 1);
-        dbSavePeriodSec     = ini.GetInt("DB", "SavePeriodSec", 10);
-        dbConnectTimeoutSec = ini.GetInt("DB", "ConnectTimeoutSec", 3);
-        dbRwTimeoutSec      = ini.GetInt("DB", "RwTimeoutSec", 5);
-        dbQueueMax          = ini.GetInt("DB", "QueueMax", 20000);
+        dbHost              = ini.GetString("DB", "Host", dbHost);
+        dbPort              = ini.GetInt("DB", "Port", dbPort);
+        dbUser              = ini.GetString("DB", "User", dbUser);
+        dbPassword          = ini.GetString("DB", "Password", dbPassword);
+        dbDatabase          = ini.GetString("DB", "Database", dbDatabase);
+        dbWorkers           = ini.GetInt("DB", "Workers", dbWorkers);
+        dbSavePeriodSec     = ini.GetInt("DB", "SavePeriodSec", dbSavePeriodSec);
+        dbConnectTimeoutSec = ini.GetInt("DB", "ConnectTimeoutSec", dbConnectTimeoutSec);
+        dbRwTimeoutSec      = ini.GetInt("DB", "RwTimeoutSec", dbRwTimeoutSec);
+        dbQueueMax          = ini.GetInt("DB", "QueueMax", dbQueueMax);
 
-        int mapCount = ini.GetInt("Server", "MapCount", 3);
+        // [MapDefault] 섹션 로드 — 맵 목록·크기는 맵 표(MapTable.csv)라 여기 없다
+        mapDefault.sectorSize           = ini.GetInt("MapDefault", "SectorSize", mapDefault.sectorSize);
+        mapDefault.maxPlayersPerChannel = ini.GetInt("MapDefault", "MaxPlayersPerChannel", mapDefault.maxPlayersPerChannel);
 
-        // [MapDefault] 섹션 로드
-        MapConfig defaultMap = {};
-        defaultMap.mapWidth             = ini.GetInt("MapDefault", "Width", 120);
-        defaultMap.mapHeight            = ini.GetInt("MapDefault", "Height", 120);
-        defaultMap.sectorSize           = ini.GetInt("MapDefault", "SectorSize", 20);
-        defaultMap.maxPlayersPerChannel = ini.GetInt("MapDefault", "MaxPlayersPerChannel", 100);
-
-        // [Map0] ~ [MapN-1] 섹션 순회 (없으면 디폴트 적용)
-        maps.clear();
-        for (int i = 0; i < mapCount; ++i)
-        {
-            std::string section = "Map" + std::to_string(i);
-
-            MapConfig mc;
-            mc.mapId                = i;
-            mc.mapWidth             = ini.GetInt(section, "Width", defaultMap.mapWidth);
-            mc.mapHeight            = ini.GetInt(section, "Height", defaultMap.mapHeight);
-            mc.sectorSize           = ini.GetInt(section, "SectorSize", defaultMap.sectorSize);
-            mc.maxPlayersPerChannel = ini.GetInt(section, "MaxPlayersPerChannel", defaultMap.maxPlayersPerChannel);
-            maps.push_back(mc);
-        }
+        // 맵 표로 옮겨 간 옛 키 — 남아 있어도 해는 없지만(표가 이긴다) INI 를 고친 사람이 "왜 안 바뀌지"가 되지 않게 알린다.
+        //   [MapN] 의 Width·Height 는 맵 번호를 알아야 찾으므로 MapOpsOf 가 본다.
+        if (ini.HasKey("Server", "MapCount"))
+            SLOG_WARN("[ServerConfig] [Server] MapCount 는 더 이상 안 읽습니다 — 맵 목록은 MapTable.csv 의 줄입니다");
+        if (ini.HasKey("MapDefault", "Width") || ini.HasKey("MapDefault", "Height"))
+            SLOG_WARN("[ServerConfig] [MapDefault] Width·Height 는 더 이상 안 읽습니다 — 맵 크기는 MapTable.csv 에 있습니다");
 
         PrintConfig();
         return true;
     }
 
+    // 이 맵의 운영 값 — [MapN](N = 맵 번호)이 있으면 그 값, 없으면 [MapDefault]. INI 가 없으면 기본값.
+    //   맵 번호는 맵 표에서 오므로 main 이 표를 읽은 뒤 맵마다 부른다.
+    MapOps MapOpsOf(int32_t mapId) const
+    {
+        const std::string section = "Map" + std::to_string(mapId);
+        if (_ini.HasKey(section, "Width") || _ini.HasKey(section, "Height"))
+            SLOG_WARN("[ServerConfig] [{}] Width·Height 는 더 이상 안 읽습니다 — 맵 크기는 MapTable.csv 에 있습니다", section);
+
+        MapOps ops;
+        ops.sectorSize           = _ini.GetInt(section, "SectorSize", mapDefault.sectorSize);
+        ops.maxPlayersPerChannel = _ini.GetInt(section, "MaxPlayersPerChannel", mapDefault.maxPlayersPerChannel);
+        return ops;
+    }
+
 private:
+    CIniFile _ini;   // Load 가 채운다 — 파일이 없으면 빈 채로 남아 GetInt 가 기본값을 준다
+
     // "0-5" 또는 "3" 형태의 물리코어 범위 → 논리코어 비트마스크.
     // 가정: 물리코어 k = 논리코어 2k, 2k+1 (Intel HT 표준 매핑).
     // 빈 문자열·숫자 아님 → 0(미적용).
@@ -240,14 +265,6 @@ private:
         ioCoreMask   = io;
     }
 
-    void SetDefaultMaps()
-    {
-        maps = 
-        {
-            { 0, 120, 120, 20, 100 },
-        };
-    }
-
     static ServerMode ParseServerMode(const std::string& s)
     {
         if (s == "GameCodiEchoTest")    return ServerMode::GameCodiEchoTest;
@@ -287,6 +304,8 @@ private:
             SLOG_INFO("  CoreIso     : off (GameCore 미설정)");
         SLOG_INFO("  DB          : {}:{} db={} user={} workers={} save={}s qmax={}",
                   dbHost, dbPort, dbDatabase, dbUser, dbWorkers, dbSavePeriodSec, dbQueueMax);
-        SLOG_INFO("  Maps        : {}", maps.size());
+        SLOG_INFO("  MapDefault  : sector {} · channel cap {} (맵 목록·크기는 MapTable.csv)",
+                  mapDefault.sectorSize, mapDefault.maxPlayersPerChannel);
+        SLOG_INFO("  Speed       : player {} (칸/초, 0=기본 — 25~50 무작위)", playerSpeed);
     }
 };

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face{font-family:'Pretendard';src:url('fonts/PretendardVariable.woff2') format('woff2');
+    font-weight:100 900;font-style:normal;font-display:block}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:840px;height:430px;overflow:hidden;background:#ffffff;
+    font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased}
+  svg{display:block}
+  text{font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;fill:#111111}
+  .lane{font-size:14px;font-weight:800}
+  .h{font-size:14.5px;font-weight:700}
+  .s{font-size:12.5px;font-weight:500;fill:#444444}
+  .cap{font-size:12px;font-weight:500;fill:#666666}
+  .big{font-size:24px;font-weight:800}
+  .r{fill:#c00000}
+</style>
+</head>
+<body>
+<svg width="840" height="430" viewBox="0 0 840 430" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#333333"/>
+    </marker>
+  </defs>
+
+  <text x="40" y="38" font-size="19" font-weight="800">구간을 <tspan class="r">타입으로</tspan> 가른다 — 약속으로 가르지 않는다</text>
+  <text class="s" x="40" y="64">자동 번호를 내는 카운터가 32비트라, 지정 구간까지 올라올 방법이 없다</text>
+
+  <!-- 수직선 -->
+  <line x1="40" y1="150" x2="800" y2="150" stroke="#333333" stroke-width="1.2"/>
+
+  <!-- 자동 구간 -->
+  <rect x="40" y="126" width="330" height="48" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="205" y="148" text-anchor="middle">자동 번호</text>
+  <text class="cap" x="205" y="165" text-anchor="middle">서버 카운터가 접속마다 하나씩</text>
+
+  <!-- 벽 — 설명은 선 위로 올린다(가운데 빈 구간 글자와 겹치지 않게) -->
+  <text class="cap r" x="374" y="98" text-anchor="middle" font-weight="700">2의 31제곱</text>
+  <text class="cap r" x="374" y="114" text-anchor="middle">32비트 카운터의 천장</text>
+  <line x1="374" y1="122" x2="374" y2="192" stroke="#c00000" stroke-width="2.2"/>
+
+  <!-- 빈 구간 -->
+  <text class="cap" x="450" y="142" text-anchor="middle">아무도 안 씀</text>
+
+  <!-- 지정 구간 -->
+  <rect x="530" y="126" width="270" height="48" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="h r" x="665" y="148" text-anchor="middle">지정 번호</text>
+  <text class="cap" x="665" y="165" text-anchor="middle">100억부터 — 클라가 들고 오는 값</text>
+
+  <text class="cap" x="40" y="196">1</text>
+  <text class="cap" x="800" y="196" text-anchor="end">…</text>
+
+  <!-- 아래: 약속으로 가르면 -->
+  <text class="lane" x="40" y="248">「100만 이상으로 하자」 같은 약속이었다면</text>
+
+  <rect x="40" y="262" width="240" height="90" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="cap" x="56" y="284">부하 더미가 먹는 번호</text>
+  <text class="big" x="56" y="316">33만 / 시간</text>
+  <text class="s" x="56" y="338">5,600명이 60초마다 재접속</text>
+
+  <line x1="280" y1="307" x2="318" y2="307" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+
+  <rect x="320" y="262" width="240" height="90" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="cap" x="336" y="284">100만에 닿는 데 걸리는 시간</text>
+  <text class="big" x="336" y="316">서너 시간</text>
+  <text class="s" x="336" y="338">하루도 못 버팀</text>
+
+  <line x1="560" y1="307" x2="598" y2="307" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+
+  <rect x="600" y="262" width="200" height="90" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="cap r" x="616" y="284">그 뒤</text>
+  <text class="big r" x="616" y="316">남의 캐릭터</text>
+  <text class="s r" x="616" y="338">자동 번호가 지정 번호를 침범</text>
+
+  <text class="s" x="40" y="392"><tspan font-weight="700" fill="#111111">타입이 보장하면 우연에 안 기댄다</tspan> — 카운터를 64비트로 넓히는 날 이 그림이 무너지므로, 그때 구간을 다시 정한다</text>
+</svg>
+</body>
+</html>

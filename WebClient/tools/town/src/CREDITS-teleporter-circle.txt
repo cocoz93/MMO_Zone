@@ -1,0 +1,5 @@
+"Teleporter Circle" by Clint Bellanger
+License: CC-BY 3.0
+https://opengameart.org/content/teleporter-circle
+Made for Flare. Textured using two public domain sources from OGA: "4 Summoning Circles" by Luke.RUSTLTD and "Tiling Texture Pack 13" by Yughues (from the page description).
+File used here: teleporter-circle_4.png (256x128 frames: 1 inactive + 4 active)

@@ -79,11 +79,185 @@
 	#error "USE_MEMBERSHIP_DIGEST requires USE_BROADCAST_BUNDLE=1 && USE_MEMBERSHIP_FANOUT_DEDUP=1"
 #endif
 
-// DB 저장 파이프라인 실험 — dirty flag 기반 비동기 위치 저장 (존 서버 관점)
-//   서버 메모리 = 진실, DB = 저장소. 바뀐 플레이어만 주기적으로 전용 워커 스레드가 MySQL에 UPSERT.
-//   목적: 전량 저장 부담을 dirty flag로 줄이고, 저장 I/O를 게임 틱 임계경로에서 떼어낸다.
+// DB 저장 파이프라인 — 더티 표시 + 묶음 하나 = 트랜잭션 하나 (존 서버 관점 · 저장 플랜 C)
+//   서버 메모리 = 진실, DB = 저장소. 바뀐 자리는 표시만 하고, 계기(주기 · 틱 끝 · 나갈 때 · 종료)에 캐릭터 행 + 저장 안 된 칸을
+//   묶음 하나로 전용 워커 스레드가 MySQL 에 쓴다. 목적: 전량 저장 부담을 표시로 줄이고, 저장 I/O 를 게임 틱 임계경로에서 떼어낸다.
 //   1: DB 워커 활성 (MySQL 필요, 지표 mmo_db_*) [실험]
 //   0: DB 없이 기존 동작 그대로 (회귀 기준선) [기본]
 #ifndef USE_DB_WORKER            // 빌드 시스템이 먼저 정하면 그 값을 따른다(리눅스 검증용)
 #define USE_DB_WORKER 1
 #endif
+
+// DB 실패 주입 — 시험 빌드 전용 스위치(기능이 아니다). 저장 묶음의 실패 분기(오류 · 끊김 · DB 죽음 · 늦음)를 시험이 만든다.
+//   시험 계정(game_server)은 SELECT·INSERT·UPDATE 뿐이라 DB 쪽에서 실패를 만들 수 없고, 「묶음 둘째 문장 뒤」 같은 자리는
+//   바깥에서 시각을 맞출 수도 없어서 코드 안에 둔다(save-unify-plan.md 「실패 주입」).
+//   1: DB 워커가 기동 때 환경 변수 MMO_DB_FAULT 를 한 번 읽어 그대로 주입 — 시험 묶음이 이 줄을 바꿔 빌드하고 끝에 되돌린다
+//   0: 주입 코드가 컴파일에서 빠짐 [기본 — 서버 빌드는 늘 0]
+#define USE_DB_FAULT_INJECT 0
+#if USE_DB_FAULT_INJECT && !USE_DB_WORKER
+	#error "USE_DB_FAULT_INJECT requires USE_DB_WORKER=1"
+#endif
+
+// 전투 컨텐츠 — HP·공격·피해·죽음·부활 (판정은 서버, 클라는 그리기만)
+//   CActor 계층 위에 얹는 첫 컨텐츠. 웹 클라와 언리얼 클라가 같은 패킷을 그대로 받아쓴다.
+//   1: 전투 활성 — C2S_ATTACK 처리 + S2C_ATTACK/DAMAGE/DEATH/RESPAWN/ACTOR_STATS 송신 [기본]
+//   0: 전투 경로가 컴파일에서 빠짐 — 실측 기준선과 같은 바이너리
+//   주의: 1로 켠 채 부하 더미를 돌리려면 더미가 새 S2C 타입을 알아야 한다.
+//         DummyClient::GetPacketSize가 모르는 타입에 0을 돌려주면 packetParseFail → Disconnect라
+//         전투 패킷이 섹터에 뿌려지는 순간 더미가 전부 떨어진다.
+#define USE_COMBAT 1
+
+// 몬스터 — 맵에 사는 적. 첫 종류는 뱀 하나다.
+//   CCharacter 계층 위에 얹는 두 번째 컨텐츠. 전투(USE_COMBAT)가 이미 CCharacter 기준이라
+//   몬스터는 "섹터에 들어 있기만" 하면 맞고 죽는다 — 그 경로에 새 코드가 없다.
+//   1: 존마다 몬스터 스폰 + AI 갱신 [기본]
+//   0: 몬스터 경로가 컴파일에서 빠짐 — 기존 A/B 실측과 같은 바이너리
+//   와이어는 안 바뀐다: 몬스터는 기존 CREATE 패킷의 displayChar 에 예약값(0x01~)을 실어 보낸다.
+//     그래서 부하 더미는 새 타입을 몰라도 되고, 이 토글을 켜도 더미가 안 떨어진다.
+//   주의: 0 으로 껐을 때 컴파일이 깨지면 계층이 잘못 얽힌 것이다(USE_COMBAT=0 과 같은 뜻의 시험).
+#define USE_MONSTER 1
+
+// 입장 요청 — 계정 번호를 클라가 들고 온다 (C2S_ENTER_GAME).
+//   DB 왕복 2단계까지는 접속하는 순간 서버가 번호를 지어내 그 번호로 불러왔다. 그래서 저장은 되는데
+//   다시 들어오면 새 번호라 자기 행을 못 찾았다. 이 토글이 그 한 줄을 바꾼다.
+//   1: 접속만으로는 캐릭터가 안 생긴다. 입장 요청을 받아야 그 번호로 불러온다 [기본]
+//      같은 계정이 이미 들어와 있으면 옛 세션을 정리하고 끊는다.
+//   0: 접속하자마자 서버가 번호를 붙여 불러온다 (2단계까지의 동작)
+//   ※ 켜면 입장 요청을 안 보내는 클라는 못 들어온다 — 언리얼 클라가 여기 해당한다(보류 중이라 수용).
+//     콘솔·부하·웹 셋은 이미 보낸다.
+//   기본값이 USE_DB_WORKER 를 따라가는 이유: 입장 요청의 몸이 DB 조회 하나라, 불러올 데가 없으면
+//     이 토글은 뜻이 없다. 리눅스 빌드는 CMake 가 -DUSE_DB_WORKER=0 을 주므로 여기서 같이 꺼진다
+//     (안 그러면 아래 #error 로 리눅스 빌드가 통째로 막힌다 — 실제로 한 번 막혔다).
+#ifndef USE_LOGIN
+#define USE_LOGIN USE_DB_WORKER
+#endif
+
+// 둘을 따로 정하려 했을 때만 걸린다 — 기본값은 위에서 이미 맞춰 놨다.
+#if USE_LOGIN && !USE_DB_WORKER
+	#error "USE_LOGIN requires USE_DB_WORKER=1 (입장 요청의 몸이 DB 조회 하나다)"
+#endif
+
+// 경험치·레벨 — 몬스터를 잡으면 쌓이고, 표의 값을 넘으면 레벨이 오른다.
+//   ★ 레벨별 필요 경험치·최대 체력·공격력은 "기획 데이터"라 코드가 아니라 파일에 둔다
+//     (Run/bin/LevelTable.csv). 기동 때 한 번 읽어 배열로 들고, 몬스터를 잡을 때마다 다시 읽지 않는다.
+//     DB 가 아니라 파일인 이유 — 밸런스 값이 코드와 같은 커밋에 들어가 같이 롤백된다.
+//     DB 에 있는 것은 "내 레벨·내 경험치"(유저 데이터)뿐이고, "레벨 10 이 되려면 얼마"는 여기 없다.
+//   1: 경험치·레벨 활성 — 몬스터를 잡으면 쌓이고, 레벨이 오른다 [기본]
+//   0: 경험치 경로(얻기·레벨업)만 컴파일에서 빠짐. characters 의 level·exp 열은 그대로 오가지만
+//      값을 바꾸는 코드가 없어 늘 1·0 이다(위치가 DB 토글과 무관하게 도는 것과 같은 결).
+//   ★ 레벨 표(LevelTable.csv)는 이 토글이 아니라 USE_COMBAT 을 따른다(10-06) — 1레벨 줄이 캐릭터 바탕 스탯의
+//     유일한 출처라서다(코드 상수 CHARACTER_DEFAULT_* 는 표와 두 벌이라 없앴다). 경험치를 꺼도 표는 읽는다.
+//   기본값이 USE_COMBAT 을 따라가는 이유: 경험치를 얻는 유일한 길이 전투다. 전투를 끄면 같이 꺼져
+//     아래 #error 를 안 만난다. 리눅스는 -DUSE_DB_WORKER=0 이지만 USE_COMBAT 은 1 이라 여기도 1 이다.
+#ifndef USE_EXP
+#define USE_EXP USE_COMBAT
+#endif
+
+#if USE_EXP && !USE_COMBAT
+	#error "USE_EXP requires USE_COMBAT=1 (경험치를 얻는 유일한 길이 전투다)"
+#endif
+
+// 인벤토리(가방) — 종류별 탭 셋(장비·소비·기타)에 20칸씩. 무게는 없고 칸 수만 센다.
+//   ★ 아이템 정의(이름·탭·쌓임 한도·회복량)는 기획 데이터라 파일에 둔다(Run/bin/ItemTable.csv).
+//     가방 안의 "무엇이 몇 개"만 유저 데이터다.
+//   1: 가방 활성 — 표를 읽고, 입장 때 가방을 보내고, 운영자 채팅 명령 /item 으로 채운다 [기본]
+//   0: 가방 경로가 컴파일에서 빠짐 — '/' 로 시작하는 채팅도 지금처럼 그냥 방송된다
+//   기본값이 USE_COMBAT 을 따라가는 이유: 물약이 체력을 채운다(3단계). 전투를 끄면 같이 꺼져
+//     아래 #error 를 안 만난다. USE_EXP 와 같은 꼴.
+//   주의: 켠 채 부하 더미를 돌리려면 더미가 S2C_INVENTORY 를 알아야 한다 — 빈 가방이라도
+//         입장 때 한 장 가므로, 모르면 더미 전원이 접속하자마자 떨어진다(위 USE_COMBAT 주의와 같은 함정).
+#ifndef USE_INVENTORY
+#define USE_INVENTORY USE_COMBAT
+#endif
+
+#if USE_INVENTORY && !USE_COMBAT
+	#error "USE_INVENTORY requires USE_COMBAT=1 (물약이 체력을 채운다)"
+#endif
+
+// 드랍 — 사람이 뱀을 잡으면 드랍 표대로 아이템이 땅에 떨어지고, 근처 사람에게 보이며, 주워 가방에 넣는다.
+//   ★ 무엇을 몇 % 로 떨어뜨리나는 기획 데이터라 파일에 둔다(Run/bin/DropTable.csv).
+//     땅의 아이템은 DB 에 안 남는다 — 서버가 내려가면 사라진다(흔한 방식).
+//   1: 드랍 활성 — 표를 읽고, 죽을 때 떨어뜨리고, 섹터를 넘거나 들어올 때 보여 주고, 60초 뒤 치운다 [기본]
+//   0: 드랍 경로가 컴파일에서 빠짐 — 뱀을 잡아도 경험치만 오른다
+//   기본값이 가방·몬스터 둘을 따라가는 이유: 떨어지는 쪽(몬스터)과 담는 쪽(가방)이 둘 다 있어야 뜻이 있다.
+//   주의: 켠 채 부하 더미를 돌리려면 더미가 S2C_GROUND_ITEM_* 을 알아야 한다(더미 GetPacketSize 에 등록됨).
+//         더미는 공격을 안 해서 스스로 드랍을 만들지 않지만, 옆에서 사람이 뱀을 잡으면 받는다.
+#ifndef USE_DROP
+#define USE_DROP (USE_INVENTORY && USE_MONSTER)
+#endif
+
+#if USE_DROP && !(USE_INVENTORY && USE_MONSTER)
+	#error "USE_DROP requires USE_INVENTORY=1 and USE_MONSTER=1 (떨어지는 쪽과 담는 쪽이 다 있어야 한다)"
+#endif
+
+// 장착 — 가방의 장비를 무기 칸(칸 번호 900)에 끼우고 빼며, 끼운 무기의 공격력이 스탯에 더해진다.
+//   ★ 무기 칸은 가방과 같은 DB 테이블·같은 저장 길(FlushInventory)을 쓴다 — DB 는 안 바뀐다.
+//   1: 장착 활성 — 끼우기·빼기 요청을 받고, 스탯 함수가 무기 몫을 더한다 [기본]
+//   0: 요청은 조용히 버려지고(크기 등록이 빠짐) 무기 몫이 0 — 칸 자리(가방 배열·와이어)는 그대로 남는다
+//   기본값이 가방을 따라가는 이유: 끼울 장비가 가방에서 온다. 가방을 끄면 같이 꺼져 아래 #error 를 안 만난다.
+//   주의: 켠 채 부하 더미를 돌려도 더미에게 새로 가는 것은 입장 때 S2C_MY_STATS 한 장뿐이다(USE_COMBAT 몫, 더미에 등록됨).
+#ifndef USE_EQUIP
+#define USE_EQUIP USE_INVENTORY
+#endif
+
+// 상점 — NPC 에게 사고팔기(npc-shop-plan.md 4판). 규칙은 CShopSystem, 상점마다 목록은 상점 표(ShopTable.csv), 와이어는 Protocol.h 상점 절.
+//   1: 상점 활성 — 상점 표를 읽고 사고팔기 요청을 받는다 [기본 = 가방을 따름]
+//   0: 상점 경로가 컴파일에서 빠짐 — 요청은 조용히 버려진다(크기 등록이 빠짐). 상점 표를 안 읽고, NPC 표의 상점 번호 대조를 건너뛴다
+//   NPC(표·깔기·등장)는 이 토글과 상관없다 — 맵·포털처럼 세계 데이터다. 돈은 가방의 일부라 USE_INVENTORY 를 따른다.
+#ifndef USE_SHOP
+#define USE_SHOP USE_INVENTORY
+#endif
+
+#if USE_SHOP && !USE_INVENTORY
+	#error "USE_SHOP requires USE_INVENTORY=1 (사고팔기가 가방·돈을 바꾼다)"
+#endif
+
+#if USE_EQUIP && !USE_INVENTORY
+	#error "USE_EQUIP requires USE_INVENTORY=1 (끼울 장비가 가방에서 온다)"
+#endif
+
+// 거래 — 가까이 선 두 사람이 가방 칸·돈을 맞바꾼다(trade-plan.md). 규칙은 CTradeSystem, 와이어는 Protocol.h 거래 절.
+//   두 사람 저장은 「짝 묶음」 하나 = 트랜잭션 하나(CCharacterStore::SaveTrade) — 따로 저장하다 죽으면 복사·증발이라서.
+//   1: 거래 활성 — 거래 요청을 받는다 [기본 = 가방을 따름]
+//   0: 거래 경로가 컴파일에서 빠짐 — 요청은 조용히 버려진다(크기 등록이 빠짐). 와이어 정의(Protocol.h)는 그대로 남는다.
+//      가방의 칸 잠금 코드는 남지만 잠그는 쪽이 없어 늘 풀려 있다
+#ifndef USE_TRADE
+#define USE_TRADE USE_INVENTORY
+#endif
+
+#if USE_TRADE && !USE_INVENTORY
+	#error "USE_TRADE requires USE_INVENTORY=1 (맞바꾸는 것이 가방 칸·돈이다)"
+#endif
+
+// 스킬 — 스킬 표(Run/bin/SkillTable.csv) 한 줄이 스킬 하나. 지금은 백호참(앞의 한 명 · 피해)·어검술(칸 목록 · 피해)·이중공격(자신 · 공격력 2배 30초) 셋.
+//   ★ 비용(체력·마력·쿨타임)은 대상 확인까지 모든 검사를 지난 뒤에만 뗀다 — 거절이면 아무것도 안 바뀐다(SkillSystem.h).
+//   지속 효과의 칸·규칙(Buff.h · CBuffSystem)은 이 토글이 아니라 USE_COMBAT 소유다 — 거는 쪽이 스킬만이 아니라서(아이템도 걸 수 있는 틀).
+//     스킬을 꺼도 틀은 남고 거는 곳만 없다(S2C_ACTOR_BUFF 도 한 장도 안 나간다).
+//   1: 스킬 활성 — 표를 읽고, C2S_USE_SKILL 을 받는다 [기본]
+//   0: 스킬 경로가 컴파일에서 빠짐 — 요청은 조용히 버려진다(크기 등록이 빠짐). 와이어 정의(Protocol.h)는 그대로 남는다
+//   기본값이 USE_COMBAT 을 따라가는 이유: 맞힌 뒤 처리(피해·죽음·보상)를 전투에서 빌린다(CCombatSystem::ApplyHit).
+//     전투를 끄면 같이 꺼져 아래 #error 를 안 만난다. USE_EXP 와 같은 꼴.
+//   주의: 켠 채 부하 더미를 돌리면 옆에서 사람이 시전할 때 더미가 S2C_SKILL_CAST 를 받는다 — 더미에 등록돼 있다(DummyClient.cpp).
+#ifndef USE_SKILL
+#define USE_SKILL USE_COMBAT
+#endif
+
+#if USE_SKILL && !USE_COMBAT
+	#error "USE_SKILL requires USE_COMBAT=1 (맞힌 뒤 처리를 전투에서 빌린다)"
+#endif
+
+// 파티 — 사람끼리 최대 8명(Protocol.h PARTY_MAX_MEMBERS). 규칙은 CPartySystem(PartySystem.h), 와이어는 Protocol.h 파티 절.
+//   1: 파티 활성 — C2S_PARTY_* 를 받고, 틱마다 요청 시간 지남·파티원 상태 비교를 돈다(파티·요청이 없으면 바로 끝난다) [기본]
+//   0: 파티 경로가 컴파일에서 빠짐 — 요청은 조용히 버려진다(크기 등록이 빠짐). 와이어 정의(Protocol.h)는 그대로 남는다
+//   기대는 토글이 없다 — 맺기·나가기는 전투 없이도 말이 된다. 파티원끼리 공격 후보에서 빼기만 전투가 켜졌을 때 붙는다(CombatSystem.cpp).
+//   주의: 켠 채 부하 더미를 돌리면 사람이 화면에서 더미를 눌러 초대할 때 더미가 S2C_PARTY_ASK 를 받는다 — 더미에 등록돼 있다(DummyClient.cpp).
+#ifndef USE_PARTY
+#define USE_PARTY 1
+#endif
+
+// 틱 주기 — 서버 시간의 단위. 시간을 「틱 수」로 재는 설계(09-23)라 모든 시간 상수의 분모다.
+//   여기 한 곳에만 둔다 — 전투·몬스터 AI·땅 아이템처럼 게임 서버 헤더를 못 보는 층도 이 파일은 가장 먼저 읽는다.
+//   초 단위 상수는 숫자를 베끼지 말고 `초 × FRAME_PER_SEC` 로 유도할 것(25 가 흩어져 있으면 주기를 바꿀 때 한쪽만 바뀐다).
+//   INI 로 빼지 않는다(10-08 결정) — 실행 시 값이 되면 아래 층의 constexpr 이 전부 변수가 되고, 운영 중 바꿀 일이 없다.
+constexpr int FRAME_PER_SEC     = 25;
+constexpr int FRAME_INTERVAL_MS = 1000 / FRAME_PER_SEC;   // 40ms

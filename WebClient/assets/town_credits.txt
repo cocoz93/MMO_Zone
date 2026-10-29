@@ -1,0 +1,232 @@
+마을 그림(assets/town.js) 크레딧 — tools/town/src/CREDITS-*.txt 모음(build.js 가 만든다)
+
+==== CREDITS-decorations-medieval.txt ====
+## Medieval
+
+[LPC] Hanging signs
+Reemax
+CC-BY-SA 3.0 / GPL 3.0
+https://opengameart.org/content/lpc-hanging-signs
+
+Liberated Pixel Cup (LPC) Base Assets
+Lanea Zimmerman (Sharm)
+CC-BY-SA 3.0 / GPL 3.0
+https://opengameart.org/content/liberated-pixel-cup-lpc-base-assets-sprites-map-tiles
+
+[LPC] City outside
+Reemax (Tuomo Untinen), Xenodora, Sharm, Johann C, Johannes Sjölund
+CC-BY-SA 3.0 / GPL 3.0 / GPL 2.0
+https://opengameart.org/content/lpc-city-outside
+
+[LPC] Cavern and ruin tiles
+CC-BY-SA 3.0 / GPL 3.0 / GPL 2.0
+Reemax, Sharm, Hyptosis, Johann C, HughSpectrum, Redshrike, William.Thompsonj, wulax, 
+https://opengameart.org/node/33913
+
+Statues & Fountains Collection
+Casper Nilsson, Daniel Cook, Rayane Félix (RayaneFLX), Wolthera van Hövell tot Westerflier (TheraHedwig), Hyptosis, mold, Zachariah Husiar (Zabin), & Clint Bellanger
+CC-BY-SA 3.0
+https://opengameart.org/content/statues-fountains-collection
+
+LPC C.Nilsson
+Casper Nilsson
+CC-BY-SA 3.0 / GPL 3.0
+https://opengameart.org/content/lpc-cnilsson
+
+LPC Style Well
+CC-BY 3.0 / GPL 3.0
+Xenodora, Sharm
+https://opengameart.org/content/lpc-style-well
+
+RPG item set
+Jetrel
+CC0
+https://opengameart.org/content/rpg-item-set
+
+[LPC] Guido Bos entries cut up
+Guido Bos
+CC-BY-SA 3.0 / GPL 3.0
+https://opengameart.org/content/lpc-guido-bos-entries-cut-up
+
+LPC Sign Post
+Nemisys
+CC-BY 3.0 / CC-BY-SA 3.0 / GPL 3.0 / OGA-BY 3.0
+https://opengameart.org/content/lpc-sign-post
+
+[LPC] Signposts, graves, line cloths and scare crow
+Reemax
+CC-BY-SA 3.0 / GPL 3.0
+https://opengameart.org/content/lpc-signposts-graves-line-cloths-and-scare-crow
+
+[LPC] Hanging signs
+Reemax
+CC-BY-SA 3.0 / GPL 3.0
+https://opengameart.org/content/lpc-hanging-signs
+
+Hyptosis
+Mage City Arcanos
+CC0
+https://opengameart.org/content/mage-city-arcanos
+
+[LPC] Street Lamp
+Curt
+CC-BY 3.0
+https://opengameart.org/content/lpc-street-lamp
+
+[LPC] Misc
+Lanea Zimmerman (Sharm), William.Thompsonj
+CC-BY 3.0 / GPL 3.0 / GPL 2.0 / OGA-BY 3.0
+https://opengameart.org/content/lpc-misc
+
+RPG Tiles: Cobble stone paths & town objects
+https://opengameart.org/content/rpg-tiles-cobble-stone-paths-town-objects
+Zabin, Daneeklu, Jetrel, Hyptosis, Redshrike, Bertram. 
+CC-BY-SA 3.0
+
+[LPC] Farming tilesets, magic animations and UI elements
+https://opengameart.org/content/lpc-farming-tilesets-magic-animations-and-ui-elements
+Daniel Eddeland (daneeklu)
+CC-BY-SA 3.0 / GPL 3.0
+
+RPG item set
+Jetrel
+CC0
+https://opengameart.org/content/rpg-item-set
+
+RPG Indoor Tileset: Expansion 1
+Redshrike
+CC-BY 3.0 / GPL 3.0 / GPL 2.0 / OGA-BY 3.0
+https://opengameart.org/content/rpg-indoor-tileset-expansion-1
+
+[LPC] Dungeon Elements
+Lanea Zimmerman (Sharm), William.Thompsonj
+CC-BY 3.0 / GPL 3.0 / GPL 2.0 / OGA-BY 3.0
+https://opengameart.org/content/lpc-dungeon-elements
+
+==== CREDITS-lpc-base-assets.txt ====
+"Liberated Pixel Cup (LPC) Base Assets (sprites & map tiles)" by Lanea Zimmerman (Sharm)
+License: CC-BY-SA 3.0 / GPL 3.0
+https://opengameart.org/content/liberated-pixel-cup-lpc-base-assets-sprites-map-tiles
+File used here: barrel.png
+
+==== CREDITS-teleporter-circle.txt ====
+"Teleporter Circle" by Clint Bellanger
+License: CC-BY 3.0
+https://opengameart.org/content/teleporter-circle
+Made for Flare. Textured using two public domain sources from OGA: "4 Summoning Circles" by Luke.RUSTLTD and "Tiling Texture Pack 13" by Yughues (from the page description).
+File used here: teleporter-circle_4.png (256x128 frames: 1 inactive + 4 active)
+
+==== CREDITS-terrain.txt ====
+"[LPC] Terrains" by bluecarrot16, Lanea Zimmerman (Sharm), Daniel Eddeland (Daneeklu), Richard Kettering (Jetrel), Zachariah Husiar (Zabin), Hyptosis, Casper Nilsson, Buko Studios, Nushio, ZaPaper, billknye, William Thompson, caeles, Redshrike, Bertram, and Rayane Félix (RayaneFLX)
+
+Liberated Pixel Cup (LPC) Base Assets (sprites & map tiles)
+Lanea Zimmerman (Sharm)
+CC-BY 3.0 / CC-BY-SA 3.0 / GPL 3.0
+https://opengameart.org/content/liberated-pixel-cup-lpc-base-assets-sprites-map-tiles
+
+[LPC] Farming tilesets, magic animations and UI elements
+Daniel Eddeland (Daneeklu)
+CC-BY-SA 3.0 / GPL 3.0
+https://opengameart.org/content/lpc-farming-tilesets-magic-animations-and-ui-elements
+
+ZRPG Tiles
+Richard Kettering (Jetrel), Zachariah Husiar (Zabin), Hyptosis, Lanea Zimmerman (Sharm), and Open Pixel Project.
+CC-BY-SA 3.0+
+https://opengameart.org/content/zrpg-tiles
+
+LPC C.Nilsson
+Casper Nilsson
+CC-BY-SA 3.0 / GPL 3.0
+https://opengameart.org/content/lpc-cnilsson
+
+Frozen Lake [LPC]
+Buko Studios (http://www.buko-studios.com/) Commissioned by PlayCraft: (www.playcraftapp.com)
+CC-BY 3.0
+https://opengameart.org/content/frozen-lake-lpc
+
+
+LPC Animated Water and waterfalls
+ZaPaper
+CC-BY-SA 3.0
+https://opengameart.org/content/lpc-animated-water-and-waterfalls
+
+LPC More Water Transitions
+billknye
+CC-BY-SA 3.0 / GPL 3.0
+https://opengameart.org/content/lpc-more-water-transitions
+
+[LPC] Sand+Rock Alt Colors
+William.Thompsonj, Daniel Eddeland
+CC-BY-SA 3.0 / GPL 3.0
+https://opengameart.org/content/lpc-sandrock-alt-colors
+
+[LPC] Colorful Sand + Deep Water!
+Nushio
+CC-BY-SA 3.0 / GPL 3.0
+https://opengameart.org/content/lpc-colorful-sand-deep-water
+
+LPC terrain extension
+caeles
+CC-BY-SA 3.0 / GPL 3.0
+https://opengameart.org/content/lpc-terrain-extension
+
+RPG Tiles: Cobble stone paths & town objects
+Zachariah Husiar (Zabin), Daniel Eddeland (Daneeklu), Richard Kettering (Jetrel), Hyptosis, Redshrike, Bertram
+CC-BY-SA 3.0
+https://opengameart.org/content/rpg-tiles-cobble-stone-paths-town-objects
+
+RPG Terrains
+Rayane Félix (RayaneFLX)
+CC-BY-SA 3.0
+https://opengameart.org/content/rpg-terrains
+
+==== CREDITS-thatched-roof-cottage.txt ====
+"[LPC] Thatched-roof Cottage" by bluecarrot16
+License: CC-BY-SA 3.0 / GPL 3.0
+https://opengameart.org/content/lpc-thatched-roof-cottage
+Page description: "Medieval-style thatched-roof, timber-frame cottages. Preview also includes tiles from http://opengameart.org/content/lpc-windows-doors ."
+Files used here: cottage.png, thatched-roof.png, preview_280.png (the preview; five houses are cut out of it)
+
+==== CREDITS-windows-doors.txt ====
+"LPC Windows & Doors" by bluecarrot16, Lanea Zimmerman (Sharm) and Daniel Armstrong (HughSpectrum), Casper Nilsson, Anamaris, Krusmira, Keith Karnage, Guido Bos, and Talosaurus. 
+License: CC-BY-SA 3.0 / GPL 3.0+
+
+Based on:
+"LPC Base Assets" 
+Lanea Zimmerman (Sharm) and Daniel Armstrong (HughSpectrum). 
+CC-BY-SA 3.0 / GPL 3.0+. 
+http://opengameart.org/content/liberated-pixel-cup-lpc-base-assets-sprites-map-tiles
+
+"LPC art entry"
+Casper Nilsson. 
+CC-BY-SA 3.0 / GPL 3.0+. 
+http://opengameart.org/content/lpc-cnilsson
+
+"Steampun-a-fy (with concept art)" by Anamaris and Krusmira
+CC-BY-SA 3.0 / GPL 3.0+. 
+http://opengameart.org/content/steampun-a-fy-with-concept-art
+
+Medieval town
+CC-BY 3.0
+Keith Karnage
+https://opengameart.org/content/medieval-town-0
+
+Old Frogatto houses
+Guido Bos
+CC0
+https://opengameart.org/content/old-frogatto-houses
+
+Cute dungeon LPC edit
+Evert, Buch, Lanea Zimmerman (Sharm)
+CC-BY 3.0
+https://opengameart.org/content/cute-dungeon-lpc-edit
+
+Spooky Castle Tileset
+Buch
+CC0
+https://opengameart.org/content/spooky-castle-tileset
+
+Old Eastern Themed Building Tiles + Tree
+Talosaurus
+CC0
+https://opengameart.org/content/old-eastern-themed-building-tiles-tree

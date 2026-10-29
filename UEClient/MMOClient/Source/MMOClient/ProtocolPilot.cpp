@@ -26,8 +26,8 @@ static_assert(sizeof(MSG_C2S_HEARTBEAT) == 4,
 static_assert(sizeof(MSG_S2C_ZONE_INFO) == 24,
 	"MSG_S2C_ZONE_INFO = header4 + int32 x5 = 24");
 
-static_assert(sizeof(MSG_S2C_CREATE_MY_PLAYER) == 23,
-	"MSG_S2C_CREATE_MY_PLAYER = header4 + int32 4 + uint8 x3 + float x2 + int32 4 = 23");
+static_assert(sizeof(MSG_S2C_CREATE_MY_PLAYER) == 31,
+	"MSG_S2C_CREATE_MY_PLAYER = header4 + int32 4 + uint8 x3 + float x2 + int32 4 + ActorSnapshot(int32 x2) 8 = 31");
 
 // 채팅은 와이어 문자 타입이 char16_t 여야 한다.
 //   wchar_t 로 두면 Windows 2바이트 / 리눅스 4바이트가 되어 같은 구조체가 OS 마다 달라진다.

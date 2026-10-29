@@ -69,7 +69,13 @@ void CGameInstance::Shutdown()
 
 bool CGameInstance::ConnectToServer(const std::string& serverIp, int port)
 {
-    return _network.Connect(serverIp, port);
+    if (!_network.Connect(serverIp, port))
+        return false;
+
+    // 입장 요청 — 접속 직후 한 번. 이 패킷이 가야 서버가 캐릭터를 불러온다(USE_LOGIN).
+    //   계정 번호는 ClientConfig.ini 의 [Account] Id. 0 이면 서버가 매번 새 번호를 붙인다.
+    _network.SendEnterGame(_config.accountId);
+    return true;
 }
 
 // ==========================================================================
@@ -187,6 +193,8 @@ void CGameInstance::ProcessNetworkEvents()
             _renderer.SetMapSize(event.mapWidth, event.mapHeight);
             _renderer.SetSectorSize(event.sectorSize);
             _playerManager.SetMapSize(event.mapWidth, event.mapHeight);
+            if (!_playerManager.LoadWalkGrid(event.mapId, event.mapWidth, event.mapHeight))
+                LOG_ERROR_STREAM("BlockTable.csv not found next to the exe - walking without blocked cells (server stops will correct)");
             break;
 
         case ClientNetworkEvent::Type::CREATE_MY_PLAYER:
@@ -307,6 +315,9 @@ void CGameInstance::ProcessNetworkEvents()
             case 0:  reason = L"Not found";            break;
             case 1:  reason = L"All channels full";    break;
             case 2:  reason = L"Already in this channel"; break;
+            case 3:  reason = L"Admin only (other map)"; break;   // 다른 맵 지정은 운영자만 — /admin 뒤에 다시
+            case 4:  reason = L"Too far from portal";  break;     // 포털 사용(웹)과 같은 실패 패킷 — 콘솔은 포털 키가 없다
+            case 5:  reason = L"No such portal";       break;
             default: reason = L"Unknown";              break;
             }
             wchar_t buf[128];
@@ -333,6 +344,33 @@ void CGameInstance::ProcessNetworkEvents()
         case ClientNetworkEvent::Type::ADMIN_LOGIN_FAIL:
             AddChatMessage(L"[System] Admin login failed. Invalid key.");
             break;
+
+        case ClientNetworkEvent::Type::EXP:
+        {
+            // 내 것에만 담는다. 아직 내 캐릭터가 없으면(순서가 뒤집힌 경우) 버린다 —
+            //   존 이동·스폰 양쪽 다 CREATE 뒤에 오므로 평소엔 안 걸린다.
+            ClientPlayer* me = _playerManager.GetMyPlayer();
+            if (me == nullptr)
+                break;
+
+            const bool    hadExp    = me->hasExp;
+            const int32_t prevLevel = me->level;
+            me->level        = event.level;
+            me->exp          = event.exp;
+            me->levelBaseExp = event.levelBaseExp;
+            me->nextLevelExp = event.nextLevelExp;
+            me->hasExp       = true;
+
+            // 레벨이 오른 것만 한 줄 남긴다 — 경험치마다 찍으면 채팅창이 사냥 로그가 된다.
+            //   첫 장은 기준선이라 건너뛴다(위 hasExp 주석).
+            if (hadExp && event.level > prevLevel)
+            {
+                wchar_t buf[64];
+                swprintf_s(buf, L"[System] Level up! Lv.%d", event.level);
+                AddChatMessage(buf);
+            }
+            break;
+        }
         }
     }
 }
@@ -442,9 +480,9 @@ void CGameInstance::ProcessInput()
             me->moveState = MoveState::IDLE;
         }
 
-        // 새 방향이 있으면 이동 시작 (벽 방향은 차단)
+        // 새 방향이 있으면 이동 시작 (벽·막힌 칸 방향은 차단)
         if (newDir != Direction::NONE &&
-            !_playerManager.IsBlockedByWall(me->x, me->y, newDir))
+            !_playerManager.StepBlocked(me->x, me->y, newDir))
         {
             _network.SendMoveStart(static_cast<uint8_t>(newDir), me->x, me->y);
             me->direction = newDir;
@@ -550,17 +588,22 @@ void CGameInstance::OnCreateMyPlayer(const MSG_S2C_CREATE_MY_PLAYER* msg)
 
 void CGameInstance::OnCreateOtherPlayer(const MSG_S2C_CREATE_OTHER_PLAYER* msg)
 {
+    PushCreateOther(msg->entry);
+}
+
+void CGameInstance::PushCreateOther(const CreatePlayerEntry& e)
+{
     ClientNetworkEvent event{};
     event.type = ClientNetworkEvent::Type::CREATE_OTHER_PLAYER;
-    event.playerId = msg->playerId;
-    event.displayChar = msg->displayChar;
-    event.colorIndex = msg->colorIndex;
-    event.x = msg->x;
-    event.y = msg->y;
-    event.direction = msg->direction;
-    event.moveState = msg->moveState;
-    event.spawnReason = msg->spawnReason;
-    event.speed = msg->speed;
+    event.playerId = e.playerId;
+    event.displayChar = e.displayChar;
+    event.colorIndex = e.colorIndex;
+    event.x = e.x;
+    event.y = e.y;
+    event.direction = e.direction;
+    event.moveState = e.moveState;
+    event.spawnReason = e.spawnReason;
+    event.speed = e.speed;
     _eventQueue.Push(std::move(event));
 }
 
@@ -641,7 +684,7 @@ void CGameInstance::OnSectorUpdates(const MSG_S2C_SECTOR_UPDATES* msg)
         const SectorUpdateEntry& e = msg->entries[i];
 
         // moveState: 0=IDLE → MOVE_STOP, 그 외=MOVING → MOVE_START (두 이벤트 모두 x/y/direction 사용)
-        // 좌표·방향·이동상태는 엔트리에 눈금과 니블로 담겨 오므로 여기서 원래 값으로 되돌린다.
+        // 좌표·방향·이동상태는 엔트리에 양자화 값과 니블로 담겨 오므로 여기서 원래 값으로 되돌린다.
         ClientNetworkEvent event{};
         event.type      = (UnpackState(e.dirState) != 0)
             ? ClientNetworkEvent::Type::MOVE_START
@@ -655,33 +698,18 @@ void CGameInstance::OnSectorUpdates(const MSG_S2C_SECTOR_UPDATES* msg)
 }
 
 // 멤버십 인바운드 묶음(USE_MEMBERSHIP_INBOUND_BUNDLE): 시야 진입 상대 N명이 배치 1패킷으로 온다.
-// 엔트리마다 기존 CREATE_OTHER_PLAYER 이벤트로 분해해 큐에 넣는다(소비측·이벤트타입 재사용 — OnCreateOtherPlayer와 동일 필드).
+// 엔트리마다 기존 CREATE_OTHER_PLAYER 이벤트로 분해해 큐에 넣는다(소비측·이벤트타입 재사용 — OnCreateOtherPlayer와 같은 PushCreateOther).
 // 가변 길이라 header.size로 실제 엔트리 수를 역산해 상한 방어(OnSectorUpdates와 동일).
 void CGameInstance::OnCreatePlayerBatch(const MSG_S2C_CREATE_PLAYER_BATCH* msg)
 {
     uint16_t count = msg->count;
     uint16_t avail = static_cast<uint16_t>(
-        (msg->header.size - offsetof(MSG_S2C_CREATE_PLAYER_BATCH, entries)) / sizeof(CreatePlayerBatchEntry));
+        (msg->header.size - offsetof(MSG_S2C_CREATE_PLAYER_BATCH, entries)) / sizeof(CreatePlayerEntry));
     if (count > avail)
         count = avail;
 
     for (uint16_t i = 0; i < count; ++i)
-    {
-        const CreatePlayerBatchEntry& e = msg->entries[i];
-
-        ClientNetworkEvent event{};
-        event.type = ClientNetworkEvent::Type::CREATE_OTHER_PLAYER;
-        event.playerId = e.playerId;
-        event.displayChar = e.displayChar;
-        event.colorIndex = e.colorIndex;
-        event.x = e.x;
-        event.y = e.y;
-        event.direction = e.direction;
-        event.moveState = e.moveState;
-        event.spawnReason = e.spawnReason;
-        event.speed = e.speed;
-        _eventQueue.Push(std::move(event));
-    }
+        PushCreateOther(msg->entries[i]);
 }
 
 // 멤버십 인바운드 묶음: 시야 이탈 상대 N명 — 엔트리별 기존 DELETE_PLAYER 이벤트로 분해.
@@ -744,6 +772,17 @@ void CGameInstance::OnAdminLoginFail()
 {
     ClientNetworkEvent event{};
     event.type = ClientNetworkEvent::Type::ADMIN_LOGIN_FAIL;
+    _eventQueue.Push(std::move(event));
+}
+
+void CGameInstance::OnExp(const MSG_S2C_EXP* msg)
+{
+    ClientNetworkEvent event{};
+    event.type         = ClientNetworkEvent::Type::EXP;
+    event.level        = msg->level;
+    event.exp          = msg->exp;
+    event.levelBaseExp = msg->levelBaseExp;
+    event.nextLevelExp = msg->nextLevelExp;
     _eventQueue.Push(std::move(event));
 }
 

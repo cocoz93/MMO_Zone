@@ -246,6 +246,18 @@ void CClientNetwork::SendHeartbeat()
     SendPacket(reinterpret_cast<const char*>(&msg), sizeof(msg));
 }
 
+void CClientNetwork::SendEnterGame(int64_t accountId)
+{
+    // 입장 요청 — 접속 직후 한 번. 서버는 이걸 받아야 캐릭터를 불러온다(USE_LOGIN).
+    //   입장권 64바이트는 아직 안 쓴다 — 값 초기화로 0 을 채워 보낸다.
+    MSG_C2S_ENTER_GAME msg{};
+    msg.header.size = sizeof(msg);
+    msg.header.type = MsgType::C2S_ENTER_GAME;
+    msg.accountId   = accountId;
+
+    SendPacket(reinterpret_cast<const char*>(&msg), sizeof(msg));
+}
+
 void CClientNetwork::SendAdminLogin(const char* key)
 {
     MSG_C2S_ADMIN_LOGIN msg{};
@@ -350,6 +362,85 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
     case MsgType::S2C_DELETE_PLAYER_BATCH:
         if (size >= offsetof(MSG_S2C_DELETE_PLAYER_BATCH, entries))
             _gameInstance->OnDeletePlayerBatch(reinterpret_cast<const MSG_S2C_DELETE_PLAYER_BATCH*>(data));
+        break;
+
+    // 전투 (서버 USE_COMBAT) — 콘솔 클라는 전투를 그리지 않으므로 알고 넘긴다.
+    //   빠뜨리면 아래 default 가 받을 때마다 콘솔에 한 줄을 찍는데, 렌더러가 커서를 맨 아래 줄에
+    //   두고 있어 그 줄이 화면 전체를 한 줄 밀어 올린다 → 다음 프레임에 제자리로 다시 그려
+    //   화면이 위아래로 떨린다(실측: 뱀이 있는 맵에서 25초에 102줄, 초당 약 4번).
+    //   스탯은 체력이 바뀔 때(물약·레벨업) 오고, 몬스터가 생긴 뒤로는 공격·피해·죽음·부활도 늘 온다.
+    case MsgType::S2C_ATTACK:
+    case MsgType::S2C_DAMAGE:
+    case MsgType::S2C_DEATH:
+    case MsgType::S2C_RESPAWN:
+    case MsgType::S2C_ACTOR_STATS:
+        break;
+
+    // 경험치·레벨 (서버 USE_EXP) — 이것만 상태바에 그린다. 숫자 하나라 흔들림이 없다.
+    case MsgType::S2C_EXP:
+        if (size >= sizeof(MSG_S2C_EXP))
+            _gameInstance->OnExp(reinterpret_cast<const MSG_S2C_EXP*>(data));
+        break;
+
+    // 가방 (서버 USE_INVENTORY) — 콘솔 클라는 가방을 그리지 않으므로 알고 넘긴다(위 전투와 같은 이유).
+    //   가방 전체는 입장 때 반드시 한 장 오므로, 빠뜨리면 접속할 때마다 모르는 타입 로그가 한 줄 찍힌다.
+    case MsgType::S2C_INVENTORY:
+    case MsgType::S2C_INVENTORY_SLOT:
+    case MsgType::S2C_USE_ITEM_FAIL:
+        break;
+
+    // 땅의 아이템·줍기 (서버 USE_DROP) — 콘솔 클라는 땅의 아이템을 그리지 않고 줍지도 않는다(위 가방과 같은 이유).
+    //   옆에서 뱀이 죽을 때마다 오므로, 빠뜨리면 모르는 타입 로그가 화면을 떨게 한다(ce692dd 와 같은 증상).
+    case MsgType::S2C_GROUND_ITEM_CREATE:
+    case MsgType::S2C_GROUND_ITEM_DELETE:
+    case MsgType::S2C_PICKUP_FAIL:
+        break;
+
+    // 스탯·장착 (서버 USE_COMBAT · USE_EQUIP) — 콘솔 클라는 상태창을 그리지 않고 끼우지도 않는다(위 가방과 같은 이유).
+    //   내 스탯은 입장 때 반드시 한 장 오므로, 빠뜨리면 접속할 때마다 모르는 타입 로그가 한 줄 찍힌다.
+    case MsgType::S2C_MY_STATS:
+    case MsgType::S2C_EQUIP_FAIL:
+        break;
+
+    // 스킬 (서버 USE_SKILL) — 콘솔 클라는 스킬을 쓰지도 그리지도 않는다(위 가방과 같은 이유).
+    //   옆에서 사람이 시전할 때마다 SKILL_CAST 가 오므로, 빠뜨리면 모르는 타입 로그가 찍힌다.
+    //   내 마력(ACTOR_MP)은 입장·존 이동 때 반드시 한 장 오므로, 빠뜨리면 그때마다 모르는 타입 로그가 찍힌다.
+    //   지속 효과(ACTOR_BUFF, 서버 USE_COMBAT)는 본인에게만 오고 콘솔 클라는 스킬을 안 써서 올 일이 없지만, 전례대로 알고 넘긴다.
+    //   남은 쿨타임(SKILL_COOLDOWN_REMAIN)도 본인에게만, 쿨타임이 남은 채 들어오거나 존을 넘을 때만 와서 올 일이 없다 — 같은 까닭으로 알고 넘긴다.
+    case MsgType::S2C_SKILL_CAST:
+    case MsgType::S2C_SKILL_FAIL:
+    case MsgType::S2C_ACTOR_MP:
+    case MsgType::S2C_ACTOR_BUFF:
+    case MsgType::S2C_SKILL_COOLDOWN_REMAIN:
+        break;
+
+    // 이동 속도(ACTOR_SPEED) — 운영자가 곁에서 /gm 을 켜고 끌 때 온다. 콘솔 클라는 속도를 CREATE 때 받은 값으로만 쓰고
+    //   바뀐 속도는 반영하지 않는다 — 다음 CREATE(존 이동·재접속)까지 옛 속도로 앞질러 그리고 서버 좌표로 맞춘다. 모르는 타입 로그만 막는다.
+    case MsgType::S2C_ACTOR_SPEED:
+        break;
+
+    // 파티(서버 USE_PARTY) — 콘솔 클라는 캐릭터를 눌러 고를 화면이 없어 파티를 맺지 않는다. 다만 웹 사람이 콘솔 캐릭터를 눌러
+    //   초대하면 ASK 가, 시간이 지나면 ASK_END 가 온다 — 모르는 타입 로그만 막는다. 나머지 셋은 올 일이 없지만 전례대로 알고 넘긴다.
+    case MsgType::S2C_PARTY_ASK:
+    case MsgType::S2C_PARTY_ASK_END:
+    case MsgType::S2C_PARTY_NOTICE:
+    case MsgType::S2C_PARTY_INFO:
+    case MsgType::S2C_PARTY_MEMBER:
+        break;
+
+    // 돈(서버 USE_INVENTORY) — 입장 때 가방 전체 뒤 한 장이 온다. 상점(USE_SHOP) 거절 — 콘솔 클라는 상점 화면이 없어 올 일이 없다.
+    //   콘솔 클라는 가방·돈을 그리지 않는다(가방 패킷과 같은 처리) — 모르는 타입 로그만 막는다.
+    case MsgType::S2C_MONEY:
+    case MsgType::S2C_SHOP_FAIL:
+        break;
+
+    // 거래(서버 USE_TRADE) — 콘솔 클라는 캐릭터를 눌러 고를 화면이 없어 거래를 하지 않는다. 다만 웹 사람이 콘솔 캐릭터를 눌러
+    //   신청하면 ASK 가, 시간이 지나면 ASK_END 가 온다 — 모르는 타입 로그만 막는다(파티와 같은 처리). 나머지 셋은 올 일이 없지만 전례대로 알고 넘긴다.
+    case MsgType::S2C_TRADE_ASK:
+    case MsgType::S2C_TRADE_ASK_END:
+    case MsgType::S2C_TRADE_STATE:
+    case MsgType::S2C_TRADE_END:
+    case MsgType::S2C_TRADE_FAIL:
         break;
 
     default:

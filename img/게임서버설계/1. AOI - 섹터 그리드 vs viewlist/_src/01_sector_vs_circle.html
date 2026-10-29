@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face{font-family:'Pretendard';src:url('fonts/PretendardVariable.woff2') format('woff2');
+    font-weight:100 900;font-style:normal;font-display:block}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:840px;height:598px;overflow:hidden;background:#ffffff;
+    font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased}
+  svg{display:block}
+  text{font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;fill:#111111}
+  .lane{font-size:14px;font-weight:800}
+  .h{font-size:14.5px;font-weight:700}
+  .s{font-size:12.5px;font-weight:500;fill:#444444}
+  .cap{font-size:12px;font-weight:500;fill:#666666}
+  .big{font-size:30px;font-weight:800}
+  .r{fill:#c00000}
+</style>
+</head>
+<body>
+<svg width="840" height="598" viewBox="0 0 840 598" xmlns="http://www.w3.org/2000/svg">
+
+  <text x="40" y="38" font-size="19" font-weight="800">섹터 9칸은 900명, <tspan class="r">원 안은 314명</tspan></text>
+  <text class="s" x="40" y="64">가정 — 칸마다 100명이 고르게 서 있고, 한 칸 한 변 S 와 시야 반경 R 이 같음</text>
+
+  <!-- ══════ A. 섹터만 (gx=40, gy=116, 한 칸 84) ══════ -->
+  <text class="lane" x="40" y="104">섹터만 — 9칸이 전부 대상</text>
+  <rect x="40" y="116" width="252" height="252" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <line x1="124" y1="116" x2="124" y2="368" stroke="#333333" stroke-width="1.2"/>
+  <line x1="208" y1="116" x2="208" y2="368" stroke="#333333" stroke-width="1.2"/>
+  <line x1="40" y1="200" x2="292" y2="200" stroke="#333333" stroke-width="1.2"/>
+  <line x1="40" y1="284" x2="292" y2="284" stroke="#333333" stroke-width="1.2"/>
+  <g id="dotsA"></g>
+  <rect x="124" y="200" width="84" height="84" fill="none" stroke="#111111" stroke-width="2.4"/>
+  <circle cx="166" cy="242" r="5.5" fill="#111111" stroke="#ffffff" stroke-width="2"/>
+
+  <!-- 치수선: 한 칸 한 변 S -->
+  <line x1="40" y1="382" x2="124" y2="382" stroke="#333333" stroke-width="1.2"/>
+  <line x1="40" y1="376" x2="40" y2="388" stroke="#333333" stroke-width="1.2"/>
+  <line x1="124" y1="376" x2="124" y2="388" stroke="#333333" stroke-width="1.2"/>
+  <text class="cap" x="132" y="386">S = 한 칸 한 변</text>
+
+  <text class="big" x="166" y="440" text-anchor="middle">900명</text>
+  <text class="cap" x="166" y="462" text-anchor="middle">9칸 × 100명 — 전부 보내는 대상</text>
+
+  <!-- ══════ B. 원형 시야 (gx=332) ══════ -->
+  <text class="lane" x="332" y="104">원형 시야 — <tspan class="r">원 안만</tspan> 대상</text>
+  <rect x="332" y="116" width="252" height="252" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <line x1="416" y1="116" x2="416" y2="368" stroke="#333333" stroke-width="1.2"/>
+  <line x1="500" y1="116" x2="500" y2="368" stroke="#333333" stroke-width="1.2"/>
+  <line x1="332" y1="200" x2="584" y2="200" stroke="#333333" stroke-width="1.2"/>
+  <line x1="332" y1="284" x2="584" y2="284" stroke="#333333" stroke-width="1.2"/>
+  <!-- 시각 보정: 점과 선이 닿지 않게 그리는 원만 1px 키움(85). 안/밖 판정은 아래 스크립트의 R=84 그대로이고 결과도 같다(52/144) -->
+  <circle cx="458" cy="242" r="85" fill="none" stroke="#c00000" stroke-width="1.6"/>
+  <g id="dotsB"></g>
+  <rect x="416" y="200" width="84" height="84" fill="none" stroke="#111111" stroke-width="2.4"/>
+  <circle cx="458" cy="242" r="5.5" fill="#111111" stroke="#ffffff" stroke-width="2"/>
+
+  <!-- 치수선: 시야 반경 R (= S) -->
+  <line x1="458" y1="382" x2="543" y2="382" stroke="#c00000" stroke-width="1.4"/>
+  <line x1="458" y1="376" x2="458" y2="388" stroke="#c00000" stroke-width="1.4"/>
+  <line x1="543" y1="376" x2="543" y2="388" stroke="#c00000" stroke-width="1.4"/>
+  <text class="cap r" x="551" y="386">R = 시야 반경</text>
+
+  <text class="big r" x="458" y="440" text-anchor="middle">314명</text>
+  <text class="cap" x="458" y="462" text-anchor="middle">원 안만 보내는 대상 — 약 35%</text>
+
+  <!-- ══════ 넓이로 계산 ══════ -->
+  <rect x="620" y="116" width="180" height="252" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="636" y="144">넓이로 계산</text>
+  <text class="s" x="636" y="174">9칸</text>
+  <text class="s" x="784" y="174" text-anchor="end" fill="#111111" font-weight="700">9S²</text>
+  <text class="s" x="636" y="196">원</text>
+  <text class="s" x="784" y="196" text-anchor="end" fill="#111111" font-weight="700">πR²</text>
+  <line x1="636" y1="212" x2="784" y2="212" stroke="#bbbbbb" stroke-width="1"/>
+  <text class="s" x="636" y="238">S = R 이면</text>
+  <text class="r" x="636" y="270" font-size="23" font-weight="800">π/9 ≈ 35%</text>
+  <text class="cap" x="636" y="292">900명 중 약 314명</text>
+  <line x1="636" y1="308" x2="784" y2="308" stroke="#bbbbbb" stroke-width="1"/>
+  <text class="s" x="636" y="332">S = 2R 이면</text>
+  <text x="636" y="354" font-size="15" font-weight="700">π/36 ≈ 8.7%</text>
+  <text class="cap" x="784" y="354" text-anchor="end">약 79명</text>
+
+  <text class="big" x="710" y="440" text-anchor="middle">−65%</text>
+  <text class="cap" x="710" y="462" text-anchor="middle">보낼 대상이 줄어드는 몫</text>
+
+  <!-- 아래 설명 -->
+  <text class="s" x="40" y="502"><tspan font-weight="700" fill="#111111">합계는 어디에 서 있든 같음</tspan> — S 가 R 이상이면 원이 9칸 밖으로 나가지 않음</text>
+  <text class="s" x="40" y="524"><tspan font-weight="700" fill="#111111">어느 칸에서 오는지는 자리에 따라 다름</tspan> — 한가운데 서면 내 칸 100명 전원, 모서리에 서면 내 칸의 약 79%</text>
+  <text class="s" x="40" y="546"><tspan font-weight="700" fill="#111111">이 차이가 원형 시야가 주는 송신량 절감</tspan> — 셀을 크게 잡을수록 더 벌어짐</text>
+
+  <text class="cap" x="40" y="574">빨강 = 원형 시야 안 · 검정 점 = 섹터 방식의 대상 · 회색 점 = 대상 아님 · 굵은 칸과 큰 점 = 내가 선 칸과 나</text>
+</svg>
+
+<script>
+// 사람 점 — 칸마다 4×4 로 고르게. 원 안/밖은 점 중심으로 판정한다.
+// 4×4 를 고른 까닭: 원 선에 가장 가까운 점이 안쪽 4px · 바깥쪽 6px 떨어져, 선에 걸치는 점이 없다(6×6 은 0.6px 로 걸쳤다).
+(function () {
+  var NS = 'http://www.w3.org/2000/svg', C = 84, N = 4, R = 84;
+  function fill(layerId, gx, gy, circle) {
+    var layer = document.getElementById(layerId), cx = gx + 1.5 * C, cy = gy + 1.5 * C, inside = 0, total = 0;
+    for (var r = 0; r < 3 * N; r++) for (var q = 0; q < 3 * N; q++) {
+      var x = gx + (q + 0.5) * C / N, y = gy + (r + 0.5) * C / N;
+      var isIn = Math.hypot(x - cx, y - cy) <= R; total++; if (isIn) inside++;
+      var el = document.createElementNS(NS, 'circle');
+      el.setAttribute('cx', x); el.setAttribute('cy', y); el.setAttribute('r', 2.3);
+      el.setAttribute('fill', circle ? (isIn ? '#c00000' : '#c8c8c8') : '#333333');
+      layer.appendChild(el);
+    }
+    return inside + '/' + total;
+  }
+  fill('dotsA', 40, 116, false);
+  document.documentElement.setAttribute('data-dots-in-circle', fill('dotsB', 332, 116, true));
+})();
+</script>
+</body>
+</html>

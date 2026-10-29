@@ -7,11 +7,13 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <vector>
 
 #include "GameServer.h"
 #include "NetIoModel.h"   // kNetIoModelName — 활성 네트워크 I/O 모델 이름(부팅 로그용)
 #include "MapManager.h"
 #include "MonitorManager.h"
+#include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
 #include "MonitorServer.h"
 #include "ServerConfig.h"
 #include "CoreAffinity.h"       // 게임스레드 코어 격리 마스크 주입
@@ -40,6 +42,20 @@ void SignalProcessShutdown()
         running = false;
     }
     cv.notify_one();
+}
+
+// 정리 기다림이 상한(SHUTDOWN_WAIT_MAX_MS)에 닿았을 때 — 창 닫기·로그오프·윈도 종료라 반환하면 곧 OS 가 죽인다.
+//   확정 못 받은 종료 저장(떠난 기록 수)을 로그로 남긴다 — 저장 플랜 C 종료 시험 S4(10-21): DB 가 4.5초 넘게 막히면 저장이 로그 한 줄 없이 사라졌다.
+//   로거가 비동기라 직접 내보내고, 실제로 쓸 틈을 조금 준다(OS 유예 약 5초 − 4.5초 안). 콘솔 핸들러 스레드에서 불린다 — 게이지(원자 값)만 읽는다
+CGameMonitor* g_gameMonitorForShutdown = nullptr;
+void OnShutdownWaitTimeout()
+{
+    const int64_t pendingLeave = (g_gameMonitorForShutdown != nullptr) ? g_gameMonitorForShutdown->_save._pendingLeave.Load() : -1;
+    SLOG_ERROR("[Shutdown] 정리 기다림 {}ms 를 넘김 — OS 가 곧 끈다. 확정 못 받은 종료 저장(떠난 기록) {}개 — 그 캐릭터들의 마지막 저장 뒤 변경은 잃을 수 있다",
+               SHUTDOWN_WAIT_MAX_MS, pendingLeave);
+    if (auto& logger = shared::Logger::Get())
+        logger->flush();
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
 }
 
 int main()
@@ -73,15 +89,38 @@ int main()
     SLOG_INFO("Port: {}", config.port);
     SLOG_INFO("Max Clients: {}", config.maxClients);
 
-    CMonitorManager monitor;
+    CMonitorManager monitor;       // 코어 지표 (네트워크·세션·워커)
+    CGameMonitor    gameMonitor;   // 게임 컨텐츠 지표 (전투) — 코어와 독립
     std::unique_ptr<CMonitorServer> monitorSvr;
     if (config.monitorEnabled)
-        monitorSvr = std::make_unique<CMonitorServer>(monitor, config.monitorPort);
+        monitorSvr = std::make_unique<CMonitorServer>(monitor, gameMonitor, config.monitorPort);
 
-    CGameServer server(monitor);
+    CGameServer server(monitor, gameMonitor);
+
+    // 기획 데이터 파일 (맵·레벨·아이템·몬스터·스폰 구역·드랍 표) — 세계(맵·존)를 만드는 Init "앞"에, 한 번에 전부 읽는다.
+    //   Init 의 맵 등록이 기본 채널(존)을 바로 만드므로, 존이 생기는 순간 표가 서 있어야 한다(10-08).
+    //   DB 접속보다도 앞이라 커넥션을 열기 전에 파일 문제로 끝낼 수 있다.
+    //   밸런스 값 없이 도는 서버는 조용히 틀린 게임이 되므로 기본값으로 때우지 않는다.
+    //   맵 표는 모든 빌드가 읽는다(MapTable.h) — 에코 시험 모드도 같다.
+    if (!server.LoadGameDataFiles(Platform::GetExecutableDir()))
+    {
+        SLOG_ERROR("[Error] 기획 데이터 파일을 못 읽었습니다 - 위의 [표 이름] 으로 시작하는 줄을 보세요(표마다 이름표가 붙는다 — 표가 늘어도 이 문장은 그대로)");
+        return 1;
+    }
+
+    // 맵 설정 = 맵 표의 줄(번호·크기 — 기획 데이터) + INI 의 운영 값(섹터 크기·채널 정원). 둘을 엮는 곳은 여기 한 곳이다.
+    //   순서는 맵 표 그대로 — 첫 줄이 기본 접속 맵이다(CGameServer::Init).
+    std::vector<MapConfig> maps;
+    for (const MapDef& def : server.GameData().Maps().All())
+    {
+        const MapOps ops = config.MapOpsOf(def.mapId);
+        maps.push_back({ def.mapId, def.width, def.height, ops.sectorSize, ops.maxPlayersPerChannel, def.start, def.kind });
+        SLOG_INFO("[Map] {} — {}×{} · sector {} · channel cap {}{}", def.mapId, def.width, def.height, ops.sectorSize, ops.maxPlayersPerChannel,
+                  def.kind == MapKind::INSTANCE ? " · room map (no channel 0)" : "");
+    }
 
     if (!server.Init(config.mode, config.port, config.maxClients,
-                     config.maps.data(), static_cast<int32_t>(config.maps.size()),
+                     maps.data(), static_cast<int32_t>(maps.size()),
                      config.workerThreads, config.sendWorkers, config.rioWorkers,
                      config.completionBatch, config.sendDepth))
     {
@@ -91,6 +130,7 @@ int main()
 
     // 이벤트 큐 과부하 시 신규 accept 차단 임계 (네트워크 객체는 Init에서 생성된다)
     server.SetEventQueueAcceptLimit(config.eventQueueAcceptLimit);
+    server.SetPlayerSpeed(config.playerSpeed);   // 0 = 기본(부하 시험 기준) — ServerConfig [Game]. 몬스터 사양은 표에 있다
 
     // DB 저장 파이프라인 초기화 (USE_DB_WORKER=0이면 no-op)
     {
@@ -110,7 +150,8 @@ int main()
     }
 
     // Ctrl+C / 콘솔 종료 시 graceful shutdown (server.Stop이 DB 드레인 수행)
-    Platform::InstallShutdownHandler(SignalProcessShutdown, &shutdownComplete, SHUTDOWN_WAIT_MAX_MS);
+    g_gameMonitorForShutdown = &gameMonitor;
+    Platform::InstallShutdownHandler(SignalProcessShutdown, &shutdownComplete, SHUTDOWN_WAIT_MAX_MS, OnShutdownWaitTimeout);
 
     if (!server.Start())
     {

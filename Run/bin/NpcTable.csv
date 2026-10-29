@@ -1,0 +1,13 @@
+# NPCs - design data, read once at startup (CNpcTable). Every build reads it (no toggle) - like MapTable.csv and PortalTable.csv.
+#   One row = "on mapId at (x,y) stands an NPC; within radius you can talk to it (web: click or F) and trade at shopId".
+#   The wire carries only npcId (the CREATE entry's defId); the web reads this same file (serve.js /data/NpcTable.csv) for name, look and greeting.
+#   npcId  : 1..10000, no duplicates. mapId : MapTable.csv. x,y : inside the map (0..width-1, 0..height-1). radius : 1..10 tiles.
+#   name   : name tag (web). look : web appearance key (server ignores it). greeting : the line shown when you talk. No commas in any cell.
+#   shopId : ShopTable.csv (0 = no shop). Checked only when the shop is built in (USE_SHOP).
+#   A radius that overlaps a portal on the same map is only a warning at startup (the web F key picks the nearer one).
+#   Placeholder spots in front of the three town stalls (assets/town.js stall_orange · stall_green · stall_grey) - checked on the web later.
+#   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
+npcId,mapId,x,y,radius,name,look,greeting,shopId
+1,0,23,38,2,푸줏간 주인,butcher,어서 오시오. 고기든 가죽이든 사고파오.,1
+2,0,36,26,2,주막 주모,innkeeper,목 축이고 가시구려.,2
+3,0,37,39,2,대장장이,smith,쓸 만한 칼 한 자루 보시겠소?,3

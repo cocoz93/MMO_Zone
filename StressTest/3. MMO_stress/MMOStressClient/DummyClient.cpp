@@ -135,6 +135,10 @@ void DummyClient::OnConnected(StatsLocal& stats, int reconnectDelayMs)
     stats.connectedDelta += 1;
     stats.connectTotal += 1;
     ResetState();
+
+    // 입장 요청 — 접속 직후 한 번. 서버가 이걸 받아야 캐릭터를 불러온다(USE_LOGIN).
+    //   ResetState 가 송신 버퍼를 비우므로 반드시 그 뒤에 넣는다.
+    SendEnterGame(stats);
 }
 
 void DummyClient::OnConnectFailed(StatsLocal& stats, int reconnectDelayMs)
@@ -223,6 +227,69 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     case MsgType::S2C_SYNC_POSITION:      return sizeof(MSG_S2C_SYNC_POSITION);
     case MsgType::S2C_ZONE_CHANGE_OK:     return sizeof(MSG_S2C_ZONE_CHANGE_OK);
     case MsgType::S2C_ZONE_CHANGE_FAIL:   return sizeof(MSG_S2C_ZONE_CHANGE_FAIL);
+    // USE_COMBAT: 전투 패킷 — 더미는 내용을 쓰지 않지만 크기는 알아야 한다.
+    //   모르는 타입이면 아래 default가 0을 돌려주고, 0은 packetParseFail → Disconnect라
+    //   전투 패킷이 섹터에 뿌려지는 순간 더미가 전부 떨어진다.
+    case MsgType::S2C_ATTACK:             return sizeof(MSG_S2C_ATTACK);
+    case MsgType::S2C_DAMAGE:             return sizeof(MSG_S2C_DAMAGE);
+    case MsgType::S2C_DEATH:              return sizeof(MSG_S2C_DEATH);
+    case MsgType::S2C_RESPAWN:            return sizeof(MSG_S2C_RESPAWN);
+    case MsgType::S2C_ACTOR_STATS:        return sizeof(MSG_S2C_ACTOR_STATS);
+    // USE_EXP: 경험치·레벨 — 위 전투 패킷과 같은 이유로 크기만 등록한다.
+    //   ★ 더미는 몬스터를 안 잡지만 이 패킷을 반드시 받는다 — 스폰 직후 본인에게 한 장 간다.
+    //     빠뜨리면 전투가 없어도 더미 전원이 접속하자마자 떨어진다.
+    case MsgType::S2C_EXP:                return sizeof(MSG_S2C_EXP);
+    // USE_INVENTORY: 가방 — 위와 같은 이유로 크기만 등록한다.
+    //   ★ 더미는 아이템을 안 받지만 S2C_INVENTORY 는 반드시 받는다 — 빈 가방이라도 입장 때 한 장 간다.
+    //     빠뜨리면 더미 전원이 접속하자마자 떨어진다. 가변 길이라 최소 = header+count.
+    case MsgType::S2C_INVENTORY:          return static_cast<uint16_t>(offsetof(MSG_S2C_INVENTORY, entries));
+    case MsgType::S2C_INVENTORY_SLOT:     return sizeof(MSG_S2C_INVENTORY_SLOT);
+    case MsgType::S2C_USE_ITEM_FAIL:      return sizeof(MSG_S2C_USE_ITEM_FAIL);   // 더미는 아이템을 안 쓰지만 등록은 해 둔다
+    // USE_DROP: 땅의 아이템 — 위와 같은 이유로 크기만 등록한다.
+    //   ★ 더미는 공격을 안 해서 스스로 드랍을 만들지 않지만, 옆에서 사람이 뱀을 잡으면 CREATE·DELETE 가 온다.
+    //     빠뜨리면 그 순간 근처 더미가 전부 떨어진다. 줍기는 안 하니 PICKUP_FAIL 은 올 일이 없지만 등록은 해 둔다.
+    case MsgType::S2C_GROUND_ITEM_CREATE: return sizeof(MSG_S2C_GROUND_ITEM_CREATE);
+    case MsgType::S2C_GROUND_ITEM_DELETE: return sizeof(MSG_S2C_GROUND_ITEM_DELETE);
+    case MsgType::S2C_PICKUP_FAIL:        return sizeof(MSG_S2C_PICKUP_FAIL);
+    // USE_COMBAT · USE_EQUIP: 스탯·장착 — 위와 같은 이유로 크기만 등록한다.
+    //   ★ S2C_MY_STATS 는 더미도 반드시 받는다 — 입장 때 본인에게 한 장 간다(S2C_EXP 와 같은 함정).
+    //     빠뜨리면 더미 전원이 접속하자마자 떨어진다. 끼우기는 안 하니 EQUIP_FAIL 은 올 일이 없지만 등록은 해 둔다.
+    case MsgType::S2C_MY_STATS:           return sizeof(MSG_S2C_MY_STATS);
+    case MsgType::S2C_EQUIP_FAIL:         return sizeof(MSG_S2C_EQUIP_FAIL);
+    // USE_SKILL: 스킬 — 위와 같은 이유로 크기만 등록한다.
+    //   ★ 더미는 스킬을 안 쓰지만 SKILL_CAST 는 받는다 — 옆에서 사람이 시전하면 주변에 방송된다.
+    //     빠뜨리면 그 순간 근처 더미가 전부 떨어진다. SKILL_FAIL 은 본인에게만 가서 올 일이 없지만 등록은 해 둔다.
+    case MsgType::S2C_SKILL_CAST:         return sizeof(MSG_S2C_SKILL_CAST);
+    case MsgType::S2C_SKILL_FAIL:         return sizeof(MSG_S2C_SKILL_FAIL);
+    //   ★ S2C_ACTOR_MP 는 더미도 반드시 받는다 — 입장 때 본인에게 한 장 간다(S2C_MY_STATS 와 같은 함정).
+    //     빠뜨리면 더미 전원이 접속하자마자 떨어진다.
+    case MsgType::S2C_ACTOR_MP:           return sizeof(MSG_S2C_ACTOR_MP);
+    // USE_COMBAT: 지속 효과 — 본인에게만 가고 더미는 스킬을 안 써서 올 일이 없지만, 전례대로 크기만 등록한다.
+    case MsgType::S2C_ACTOR_BUFF:         return sizeof(MSG_S2C_ACTOR_BUFF);
+    // USE_SKILL: 남은 쿨타임 — 본인에게만, 쿨타임이 남은 채 들어오거나 존을 넘을 때만 온다. 더미는 스킬을 안 써서 올 일이 없지만 위와 같은 전례대로 크기만 등록한다.
+    case MsgType::S2C_SKILL_COOLDOWN_REMAIN: return sizeof(MSG_S2C_SKILL_COOLDOWN_REMAIN);
+    // 이동 속도 — 주변 방송이라 운영자가 곁에서 /gm 을 켜고 끄면 더미도 받는다.
+    //   ★ 빠뜨리면 그 순간 근처 더미가 전부 떨어진다(SKILL_CAST 와 같은 함정).
+    case MsgType::S2C_ACTOR_SPEED:        return sizeof(MSG_S2C_ACTOR_SPEED);
+    // USE_PARTY: 파티 — 더미는 파티를 맺지 않지만(요청에 답을 안 한다) 사람이 화면에서 더미를 눌러 초대하면 S2C_PARTY_ASK 가 오고,
+    //   시간이 지나면 S2C_PARTY_ASK_END 가 온다. ★ 빠뜨리면 그 더미가 떨어진다. 나머지 셋은 올 일이 없지만 전례대로 크기만 등록한다.
+    case MsgType::S2C_PARTY_ASK:          return sizeof(MSG_S2C_PARTY_ASK);
+    case MsgType::S2C_PARTY_ASK_END:      return sizeof(MSG_S2C_PARTY_ASK_END);
+    case MsgType::S2C_PARTY_NOTICE:       return sizeof(MSG_S2C_PARTY_NOTICE);
+    case MsgType::S2C_PARTY_INFO:         return static_cast<uint16_t>(offsetof(MSG_S2C_PARTY_INFO, entries));   // 가변 길이: 최소 = 머리(인원 0)
+    case MsgType::S2C_PARTY_MEMBER:       return sizeof(MSG_S2C_PARTY_MEMBER);
+    // USE_INVENTORY: 돈 — ★ 입장 때 본인에게 가방 전체 바로 뒤 한 장 간다(S2C_INVENTORY · S2C_MY_STATS 와 같은 함정).
+    //   빠뜨리면 더미 전원이 접속하자마자 떨어진다. 더미는 줍기·사고팔기를 안 해서 그 뒤로는 올 일이 없다.
+    case MsgType::S2C_MONEY:              return sizeof(MSG_S2C_MONEY);
+    // USE_SHOP: 사고팔기 거절 — 더미는 상점에 요청을 안 보내 올 일이 없지만 전례대로 크기만 등록한다.
+    case MsgType::S2C_SHOP_FAIL:          return sizeof(MSG_S2C_SHOP_FAIL);
+    // USE_TRADE: 거래 — 더미는 거래를 하지 않지만(신청에 답을 안 한다) 사람이 화면에서 더미를 눌러 신청하면 S2C_TRADE_ASK 가 오고,
+    //   시간이 지나면 S2C_TRADE_ASK_END 가 온다. ★ 빠뜨리면 그 더미가 떨어진다(파티와 같은 함정). 나머지 셋은 올 일이 없지만 전례대로 크기만 등록한다.
+    case MsgType::S2C_TRADE_ASK:          return sizeof(MSG_S2C_TRADE_ASK);
+    case MsgType::S2C_TRADE_ASK_END:      return sizeof(MSG_S2C_TRADE_ASK_END);
+    case MsgType::S2C_TRADE_STATE:        return sizeof(MSG_S2C_TRADE_STATE);
+    case MsgType::S2C_TRADE_END:          return sizeof(MSG_S2C_TRADE_END);
+    case MsgType::S2C_TRADE_FAIL:         return sizeof(MSG_S2C_TRADE_FAIL);
     default: return 0;
     }
 }
@@ -396,7 +463,7 @@ void DummyClient::HandleSectorUpdates(const char* packet)
         const SectorUpdateEntry& e = msg->entries[i];
         if (e.playerId == _playerId)
         {
-            _x      = DequantizePos(e.qx);   // 눈금 → 좌표 (엔트리는 좌표를 uint16 눈금으로 싣는다)
+            _x      = DequantizePos(e.qx);   // 양자화 값 → 좌표 (엔트리는 좌표를 uint16 양자화 값으로 싣는다)
             _y      = DequantizePos(e.qy);
             _moving = (UnpackState(e.dirState) != 0);
         }
@@ -504,6 +571,25 @@ void DummyClient::SendHeartbeat(StatsLocal& stats)
     }
     stats.sendPackets += 1;
     stats.heartbeatSent += 1;
+}
+
+void DummyClient::SendEnterGame(StatsLocal& stats)
+{
+    // 계정 번호 0 = "번호를 지정하지 않음" — 서버가 접속마다 새 번호를 붙인다.
+    //   지정 번호를 쓰면 더미 전부가 "같은 계정 찾기"를 타게 돼 부하 구성이 달라진다.
+    //   ※ 조회는 0 으로 와도 그대로 나간다 — 자동 번호는 재시작마다 1부터 다시 세는데
+    //     DB 행은 남아 있어서, 새 번호가 지난 회차의 행과 겹칠 수 있기 때문이다.
+    MSG_C2S_ENTER_GAME msg{};   // 입장권 64바이트를 0 으로 채우려면 값 초기화가 필요하다
+    msg.header.size = sizeof(msg);
+    msg.header.type = MsgType::C2S_ENTER_GAME;
+    msg.accountId   = 0;
+
+    if (_sendBuf.Enqueue(&msg, sizeof(msg)) == 0)
+    {
+        stats.sendBufferFull += 1;
+        return;
+    }
+    stats.sendPackets += 1;
 }
 
 // MMO 더미 채팅 문장 풀

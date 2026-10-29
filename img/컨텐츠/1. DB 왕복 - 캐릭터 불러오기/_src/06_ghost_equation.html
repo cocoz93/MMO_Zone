@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face{font-family:'Pretendard';src:url('fonts/PretendardVariable.woff2') format('woff2');
+    font-weight:100 900;font-style:normal;font-display:block}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:840px;height:524px;overflow:hidden;background:#ffffff;
+    font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased}
+  svg{display:block}
+  text{font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;fill:#111111}
+  .lane{font-size:14px;font-weight:800}
+  .h{font-size:14.5px;font-weight:700}
+  .s{font-size:12.5px;font-weight:500;fill:#444444}
+  .cap{font-size:12px;font-weight:500;fill:#666666}
+  .big{font-size:26px;font-weight:800}
+  .r{fill:#c00000}
+</style>
+</head>
+<body>
+<svg width="840" height="524" viewBox="0 0 840 524" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#333333"/>
+    </marker>
+    <marker id="arR" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#c00000"/>
+    </marker>
+  </defs>
+
+  <text x="40" y="38" font-size="19" font-weight="800">일부러 틀려 보니 — 시험 넷 중 <tspan class="r">하나만</tspan> 깨졌다</text>
+  <text class="s" x="40" y="64">일부러 넣은 결함 — 끊길 때 대기표를 안 지움. 나간 세션의 답으로 플레이어가 만들어짐</text>
+
+  <!-- ══════ 왼쪽: 무슨 일이 생기나 ══════ -->
+  <text class="lane" x="40" y="104">생기는 일</text>
+
+  <rect x="40" y="118" width="150" height="46" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="115" y="146" text-anchor="middle">접속하고 곧 끊음</text>
+
+  <line x1="190" y1="141" x2="228" y2="141" stroke="#333333" stroke-width="1.2" marker-end="url(#ar)"/>
+
+  <rect x="230" y="118" width="170" height="46" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="h" x="315" y="140" text-anchor="middle">대기표가 안 지워짐</text>
+  <text class="cap" x="315" y="157" text-anchor="middle">일부러 넣은 결함</text>
+
+  <line x1="400" y1="141" x2="438" y2="141" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+
+  <rect x="440" y="118" width="180" height="46" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="h r" x="530" y="140" text-anchor="middle">유령 플레이어</text>
+  <text class="cap" x="530" y="157" text-anchor="middle">세션은 없는데 존에 남음</text>
+
+  <!-- ══════ 시험 넷 ══════ -->
+  <text class="lane" x="40" y="206">그때 시험 넷이 본 것</text>
+
+  <rect x="40" y="220" width="240" height="96" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="cap" x="56" y="242">주인 없음 + 찾음</text>
+  <text class="big" x="56" y="274">50 / 50</text>
+  <text class="s" x="56" y="300" fill="#111111">통과 — 숫자가 맞음</text>
+
+  <rect x="300" y="220" width="240" height="96" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="cap" x="316" y="242">불러오는 중</text>
+  <text class="big" x="316" y="274">0</text>
+  <text class="s" x="316" y="300" fill="#111111">통과 — 대기표는 비어 보임</text>
+
+  <rect x="560" y="220" width="240" height="96" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="cap" x="576" y="242">요청 = 결과 합</text>
+  <text class="big" x="576" y="274">51 = 51</text>
+  <text class="s" x="576" y="300" fill="#111111">통과 — 등식이 성립</text>
+
+  <!-- 새 등식 -->
+  <rect x="40" y="334" width="760" height="96" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="cap r" x="56" y="356">새로 붙인 게이지 — 동접 = 게임 중 + 불러오는 중</text>
+  <text class="big r" x="56" y="392">동접 1  ≠  게임 중 2  +  불러오는 중 0</text>
+  <text class="s r" x="56" y="416" font-weight="700">깨짐 — 나간 세션 하나가 플레이어로 남아 있음</text>
+
+  <text class="s" x="40" y="462"><tspan font-weight="700" fill="#111111">그래서 게이지를 하나 더 붙임</tspan> — 존의 정원 카운터 합을 0.5초마다 읽음. 구현 중에 늘어난 유일한 설계</text>
+
+  <text class="cap" x="40" y="496">빨강 = 결함과 그것을 잡은 시험</text>
+</svg>
+</body>
+</html>

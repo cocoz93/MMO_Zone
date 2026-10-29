@@ -139,11 +139,63 @@ target_link_libraries(ServerNetworkLib PUBLIC ServerBaseLib)
 set(GAME_SOURCES
     ${SRV_DIR}/main.cpp
     ${SRV_DIR}/GameServer.cpp
+    ${SRV_DIR}/SessionHub.cpp
+    ${SRV_DIR}/SelfNotifier.cpp
+    ${SRV_DIR}/SightBroadcaster.cpp
+    ${SRV_DIR}/CharacterStore.cpp
+    ${SRV_DIR}/PlayerPlacement.cpp
+    ${SRV_DIR}/ItemHandler.cpp
+    ${SRV_DIR}/PartyHandler.cpp
+    ${SRV_DIR}/RewardHandler.cpp
+    ${SRV_DIR}/CombatHandler.cpp
+    ${SRV_DIR}/MonsterHandler.cpp
+    ${SRV_DIR}/NpcHandler.cpp
+    ${SRV_DIR}/ShopHandler.cpp
+    ${SRV_DIR}/TradeHandler.cpp
+    ${SRV_DIR}/MoveHandler.cpp
+    ${SRV_DIR}/EntryHandler.cpp
+    ${SRV_DIR}/ChatHandler.cpp
+    ${SRV_DIR}/CommandHandler.cpp
     ${SRV_DIR}/MapManager.cpp
     ${SRV_DIR}/SectorManager.cpp
     ${SRV_DIR}/Zone.cpp
     ${SRV_DIR}/Player.cpp
+    ${SRV_DIR}/Character.cpp
+    ${SRV_DIR}/CharacterComponents.cpp
+    ${SRV_DIR}/Monster.cpp
+    ${SRV_DIR}/MonsterAI.cpp
+    ${SRV_DIR}/MonsterManager.cpp
+    ${SRV_DIR}/Npc.cpp
+    ${SRV_DIR}/NpcManager.cpp
+    ${SRV_DIR}/GroundItemManager.cpp
+    ${SRV_DIR}/Actor.cpp
+    ${SRV_DIR}/Combat.cpp
+    ${SRV_DIR}/CombatSystem.cpp
+    ${SRV_DIR}/StatSystem.cpp
+    ${SRV_DIR}/ItemSystem.cpp
+    ${SRV_DIR}/ShopSystem.cpp
+    ${SRV_DIR}/TradeSystem.cpp
+    ${SRV_DIR}/SkillSystem.cpp
+    ${SRV_DIR}/BuffSystem.cpp
+    ${SRV_DIR}/PartySystem.cpp
+    ${SRV_DIR}/Room.cpp
+    ${SRV_DIR}/LevelTable.cpp
+    ${SRV_DIR}/GameDataFiles.cpp
+    ${SRV_DIR}/GameDataCsv.cpp
+    ${SRV_DIR}/MapTable.cpp
+    ${SRV_DIR}/PortalTable.cpp
+    ${SRV_DIR}/BlockTable.cpp
+    ${SRV_DIR}/NpcTable.cpp
+    ${SRV_DIR}/ItemTable.cpp
+    ${SRV_DIR}/ShopTable.cpp
+    ${SRV_DIR}/Inventory.cpp
+    ${SRV_DIR}/MonsterTable.cpp
+    ${SRV_DIR}/SpawnRegionTable.cpp
+    ${SRV_DIR}/DropTable.cpp
+    ${SRV_DIR}/SkillTable.cpp
+    ${SRV_DIR}/MonsterSkillTable.cpp
     ${SRV_DIR}/DB/DBWorker.cpp
+    ${SRV_DIR}/CooldownBuffBlob.cpp
 )
 
 if(WIN32)
@@ -154,7 +206,7 @@ target_link_libraries(MMOServer PRIVATE ServerNetworkLib)
 
 target_include_directories(MMOServer PRIVATE
     ${SRV_DIR}                           # "BuildConfig.h" 등 게임 헤더 (DB/ 하위에서도 이름만으로 열린다)
-    ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Protocol/Protocol.h> — 게임 패킷 정의 (클라와 공유)
+    ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Protocol/Protocol.h> — 게임 패킷 정의 (클라와 공유) · <World/WalkGrid.h> — 막힌 칸 격자 (콘솔 클라와 공유)
     ${MYSQL_DIR}/include                 # MySQL C API (DBWorker 전용)
 )
 
@@ -191,7 +243,7 @@ target_link_libraries(mmo_server PRIVATE ServerNetworkLib mysqlclient)
 
 target_include_directories(mmo_server PRIVATE
     ${SRV_DIR}                           # "BuildConfig.h" 등 게임 헤더 (DB/ 하위에서도 이름만으로 열린다)
-    ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Protocol/Protocol.h> — 게임 패킷 정의 (클라와 공유)
+    ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Protocol/Protocol.h> — 게임 패킷 정의 (클라와 공유) · <World/WalkGrid.h> — 막힌 칸 격자 (콘솔 클라와 공유)
     /usr/include/mysql
 )
 

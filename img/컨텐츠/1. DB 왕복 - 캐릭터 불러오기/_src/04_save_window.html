@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face{font-family:'Pretendard';src:url('fonts/PretendardVariable.woff2') format('woff2');
+    font-weight:100 900;font-style:normal;font-display:block}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:840px;height:494px;overflow:hidden;background:#ffffff;
+    font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased}
+  svg{display:block}
+  text{font-family:'Pretendard',"Malgun Gothic","Noto Sans KR",sans-serif;fill:#111111}
+  .h{font-size:14.5px;font-weight:700}
+  .s{font-size:12.5px;font-weight:500;fill:#444444}
+  .cap{font-size:12px;font-weight:500;fill:#666666}
+  .big{font-size:30px;font-weight:800}
+  .r{fill:#c00000}
+</style>
+</head>
+<body>
+<svg width="840" height="494" viewBox="0 0 840 494" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#333333"/>
+    </marker>
+    <marker id="arR" viewBox="0 0 12 12" markerWidth="9" markerHeight="9" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,1.2 L10,6 L0,10.8 z" fill="#c00000"/>
+    </marker>
+  </defs>
+
+  <text x="40" y="38" font-size="19" font-weight="800">60초마다 <tspan class="r">12~14초</tspan> — 저장 묶음이 도는 동안 생기는 일</text>
+
+  <!-- ══════ 위: 조회가 도착하는 두 경우 ══════ -->
+  <!-- 저장 시간대 안에 도착 (3초 지점 = x 96) -->
+  <text class="s r" x="104" y="92" font-weight="700">이때 온 조회는 남은 묶음을 다 기다림 — 최대 약 12초</text>
+  <line x1="96" y1="80" x2="96" y2="140" stroke="#c00000" stroke-width="1.4"/>
+  <line x1="96" y1="112" x2="214" y2="112" stroke="#c00000" stroke-width="1.4" marker-end="url(#arR)"/>
+
+  <!-- 평소에 도착 (40초 지점 = x 540) -->
+  <text class="s" x="548" y="116" fill="#111111">평소 조회 — 다음 틱에 돌아옴 (약 40ms)</text>
+  <line x1="540" y1="100" x2="540" y2="140" stroke="#333333" stroke-width="1.2"/>
+
+  <!-- ══════ 시간축 (1초 = 12px, 0초 = x 60) ══════ -->
+  <rect x="216" y="142" width="564" height="50" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="s" x="498" y="172" text-anchor="middle">저장이 안 도는 시간</text>
+
+  <rect x="60" y="142" width="156" height="50" fill="#ffffff" stroke="#c00000" stroke-width="1.6"/>
+  <text class="r" x="138" y="163" font-size="12.5" font-weight="700" text-anchor="middle">저장 묶음 약 5,600건</text>
+  <text class="cap" x="138" y="182" text-anchor="middle">건마다 따로 커밋</text>
+
+  <text class="cap" x="60"  y="212">0초</text>
+  <text class="cap" x="216" y="212" text-anchor="middle">13초</text>
+  <text class="cap" x="780" y="212" text-anchor="end">60초 · 다음 주기</text>
+
+  <!-- ══════ 아래: 재 본 것 셋 ══════ -->
+  <rect x="40" y="244" width="240" height="116" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="big" x="56" y="286">약 2%</text>
+  <text class="s" x="56" y="314" fill="#111111">조회가 0.5초 넘게 걸림</text>
+  <text class="cap" x="56" y="336">더미 5,599명 · 워커 하나 기준</text>
+
+  <rect x="300" y="244" width="240" height="116" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="big" x="316" y="286">+7 ~ 46%</text>
+  <text class="s" x="316" y="314" fill="#111111">이 시간대에 게임 루프 틱이 길어짐</text>
+  <text class="cap" x="316" y="336">네 런 전부 · 변경 전 서버도 같음</text>
+
+  <rect x="560" y="244" width="240" height="116" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+  <text class="big" x="576" y="286">132초</text>
+  <text class="s" x="576" y="314" fill="#111111">붕괴 한 번이 시작된 때</text>
+  <text class="cap" x="576" y="336">아홉 런 중 한 번 · 둘째 저장 시간대 한복판</text>
+
+  <!-- 아래 설명 -->
+  <text class="s" x="40" y="396">직접 플레이하는 규모에선 묶음이 0.15초라 안 보임 — 부하 시험에서만 드러남</text>
+  <text class="s" x="40" y="418"><tspan font-weight="700" fill="#111111">다음 단계 전에 정할 것</tspan> — 저장 묶음을 트랜잭션으로 묶으면 이 시간대 자체가 짧아짐 (추정, 미측정)</text>
+
+  <text class="cap" x="40" y="452">빨강 = 저장 묶음이 도는 시간대</text>
+</svg>
+</body>
+</html>

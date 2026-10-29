@@ -1,0 +1,4 @@
+"Liberated Pixel Cup (LPC) Base Assets (sprites & map tiles)" by Lanea Zimmerman (Sharm)
+License: CC-BY-SA 3.0 / GPL 3.0
+https://opengameart.org/content/liberated-pixel-cup-lpc-base-assets-sprites-map-tiles
+File used here: barrel.png

@@ -1,0 +1,16 @@
+# Portals - design data, read once at startup (CPortalTable). Every build reads it (no toggle) - like MapTable.csv.
+#   One row = "stand within radius of (x,y) on mapId and press the interact key (web: F) -> go to (targetX,targetY) on targetMapId".
+#   The client sends only portalId (C2S_PORTAL_USE); where it leads is decided here. The web reads this same file
+#   (serve.js /data/PortalTable.csv) to draw portals and show the hint.
+#   portalId : 1..10000, no duplicates. mapId / targetMapId : MapTable.csv, and they must differ.
+#   x,y / targetX,targetY : inside each map (0..width-1, 0..height-1). radius : 1..10 tiles.
+#   name : shown by the web next to the portal. No commas.
+#   Zero rows is fine - a world without portals.
+#   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
+portalId,mapId,x,y,radius,targetMapId,targetX,targetY,name
+1,0,55,30,2,1,60,63,던전 입구
+2,1,60,60,2,0,52,30,마을로
+3,1,60,100,2,2,40,6,뱀굴 2
+4,2,40,3,2,1,60,97,뱀굴 1로
+5,2,40,76,2,3,15,22,구렁이 굴(파티)
+6,3,15,28,2,2,40,72,뱀굴 2로

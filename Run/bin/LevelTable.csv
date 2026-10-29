@@ -1,0 +1,32 @@
+# Level table - design data, read once at startup (CLevelTable).
+#   requiredExp is CUMULATIVE: total exp needed to REACH that level, not per-level.
+#   Level 1 must be 0, and requiredExp must strictly increase. The loader refuses the file otherwise.
+#   The level 1 row IS the base stat of a fresh character - the only source (no code constant since 2026-10-06).
+#   The table is loaded whenever combat is on (USE_COMBAT), even with USE_EXP=0 - only requiredExp needs USE_EXP.
+#   maxHp was raised 8x on 2026-09-23 (100->800 at Lv1).
+#   defense added on 2026-09-30: level / 5 rounded down (Lv1-4 0 ... Lv20 4).
+#   Damage = attack - defense, at least 1 (Combat::CalcDamage). Snake bites for 5 -> 4 from Lv5, 1 at Lv20.
+#   Snake gives 10 exp -> level 2 costs 10 snakes, level 20 costs 1900.
+#   maxMp added on 2026-10-11: Lv1 100, +10 per level (Lv20 290) - the same 10% step as maxHp.
+#   Read in every build that reads this file; only USE_SKILL uses it (skill cost, mana potion).
+level,requiredExp,maxHp,attackPower,defense,maxMp
+1,0,800,10,0,100
+2,100,880,11,0,110
+3,300,960,12,0,120
+4,600,1040,13,0,130
+5,1000,1120,14,1,140
+6,1500,1200,15,1,150
+7,2100,1280,16,1,160
+8,2800,1360,17,1,170
+9,3600,1440,18,1,180
+10,4500,1520,19,2,190
+11,5500,1600,20,2,200
+12,6600,1680,21,2,210
+13,7800,1760,22,2,220
+14,9100,1840,23,2,230
+15,10500,1920,24,3,240
+16,12000,2000,25,3,250
+17,13600,2080,26,3,260
+18,15300,2160,27,3,270
+19,17100,2240,28,3,280
+20,19000,2320,29,4,290

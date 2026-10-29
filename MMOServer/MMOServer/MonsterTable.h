@@ -1,0 +1,71 @@
+﻿#pragma once
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include "BuildConfig.h"
+
+#if USE_MONSTER
+
+// ==========================================================================
+// CMonsterTable — 몬스터 종류별 사양 (Run/bin/MonsterTable.csv)
+//
+// [어디 것이냐] 기획 데이터다. 「뱀의 최대 체력은 얼마」는 전원 공통이라 여기,
+//        「이 뱀이 지금 몇 남았나」는 몬스터 객체(CMonster — 체력 컴포넌트)다.
+//        몬스터는 생길 때 자기 행을 가리키고 능력치를 복사해 간다(CMonster 생성자).
+//
+// [색인] 번호가 곧 색인이다(아이템 표와 같은 꼴). 0 = 없음, 구멍은 monsterId 0 인 빈 행.
+//        스폰 표·드랍 표가 이 번호로 몬스터를 가리키고, 읽을 때 이 표와 대조한다(CGameDataFiles::LoadAll 순서).
+//
+// [겉모습] 서버는 그림을 모른다 — 표의 여덟째 칸 sprite(웹 그림 이름)는 웹만 읽고 서버는 건너뛴다.
+//        와이어에는 번호(monsterId)가 등장 엔트리의 defId 로 실리고(CMonsterHandler::OnMonsterSpawn), 웹이 같은 표에서 그 번호의 sprite 를 찾는다.
+//        (10-21 전에는 display 칸 = 표시 문자 값 0x01~0x0F 였다 — 종류 15 상한이 있었다)
+//
+// [속도 상한은 여기서 안 본다] 판단 주기가 전제하는 상한(MonsterAI::MAX_SPEED)은 AI 사정이라
+//        게임 서버가 표를 읽은 직후 대조한다(CheckSpeed).
+// ==========================================================================
+struct MonsterDef
+{
+    int32_t     monsterId = 0;   // 0 = 이 번호의 몬스터는 없다(배열 구멍)
+    std::string name;            // UTF-8. 서버는 로그와 방 보상 알림 한 줄(CRewardHandler::RewardRoom — 「구렁이 보상 — …」)에 쓴다
+    int32_t     maxHp     = 0;
+    int32_t     attack    = 0;   // 물 때 공격력
+    int32_t     defense   = 0;   // 맞을 때 빼는 값
+    int32_t     speed     = 0;   // 칸/초
+    int32_t     exp       = 0;   // 잡은 사람에게 주는 경험치
+    float       bodyRadius = 0.0f;   // 몸 반지름(칸) — 0 이면 점. 사거리 판정이 중심 거리에서 이만큼 뺀다. 표의 아홉째 칸(옛 줄은 없어도 0)
+    bool        boss      = false;   // 방 보스 — 방 맵에서 죽으면 그 방이 클리어된다(CCombatHandler::OnDeath — 방 안 전원 보상 · 잠금 · 나머지 몬스터 사라짐).
+                                     //   표의 열째 칸(없거나 비면 0). 「방 맵에만 · 방 맵마다 하나 · count 1」은 스폰 표 읽기가 본다(CSpawnRegionTable::Load)
+    int32_t     fileLine  = 0;   // 대조(CheckSpeed)에서 틀렸을 때 가리킬 줄
+};
+
+class CMonsterTable
+{
+public:
+    static constexpr int32_t MAX_MONSTER_ID = 10000;     // 오타 하나(100000)가 배열을 통째로 키우지 않게
+    static constexpr int32_t MAX_VALUE      = 1000000;   // 능력치·경험치 상한 — 피해·경험치 계산이 int32 를 넘지 않게
+
+    // 파일을 읽어 표를 세운다. 실패하면 false 이고 까닭을 로그로 남긴다 — main 이 서버를 안 띄운다.
+    bool Load(const std::string& path);
+
+    // 없는 번호면 nullptr — 스폰 표·드랍 표가 번호를 대조하는 길이다.
+    const MonsterDef* Find(int32_t monsterId) const
+    {
+        if (monsterId <= 0 || monsterId >= static_cast<int32_t>(_rows.size()))
+            return nullptr;
+        const MonsterDef& d = _rows[static_cast<size_t>(monsterId)];
+        return d.monsterId == 0 ? nullptr : &d;
+    }
+
+    // 속도 대조 — 모든 몬스터가 maxSpeed 이하인가. 넘는 줄마다 로그를 남기고 false.
+    bool CheckSpeed(int32_t maxSpeed) const;
+
+    int32_t Count() const { return _count; }
+
+private:
+    std::vector<MonsterDef> _rows;   // 색인 = 몬스터 번호. 구멍은 monsterId 0
+    int32_t _count = 0;              // 실제로 정의된 몬스터 수
+};
+
+#endif // USE_MONSTER
