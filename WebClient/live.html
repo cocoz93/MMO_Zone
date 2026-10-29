@@ -95,6 +95,10 @@ const VIEW_WIDE = !q.has('square');
 let W=0,H=0,DPR=1;
 let VX=0,VY=0,VW=0,VH=0;                    // 게임 화면(월드가 그려지는 영역) — 캔버스 px. 그 바깥은 여백
 let CHAT_W=400;                             // 채팅 패널·입력창 폭 — 왼쪽 여백이 좁으면 거기에 맞춰 줄인다
+const BANNER_H=104;                         // 왼쪽 위 이름표 높이(이름 줄 + 체력·마력·경험치 막대 세 줄) — 연결 표시·상태창이 이 아래에 놓인다
+// 서버 관측 표시(오른쪽 위 SERVER INTERNALS 창 · 땅 위 섹터 격자·번호) — ` 키로 켜고 끈다.
+//   평소엔 끈다(게임 화면을 가리고 플레이에 쓰는 정보가 아니다). ?server 로 열면 켠 채 시작한다(시연용)
+let SHOW_SERVER = q.has('server');
 function resize(){
   DPR=Math.min(2,devicePixelRatio||1);
   const r=cv.getBoundingClientRect();
@@ -109,11 +113,11 @@ function resize(){
   chatbox.style.width = (CHAT_W-26)+'px';         // 입력창을 패널과 같은 폭으로(좌우 패딩 12×2 + 테두리 1×2 를 뺀다)
   // 연결 표시 — 왼쪽 여백이 있으면 이름표 아래로 옮긴다. 위 가운데에 두면 작아진 게임 화면의 윗부분을 가린다
   //   (확대 150%에서 화면 폭의 40%를 덮었다). 여백이 없으면 예전처럼 위 가운데.
-  //   ★ 110px = 이름표가 경험치 칸까지 낀 높이(14+84=98) + 12px 틈. 84px 는 칸이 없던 시절 값이라
-  //     레벨이 들어온 순간 8px 겹쳤다. 칸이 뜨기 전 잠깐 틈이 넓은 편이 겹치는 것보다 낫다.
+  //   ★ 이름표 아래 12px — 이름표 높이(BANNER_H)를 따라간다. 숫자로 박아 두었을 때 이름표가 경험치 칸만큼
+  //     커지자 8px 겹친 적이 있다.
   const side = VX>=250;
   connEl.style.left      = side ? '14px' : '';
-  connEl.style.top       = side ? '110px' : '';
+  connEl.style.top       = side ? (14+BANNER_H+12)+'px' : '';
   connEl.style.transform = side ? 'none' : '';
   connEl.style.maxWidth  = side ? (VX-28)+'px' : '';
 }
@@ -826,6 +830,8 @@ if(!SNAP){
     // 1~8 = 스킬(키 번호 = 스킬 번호). I·C 와 같은 까닭으로 e.code — 누르고 있어도 한 번
     const dg=/^Digit([1-8])$/.exec(e.code);
     if(dg){ if(!e.repeat && !isMonsterSkill(Number(dg[1]))) sendSkill(Number(dg[1])); e.preventDefault(); return; }   // 몬스터 몫 번호는 안 보낸다(보내면 서버가 BAD_SKILL 로 거절)
+    // ` = 서버 관측 표시(서버 정보 창 · 섹터 격자) 켜고 끄기 (I·C 와 같은 까닭으로 e.code)
+    if(e.code==='Backquote' && !e.repeat){ SHOW_SERVER=!SHOW_SERVER; e.preventDefault(); return; }
     // P = 파티 창(관리) 열고 닫기 (I·C 와 같은 까닭으로 e.code) — 파티가 없어도 열린다(맺는 법을 안내한다)
     if(e.code==='KeyP' && !e.repeat){ party.open=!party.open; party.hover=null; partyChanged(); e.preventDefault(); return; }
     // Y·N = 받은 파티 요청에 수락·거절 — 요청 창이 떠 있을 때만(아니면 그냥 지나간다)
@@ -1189,11 +1195,13 @@ function drawSectorGrid(t){
   const s=ZONE.sectorSize;
   const u0=Math.floor((cam.x-VW/2/ZOOM)/s)*s, u1=cam.x+VW/2/ZOOM+s;
   const v0=Math.floor((cam.y-VH/2/ZOOM)/s)*s, v1=cam.y+VH/2/ZOOM+s;
-  // 그리드 선 (약간 더 진하게)
-  ctx.strokeStyle='rgba(55,230,214,.24)'; ctx.lineWidth=1; ctx.beginPath();
-  for(let u=u0;u<=u1;u+=s){ const p=sx(u); ctx.moveTo(p,VY); ctx.lineTo(p,VY+VH); }
-  for(let v=v0;v<=v1;v+=s){ const p=sy(v); ctx.moveTo(VX,p); ctx.lineTo(VX+VW,p); }
-  ctx.stroke();
+  // 그리드 선 (약간 더 진하게) — 서버 관측 표시를 켰을 때만(SHOW_SERVER). 아래 월드 경계는 늘 그린다
+  if(SHOW_SERVER){
+    ctx.strokeStyle='rgba(55,230,214,.24)'; ctx.lineWidth=1; ctx.beginPath();
+    for(let u=u0;u<=u1;u+=s){ const p=sx(u); ctx.moveTo(p,VY); ctx.lineTo(p,VY+VH); }
+    for(let v=v0;v<=v1;v+=s){ const p=sy(v); ctx.moveTo(VX,p); ctx.lineTo(VX+VW,p); }
+    ctx.stroke();
+  }
   // 월드 경계
   ctx.strokeStyle='rgba(15,35,20,.6)'; ctx.lineWidth=3;
   ctx.strokeRect(sx(0),sy(0), ZONE.mapWidth*ZOOM, ZONE.mapHeight*ZOOM);
@@ -1204,11 +1212,13 @@ function drawSectorGrid(t){
   aoiValid=0;
   for(let cc=cs-1;cc<=cs+1;cc++)for(let rr2=rs-1;rr2<=rs+1;rr2++){
     if(cc<0||rr2<0||cc>=nx||rr2>=ny) continue;
-    aoiValid++;
+    aoiValid++;                                 // 개수는 표시를 꺼도 센다(켜는 순간 서버 정보 창이 바로 쓴다)
     if(cc===cs&&rr2===rs) continue;             // 내 섹터는 아래서 더 밝게
+    if(!SHOW_SERVER) continue;
     ctx.fillStyle='rgba(60,215,205,.09)'; ctx.fillRect(sx(cc*s),sy(rr2*s),s*ZOOM,s*ZOOM);
     ctx.strokeStyle='rgba(85,228,212,.45)'; ctx.lineWidth=1; ctx.strokeRect(sx(cc*s)+.5,sy(rr2*s)+.5,s*ZOOM-1,s*ZOOM-1);
   }
+  if(!SHOW_SERVER) return;
   // AOI 외곽 점선
   ctx.save(); ctx.setLineDash([8,6]); ctx.strokeStyle='rgba(90,232,214,.5)'; ctx.lineWidth=1.5;
   ctx.strokeRect(sx((cs-1)*s),sy((rs-1)*s),3*s*ZOOM,3*s*ZOOM); ctx.setLineDash([]); ctx.restore();
@@ -1220,6 +1230,7 @@ function drawSectorGrid(t){
 // 섹터 라벨은 그리드·하이라이트(바닥)와 달리 "읽으라고" 띄운 글자다. 바닥과 같이 그리면 나무·캐릭터가
 // 덮어 읽을 수 없어지므로(소나무에 '(AOI ±1)' 이 가려지는 것을 캡처로 확인), 월드 위에 따로 올린다.
 function drawSectorLabels(){
+  if(!SHOW_SERVER) return;
   const s=ZONE.sectorSize;
   const u0=Math.floor((cam.x-VW/2/ZOOM)/s)*s, u1=cam.x+VW/2/ZOOM+s;
   const v0=Math.floor((cam.y-VH/2/ZOOM)/s)*s, v1=cam.y+VH/2/ZOOM+s;
@@ -1246,34 +1257,34 @@ function panel(x,y,w,h){
   ctx.strokeStyle='rgba(0,0,0,.55)'; rr(x+1.5,y+1.5,w-3,h-3,7); ctx.stroke();
 }
 function drawHUD(){
-  // player banner (top-left) — 레벨을 받기 전에는 아래 경험치 칸만큼 낮게 그린다
-  const hasLv = me.level!==null;
-  panel(14,14,220, hasLv?84:58);
+  // player banner (top-left) — 이름 · 레벨 · 맵 한 줄, 그 아래 체력 · 마력 · 경험치 막대 세 줄.
+  //   값이 아직 안 왔으면(입장 직후 · 스킬을 끈 서버의 마력) 막대를 비우고 숫자 자리에 「—」 — 줄이 들쭉날쭉 움직이지 않게 높이는 늘 같다
+  panel(14,14,220,BANNER_H);
   ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(15,600); ctx.fillText('주우진', 26, 36);
-  ctx.fillStyle='rgba(180,210,180,.8)'; ctx.font=uiFont(11);
+  if(me.level!==null){ ctx.fillStyle='#cfe8c8'; ctx.font=uiFont(11,600,true); ctx.fillText('Lv.'+me.level, 88, 35); }
   // 어느 맵인가 — 맵 표의 kind(마을·던전)와 채널. 표를 못 받았으면 번호만
-  const mk=(MAPS.get(ZONE.mapId)||{}).kind, mapTxt = ZONE.mapId<0 ? '' : ' · '+(mk==='town'?'마을':mk==='dungeon'?'던전':'맵 '+ZONE.mapId)+(ZONE.channel?' ch'+ZONE.channel:'');
-  ctx.fillText('내 캐릭터 '+(self?('· '+String.fromCharCode(self.disp)+' #'+self.id):'')+mapTxt, 26, 54);
-  ctx.textAlign='right'; ctx.fillStyle='#8fd6a0'; ctx.font=uiFont(13,600);
-  ctx.fillText('시야 '+others.size+'명', 220, 36);
-  ctx.fillStyle='rgba(180,210,180,.7)'; ctx.font=uiFont(11); ctx.fillText('AOI 실시간', 220, 54); ctx.textAlign='left';
-
-  if(hasLv){
-    // 경험치 막대 — 누적 기준이라 "이 레벨에서 번 것 / 이 레벨이 요구하는 것"으로 환산해 그린다.
-    //   서버가 base(현 레벨 도달치)와 next(다음 레벨 도달치)를 같이 줘서 클라가 표를 몰라도 된다.
+  const mk=(MAPS.get(ZONE.mapId)||{}).kind, mapTxt = ZONE.mapId<0 ? '' : (mk==='town'?'마을':mk==='dungeon'?'던전':'맵 '+ZONE.mapId)+(ZONE.channel?' ch'+ZONE.channel:'');
+  ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.75)'; ctx.font=uiFont(11); ctx.fillText(mapTxt, 222, 35); ctx.textAlign='left';
+  // 막대 한 줄 — 이름 · 막대 · 숫자. ratio 가 null 이면 빈 막대
+  const bannerBar=(y,label,col,ratio,txt)=>{
+    ctx.fillStyle=col; ctx.font=uiFont(10,600); ctx.fillText(label, 26, y+7);
+    const bx=58, bw=104;
+    ctx.fillStyle='rgba(0,0,0,.45)'; ctx.fillRect(bx,y,bw,8);
+    if(ratio!==null){ ctx.fillStyle=col; ctx.fillRect(bx,y,Math.round(bw*Math.max(0,Math.min(1,ratio))),8); }
+    ctx.textAlign='right'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(10,400,true); ctx.fillText(txt, 222, y+8); ctx.textAlign='left';
+  };
+  // 체력·마력 — 서버가 보낸 그대로(S2C_ACTOR_STATS · S2C_ACTOR_MP — 클라는 스스로 깎지 않는다)
+  const hasHp = !!self && self.maxHp>0, hasMp = !!self && self.maxMp>0;
+  bannerBar(50, '체력', '#e2574a', hasHp ? self.hp/self.maxHp : null, hasHp ? self.hp+'/'+self.maxHp : '—');
+  bannerBar(68, '마력', '#3d7bff', hasMp ? self.mp/self.maxMp : null, hasMp ? self.mp+'/'+self.maxMp : '—');
+  // 경험치 — 누적 기준이라 "이 레벨에서 번 것 / 이 레벨이 요구하는 것"으로 환산해 그린다.
+  //   서버가 base(현 레벨 도달치)와 next(다음 레벨 도달치)를 같이 줘서 클라가 표를 몰라도 된다.
+  if(me.level!==null){
     const maxed = me.next<=0;                       // 만렙 — 0 으로 나누지 않게 먼저 가른다
     const span  = maxed?0:(me.next-me.base);
-    const ratio = (maxed||span<=0) ? 1 : Math.max(0,Math.min(1,(me.exp-me.base)/span));
-    const bx=26, by=64, bw=182, bh=7;
-    ctx.fillStyle='rgba(255,255,255,.10)'; rr(bx,by,bw,bh,3.5); ctx.fill();
-    ctx.fillStyle= maxed?'#e7d16a':'#8fd6a0'; rr(bx,by,Math.max(2,bw*ratio),bh,3.5); ctx.fill();
-
-    ctx.font=uiFont(11,600,true); ctx.fillStyle='#cfe8c8';
-    ctx.fillText('Lv.'+me.level, 26, 84);
-    ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.75)';
-    ctx.fillText(maxed?'MAX':((me.exp-me.base)+' / '+span), 208, 84);
-    ctx.textAlign='left';
-  }
+    const ratio = (maxed||span<=0) ? 1 : (me.exp-me.base)/span;
+    bannerBar(86, '경험', maxed?'#e7d16a':'#8fd6a0', ratio, maxed?'MAX':((me.exp-me.base)+'/'+span));
+  } else bannerBar(86, '경험', '#8fd6a0', null, '—');
 
   // 레벨업 순간만 짧게 — 막대가 0 으로 돌아가는 이유를 보여 준다.
   //   ★ 배너 옆(x=244)에 두면 안 된다 — 거기가 곧 게임 화면 왼쪽 끝이라 글자가 풀밭을 파고든다.
@@ -1290,7 +1301,8 @@ function drawHUD(){
     ctx.restore();
   }
 
-  // SERVER INTERNALS panel (top-right, teal = server's-eye)
+  // SERVER INTERNALS panel (top-right, teal = server's-eye) — ` 키로 켰을 때만(SHOW_SERVER)
+  if(SHOW_SERVER){
   const pw=232, ph=195, px=W-14-pw, py=14;
   ctx.fillStyle='rgba(6,14,18,.8)'; rr(px,py,pw,ph,10); ctx.fill();
   ctx.strokeStyle='rgba(55,230,214,.28)'; ctx.lineWidth=1; ctx.stroke();
@@ -1318,6 +1330,7 @@ function drawHUD(){
     ctx.fillStyle= kv[0]==='접속'&&stat.connected?'#5fe6cf':'rgba(200,224,232,.92)';
     ctx.textAlign='right'; ctx.fillText(String(kv[1]), px+pw-12, yy); ctx.textAlign='left';
   });
+  }
 
   // 로컬 레이더 (우하단) — 클라는 AOI만 받으므로 "세계지도"가 아니라 내 주변만 (맵핵 방지)
   const ms=138, mx=W-14-ms, my=H-14-ms;
@@ -1344,7 +1357,16 @@ function drawHUD(){
   // 나
   ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(cxp,cyp,3.2,0,7); ctx.fill();
   ctx.restore();
-  ctx.fillStyle='rgba(200,230,200,.75)'; ctx.font=uiFont(10,600); ctx.fillText('레이더 · 주변(AOI)', mx+10, my+16);
+  ctx.fillStyle='rgba(200,230,200,.75)'; ctx.font=uiFont(10,600); ctx.fillText(SHOW_SERVER ? '레이더 · 주변(AOI)' : '레이더', mx+10, my+16);
+
+  // 단축키 안내 (레이더 왼쪽) — 창을 여는 키는 창을 열어야 「I 키로 닫기」로 보여서, 처음 온 사람은 찾을 길이 없었다
+  const KEY_HELP=[['I','가방'],['C','상태창'],['P','파티'],['Z','줍기'],['F','말 걸기'],['`','서버 정보']];
+  const kw=104, kx=mx-10-kw;
+  panel(kx,my,kw,ms);
+  KEY_HELP.forEach(([k,t],i)=>{ const y=my+22+i*20;
+    ctx.fillStyle='rgba(214,182,112,.25)'; rr(kx+10,y-12,18,16,3); ctx.fill();
+    ctx.textAlign='center'; ctx.fillStyle='#ffe9b8'; ctx.font=uiFont(10,600,true); ctx.fillText(k, kx+19, y);
+    ctx.textAlign='left'; ctx.fillStyle='rgba(220,230,215,.85)'; ctx.font=uiFont(10); ctx.fillText(t, kx+36, y); });
 
   // chat box (bottom-left) — real chat (입력창 자리 확보 위해 위로)
   // '주변' 채팅이다 — 서버가 채팅을 존 전체가 아니라 AOI(내 섹터 ±1)로만 뿌린다
@@ -1378,32 +1400,18 @@ function drawHUD(){
 //   덮개 = 남은 쿨타임만큼 위에서부터 어둡게 + 남은 초. 쿨타임은 내 SKILL_CAST 를 받은 순간부터 센다(skillReadyAt).
 //   띠 = 효과가 buff_<종류> 인 칸에, 그 종류가 내게 걸려 있으면 칸 아래쪽에 초록 띠(남은 시간 ÷ 표의 durationMs) + 남은 초. 값은 S2C_ACTOR_BUFF 가 준 remainMs 를
 //   받은 시각부터 깎은 것(self.buffs). 덮개(위)와 자리가 달라 쿨타임 60초·지속 30초가 같이 보인다.
-//   마력 막대는 스킬 칸들 왼쪽 — 둘을 한 덩어리로 가운데 맞춘다. 내 체력은 머리 위 막대가 있어 따로 두지 않는다.
-const SKILL_CELL_W=68, SKILL_CELL_H=50, SKILL_GAP=8, MP_BAR_W=132;
+//   체력·마력 막대는 왼쪽 위 이름표에 있다(drawHUD) — 여기는 스킬 칸만.
+const SKILL_CELL_W=68, SKILL_CELL_H=50, SKILL_GAP=8;
 // 자리 계산 한 곳 — 그리기와 헤드리스 시험이 같이 쓴다(bagLayout · statusLayout 과 같은 꼴).
-//   마력을 한 장도 못 받았으면(스킬을 끈 서버 · 입장 직후) 마력 막대를 안 그리고 스킬 칸만 가운데 맞춘다.
 function skillBarLayout(){
   const ids=playerSkillIds();   // 사람이 쓰는 줄만 — 몬스터 줄(user=monster)은 막대에 안 낸다
-  const showMp=!!self && self.maxMp>0;
   const cellsW=ids.length ? ids.length*SKILL_CELL_W+(ids.length-1)*SKILL_GAP : 0;
-  const w=(showMp?MP_BAR_W:0)+(showMp && ids.length?SKILL_GAP:0)+cellsW;
+  const w=cellsW;
   const x0=Math.round(VX+VW/2-w/2), y0=Math.round(VY+VH-SKILL_CELL_H-12);
-  const cx=x0+(showMp ? MP_BAR_W+(ids.length?SKILL_GAP:0) : 0);
-  return { mp: showMp ? {x:x0, y:y0, w:MP_BAR_W, h:SKILL_CELL_H, bar:{x:x0+10, y:y0+30, w:MP_BAR_W-20, h:10}} : null,
-           cells: ids.map((id,i)=>({id, x:cx+i*(SKILL_CELL_W+SKILL_GAP), y:y0})) };
-}
-// 마력 막대 — 이름 · 숫자 · 막대(남은 마력만큼 파랑). 값은 서버가 보낸 그대로(S2C_ACTOR_MP — 클라는 스스로 깎지 않는다)
-function drawMpBar(m){
-  panel(m.x,m.y,m.w,m.h);
-  ctx.textAlign='left'; ctx.fillStyle='#9ec8ff'; ctx.font=uiFont(12,600); ctx.fillText('마력', m.x+10, m.y+19);
-  ctx.textAlign='right'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(12,600,true); ctx.fillText(self.mp+' / '+self.maxMp, m.x+m.w-10, m.y+19);
-  const b=m.bar, r=Math.max(0, Math.min(1, self.mp/self.maxMp));
-  ctx.fillStyle='rgba(0,0,0,.45)'; ctx.fillRect(b.x,b.y,b.w,b.h);
-  ctx.fillStyle='#3d7bff'; ctx.fillRect(b.x,b.y,Math.round(b.w*r),b.h);
+  return { cells: ids.map((id,i)=>({id, x:x0+i*(SKILL_CELL_W+SKILL_GAP), y:y0})) };
 }
 function drawSkillBar(){
   const L=skillBarLayout();
-  if(L.mp) drawMpBar(L.mp);
   const now=performance.now();
   L.cells.forEach(c=>{
     const id=c.id, s=SKILLS.get(id), x=c.x, y0=c.y;
@@ -1437,13 +1445,13 @@ function drawSkillBar(){
 }
 
 // ---- 가방 창 (USE_INVENTORY) — 그리기와 마우스 판정이 같은 자리 계산(bagLayout)을 쓴다 ----
-//   모양은 다른 HUD 패널(panel)과 같다. 자리는 오른쪽 위 서버 패널(높이 195) 바로 아래, 같은 폭.
+//   모양은 다른 HUD 패널(panel)과 같다. 자리는 오른쪽 위 — 서버 패널(높이 195)을 켰으면 그 바로 아래, 같은 폭.
 const BAG_W=232, BAG_CELL=36, BAG_GAP=6, BAG_COLS=5;
 function bagLayout(){
   const tab=P.INV_TAB_RANGES[bag.tab], rows=Math.ceil(tab.n/BAG_COLS);
   const gridW=BAG_COLS*BAG_CELL+(BAG_COLS-1)*BAG_GAP, gridH=rows*BAG_CELL+(rows-1)*BAG_GAP;
   const pw=BAG_W, ph=66+gridH+26;
-  const px=W-14-pw, py=Math.max(14, Math.min(14+195+12, H-14-ph));   // 창이 낮으면 위로 올려 화면 안에 둔다
+  const px=W-14-pw, py=Math.max(14, Math.min(SHOW_SERVER ? 14+195+12 : 14, H-14-ph));   // 창이 낮으면 위로 올려 화면 안에 둔다
   const tw=(pw-24-4*(INV_TAB_NAMES.length-1))/INV_TAB_NAMES.length;
   const tabs=INV_TAB_NAMES.map((_,i)=>({x:px+12+i*(tw+4), y:py+34, w:tw, h:22}));
   const gx=px+(pw-gridW)/2, gy=py+66, cells=[];
@@ -1560,11 +1568,11 @@ function drawItemTip(winX, y, e){
 function isEquipTabSlot(slot){ const r=P.INV_TAB_RANGES[INV_TAB_FILE.get('equip')]; return slot>=r.first && slot<r.first+r.n; }
 
 // ---- 상태창 (USE_COMBAT · USE_EQUIP) — 그리기와 마우스 판정이 같은 자리 계산(statusLayout)을 쓴다 ----
-//   자리 = 왼쪽 위, 이름표 아래. 옆 여백이 있으면 연결 표시(resize() 가 110px 로 옮긴다, 높이 약 30) 아래 12px,
-//   없으면(여백 250px 미만 · 창 전체가 게임 화면) 연결 표시가 위 가운데로 가므로 이름표 바로 아래(110). 모양은 다른 HUD 와 같은 panel().
+//   자리 = 왼쪽 위, 이름표 아래. 옆 여백이 있으면 연결 표시(resize() 가 이름표 아래 12px 로 옮긴다, 높이 약 30) 아래 12px,
+//   없으면(여백 250px 미만 · 창 전체가 게임 화면) 연결 표시가 위 가운데로 가므로 이름표 바로 아래 12px. 모양은 다른 HUD 와 같은 panel().
 const ST_W=220, ST_ROW=22, ST_TOP=30, ST_CELL=40, ST_ROWS=6;   // 줄 = 레벨 · 체력 · 마력 · 공격력 · 방어력 · 돈
 function statusLayout(){
-  const px=14, py=(VX>=250) ? 152 : 110, pw=ST_W;
+  const px=14, py=14+BANNER_H+12+((VX>=250) ? 42 : 0), pw=ST_W;
   const ph=ST_TOP+12+ST_ROWS*ST_ROW+14+ST_CELL+12+24;
   const cy=py+ST_TOP+12+ST_ROWS*ST_ROW+14;
   return { px, py, pw, ph, cell:{ x:px+14, y:cy, w:ST_CELL, h:ST_CELL } };
