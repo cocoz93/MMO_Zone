@@ -1209,7 +1209,13 @@ function drawSectorLabels(){
   ctx.fillText('유효 섹터 '+aoiValid+'개 (AOI ±1)',
     Math.max(VX+6, sx((cs-1)*s)+6), Math.max(VY+12, sy((rs-1)*s)-6));
 }
-function panel(x,y,w,h){ ctx.fillStyle='rgba(10,16,12,.76)'; rr(x,y,w,h,10); ctx.fill(); ctx.strokeStyle='rgba(150,200,150,.16)'; ctx.lineWidth=1; ctx.stroke(); }
+// 반투명 HUD 창 — 금색 1px 테두리 + 안쪽 검은 1px(테두리가 바탕 풀밭에 번지지 않게). 선은 반 픽셀 안쪽에 그어 또렷하게
+function panel(x,y,w,h){
+  ctx.fillStyle='rgba(10,14,12,.80)'; rr(x,y,w,h,8); ctx.fill();
+  ctx.lineWidth=1;
+  ctx.strokeStyle='rgba(214,182,112,.70)'; rr(x+.5,y+.5,w-1,h-1,8); ctx.stroke();
+  ctx.strokeStyle='rgba(0,0,0,.55)'; rr(x+1.5,y+1.5,w-3,h-3,7); ctx.stroke();
+}
 function drawHUD(){
   // player banner (top-left) — 레벨을 받기 전에는 아래 경험치 칸만큼 낮게 그린다
   const hasLv = me.level!==null;
