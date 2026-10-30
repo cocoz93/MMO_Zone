@@ -1,0 +1,48 @@
+{
+ "frame": 64,
+ "rows": [
+  "up",
+  "left",
+  "down",
+  "right"
+ ],
+ "walk": {
+  "cols": 9,
+  "idle": 0,
+  "loop": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8
+  ],
+  "frameMs": 125
+ },
+ "slash": {
+  "cols": 6,
+  "frames": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "frameMs": 60
+ },
+ "idle": {
+  "cols": 2,
+  "loop": [
+   0,
+   0,
+   1
+  ],
+  "frameMs": 125
+ },
+ "weapons": [
+  "dagger"
+ ]
+}

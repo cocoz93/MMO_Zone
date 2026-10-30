@@ -1,0 +1,994 @@
+{
+ "b_amber": {
+  "base": "body/bodies/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 20105,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#281716ff",
+   "#99423cff": "#9e3e37ff",
+   "#cc8665ff": "#d28144ff",
+   "#e4a47cff": "#ea9f54ff",
+   "#f9d5baff": "#fdd082ff",
+   "#faece7ff": "#fbe7a4ff"
+  }
+ },
+ "b_bronze": {
+  "base": "body/bodies/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 20105,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#1a1213ff",
+   "#99423cff": "#442725ff",
+   "#cc8665ff": "#644133ff",
+   "#e4a47cff": "#7f4c31ff",
+   "#f9d5baff": "#ae6b3fff",
+   "#faece7ff": "#d38b59ff"
+  }
+ },
+ "b_brown": {
+  "base": "body/bodies/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 20105,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#120e10ff",
+   "#99423cff": "#412b29ff",
+   "#cc8665ff": "#5f4539ff",
+   "#e4a47cff": "#76513aff",
+   "#f9d5baff": "#9c663eff",
+   "#faece7ff": "#b8773fff"
+  }
+ },
+ "b_fem": {
+  "base": "body/bodies/female",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 17229,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#271920ff",
+   "#99423cff": "#99423cff",
+   "#cc8665ff": "#cc8665ff",
+   "#e4a47cff": "#e4a47cff",
+   "#f9d5baff": "#f9d5baff",
+   "#faece7ff": "#faece7ff"
+  }
+ },
+ "b_green": {
+  "base": "body/bodies/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 20105,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#140c09ff",
+   "#99423cff": "#09320bff",
+   "#cc8665ff": "#19541dff",
+   "#e4a47cff": "#228236ff",
+   "#f9d5baff": "#39aa4eff",
+   "#faece7ff": "#53bf71ff"
+  }
+ },
+ "b_light": {
+  "base": "body/bodies/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 20105,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#271920ff",
+   "#99423cff": "#99423cff",
+   "#cc8665ff": "#cc8665ff",
+   "#e4a47cff": "#e4a47cff",
+   "#f9d5baff": "#f9d5baff",
+   "#faece7ff": "#faece7ff"
+  }
+ },
+ "b_olive": {
+  "base": "body/bodies/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 20105,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#271920ff",
+   "#99423cff": "#442725ff",
+   "#cc8665ff": "#7f4c31ff",
+   "#e4a47cff": "#ae6b3fff",
+   "#f9d5baff": "#d38b59ff",
+   "#faece7ff": "#e4a47cff"
+  }
+ },
+ "b_skeleton": {
+  "base": [
+   "body/bodies/skeleton",
+   "head/heads/skeleton/adult"
+  ],
+  "keepOriginal": true,
+  "exact": false,
+  "overlapPx": 29891,
+  "conflictPx": 11140,
+  "onlyOursPx": 813,
+  "onlyBasePx": 378,
+  "map": {
+   "#281820ff": "#281820ff",
+   "#4d4a5dff": "#4d4a5dff",
+   "#958080ff": "#958080ff",
+   "#c4b59fff": "#c4b59fff",
+   "#e5e6c7ff": "#e5e6c7ff",
+   "#ffffffff": "#ffffffff"
+  }
+ },
+ "b_zombie": {
+  "base": "body/bodies/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 20105,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#101925ff",
+   "#99423cff": "#074337ff",
+   "#cc8665ff": "#4a7a69ff",
+   "#e4a47cff": "#839f6eff",
+   "#f9d5baff": "#d4d887ff",
+   "#faece7ff": "#f2f0c4ff"
+  }
+ },
+ "bf_amber": {
+  "base": "body/bodies/female",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 17229,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#281716ff",
+   "#99423cff": "#9e3e37ff",
+   "#cc8665ff": "#d28144ff",
+   "#e4a47cff": "#ea9f54ff",
+   "#f9d5baff": "#fdd082ff",
+   "#faece7ff": "#fbe7a4ff"
+  }
+ },
+ "bf_bronze": {
+  "base": "body/bodies/female",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 17229,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#1a1213ff",
+   "#99423cff": "#442725ff",
+   "#cc8665ff": "#644133ff",
+   "#e4a47cff": "#7f4c31ff",
+   "#f9d5baff": "#ae6b3fff",
+   "#faece7ff": "#d38b59ff"
+  }
+ },
+ "bf_olive": {
+  "base": "body/bodies/female",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 17229,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#271920ff",
+   "#99423cff": "#442725ff",
+   "#cc8665ff": "#7f4c31ff",
+   "#e4a47cff": "#ae6b3fff",
+   "#f9d5baff": "#d38b59ff",
+   "#faece7ff": "#e4a47cff"
+  }
+ },
+ "h_afro": {
+  "base": "hair/afro/adult",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 15201,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#260d14ff": "#260d14ff",
+   "#6a1108ff": "#6a1108ff",
+   "#a42600ff": "#a42600ff",
+   "#bf4000ff": "#bf4000ff",
+   "#e55600ff": "#e55600ff",
+   "#ff8a00ff": "#ff8a00ff"
+  }
+ },
+ "h_bedhead": {
+  "base": "hair/bedhead/adult",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 8703,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#260d14ff": "#260d14ff",
+   "#6a1108ff": "#6a1108ff",
+   "#a42600ff": "#a42600ff",
+   "#bf4000ff": "#bf4000ff",
+   "#e55600ff": "#e55600ff",
+   "#ff8a00ff": "#ff8a00ff"
+  }
+ },
+ "h_long": {
+  "base": "hair/long/adult",
+  "keepOriginal": false,
+  "exact": false,
+  "overlapPx": 10719,
+  "conflictPx": 3708,
+  "onlyOursPx": 702,
+  "onlyBasePx": 702,
+  "map": {
+   "#260d14ff": "#260d14ff",
+   "#6a1108ff": "#6a1108ff",
+   "#a42600ff": "#a42600ff",
+   "#bf4000ff": "#bf4000ff",
+   "#e55600ff": "#e55600ff",
+   "#ff8a00ff": "#ff8a00ff"
+  }
+ },
+ "h_messy1": {
+  "base": "hair/messy1/adult",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 10962,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#260d14ff": "#260d14ff",
+   "#6a1108ff": "#6a1108ff",
+   "#a42600ff": "#a42600ff",
+   "#bf4000ff": "#bf4000ff",
+   "#e55600ff": "#e55600ff",
+   "#ff8a00ff": "#ff8a00ff"
+  }
+ },
+ "h_mop": {
+  "base": "hair/mop/adult",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 12249,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#260d14ff": "#260d14ff",
+   "#6a1108ff": "#6a1108ff",
+   "#a42600ff": "#a42600ff",
+   "#bf4000ff": "#bf4000ff",
+   "#e55600ff": "#e55600ff",
+   "#ff8a00ff": "#ff8a00ff"
+  }
+ },
+ "h_parted": {
+  "base": "hair/parted/adult",
+  "keepOriginal": false,
+  "exact": false,
+  "overlapPx": 8523,
+  "conflictPx": 2718,
+  "onlyOursPx": 396,
+  "onlyBasePx": 396,
+  "map": {
+   "#260d14ff": "#260d14ff",
+   "#6a1108ff": "#6a1108ff",
+   "#a026009c": "#a025009c",
+   "#a42600ff": "#a42600ff",
+   "#bf4000ff": "#bf4000ff",
+   "#e55600ff": "#e55600ff",
+   "#ff8a00ff": "#ff8a00ff"
+  }
+ },
+ "h_plain": {
+  "base": "hair/plain/adult",
+  "keepOriginal": false,
+  "exact": false,
+  "overlapPx": 9567,
+  "conflictPx": 1287,
+  "onlyOursPx": 180,
+  "onlyBasePx": 180,
+  "map": {
+   "#1c131e59": "#eaa377ff",
+   "#260d14ff": "#260d14ff",
+   "#6a1108ff": "#6a1108ff",
+   "#a42600ff": "#a42600ff",
+   "#bf4000ff": "#bf4000ff",
+   "#e55600ff": "#e55600ff",
+   "#ff8a00ff": "#ff8a00ff"
+  }
+ },
+ "h_spiked": {
+  "base": "hair/spiked/adult",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 10062,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#260d14ff": "#260d14ff",
+   "#6a1108ff": "#6a1108ff",
+   "#a42600ff": "#a42600ff",
+   "#bf4000ff": "#bf4000ff",
+   "#e55600ff": "#e55600ff",
+   "#ff8a00ff": "#ff8a00ff"
+  }
+ },
+ "hd_amber": {
+  "base": "head/heads/human/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 12528,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#281716ff",
+   "#2a3c49ff": "#2a3c49ff",
+   "#5686aeff": "#5686aeff",
+   "#57cee4ff": "#57cee4ff",
+   "#99423cff": "#9e3e37ff",
+   "#cc8665ff": "#d28144ff",
+   "#e4a47cff": "#ea9f54ff",
+   "#f2f7f8ff": "#f2f7f8ff",
+   "#f9d5baff": "#fdd082ff",
+   "#faece7ff": "#fbe7a4ff"
+  }
+ },
+ "hd_bronze": {
+  "base": "head/heads/human/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 12528,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#1a1213ff",
+   "#2a3c49ff": "#2a3c49ff",
+   "#5686aeff": "#5686aeff",
+   "#57cee4ff": "#57cee4ff",
+   "#99423cff": "#442725ff",
+   "#cc8665ff": "#644133ff",
+   "#e4a47cff": "#7f4c31ff",
+   "#f2f7f8ff": "#f2f7f8ff",
+   "#f9d5baff": "#ae6b3fff",
+   "#faece7ff": "#d38b59ff"
+  }
+ },
+ "hd_brown": {
+  "base": "head/heads/human/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 12528,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#120e10ff",
+   "#2a3c49ff": "#2a3c49ff",
+   "#5686aeff": "#5686aeff",
+   "#57cee4ff": "#57cee4ff",
+   "#99423cff": "#412b29ff",
+   "#cc8665ff": "#5f4539ff",
+   "#e4a47cff": "#76513aff",
+   "#f2f7f8ff": "#f2f7f8ff",
+   "#f9d5baff": "#9c663eff",
+   "#faece7ff": "#b8773fff"
+  }
+ },
+ "hd_f_amber": {
+  "base": "head/heads/human/female",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 12213,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#281716ff",
+   "#2a3c49ff": "#2a3c49ff",
+   "#5686aeff": "#5686aeff",
+   "#57cee4ff": "#57cee4ff",
+   "#99423cff": "#9e3e37ff",
+   "#cc8665ff": "#d28144ff",
+   "#e4a47cff": "#ea9f54ff",
+   "#f2f7f8ff": "#f2f7f8ff",
+   "#f9d5baff": "#fdd082ff",
+   "#faece7ff": "#fbe7a4ff"
+  }
+ },
+ "hd_f_bronze": {
+  "base": "head/heads/human/female",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 12213,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#1a1213ff",
+   "#2a3c49ff": "#2a3c49ff",
+   "#5686aeff": "#5686aeff",
+   "#57cee4ff": "#57cee4ff",
+   "#99423cff": "#442725ff",
+   "#cc8665ff": "#644133ff",
+   "#e4a47cff": "#7f4c31ff",
+   "#f2f7f8ff": "#f2f7f8ff",
+   "#f9d5baff": "#ae6b3fff",
+   "#faece7ff": "#d38b59ff"
+  }
+ },
+ "hd_f_light": {
+  "base": "head/heads/human/female",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 12213,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#271920ff",
+   "#2a3c49ff": "#2a3c49ff",
+   "#5686aeff": "#5686aeff",
+   "#57cee4ff": "#57cee4ff",
+   "#99423cff": "#99423cff",
+   "#cc8665ff": "#cc8665ff",
+   "#e4a47cff": "#e4a47cff",
+   "#f2f7f8ff": "#f2f7f8ff",
+   "#f9d5baff": "#f9d5baff",
+   "#faece7ff": "#faece7ff"
+  }
+ },
+ "hd_f_olive": {
+  "base": "head/heads/human/female",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 12213,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#271920ff",
+   "#2a3c49ff": "#2a3c49ff",
+   "#5686aeff": "#5686aeff",
+   "#57cee4ff": "#57cee4ff",
+   "#99423cff": "#442725ff",
+   "#cc8665ff": "#7f4c31ff",
+   "#e4a47cff": "#ae6b3fff",
+   "#f2f7f8ff": "#f2f7f8ff",
+   "#f9d5baff": "#d38b59ff",
+   "#faece7ff": "#e4a47cff"
+  }
+ },
+ "hd_green": {
+  "base": "head/heads/human/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 12528,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#140c09ff",
+   "#2a3c49ff": "#2a3c49ff",
+   "#5686aeff": "#5686aeff",
+   "#57cee4ff": "#57cee4ff",
+   "#99423cff": "#09320bff",
+   "#cc8665ff": "#19541dff",
+   "#e4a47cff": "#228236ff",
+   "#f2f7f8ff": "#f2f7f8ff",
+   "#f9d5baff": "#39aa4eff",
+   "#faece7ff": "#53bf71ff"
+  }
+ },
+ "hd_light": {
+  "base": "head/heads/human/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 12528,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#271920ff",
+   "#2a3c49ff": "#2a3c49ff",
+   "#5686aeff": "#5686aeff",
+   "#57cee4ff": "#57cee4ff",
+   "#99423cff": "#99423cff",
+   "#cc8665ff": "#cc8665ff",
+   "#e4a47cff": "#e4a47cff",
+   "#f2f7f8ff": "#f2f7f8ff",
+   "#f9d5baff": "#f9d5baff",
+   "#faece7ff": "#faece7ff"
+  }
+ },
+ "hd_olive": {
+  "base": "head/heads/human/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 12528,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#271920ff",
+   "#2a3c49ff": "#2a3c49ff",
+   "#5686aeff": "#5686aeff",
+   "#57cee4ff": "#57cee4ff",
+   "#99423cff": "#442725ff",
+   "#cc8665ff": "#7f4c31ff",
+   "#e4a47cff": "#ae6b3fff",
+   "#f2f7f8ff": "#f2f7f8ff",
+   "#f9d5baff": "#d38b59ff",
+   "#faece7ff": "#e4a47cff"
+  }
+ },
+ "hd_zombie": {
+  "base": "head/heads/human/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 12528,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#271920ff": "#101925ff",
+   "#2a3c49ff": "#2a3c49ff",
+   "#5686aeff": "#5686aeff",
+   "#57cee4ff": "#57cee4ff",
+   "#99423cff": "#074337ff",
+   "#cc8665ff": "#4a7a69ff",
+   "#e4a47cff": "#839f6eff",
+   "#f2f7f8ff": "#f2f7f8ff",
+   "#f9d5baff": "#d4d887ff",
+   "#faece7ff": "#f2f0c4ff"
+  }
+ },
+ "hf_bangslong": {
+  "base": "hair/bangslong/adult",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 10143,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#260d14ff": "#260d14ff",
+   "#6a1108ff": "#6a1108ff",
+   "#a42600ff": "#a42600ff",
+   "#bf4000ff": "#bf4000ff",
+   "#e55600ff": "#e55600ff",
+   "#ff8a00ff": "#ff8a00ff"
+  }
+ },
+ "hf_braid": {
+  "base": "hair/braid/adult/fg",
+  "keepOriginal": false,
+  "exact": false,
+  "overlapPx": 11250,
+  "conflictPx": 0,
+  "onlyOursPx": 73,
+  "onlyBasePx": 0,
+  "map": {
+   "#260d14ff": "#260d14ff",
+   "#6a1108ff": "#6a1108ff",
+   "#a42600ff": "#a42600ff",
+   "#bf4000ff": "#bf4000ff",
+   "#e55600ff": "#e55600ff",
+   "#ff8a00ff": "#ff8a00ff"
+  }
+ },
+ "hf_long": {
+  "base": "hair/long/adult",
+  "keepOriginal": false,
+  "exact": false,
+  "overlapPx": 10719,
+  "conflictPx": 3708,
+  "onlyOursPx": 702,
+  "onlyBasePx": 702,
+  "map": {
+   "#260d14ff": "#260d14ff",
+   "#6a1108ff": "#6a1108ff",
+   "#a42600ff": "#a42600ff",
+   "#bf4000ff": "#bf4000ff",
+   "#e55600ff": "#e55600ff",
+   "#ff8a00ff": "#ff8a00ff"
+  }
+ },
+ "hf_pixie": {
+  "base": "hair/pixie/adult",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 8937,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#260d14ff": "#260d14ff",
+   "#6a1108ff": "#6a1108ff",
+   "#a42600ff": "#a42600ff",
+   "#bf4000ff": "#bf4000ff",
+   "#e55600ff": "#e55600ff",
+   "#ff8a00ff": "#ff8a00ff"
+  }
+ },
+ "hf_ponytail": {
+  "base": [
+   "hair/ponytail/adult/bg",
+   "hair/ponytail/adult/fg"
+  ],
+  "keepOriginal": false,
+  "exact": false,
+  "overlapPx": 8935,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 83,
+  "map": {
+   "#260d14ff": "#260d14ff",
+   "#6a1108ff": "#6a1108ff",
+   "#a42600ff": "#a42600ff",
+   "#bf4000ff": "#bf4000ff",
+   "#e55600ff": "#e55600ff",
+   "#ff8a00ff": "#ff8a00ff"
+  }
+ },
+ "l_blue": {
+  "base": "legs/pants/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 4599,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#4d4a5dff": "#281e41ff",
+   "#958080ff": "#322d6aff",
+   "#c4b59fff": "#3c49adff",
+   "#e5e6c7ff": "#466ac9ff",
+   "#ffffffff": "#61a0efff"
+  }
+ },
+ "l_brown": {
+  "base": "legs/pants/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 4599,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#4d4a5dff": "#411e05ff",
+   "#958080ff": "#4b2b13ff",
+   "#c4b59fff": "#62351cff",
+   "#e5e6c7ff": "#744b30ff",
+   "#ffffffff": "#996b4aff"
+  }
+ },
+ "l_charcoal": {
+  "base": "legs/pants/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 4599,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#4d4a5dff": "#130d14ff",
+   "#958080ff": "#1c2222ff",
+   "#c4b59fff": "#2a3034ff",
+   "#e5e6c7ff": "#4a5057ff",
+   "#ffffffff": "#6e7675ff"
+  }
+ },
+ "l_leather": {
+  "base": "legs/pants/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 4599,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#4d4a5dff": "#311210ff",
+   "#958080ff": "#4b2b13ff",
+   "#c4b59fff": "#704325ff",
+   "#e5e6c7ff": "#75502dff",
+   "#ffffffff": "#9a6f37ff"
+  }
+ },
+ "l_navy": {
+  "base": "legs/pants/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 4599,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#4d4a5dff": "#20102bff",
+   "#958080ff": "#281e41ff",
+   "#c4b59fff": "#322d6aff",
+   "#e5e6c7ff": "#3c49adff",
+   "#ffffffff": "#466ac9ff"
+  }
+ },
+ "l_teal": {
+  "base": "legs/pants/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 4599,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#4d4a5dff": "#1b2b47ff",
+   "#958080ff": "#0e4e72ff",
+   "#c4b59fff": "#156c99ff",
+   "#e5e6c7ff": "#0098b2ff",
+   "#ffffffff": "#00cfdfff"
+  }
+ },
+ "lf_brown": {
+  "base": "legs/pants/thin",
+  "keepOriginal": false,
+  "exact": false,
+  "overlapPx": 3924,
+  "conflictPx": 48,
+  "onlyOursPx": 3,
+  "onlyBasePx": 0,
+  "map": {
+   "#281820ff": "#1d131eff",
+   "#2a1722ff": "#411e05ff",
+   "#4d4a5dff": "#411e05ff",
+   "#958080ff": "#4b2b13ff",
+   "#c4b59fff": "#62351cff",
+   "#e5e6c7ff": "#744b30ff"
+  }
+ },
+ "lf_navy": {
+  "base": "legs/pants/thin",
+  "keepOriginal": false,
+  "exact": false,
+  "overlapPx": 3924,
+  "conflictPx": 48,
+  "onlyOursPx": 3,
+  "onlyBasePx": 0,
+  "map": {
+   "#281820ff": "#180716ff",
+   "#2a1722ff": "#20102bff",
+   "#4d4a5dff": "#20102bff",
+   "#958080ff": "#281e41ff",
+   "#c4b59fff": "#322d6aff",
+   "#e5e6c7ff": "#3c49adff"
+  }
+ },
+ "lf_rose": {
+  "base": "legs/pants/thin",
+  "keepOriginal": false,
+  "exact": false,
+  "overlapPx": 3924,
+  "conflictPx": 48,
+  "onlyOursPx": 3,
+  "onlyBasePx": 0,
+  "map": {
+   "#281820ff": "#1d131eff",
+   "#2a1722ff": "#301723ff",
+   "#4d4a5dff": "#301723ff",
+   "#958080ff": "#562323ff",
+   "#c4b59fff": "#77372bff",
+   "#e5e6c7ff": "#8a3d28ff"
+  }
+ },
+ "lf_teal": {
+  "base": "legs/pants/thin",
+  "keepOriginal": false,
+  "exact": false,
+  "overlapPx": 3924,
+  "conflictPx": 48,
+  "onlyOursPx": 3,
+  "onlyBasePx": 0,
+  "map": {
+   "#281820ff": "#180716ff",
+   "#2a1722ff": "#1b2b47ff",
+   "#4d4a5dff": "#1b2b47ff",
+   "#958080ff": "#0e4e72ff",
+   "#c4b59fff": "#156c99ff",
+   "#e5e6c7ff": "#0098b2ff"
+  }
+ },
+ "t_forest": {
+  "base": "torso/clothes/longsleeve/longsleeve/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 9619,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#281820ff": "#09131dff",
+   "#4d4a5dff": "#0b1f25ff",
+   "#c4b59fff": "#07391dff",
+   "#e5e6c7ff": "#134507ff",
+   "#ffffffff": "#1b5502ff"
+  }
+ },
+ "t_purple": {
+  "base": "torso/clothes/longsleeve/longsleeve/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 9619,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#281820ff": "#180716ff",
+   "#4d4a5dff": "#13112dff",
+   "#c4b59fff": "#411357ff",
+   "#e5e6c7ff": "#621e78ff",
+   "#ffffffff": "#813089ff"
+  }
+ },
+ "t_red": {
+  "base": "torso/clothes/longsleeve/longsleeve/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 9619,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#281820ff": "#1d131eff",
+   "#4d4a5dff": "#400b1fff",
+   "#c4b59fff": "#82171cff",
+   "#e5e6c7ff": "#ab1e1eff",
+   "#ffffffff": "#cd2429ff"
+  }
+ },
+ "t_slate": {
+  "base": "torso/clothes/longsleeve/longsleeve/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 9619,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#281820ff": "#1d131eff",
+   "#4d4a5dff": "#31313eff",
+   "#c4b59fff": "#818b8bff",
+   "#e5e6c7ff": "#b3afa1ff",
+   "#ffffffff": "#e5e6c7ff"
+  }
+ },
+ "t_teal": {
+  "base": "torso/clothes/longsleeve/longsleeve/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 9619,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#281820ff": "#180716ff",
+   "#4d4a5dff": "#1b2b47ff",
+   "#c4b59fff": "#156c99ff",
+   "#e5e6c7ff": "#0098b2ff",
+   "#ffffffff": "#00cfdfff"
+  }
+ },
+ "t_yellow": {
+  "base": "torso/clothes/longsleeve/longsleeve/male",
+  "keepOriginal": false,
+  "exact": true,
+  "overlapPx": 9619,
+  "conflictPx": 0,
+  "onlyOursPx": 0,
+  "onlyBasePx": 0,
+  "map": {
+   "#281820ff": "#301723ff",
+   "#4d4a5dff": "#5f2f25ff",
+   "#c4b59fff": "#d99431ff",
+   "#e5e6c7ff": "#f3c03fff",
+   "#ffffffff": "#ffe360ff"
+  }
+ },
+ "tf_navy": {
+  "base": "torso/clothes/longsleeve/longsleeve/female",
+  "keepOriginal": false,
+  "exact": false,
+  "overlapPx": 8311,
+  "conflictPx": 45,
+  "onlyOursPx": 0,
+  "onlyBasePx": 18,
+  "map": {
+   "#281820ff": "#180716ff",
+   "#4d4a5dff": "#20102bff",
+   "#958080ff": "#281e41ff",
+   "#c4b59fff": "#322d6aff",
+   "#e5e6c7ff": "#3c49adff",
+   "#ffffffff": "#466ac9ff"
+  }
+ },
+ "tf_purple": {
+  "base": "torso/clothes/longsleeve/longsleeve/female",
+  "keepOriginal": false,
+  "exact": false,
+  "overlapPx": 8311,
+  "conflictPx": 45,
+  "onlyOursPx": 0,
+  "onlyBasePx": 18,
+  "map": {
+   "#281820ff": "#180716ff",
+   "#4d4a5dff": "#13112dff",
+   "#958080ff": "#261044ff",
+   "#c4b59fff": "#411357ff",
+   "#e5e6c7ff": "#621e78ff",
+   "#ffffffff": "#813089ff"
+  }
+ },
+ "tf_rose": {
+  "base": "torso/clothes/longsleeve/longsleeve/female",
+  "keepOriginal": false,
+  "exact": false,
+  "overlapPx": 8311,
+  "conflictPx": 45,
+  "onlyOursPx": 0,
+  "onlyBasePx": 18,
+  "map": {
+   "#281820ff": "#1d131eff",
+   "#4d4a5dff": "#301723ff",
+   "#958080ff": "#562323ff",
+   "#c4b59fff": "#77372bff",
+   "#e5e6c7ff": "#8a3d28ff",
+   "#ffffffff": "#b05f3cff"
+  }
+ },
+ "tf_teal": {
+  "base": "torso/clothes/longsleeve/longsleeve/female",
+  "keepOriginal": false,
+  "exact": false,
+  "overlapPx": 8311,
+  "conflictPx": 45,
+  "onlyOursPx": 0,
+  "onlyBasePx": 18,
+  "map": {
+   "#281820ff": "#180716ff",
+   "#4d4a5dff": "#1b2b47ff",
+   "#958080ff": "#0e4e72ff",
+   "#c4b59fff": "#156c99ff",
+   "#e5e6c7ff": "#0098b2ff",
+   "#ffffffff": "#00cfdfff"
+  }
+ }
+}
