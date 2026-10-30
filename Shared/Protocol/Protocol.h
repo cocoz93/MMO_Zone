@@ -191,7 +191,12 @@ enum class MsgType : uint16_t
     S2C_TRADE_ASK_END,          // 서버 → 클라이언트: 그 신청이 무효가 됐다 (받는 사람 — 창을 닫는다)
     S2C_TRADE_STATE,            // 서버 → 클라이언트: 거래창 전체(최종값) — 열릴 때 · 바뀔 때마다 두 사람에게
     S2C_TRADE_END,              // 서버 → 클라이언트: 신청·거래가 끝났다 + 사유 (성사 포함)
-    S2C_TRADE_FAIL              // 서버 → 클라이언트: 요청 거절 + 사유 (본인 — 아무것도 안 바뀌었다)
+    S2C_TRADE_FAIL,             // 서버 → 클라이언트: 요청 거절 + 사유 (본인 — 아무것도 안 바뀌었다)
+
+    //--------------------------------------------------
+    // 겉모습 (USE_EQUIP — 남의 화면에 그릴 것: 지금은 끼운 무기 · attack-motion-plan.md 3판)
+    //--------------------------------------------------
+    S2C_ACTOR_LOOK              // 서버 → 클라이언트: 이 캐릭터의 겉모습 전체 — 남이 화면에 나타날 때 CREATE 바로 뒤(겉모습이 있을 때만) · 끼우기·빼기 뒤 주변
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -1643,5 +1648,34 @@ static_assert(sizeof(MSG_S2C_TRADE_END)      == 9,   "TRADE_END 는 9B (proto.js
 static_assert(sizeof(MSG_S2C_TRADE_FAIL)     == 5,   "TRADE_FAIL 은 5B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::C2S_TRADE_REQUEST) == 1065, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_TRADE_FAIL)    == 1075, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+
+//==================================================
+// 겉모습 (USE_EQUIP) — 남의 화면에 그릴 것(attack-motion-plan.md 3판)
+//==================================================
+// 등장 패킷(CreatePlayerEntry)에 싣지 않고 따로 보내는 까닭 — 등장은 누구에게나 필요한 것(번호·자리·방향·종류·체력)만 담는다.
+//   겉모습은 컨텐츠마다 칸이 는다(무기 → 옷 · 직업 …). 등장에 넣으면 모든 등장이 커지고(겉모습 없는 부하 더미까지)
+//   한 묶음에 담기는 인원(CREATE_PLAYER_BATCH_MAX_ENTRIES)이 준다 — 무기 2B 만 더해도 묶음이 패킷 상한에 꼭 찬다(44 × 33 + 6 = 1,458).
+//   ★ 칸은 이 묶음에 늘린다 — 부위마다 패킷 종류를 새로 만들지 않는다(받는 쪽 등록이 이번 한 번으로 끝나게).
+// 언제 오나 — ① 남이 내 화면에 나타날 때 그 CREATE 바로 뒤(같은 송신 큐라 순서대로 닿는다) — 겉모습이 하나라도 있을 때만(맨몸이면 안 온다)
+//             ② 그 사람이 끼우거나 벗은 뒤 주변에(본인 빼고 — 본인은 가방 칸 패킷으로 안다). 벗어서 맨몸이 돼도 온다(0 으로)
+//   받는 쪽은 모르는 캐릭터 번호면 버린다 — 등장보다 먼저 닿아도 등장 뒤에 다시 오는 값(①)이 맞다.
+//   맨몸 = 모든 칸 0. 본인 겉모습은 안 온다(가방 900 칸이 있다).
+struct ActorLook
+{
+    uint16_t weaponItemId;   // 끼운 무기 아이템 번호(ItemTable.csv) · 0 = 맨손. 무엇으로 그리나는 아이템 표 look 칸(웹) — 서버는 번호만
+};
+static_assert(sizeof(ActorLook) == 2, "ActorLook 은 2B (proto.js readLook 과 맞출 것)");
+
+struct MSG_S2C_ACTOR_LOOK
+{
+    static constexpr MsgType TYPE = MsgType::S2C_ACTOR_LOOK;
+    MsgHeader header;
+    int32_t   actorId;
+    ActorLook look;
+
+    MSG_S2C_ACTOR_LOOK() : header{ sizeof(*this), TYPE }, actorId(0), look{} {}
+};
+static_assert(sizeof(MSG_S2C_ACTOR_LOOK) == 10, "ACTOR_LOOK 은 10B (proto.js 와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::S2C_ACTOR_LOOK) == 1076, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 #pragma pack(pop)

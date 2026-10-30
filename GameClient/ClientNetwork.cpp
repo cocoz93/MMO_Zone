@@ -443,6 +443,11 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
     case MsgType::S2C_TRADE_FAIL:
         break;
 
+    // 겉모습(서버 USE_EQUIP) — 무기를 든 사람이 곁에 나타나거나 곁에서 끼우고 벗을 때 온다. 콘솔 클라는 무기를 그리지 않는다
+    //   (글자 한 칸이 캐릭터다) — 모르는 타입 로그만 막는다.
+    case MsgType::S2C_ACTOR_LOOK:
+        break;
+
     default:
         LOG_ERROR_STREAM("Unknown message type: " << static_cast<int>(header->type));
         break;

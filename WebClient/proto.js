@@ -48,7 +48,9 @@
     C2S_SHOP_BUY:1061, C2S_SHOP_SELL:1062, S2C_SHOP_FAIL:1063, S2C_MONEY:1064,
     // 거래 (USE_TRADE) — 고르기는 화면에서 캐릭터를 눌러서. 「교환하기」 한 버튼(누른 쪽만 닫힘) · 올린 것은 못 뺀다(늘리기만)
     C2S_TRADE_REQUEST:1065, C2S_TRADE_ANSWER:1066, C2S_TRADE_OFFER:1067, C2S_TRADE_MONEY:1068, C2S_TRADE_COMMIT:1069, C2S_TRADE_CANCEL:1070,
-    S2C_TRADE_ASK:1071, S2C_TRADE_ASK_END:1072, S2C_TRADE_STATE:1073, S2C_TRADE_END:1074, S2C_TRADE_FAIL:1075
+    S2C_TRADE_ASK:1071, S2C_TRADE_ASK_END:1072, S2C_TRADE_STATE:1073, S2C_TRADE_END:1074, S2C_TRADE_FAIL:1075,
+    // 겉모습 (USE_EQUIP) — 남이 화면에 나타날 때 CREATE 바로 뒤(겉모습이 있을 때만) · 끼우기·빼기 뒤 주변. 모르는 번호면 버린다
+    S2C_ACTOR_LOOK:1076
   };
   // 파티 — Protocol.h PartyAskKind · PartyNotice 순서 그대로(값이 와이어에 실린다). 한글 문구는 live.html 이 이름으로 고른다
   const PARTY_ASK_KIND = ['INVITE','APPLY','SUGGEST'];
@@ -106,6 +108,8 @@
       x:dv.getFloat32(o+9,true), y:dv.getFloat32(o+13,true), speed:dv.getInt32(o+17,true),
       ...readSnap(dv, o+21), defId:dv.getUint16(o+29,true) };
   }
+  // 겉모습 구조체 — Protocol.h ActorLook 2B = weaponItemId u16(0 = 맨손). 칸을 늘리면 여기 한 곳(ACTOR_LOOK 크기 단언이 알려 준다)
+  function readLook(dv, o) { return { weaponItemId:dv.getUint16(o,true) }; }
   // 파티원 정보 구조체 — Protocol.h PartyPerson 10B = actorId i32 · displayChar u8 · colorIndex u8 · level i32
   function readPartyPerson(dv, o) {
     return { actorId:dv.getInt32(o,true), displayChar:dv.getUint8(o+4), colorIndex:dv.getUint8(o+5), level:dv.getInt32(o+6,true) };
@@ -323,6 +327,10 @@
         p.reason=dv.getUint8(o); p.reasonName=TRADE_END[p.reason] || ('?'+p.reason); p.actorId=dv.getInt32(o+1,true); break;
       case MSG.S2C_TRADE_FAIL:
         p.reason=dv.getUint8(o); p.reasonName=TRADE_FAIL[p.reason] || ('?'+p.reason); break;
+      // ---- 겉모습 (USE_EQUIP) ----
+      //   ACTOR_LOOK 10B = actorId i32 · ActorLook(weaponItemId u16) — 칸이 늘면 readLook 한 곳
+      case MSG.S2C_ACTOR_LOOK:
+        p.actorId=dv.getInt32(o,true); p.look=readLook(dv, o+4); break;
       default: break; // ADMIN_* etc. — not needed for the view
     }
     return p;

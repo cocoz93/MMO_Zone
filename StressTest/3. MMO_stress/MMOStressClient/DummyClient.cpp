@@ -290,6 +290,9 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     case MsgType::S2C_TRADE_STATE:        return sizeof(MSG_S2C_TRADE_STATE);
     case MsgType::S2C_TRADE_END:          return sizeof(MSG_S2C_TRADE_END);
     case MsgType::S2C_TRADE_FAIL:         return sizeof(MSG_S2C_TRADE_FAIL);
+    // USE_EQUIP: 겉모습 — 더미는 무기를 안 끼지만, 무기를 든 사람이 곁에 나타나거나 곁에서 끼우고 벗으면 받는다(주변 방송).
+    //   ★ 빠뜨리면 그 순간 근처 더미가 전부 떨어진다(ACTOR_SPEED 와 같은 함정). 읽고 버린다(아래 default)
+    case MsgType::S2C_ACTOR_LOOK:         return sizeof(MSG_S2C_ACTOR_LOOK);
     default: return 0;
     }
 }
