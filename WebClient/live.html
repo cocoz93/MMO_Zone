@@ -139,6 +139,9 @@ const CAST_ANIM_LIFE = 0.7;                  // 주문 동작 그림(MON_META.ca
 const SPAWN_LIFE = 0.6;                      // 부활 섬광
 const FADE_LIFE = 0.5;                       // 죽은 채로 지워진 상대가 흐려지며 사라지는 시간(초)
 const DIE_FADE_LIFE = 0.4;                   // 쓰러지는 그림(ANIM.hurt)을 다 돈 뒤 시체 흐림(0.32)까지 옅어지는 시간 — 쓰러지는 동안은 진하게 보인다
+// 몬스터 동작(10-30) — 몬스터는 죽자마자 서버가 지우므로(DEATH 바로 뒤 DELETE) 시체를 남기지 않고 끝까지 옅어져 사라진다
+const MON_ATK_LIFE = 0.36;                   // 일반 공격 그림 — 뱀은 무는 장(MON_META.attack), 뱀왕은 주문 동작(cast)을 줄여서. 서버 공격 간격 0.48초보다 짧아야 공격마다 끊겨 보인다
+const MON_DIE_MS = 125;                      // 죽는 그림(MON_META.die — 뱀왕 쓰러짐 · 뱀 부스러짐) 장당 시간 — 사람 쓰러짐(anim.json hurt)과 같은 값. 다 돈 뒤 dieHoldMs 를 두고 DIE_FADE_LIFE 동안 0 까지 옅어진다
 const LEVELUP_LIFE = 1.6;                    // 레벨업 문구 표시 시간(초)
 // 경험치·레벨 (USE_EXP) — 본인 것만 서버가 보낸다. self 에 안 넣는 이유는 self 가
 //   존을 넘을 때 통째로 새로 만들어져서 레벨이 같이 날아가기 때문이다(서버가 다시 보내 주긴 한다).
@@ -432,7 +435,9 @@ function removeOther(id){
   const o=others.get(id); if(!o) return;     // 모르는 번호의 DELETE 는 버린다
   others.delete(id);
   if(o.look && o.look.weaponItemId) lookChanged();   // 무기 든 사람이 시야에서 빠졌다 — 검증용 속성도 따라 고친다
-  if(o.dead || monMeta(o)){ o.fadeT=FADE_LIFE; fading.set(id,o); }
+  // 죽는 중인 몬스터는 죽는 연출(monPose)이 끝날 때까지 두고 옅어짐도 그쪽이 맡는다(fadeLife 0 = 곱할 비율 없음)
+  if(o.dead && monMeta(o) && o.dieT>0){ o.fadeT=o.dieT; o.fadeLife=0; fading.set(id,o); }
+  else if(o.dead || monMeta(o)){ o.fadeT=FADE_LIFE; o.fadeLife=FADE_LIFE; fading.set(id,o); }
 }
 const stat = { count:{}, rate:{}, bytes:0, kbps:0, connected:false };
 function bump(name,n){ stat.count[name]=(stat.count[name]||0)+(n===undefined?1:n); }
@@ -464,6 +469,9 @@ function slashLen(){ const S=ANIM.slash; return S ? S.frames.length*S.frameMs/10
 // 쓰러지는 동작 한 번의 길이(초) · 그 뒤 옅어짐까지 더한 길이. 장면 표에 쓰러짐이 없으면 0(옛 그대로 바로 흐린 시체)
 function fallLen(){ const H=ANIM.hurt; return H ? H.frames.length*H.frameMs/1000 : 0; }
 function dieLen(){ return ANIM.hurt ? fallLen()+DIE_FADE_LIFE : 0; }
+// 몬스터가 죽는 연출 전체 길이(초) = 죽는 그림 + 다 돈 뒤 두는 시간(dieHoldMs) + 옅어짐.
+//   죽는 그림이 없는 몬스터는 0 — 옛 그대로 흐린 시체(0.32)였다가 삭제 뒤 FADE_LIFE 동안 흐려진다(removeOther)
+function monDieLen(m){ return m.die ? (m.die.length*MON_DIE_MS+(m.dieHoldMs||0))/1000+DIE_FADE_LIFE : 0; }
 const MBODY=['b_light','b_olive','b_amber','b_bronze','b_brown','b_green','b_zombie'];
 const MHEAD=['hd_light','hd_olive','hd_amber','hd_bronze','hd_brown','hd_green','hd_zombie']; // MBODY 와 같은 순서(피부톤 1:1)
 const MHAIR=['h_plain','h_spiked','h_afro','h_bedhead','h_long','h_messy1','h_mop','h_parted'];
@@ -501,15 +509,31 @@ function monMeta(o){
   const k=MON_SPRITE.get(o.defId);
   return (k && window.MON_META && MON_META[k]) ? Object.assign({kind:k}, MON_META[k]) : null;
 }
-// 몬스터 그림 열 — 주문 동작(스킬을 쓴 직후 CAST_ANIM_LIFE 동안) → 걷기 → 서 있음 순으로 고른다(경우가 셋이라 순서대로 return).
+// 몬스터 그림 열 — 주문 동작(스킬을 쓴 직후 CAST_ANIM_LIFE 동안) → 일반 공격(MON_ATK_LIFE 동안) → 걷기 → 서 있음 순으로 고른다(경우가 넷이라 순서대로 return).
 //   뱀은 walk[0] 이 서 있는 그림이고 주문 동작이 없다 · 뱀왕(사람형)은 idle(열 0)·cast(9~15)가 따로 있다 — 메타에 없으면 옛 그림 그대로
+//   일반 공격 = 무는 장(attack — 뱀)이 있으면 그 한 장, 없고 주문 동작이 있으면(뱀왕) 주문 동작을 MON_ATK_LIFE 에 맞춰 줄여 돈다(10-30 사용자 「주문공격만」)
 function monFrame(mon,o,t){
   if(mon.cast && o.castAnimT>0){
     const i=Math.floor((1-o.castAnimT/CAST_ANIM_LIFE)*mon.cast.length);
     return mon.cast[Math.min(mon.cast.length-1, Math.max(0,i))];
   }
+  if(o.atkT>0){
+    if(mon.attack!==undefined) return mon.attack;
+    if(mon.cast){ const i=Math.floor((1-o.atkT/MON_ATK_LIFE)*mon.cast.length); return mon.cast[Math.min(mon.cast.length-1, Math.max(0,i))]; }
+  }
   if(o.moveState===1) return mon.walk[Math.floor(t*8+(o.id||0))%mon.walk.length];
   return (mon.idle!==undefined) ? mon.idle : mon.walk[0];
+}
+// 몬스터 한 장 고르기(charPose 의 몬스터 몫)
+//   죽는 중이고 죽는 그림이 있으면(die — 뱀왕 쓰러짐 · 뱀 부스러짐) 장마다 MON_DIE_MS 로 한 번 돌고, 마지막 장을 dieHoldMs 동안 두었다가
+//     DIE_FADE_LIFE 동안 0 까지 옅어진다 · top = 그 장의 머리 끝(이름표를 내린다). 죽는 그림이 없으면 아래 살아 있는 길 그대로(흐린 시체는 drawChar)
+//   그 밖에는 monFrame · slashing = 공격 그림을 도는 중(휘두른 호를 안 그린다 — 사람 베기와 같은 규칙)
+function monPose(mon,o,row,t){
+  const sheet=sheetFor(o,row);
+  if(o.dead && mon.die){ const el=monDieLen(mon)-o.dieT, hold=(mon.die.length*MON_DIE_MS+(mon.dieHoldMs||0))/1000;
+    const k=Math.max(0,Math.min(mon.die.length-1,Math.floor(el*1000/MON_DIE_MS)));
+    return { sheet, frame:mon.die[k], top:mon.dieTop[k], alpha: el<hold ? 1 : 1-Math.min(1,(el-hold)/DIE_FADE_LIFE) }; }
+  return { sheet, frame:monFrame(mon,o,t), slashing: o.atkT>0 && (mon.attack!==undefined || !!mon.cast) };
 }
 function monSheetFor(meta,row){ const k=meta.kind+':'+row;
   const hit=MONSHEET.get(k); if(hit) return hit;
@@ -624,7 +648,7 @@ function onPacket(p){
     case P.MSG.S2C_ATTACK: {
       const a=actorOf(p.attackerId);
       // castSkill 을 지운다 — 뒤따르는 DAMAGE 는 일반 공격 결과다(서버가 ATTACK 을 먼저 보낸다: OnSwing → FindFrontTarget → ApplyHit)
-      if(a){ a.dir=p.direction; a.swingT=SWING_LIFE; a.atkT=slashLen(); a.castSkill=0; }   // 헛스윙도 온다 — 휘두르는 호 · 베는 동작을 그린다
+      if(a){ a.dir=p.direction; a.swingT=SWING_LIFE; a.atkT=monMeta(a) ? MON_ATK_LIFE : slashLen(); a.castSkill=0; }   // 헛스윙도 온다 — 휘두르는 호 · 베는(몬스터는 무는·주문) 동작을 그린다
       break; }
     case P.MSG.S2C_DAMAGE: {
       const a=actorOf(p.targetId);
@@ -635,7 +659,7 @@ function onPacket(p){
       break; }
     case P.MSG.S2C_DEATH: {
       const a=actorOf(p.targetId);
-      if(a){ a.dead=true; a.hp=0; a.moveState=0; a.atkT=0; a.dieT=dieLen(); }   // 베던 중이어도 쓰러짐이 이긴다
+      if(a){ const m=monMeta(a); a.dead=true; a.hp=0; a.moveState=0; a.atkT=0; a.dieT=m ? monDieLen(m) : dieLen(); }   // 베던 중이어도 쓰러짐이 이긴다
       break; }
     case P.MSG.S2C_RESPAWN: {
       const a=actorOf(p.targetId);
@@ -1041,7 +1065,7 @@ function drawProp(pr){
 // fade = 흐려지며 사라지는 중인 상대의 남은 비율(1 → 0, fading 참조). 그림자·몸·이름표·막대가 같이 흐려진다.
 //   알파를 곱하지 않고 자리마다 값으로 넣는 이유 — 앞에서 그린 것이 알파를 1 로 안 돌려놓았어도 영향받지 않게.
 // 어떤 시트의 몇 번째 장인가 — 경우가 넷이라 차례대로 고른다:
-//   몬스터 = 걷기 시트 하나에서 monFrame(주문 동작 · 걷기 · 서 있음)
+//   몬스터 = 걷기 시트 하나에서 monPose(죽는 중 · 주문 동작 · 일반 공격 · 걷기 · 서 있음)
 //   쓰러진 사람 = 쓰러짐 시트(ANIM.hurt · 정면 한 줄)를 한 번 돌고 마지막 장에서 멈춘다. dieT 가 0 이면(이미 쓰러져 있던 시체) 바로 마지막 장.
 //     drop = 그 장에서 머리 끝이 내려간 px(이름표를 내린다) · alpha = 쓰러지는 동안 1 → 다 돌면 DIE_FADE_LIFE 동안 시체 흐림 0.32 로
 //   베는 중인 사람(atkT > 0) = 베기 시트를 장면 표(ANIM.slash)대로 한 번 — 걷던 중이어도 베기가 이긴다(서버도 이동을 안 막는다)
@@ -1049,7 +1073,7 @@ function drawProp(pr){
 //     서 있으면 숨쉬기 시트(ANIM.idle)의 loop 를 같은 식으로 되풀이 — 서 있는지는 서버가 준 moveState 그대로 · 쓰러진 사람은 숨 안 쉼
 //   베기·숨쉬기 그림이 없으면(장면 표·PNG 를 못 받음) 걷기 시트로 그린다(서 있으면 walk.idle 한 장)
 function charPose(o,row,t,mon){
-  if(mon) return { sheet:sheetFor(o,row), frame:monFrame(mon,o,t) };
+  if(mon) return monPose(mon,o,row,t);
   const H=ANIM.hurt;
   if(o.dead && H){ const sheet=sheetFor(o,0,'hurt');
     if(sheet){ const el=dieLen()-o.dieT, k=Math.max(0,Math.min(H.frames.length-1,Math.floor(el*1000/H.frameMs)));
@@ -1065,15 +1089,16 @@ function charPose(o,row,t,mon){
 function drawChar(o,isMe,t,fade=1){
   const row=rowOf(o.dir);
   const mon=monMeta(o);
-  const { sheet, frame, slashing, drop=0, alpha } = charPose(o,row,t,mon); if(!sheet) return;
+  const { sheet, frame, slashing, drop=0, alpha, top } = charPose(o,row,t,mon); if(!sheet) return;
   const px=sx(o.rx), py=sy(o.ry);
   const sc=(mon && mon.scale) || 1;   // 보스는 그림만 키운다 — 발 위치(py)는 그대로, 판정은 서버의 점
   const H0=3.0*ZOOM*sc, dw=H0, dh=H0;   // 몬스터도 같은 크기 — 시트 여백이 이미 뱀을 사람의 0.69배로 만든다
-  shadow(px,py,0.75*ZOOM*sc,fade);
+  const monA=(mon && alpha!==undefined) ? alpha : 1;   // 죽는 몬스터는 그림자·이름표·막대도 몸과 같이 옅어진다(사람 시체는 이름표를 남긴다)
+  shadow(px,py,0.75*ZOOM*sc,fade*monA);
   ctx.imageSmoothingEnabled=false;
 
-  // 휘두른 호는 캐릭터 뒤에 (앞에 두면 몸을 가린다) — 베는 그림이 도는 사람은 안 그린다(단검 그림에 궤적이 있어 두 겹이 된다 · 10-30 사진).
-  //   몬스터(물기)와 베기 그림을 못 받은 경우만 이 호로 「쳤다」를 보인다
+  // 휘두른 호는 캐릭터 뒤에 (앞에 두면 몸을 가린다) — 베는 그림이 도는 사람·무는/주문 그림이 도는 몬스터는 안 그린다(단검 그림에 궤적이 있어 두 겹이 된다 · 10-30 사진).
+  //   공격 그림이 없는 몬스터와 베기 그림을 못 받은 경우만 이 호로 「쳤다」를 보인다
   if(o.swingT>0 && !slashing) drawSwing(o,px,py);
 
   // 피격이면 붉게 물들이고 흔든다. 시체는 흐리게.
@@ -1094,10 +1119,10 @@ function drawChar(o,isMe,t,fade=1){
   //   높이는 "머리 끝 위 같은 간격" — 사람 머리 끝은 칸 안 y=12, 몬스터는 방향(행)마다 top 이 달라
   //   그만큼 내린다(뱀은 옆을 볼 때 머리가 6px 낮다).
   //   NPC 는 표의 이름(NPC 부류 값은 글리프가 없는 제어문자다) — 사람 이름표와 바탕색을 달리한다(누르면 말 걸기). 표를 못 받았으면 「NPC」
-  const ny = mon ? dy + dh*(mon.top[row]-12)/64 - 4 : py-dh*0.92-4 + dh*drop/64;   // 쓰러진 사람은 머리 끝이 내려간 만큼(drop) 내린다
+  const ny = mon ? dy + dh*((top!==undefined ? top : mon.top[row])-12)/64 - 4 : py-dh*0.92-4 + dh*drop/64;   // 쓰러진 사람은 머리 끝이 내려간 만큼(drop) 내린다 · 쓰러지는 몬스터는 그 장의 머리 끝(top)
   const isNpc = o.disp===P.DISPLAY_NPC, npc = isNpc ? npcOf(o) : null;
   const tag = mon ? mon.label : isNpc ? (npc ? npc.name : 'NPC') : String.fromCharCode(o.disp||63);
-  ctx.save(); ctx.globalAlpha=fade;       // 이름표·막대도 몸과 같이 흐려진다
+  ctx.save(); ctx.globalAlpha=fade*monA;  // 이름표·막대도 몸과 같이 흐려진다
   ctx.font = uiFont(12,600,!isNpc); ctx.textAlign='center';
   const nw=ctx.measureText(tag).width+12;
   ctx.fillStyle = o.dead ? 'rgba(80,24,24,.85)' : isMe ? 'rgba(40,90,60,.92)' : isNpc ? 'rgba(70,52,14,.88)' : 'rgba(18,26,18,.72)';
@@ -2182,7 +2207,7 @@ function render(t){
   const view=[];
   propsInView().forEach(pr=>view.push({y:pr.y,kind:'prop',pr}));
   others.forEach((o,id)=>{ if(near(o)) view.push({y:o.ry,kind:'char',o:Object.assign(o,{id}),isMe:false,fade:1}); });
-  fading.forEach((o,id)=>{ if(near(o)) view.push({y:o.ry,kind:'char',o:Object.assign(o,{id}),isMe:false,fade:o.fadeT/FADE_LIFE}); });
+  fading.forEach((o,id)=>{ if(near(o)) view.push({y:o.ry,kind:'char',o:Object.assign(o,{id}),isMe:false,fade:o.fadeLife ? o.fadeT/o.fadeLife : 1}); });
   if(self) view.push({y:self.ry,kind:'char',o:self,isMe:true,fade:1});
   view.sort((a,b)=>a.y-b.y);
   for(const it of view){ if(it.kind==='prop') drawProp(it.pr); else drawChar(it.o,it.isMe,t,it.fade); }
