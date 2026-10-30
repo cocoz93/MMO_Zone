@@ -67,5 +67,5 @@ Start-Process (Join-Path $here 'live.html')
 
 Write-Host ""
 Write-Host "준비 완료. 브라우저에서 캐릭터들이 움직이고 채팅이 흐르면 성공입니다."
-Write-Host "WASD/방향키로 내 캐릭터를 실제 서버에서 이동할 수 있습니다."
+Write-Host "방향키로 내 캐릭터를 실제 서버에서 이동할 수 있습니다."
 Write-Host "종료하려면:  stop.bat"

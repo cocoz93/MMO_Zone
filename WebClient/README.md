@@ -28,7 +28,7 @@ WS↔TCP 릴레이(`relay.js`, Node)를 두어 서버의 TCP 프로토콜을 그
 - 인코딩: `.ps1`=UTF-8 **BOM**(PS5.1 한글), `.bat`=**CP949 무BOM**(cmd 한글). 편집 시 유지할 것.
 
 ## 조작
-- **WASD / 방향키** — 내 캐릭터를 실제 서버에서 이동(서버 권위 위치로 렌더).
+- **방향키** — 내 캐릭터를 실제 서버에서 이동(서버 권위 위치로 렌더).
 - 좌상단 이름표(체력·마력·경험치) / 좌하단 주변 채팅(서버가 AOI = 내 섹터 ±1 로만 뿌린다) / 우하단 단축키 안내·미니맵.
 - **`** (숫자 1 왼쪽) — 서버 관측 표시 켜고 끄기: 우상단 **SERVER INTERNALS** 패널 + 땅 위 섹터 격자·번호. 평소엔 꺼져 있고, 주소에 `?server` 를 붙이면 켠 채 시작한다.
 - 게임 화면은 창 전체를 쓴다. 예전처럼 가운데 정사각형으로 보려면 주소에 `?square`(정사각형이면 화면 끝까지 서버가 알려 주는 범위 안이다).
@@ -36,7 +36,8 @@ WS↔TCP 릴레이(`relay.js`, Node)를 두어 서버의 TCP 프로토콜을 그
 - 물약은 칸을 **두 번 눌러** 쓴다(서버가 1초 대기시간을 건다). 체력이 가득하거나 쓰러져 있으면 안 줄고, 까닭이 `[System]` 으로 온다.
 - **Z** — 줍기. 뱀을 잡으면 드랍 표(`Run/bin/DropTable.csv`)대로 아이템이 발밑에 떨어진다. 가까이(2칸) 가서 Z 한 번에 가장 가까운 것 하나가 가방에 들어간다.
   막타 친 사람이 10초 먼저 주울 수 있고, 안 주우면 60초 뒤 사라진다. 가방이 차 있거나 남의 것이면 까닭이 `[System]` 으로 온다.
-- **C** — 상태창 열고 닫기(Esc 도 닫음). 레벨·체력·공격력·방어력·무기 칸. 공격력·방어력은 서버가 보낸 최종값(레벨 표 + 무기)이다.
+- **C** — 상태창 열고 닫기(Esc 도 닫음). 공격력·방어력·돈·무기 칸(레벨·체력·마력은 왼쪽 위 이름표에 있다). 가방 아래에 뜨고, 자리가 모자라면 가방 왼쪽.
+- 가방·상태창·파티 창은 제목 줄 오른쪽 **−** 단추로 제목 줄만 남기고 접고, **+** 로 펼친다. 키로 다시 열면 펼친 채로 열린다. 공격력·방어력은 서버가 보낸 최종값(레벨 표 + 무기)이다.
   가방 장비 탭의 무기를 **두 번 눌러** 끼우고(차 있으면 맞바꿈), 상태창 무기 칸을 **두 번 눌러** 벗는다(장비 탭 첫 빈 칸으로). 1초 대기 · 쓰러져 있거나 장비 탭이 가득하면 까닭이 `[System]` 으로 온다.
 - 운영자가 가방을 바로 채우기 — 주소에 `?admin=키` 를 붙여 운영자로 들어온 뒤 채팅창에 `/item <아이템번호> [개수]`.
   `/` 로 시작하는 채팅은 방송되지 않고 서버 명령으로 처리되며, 답은 채팅 칸에 `[System]` 으로 온다.
@@ -52,9 +53,10 @@ WS↔TCP 릴레이(`relay.js`, Node)를 두어 서버의 TCP 프로토콜을 그
 | `assets/items.js` | 아이템 그림 시트 — [LPC] Items and game effects(512×512, 32px 칸 16×16), base64. 크레딧: Reemax(Tuomo Untinen) 외 — 원문 `assets/items_credits.txt` (CC-BY-SA 3.0 / GPL 3.0 / GPL 2.0, https://opengameart.org/content/lpc-items-and-game-effects) |
 | `assets/assetsB.js` | LPC 스프라이트/타일(base64). 크레딧: LPC — Sharm·Redshrike·Mandi Paugh·William.Thompsonj (CC-BY-SA) |
 | `assets/monsters.js` | 몬스터 그림(base64) — 뱀·구렁이("[LPC] Monsters" — Charles Sanchez (CharlesGabriel)·bagzie·bluecarrot16, CC-BY-SA 3.0 / GPL 3.0, https://opengameart.org/content/lpc-monsters) · 뱀왕·가짜 뱀왕(LPC 캐릭터 생성기 층을 겹친 사람형 16열 × 4행 — 도마뱀 머리·꼬리 · 도포 Luke Mehl · 지팡이 bluecarrot16 외, OGA-BY 3.0 / CC-BY-SA 3.0 / GPL 3.0 / CC-BY 4.0). 원문 `assets/monsters_credits.txt` |
-| `assets/lpc_layers.js` | 캐릭터 합성용 LPC 레이어(몸/머리/바지/상의/머리카락) 걸음 블록 576×256, base64. 크레딧: Universal LPC Spritesheet Character Generator (CC-BY-SA) |
+| `assets/lpc/` | 캐릭터 합성용 LPC 부위(몸/머리/바지/상의/머리카락) PNG — `<부위>_walk.png`(9장 × 4방향) · `<부위>_slash.png`(베기 6장 × 4방향) · `<부위>_idle.png`(숨쉬기 2장 × 4방향) · `weapon_<이름>_<동작>_<front\|behind>.png` + 장면 표 `anim.json`(C++ 클라용) · `anim.js`(웹 — 같은 값). **`tools/lpc/build.js` 가 만든다(손으로 고치지 말 것)**. 크레딧: Universal LPC Spritesheet Character Generator — 원문 `assets/lpc_credits.txt`(파일별 저자 · OGA-BY 3.0 / CC-BY-SA 3.0 / GPL 3.0 등) |
 | `assets/town.js` | 마을(맵 0) 그림 — 땅 아틀라스 + 층별 칸 번호 · 초가집 6꼴 · 장터 소품 · 자리 · 포털 돌 받침, base64. **`tools/town/build.js` 가 만든다(손으로 고치지 말 것)** — 배치는 `tools/town/town0.js`, 원본 그림은 `tools/town/src/`. 크레딧: [LPC] Terrains · [LPC] Medieval Village Decorations (CC-BY-SA 4.0 / 3.0) · [LPC] Thatched-roof Cottage · [LPC] Windows & Doors · LPC Base Assets (CC-BY-SA 3.0 / GPL 3.0) · Teleporter Circle — Clint Bellanger (CC-BY 3.0) — 원문 `assets/town_credits.txt` |
 | `fonts/galmuri/` | 캔버스 글꼴 Galmuri(픽셀) woff2 8벌 — Galmuri7·9·11·11 Bold·14 · GalmuriMono7·9·11 v2.40.3. 크레딧: Lee Minseo(quiple) — SIL OFL 1.1, 원문 `fonts/galmuri/LICENSE.txt` (https://github.com/quiple/galmuri). 크기 고르기는 `live.html` `uiFont()` |
+| `tools/lpc/` | 캐릭터 그림 만들기 — `node tools/lpc/fetch.js`(원본 받기 · 한 번 · 받은 커밋은 `src/SOURCE.txt`) → `node tools/lpc/build.js`(인터넷·크롬 필요 없음). 부위 표 `layers.js` · 색 대응표 `palettes.json`(원본 색 → 우리 색 — 옛 걷기 그림에서 뽑음, `make-palettes.js`) · PNG 읽기·쓰기 `png.js`(의존 없음) |
 | `tools/town/` | 마을 그림 만들기 — `node tools/town/build.js`(크롬 필요: 그림 오리기·합치기를 헤드리스 크롬 캔버스로). 집 다섯 꼴은 Cottage 팩 미리보기 그림에서 땅 색 픽셀을 지워 오려 낸 것 |
 
 ## 프로토콜 메모 (재구현 근거)
