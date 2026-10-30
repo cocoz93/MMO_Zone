@@ -29,10 +29,10 @@
 </head>
 <body>
 <div class="stage"><canvas id="v"></canvas><div class="conn" id="conn">연결 중…</div>
-<input id="chatbox" class="chatbox" maxlength="200" autocomplete="off" placeholder="Enter로 채팅 입력 · WASD로 이동 · Space로 공격"></div>
+<input id="chatbox" class="chatbox" maxlength="200" autocomplete="off" placeholder="Enter로 채팅 입력 · 방향키로 이동 · Space로 공격"></div>
 <script src="proto.js"></script>
 <script src="assets/assetsB.js"></script>
-<script src="assets/lpc_layers.js"></script>
+<script src="assets/lpc/anim.js"></script>
 <script src="assets/monsters.js"></script>
 <script src="assets/items.js"></script>
 <script src="assets/town.js"></script>
@@ -95,7 +95,9 @@ const VIEW_WIDE = !q.has('square');
 let W=0,H=0,DPR=1;
 let VX=0,VY=0,VW=0,VH=0;                    // 게임 화면(월드가 그려지는 영역) — 캔버스 px. 그 바깥은 여백
 let CHAT_W=400;                             // 채팅 패널·입력창 폭 — 왼쪽 여백이 좁으면 거기에 맞춰 줄인다
-const BANNER_H=104;                         // 왼쪽 위 이름표 높이(이름 줄 + 체력·마력·경험치 막대 세 줄) — 연결 표시·상태창이 이 아래에 놓인다
+// 오른쪽 아래 레이더 한 변 — 상태창이 가방 밑에 들어가나 볼 때도 쓴다. 138px 에선 점이 가운데에 뭉쳐 누가 어느 쪽인지 안 보였다(10-29 전후 캡처)
+const RADAR_S=176;
+const BANNER_H=104;                        // 왼쪽 위 이름표 높이(이름 줄 + 체력·마력·경험치 막대 세 줄) — 연결 표시·파티 창이 이 아래에 놓인다
 // 서버 관측 표시(오른쪽 위 SERVER INTERNALS 창 · 땅 위 섹터 격자·번호) — ` 키로 켜고 끈다.
 //   평소엔 끈다(게임 화면을 가리고 플레이에 쓰는 정보가 아니다). ?server 로 열면 켠 채 시작한다(시연용)
 let SHOW_SERVER = q.has('server');
@@ -149,7 +151,8 @@ const MONEY_DELTA_LIFE = 2.0;
 function fmtMoney(n){ return n===null ? '—' : Number(n).toLocaleString('ko-KR')+'전'; }
 // 가방 (USE_INVENTORY) — 본인 것만 온다. self 밖에 두는 이유는 me 와 같다(존을 넘을 때 self 가 새로 만들어진다).
 //   slots: 칸 번호 -> {id, c}. 서버가 보낸 칸의 "최종값"을 그대로 담는다 — 넣고 빼는 규칙은 클라가 모른다(판정은 서버).
-const bag = { slots:new Map(), open:false, tab:1, hover:null };
+//   fold = 제목 줄만 남기고 접었다(제목 줄 오른쪽 단추 — 게임 화면을 덜 가리게). 키로 다시 열면 펼친 채로 연다(접힌 채 열리면 연 것 같지 않다)
+const bag = { slots:new Map(), open:false, fold:false, tab:1, hover:null };
 const INV_TAB_NAMES = ['장비','소비','기타'];                           // P.INV_TAB_RANGES 순서
 const INV_TAB_FILE  = new Map([['equip',0],['use',1],['etc',2]]);       // 아이템 표의 tab 글자 → 탭 번호
 // 아이템 표 — 서버와 같은 파일(Run/bin/ItemTable.csv)을 serve.js 의 /data/ItemTable.csv 로 받는다(두 벌로 적지 않는다).
@@ -226,7 +229,7 @@ function portalInReach(){
 //   못 받으면 NPC 를 번호로 고른 사람 모양 · 이름표 「NPC」로 그리고 메뉴를 못 연다(어느 상점인지 모른다). 없다는 사실은 콘솔 경고와 data-shop 에 남는다.
 const NPCS = new Map();                                                 // npcId -> {mapId, x, y, radius, name, look, greeting, shopId}
 const SHOPS = new Map();                                                // shopId -> [{itemId, sells, buys}]
-// NPC 생김새 — NPC 표 look 칸 → 사람 겹 그림 조합(lpc_layers.js 의 이미 쓰는 겹 — 새로 그리지 않는다 · 플랜 「표」). 모르는 이름이면 번호로 고른 조합(사람과 같은 규칙)
+// NPC 생김새 — NPC 표 look 칸 → 사람 겹 그림 조합(assets/lpc/ 의 이미 쓰는 겹 — 새로 그리지 않는다 · 플랜 「표」). 모르는 이름이면 번호로 고른 조합(사람과 같은 규칙)
 const NPC_LOOK = {
   butcher:   ['b_bronze','hd_bronze','l_leather','t_red','h_plain'],        // 푸줏간 주인 — 붉은 웃옷 · 가죽 바지
   innkeeper: ['bf_amber','hd_f_amber','lf_rose','tf_rose','hf_braid'],      // 주막 주모 — 땋은 머리
@@ -314,15 +317,15 @@ let adminSent = false;
 function bagChanged(){
   let n=0, total=0, worn=0;   // 개수 합 — 물약을 쓰면 칸 수는 그대로이고 이것만 준다
   bag.slots.forEach((e,slot)=>{ if(slot>=P.EQUIP_SLOT.WEAPON) worn++; else { n++; total+=e.c; } });
-  document.documentElement.setAttribute('data-bag', JSON.stringify({ open:bag.open, tab:bag.tab, n, total, worn, items:ITEMS.size, sheet:!!ITEM_SHEET }));
+  document.documentElement.setAttribute('data-bag', JSON.stringify({ open:bag.open, fold:bag.fold, tab:bag.tab, n, total, worn, items:ITEMS.size, sheet:!!ITEM_SHEET }));
   statsChanged();   // 무기 칸이 바뀌면 상태창 요약도 바뀐다
 }
 // 상태창 (USE_COMBAT · USE_EQUIP) — C 키로 열고 닫는다. 값은 me(레벨·공격·방어) · self(체력·마력) · bag.slots 900(무기 칸).
-const stw = { open:false, hover:false };
+const stw = { open:false, fold:false, hover:false };   // fold = 가방과 같다
 // 헤드리스 검증용 — 상태창 요약(data-bag 과 같은 자리). 마력은 내 액터(self)에 있다 — S2C_ACTOR_MP 가 번호로 찾아 담는다
 function statsChanged(){
   const w=bag.slots.get(P.EQUIP_SLOT.WEAPON);
-  document.documentElement.setAttribute('data-stats', JSON.stringify({ open:stw.open, attack:me.attack, defense:me.defense, weapon:w?w.id:0,
+  document.documentElement.setAttribute('data-stats', JSON.stringify({ open:stw.open, fold:stw.fold, attack:me.attack, defense:me.defense, weapon:w?w.id:0,
     mp:self?self.mp:null, maxMp:self?self.maxMp:null }));
 }
 // 아이템 쓰기 거절 사유(P.USE_FAIL 이름) → 채팅 칸 [System] 문구
@@ -343,10 +346,10 @@ const EQUIP_FAIL_TEXT = {
 //   menu = 화면에서 캐릭터를 눌러 연 메뉴 — {id, x, y}(화면 px). 캐릭터에 이름이 없어 고르기는 누르기뿐이다(Protocol.h 파티 절)
 //   open = P 키로 연 관리 창(파티원 줄 옆 넘기기·내보내기, 아래 나가기·해산). 닫혀 있어도 파티에 들면 작은 목록이 늘 뜬다
 //   self 밖에 두는 이유는 me·bag 과 같다 — 존을 넘을 때 self 가 새로 만들어지는데 파티는 존을 넘는다.
-const party = { info:null, ask:null, menu:null, open:false, hover:null, lastNotice:null, sent:0 };
+const party = { info:null, ask:null, menu:null, open:false, fold:false, hover:null, lastNotice:null, sent:0 };   // fold = 가방과 같다(목록·관리 창 둘 다 접힌다)
 // 헤드리스 검증용 — 파티 요약(data-bag 과 같은 자리)
 function partyChanged(){
-  document.documentElement.setAttribute('data-party', JSON.stringify({ open:party.open,
+  document.documentElement.setAttribute('data-party', JSON.stringify({ open:party.open, fold:party.fold,
     partyId: party.info ? party.info.partyId : 0, leader: party.info ? party.info.leaderId : 0,
     members: party.info ? party.info.members.map(m=>[m.actorId, m.level, m.hp, m.maxHp, m.mapId]) : [],
     ask: party.ask ? { id:party.ask.requestId, kind:party.ask.kind, from:party.ask.from.actorId, about:party.ask.about.actorId } : null,
@@ -413,7 +416,8 @@ const PICKUP_FAIL_TEXT = {
 //   mp·maxMp(USE_SKILL) — S2C_ACTOR_MP 가 채운다. 본인 것만 오므로 남의 액터는 null 그대로다(남의 마력은 안 그린다). null = 아직 한 장도 못 받음
 //   buffs(USE_COMBAT) — S2C_ACTOR_BUFF 가 채우는 Map(종류 → {value, until}). 본인 것만 오므로 남의 액터는 null 그대로다(남의 효과는 안 그린다)
 //   castSelf — 자신(target=self) 시전 표시(발밑 고리 · castT 동안). castCells(칸 깔기)와 둘 중 하나만 켜진다
-const COMBAT_INIT = () => ({ hp:null, maxHp:null, mp:null, maxMp:null, hitT:0, hitDmg:0, swingT:0, spawnT:0, castSkill:0, skillHitT:0, castT:0, castCells:null, castSelf:false, buffs:null, dead:false });
+//   atkT — 베는 동작의 남은 시간(초). 공격·앞/범위 스킬 시전 때 slashLen() 으로 채운다(그리기는 charPose)
+const COMBAT_INIT = () => ({ hp:null, maxHp:null, mp:null, maxMp:null, hitT:0, hitDmg:0, swingT:0, atkT:0, spawnT:0, castSkill:0, skillHitT:0, castT:0, castCells:null, castSelf:false, buffs:null, dead:false });
 // 죽은 채로 지워진 상대 — 그리기만 한다. id -> others 에 있던 그 객체 + fadeT.
 //   서버는 몬스터가 죽는 순간 지우고 DEATH 바로 뒤에 DELETE 를 보낸다(10-09) — 시체는 이 연출뿐이다.
 //   DELETE 에 사유 칸이 없어 「죽어 있었나(dead)」로 가른다. 살아 있던 사람(시야 밖으로 나감·퇴장)은 바로 지운다.
@@ -425,6 +429,7 @@ const fading = new Map();
 function removeOther(id){
   const o=others.get(id); if(!o) return;     // 모르는 번호의 DELETE 는 버린다
   others.delete(id);
+  if(o.look && o.look.weaponItemId) lookChanged();   // 무기 든 사람이 시야에서 빠졌다 — 검증용 속성도 따라 고친다
   if(o.dead || monMeta(o)){ o.fadeT=FADE_LIFE; fading.set(id,o); }
 }
 const stat = { count:{}, rate:{}, bytes:0, kbps:0, connected:false };
@@ -433,7 +438,27 @@ setInterval(()=>{ stat.rate=stat.count; stat.count={}; stat.kbps=stat.bytes/1024
 
 // ---- 캐릭터 외형 합성 (서버는 캐릭터 타입을 저장 안 함 → playerId에서 유도) ----
 // LPC 레이어(몸/머리/바지/상의/머리카락)를 겹쳐 조합. 조합별 1회만 오프스크린에 구워 캐시 → 매 프레임은 1 draw.
-const LAYER = {};                                   // name -> Image (걷기블록 576x256: up/left/down/right x 9프레임)
+// 그림 = assets/lpc/<부위>_<동작>.png(tools/lpc/build.js 가 만든다) · 동작마다 시트 하나(줄 = 위·왼·아래·오른, 칸 64px, 열 수는 장면 표 LPC_ANIM)
+//   장면 표(assets/lpc/anim.js)를 못 받으면 옛 걷기 규격(9열)으로 두고 걷기만 읽는다 — 동작 그림이 없으면 그 동작을 안 그린다
+const ANIM = window.LPC_ANIM || { frame:64, walk:{ cols:9, idle:0, loop:[1,2,3,4,5,6,7,8], frameMs:125 } };
+if(!window.LPC_ANIM) console.warn('[asset] assets/lpc/anim.js 를 못 받았다 — 걷기만 그린다');
+const LPC_ANIMS = Object.keys(ANIM).filter(k=>ANIM[k] && ANIM[k].cols);   // 그림이 있는 동작(walk · slash · idle)
+const LAYER = Object.fromEntries(LPC_ANIMS.map(a=>[a,{}]));                 // 동작 -> 부위 이름 -> Image
+// 무기 그림 — 동작 -> 겉모습 이름(ItemTable.csv look 칸 · 장면 표 weapons) -> {front, behind}. behind = 몸 뒤에 깔리는 몫(위를 볼 때 칼이 몸에 가린다)
+const WEAPON_IMG = Object.fromEntries(LPC_ANIMS.map(a=>[a,{}]));
+// 이 캐릭터가 손에 든 무기의 겉모습 이름 — 없으면 ''. 경우가 셋이라 차례대로:
+//   나 = 가방 착용 칸(900 — 서버가 내 겉모습은 안 보낸다 · Protocol.h 겉모습 절) · 남 = S2C_ACTOR_LOOK 이 담은 번호(o.look) · 몬스터·NPC = 늘 맨손(서버가 안 보낸다)
+//   번호 → 그림 이름은 아이템 표 look 칸(표를 못 받았으면 '' — 맨손으로 그린다)
+// 헤드리스 검증용 — 남 중 무기를 든 사람 [번호, 무기 아이템 번호](data-bag 과 같은 자리). 받을 때마다 쓴다
+function lookChanged(){ const a=[]; others.forEach((o,id)=>{ if(o.look && o.look.weaponItemId) a.push([id, o.look.weaponItemId]); });
+  document.documentElement.setAttribute('data-look', JSON.stringify(a)); }
+function weaponLookOf(o){
+  const id = (o===self) ? ((bag.slots.get(P.EQUIP_SLOT.WEAPON)||{}).id||0) : ((o.look && o.look.weaponItemId)||0);
+  const it = id ? ITEMS.get(id) : null;
+  return (it && it.look) || '';
+}
+// 베는 동작 한 번의 길이(초) = 장 수 × 장당 시간. 장면 표에 베기가 없으면 0(안 벤다)
+function slashLen(){ const S=ANIM.slash; return S ? S.frames.length*S.frameMs/1000 : 0; }
 const MBODY=['b_light','b_olive','b_amber','b_bronze','b_brown','b_green','b_zombie'];
 const MHEAD=['hd_light','hd_olive','hd_amber','hd_bronze','hd_brown','hd_green','hd_zombie']; // MBODY 와 같은 순서(피부톤 1:1)
 const MHAIR=['h_plain','h_spiked','h_afro','h_bedhead','h_long','h_messy1','h_mop','h_parted'];
@@ -454,7 +479,7 @@ function comboFor(id){ id=id>>>0;
 }
 // 조합은 최대 2337가지(남 7×8×6×6 + 여 4×5×4×4 + 스켈레톤). 통째로(576x256=590KB) 캐시하면
 // 시야를 스쳐간 사람이 쌓일수록 캔버스가 무제한 누적된다 → 방향 1줄(576x64)만 굽고 최근 사용 N개로 상한.
-const SHEETC = new Map();                            // '조합키:행' -> 구운 캔버스(576x64)
+const SHEETC = new Map();                            // '조합키:동작:행' -> 구운 캔버스(걷기 576x64 · 베기 384x64 · 숨쉬기 128x64)
 const SHEET_CACHE_MAX = 256;                         // 576×64×4B ≈ 147KB × 256 ≈ 37MB 상한
 function rowOf(dir){ return dir===1?0 : dir===3?1 : dir===4?3 : 2; }  // UP/LEFT/RIGHT else DOWN
 
@@ -490,12 +515,20 @@ function monSheetFor(meta,row){ const k=meta.kind+':'+row;
 
 // NPC 는 표의 생김새(NPC_LOOK) — 조합 열쇠를 「npc:생김새」로 둬 사람 조합 캐시와 같은 길로 굽는다. 모르는 생김새 · 표를 못 받음이면 번호로 고른 조합
 function npcCombo(o){ const n=npcOf(o), L=n && NPC_LOOK[n.look]; return L ? { key:'npc:'+n.look, L } : null; }
-function sheetFor(o,row){ const m=monMeta(o); if(m) return monSheetFor(m,row);
-  const c=npcCombo(o) || comboFor(o.id||0), k=c.key+':'+row;
+// anim = 동작(walk · slash) — 사람만 동작마다 시트가 따로다(몬스터는 걷기 시트 하나). 그 동작 그림이 하나도 없으면 null(부르는 쪽이 걷기로 그린다)
+function sheetFor(o,row,anim='walk'){ const m=monMeta(o); if(m) return monSheetFor(m,row);
+  const A=ANIM[anim], imgs=LAYER[anim]; if(!A || !imgs) return null;
+  // 무기도 같이 굽는다 — 피격 물들이기·흐려지기가 몸과 한 장으로 걸리게(따로 그리면 칼만 안 물든다). 열쇠에 무기 이름
+  const wl=weaponLookOf(o), wp=wl ? WEAPON_IMG[anim][wl] : null;
+  const c=npcCombo(o) || comboFor(o.id||0), k=c.key+':'+anim+':'+row+':'+(wp ? wl : '');
   const hit=SHEETC.get(k);
   if(hit){ SHEETC.delete(k); SHEETC.set(k,hit); return hit; }                          // 재삽입 = 최근 사용 갱신
-  const cv=document.createElement('canvas'); cv.width=576; cv.height=64; const cx=cv.getContext('2d');
-  for(const name of c.L){ const im=LAYER[name]; if(im) cx.drawImage(im, 0,row*64,576,64, 0,0,576,64); } // z순서: 몸→머리→바지→상의→머리카락
+  if(!c.L.some(n=>imgs[n])) return null;
+  const F=ANIM.frame, w=A.cols*F;
+  const cv=document.createElement('canvas'); cv.width=w; cv.height=F; const cx=cv.getContext('2d');
+  if(wp && wp.behind) cx.drawImage(wp.behind, 0,row*F,w,F, 0,0,w,F);                   // 무기 뒤 몫 — 몸 아래
+  for(const name of c.L){ const im=imgs[name]; if(im) cx.drawImage(im, 0,row*F,w,F, 0,0,w,F); } // z순서: 몸→머리→바지→상의→머리카락
+  if(wp && wp.front) cx.drawImage(wp.front, 0,row*F,w,F, 0,0,w,F);                     // 무기 앞 몫 — 맨 위
   SHEETC.set(k,cv);
   if(SHEETC.size>SHEET_CACHE_MAX) SHEETC.delete(SHEETC.keys().next().value);           // 가장 오래 안 쓴 것부터 버림
   return cv; }
@@ -586,7 +619,7 @@ function onPacket(p){
     case P.MSG.S2C_ATTACK: {
       const a=actorOf(p.attackerId);
       // castSkill 을 지운다 — 뒤따르는 DAMAGE 는 일반 공격 결과다(서버가 ATTACK 을 먼저 보낸다: OnSwing → FindFrontTarget → ApplyHit)
-      if(a){ a.dir=p.direction; a.swingT=SWING_LIFE; a.castSkill=0; }   // 헛스윙도 온다 — 휘두르는 호를 그린다
+      if(a){ a.dir=p.direction; a.swingT=SWING_LIFE; a.atkT=slashLen(); a.castSkill=0; }   // 헛스윙도 온다 — 휘두르는 호 · 베는 동작을 그린다
       break; }
     case P.MSG.S2C_DAMAGE: {
       const a=actorOf(p.targetId);
@@ -619,6 +652,7 @@ function onPacket(p){
         const selfCast = !!(s && s.target==='self');
         a.dir=p.direction; a.castSkill=selfCast ? 0 : p.skillId;
         a.castCells=null; a.castSelf=false;
+        if(!selfCast) a.atkT=slashLen();   // 앞·범위 스킬은 베는 동작 · 자기 시전(이중공격 · 몬스터 격노·되살리기)은 안 벤다
         if(s && s.target==='shape' && s.shape.length){ a.castT=CAST_LIFE; a.castCells=s.shape; }
         else if(selfCast){ a.castT=CAST_LIFE; a.castSelf=true; }
         const m=monMeta(a); if(m && m.cast) a.castAnimT=CAST_ANIM_LIFE;   // 주문 동작 그림이 있는 몬스터(뱀왕) — 걷던 중이어도 잠깐 손을 든다
@@ -716,12 +750,18 @@ function onPacket(p){
       tradeChanged(); break;
     // 거래창 전체(최종값) — 새 창이면 가방도 연다(가방 칸을 눌러 올린다)
     case P.MSG.S2C_TRADE_STATE:
-      if(!trade.win || trade.win.tradeId!==p.tradeId){ if(!bag.open){ bag.open=true; bag.hover=null; bagChanged(); } closeShop(); }
+      if(!trade.win || trade.win.tradeId!==p.tradeId){ if(!bag.open || bag.fold){ bag.open=true; bag.fold=false; bag.hover=null; bagChanged(); } closeShop(); }   // 접혀 있으면 펼친다(칸을 눌러 올린다)
       trade.win={ tradeId:p.tradeId, partner:p.partner, mine:p.mine, theirs:p.theirs }; trade.hover=null; tradeChanged(); break;
     case P.MSG.S2C_TRADE_END:
       trade.win=null; trade.hover=null; trade.lastEnd=p.reasonName; sysMsg(tradeEndText(p.reasonName, p.actorId)); tradeChanged(); break;
     case P.MSG.S2C_TRADE_FAIL:
       trade.lastFail=p.reasonName; sysMsg(TRADE_FAIL_TEXT[p.reasonName] || ('거래하지 못했습니다 ('+p.reasonName+')')); tradeChanged(); break;
+
+    // ---- 겉모습 (USE_EQUIP) — 남의 것만 온다(나는 가방 900 칸). 모르는 번호면 버린다(등장 뒤에 다시 온다 — Protocol.h 겉모습 절) ----
+    //   등장 엔트리에는 겉모습이 없어 새로 만든 상대는 look 이 null(맨손) — 겉모습이 있으면 등장 바로 뒤에 이 장이 온다
+    case P.MSG.S2C_ACTOR_LOOK: {
+      const o=others.get(p.actorId); if(o){ o.look=p.look; lookChanged(); }
+      break; }
   }
 }
 // 전투 패킷은 대상이 나일 수도 남일 수도 있다 — 한 곳에서 고른다.
@@ -731,13 +771,13 @@ function actorOf(id){
   return others.get(id) || null;
 }
 
-// ---- input: drive MY avatar on the real server (WASD / arrows) ----
+// ---- input: drive MY avatar on the real server (arrows) ----
 const keys=new Set(); let lastDir=P.DIR.DOWN, moving=false;
 function curDir(){
-  if(keys.has('w')||keys.has('arrowup')) return P.DIR.UP;
-  if(keys.has('s')||keys.has('arrowdown')) return P.DIR.DOWN;
-  if(keys.has('a')||keys.has('arrowleft')) return P.DIR.LEFT;
-  if(keys.has('d')||keys.has('arrowright')) return P.DIR.RIGHT;
+  if(keys.has('arrowup')) return P.DIR.UP;
+  if(keys.has('arrowdown')) return P.DIR.DOWN;
+  if(keys.has('arrowleft')) return P.DIR.LEFT;
+  if(keys.has('arrowright')) return P.DIR.RIGHT;
   return 0;
 }
 function sendMove(){
@@ -820,9 +860,9 @@ if(!SNAP){
     if(k===' '||e.code==='Space'){ if(!e.repeat) sendAttack(); e.preventDefault(); return; }
     // I = 가방 열고 닫기, Esc = 닫기. 채팅 입력 중엔 위 typing() 에서 이미 빠진다
     //   e.key 가 아니라 e.code 로 본다 — 한글 입력 상태에서는 e.key 가 'ㅑ' 가 된다
-    if(e.code==='KeyI' && !e.repeat){ bag.open=!bag.open; bag.hover=null; bagChanged(); e.preventDefault(); return; }
+    if(e.code==='KeyI' && !e.repeat){ bag.open=!bag.open; bag.fold=false; bag.hover=null; bagChanged(); e.preventDefault(); return; }
     // C = 상태창 열고 닫기 (I 와 같은 까닭으로 e.code)
-    if(e.code==='KeyC' && !e.repeat){ stw.open=!stw.open; stw.hover=false; statsChanged(); e.preventDefault(); return; }
+    if(e.code==='KeyC' && !e.repeat){ stw.open=!stw.open; stw.fold=false; stw.hover=false; statsChanged(); e.preventDefault(); return; }
     // Z = 줍기 — 고르는 건 서버(2칸 안에서 주울 수 있는 가장 가까운 것 하나). 누르고 있어도 한 번(e.repeat 무시)
     if(e.code==='KeyZ'){ if(!e.repeat) sendPickup(); e.preventDefault(); return; }
     // F = 상호작용 — 손이 닿는 가장 가까운 포털·NPC 하나(interact). I·C 와 같은 까닭으로 e.code — 누르고 있어도 한 번
@@ -833,14 +873,14 @@ if(!SNAP){
     // ` = 서버 관측 표시(서버 정보 창 · 섹터 격자) 켜고 끄기 (I·C 와 같은 까닭으로 e.code)
     if(e.code==='Backquote' && !e.repeat){ SHOW_SERVER=!SHOW_SERVER; e.preventDefault(); return; }
     // P = 파티 창(관리) 열고 닫기 (I·C 와 같은 까닭으로 e.code) — 파티가 없어도 열린다(맺는 법을 안내한다)
-    if(e.code==='KeyP' && !e.repeat){ party.open=!party.open; party.hover=null; partyChanged(); e.preventDefault(); return; }
+    if(e.code==='KeyP' && !e.repeat){ party.open=!party.open; party.fold=false; party.hover=null; partyChanged(); e.preventDefault(); return; }
     // Y·N = 받은 파티 요청에 수락·거절 — 요청 창이 떠 있을 때만(아니면 그냥 지나간다)
     if(party.ask && (e.code==='KeyY' || e.code==='KeyN')){ if(!e.repeat) partyAnswer(e.code==='KeyY'); e.preventDefault(); return; }
     // 받은 거래 신청도 Y·N — 파티 요청 창이 함께 떠 있으면 위 파티가 먼저(창 둘이 한 번에 답해지지 않게)
     if(trade.ask && (e.code==='KeyY' || e.code==='KeyN')){ if(!e.repeat) tradeAnswer(e.code==='KeyY'); e.preventDefault(); return; }
     if(k==='escape' && (bag.open || stw.open || party.open || party.menu || shop.mode)){   // 창을 다 닫는다(받은 요청 창은 답해야 닫힌다 — N 이 거절)
       bag.open=false; bag.hover=null; stw.open=false; stw.hover=false; party.open=false; party.menu=null; party.hover=null; closeShop(); bagChanged(); partyChanged(); return; }
-    if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k)){ if(!keys.has(k)){keys.add(k); sendMove();} e.preventDefault(); }});
+    if(['arrowup','arrowdown','arrowleft','arrowright'].includes(k)){ if(!keys.has(k)){keys.add(k); sendMove();} e.preventDefault(); }});
   addEventListener('keyup',e=>{ if(typing())return; const k=e.key.toLowerCase(); if(keys.delete(k)) sendMove(); });
   // Enter=채팅 열기, 채팅창 내 Enter=전송/Esc=취소
   addEventListener('keydown',e=>{ if(e.key==='Enter' && !typing()){ chatbox.focus(); e.preventDefault(); } });
@@ -859,8 +899,9 @@ if(!SNAP){
     shop.hover = su && su.btn ? su : null;
     const tu=tradeUiHit(e.offsetX,e.offsetY);   // 거래 창 단추도
     trade.hover = tu && tu.btn ? tu : null;
+    foldHover = foldHit(e.offsetX,e.offsetY);   // 접기 단추도
     cv.style.cursor = (h || s || pu || su || tu) ? 'default' : ''; });
-  cv.addEventListener('mouseleave',()=>{ bag.hover=null; stw.hover=false; party.hover=null; shop.hover=null; trade.hover=null; });
+  cv.addEventListener('mouseleave',()=>{ bag.hover=null; stw.hover=false; party.hover=null; shop.hover=null; trade.hover=null; foldHover=null; });
   // 누르기 — 위에 그려진 것부터: 받은 파티 요청 창 > 상점 창 > 캐릭터 메뉴·파티 창 > 가방(팔기 모드면 그 칸을 판다)·상태창 > 게임 화면.
   //   게임 화면을 누르면 그 자리의 NPC(말 걸기) 또는 사람 캐릭터(나·몬스터 빼고 — 파티 메뉴)를 고른다 — 10-17 전엔 창 밖 클릭이 아무 일도 안 했다(위 가방 주석).
   cv.addEventListener('mousedown',e=>{ if(e.button!==0) return;
@@ -871,6 +912,8 @@ if(!SNAP){
     if(tu){ tradeClick(tu); return; }                        // 받은 거래 신청 창 · 거래 창
     const su=shopUiHit(x,y);
     if(su){ shopClick(su); return; }
+    const fk=foldHit(x,y);                                   // 가방·상태창·파티 창 제목 줄의 접기 단추 — 그 창의 다른 누르기보다 먼저
+    if(fk){ toggleFold(fk); return; }
     if(pu){ partyClick(pu); return; }
     if(bag.open){ const h=bagHit(x,y);
       if(h){ if(trade.win && h.slot!==undefined && bag.slots.has(h.slot)) tradeOffer(h.slot, e.shiftKey);       // 거래창이 열렸으면 누르기가 올리기
@@ -992,21 +1035,34 @@ function drawProp(pr){
 
 // fade = 흐려지며 사라지는 중인 상대의 남은 비율(1 → 0, fading 참조). 그림자·몸·이름표·막대가 같이 흐려진다.
 //   알파를 곱하지 않고 자리마다 값으로 넣는 이유 — 앞에서 그린 것이 알파를 1 로 안 돌려놓았어도 영향받지 않게.
+// 어떤 시트의 몇 번째 장인가 — 경우가 셋이라 차례대로 고른다:
+//   몬스터 = 걷기 시트 하나에서 monFrame(주문 동작 · 걷기 · 서 있음)
+//   베는 중인 사람(atkT > 0) = 베기 시트를 장면 표(ANIM.slash)대로 한 번 — 걷던 중이어도 베기가 이긴다(서버도 이동을 안 막는다)
+//   그 밖의 사람 = 걸으면 걷기 시트의 loop 를 장당 frameMs 로 돌고(번호마다 어긋나게 id 를 더한다),
+//     서 있으면 숨쉬기 시트(ANIM.idle)의 loop 를 같은 식으로 되풀이 — 서 있는지는 서버가 준 moveState 그대로 · 쓰러진 사람은 숨 안 쉼
+//   베기·숨쉬기 그림이 없으면(장면 표·PNG 를 못 받음) 걷기 시트로 그린다(서 있으면 walk.idle 한 장)
+function charPose(o,row,t,mon){
+  if(mon) return { sheet:sheetFor(o,row), frame:monFrame(mon,o,t) };
+  const S=ANIM.slash;
+  if(o.atkT>0 && S){ const sheet=sheetFor(o,row,'slash');
+    if(sheet){ const i=Math.floor((slashLen()-o.atkT)*1000/S.frameMs); return { sheet, frame:S.frames[Math.max(0,Math.min(S.frames.length-1,i))], slashing:true }; } }
+  const W=ANIM.walk, I=ANIM.idle, step=A=>A.loop[Math.floor(t*1000/A.frameMs+(o.id||0))%A.loop.length];
+  if(o.moveState!==1 && !o.dead && I){ const sheet=sheetFor(o,row,'idle'); if(sheet) return { sheet, frame:step(I) }; }
+  return { sheet:sheetFor(o,row), frame: o.moveState===1 ? step(W) : W.idle };
+}
 function drawChar(o,isMe,t,fade=1){
   const row=rowOf(o.dir);
-  const sheet=sheetFor(o, row); if(!sheet) return;
-  const px=sx(o.rx), py=sy(o.ry);
   const mon=monMeta(o);
+  const { sheet, frame, slashing } = charPose(o,row,t,mon); if(!sheet) return;
+  const px=sx(o.rx), py=sy(o.ry);
   const sc=(mon && mon.scale) || 1;   // 보스는 그림만 키운다 — 발 위치(py)는 그대로, 판정은 서버의 점
   const H0=3.0*ZOOM*sc, dw=H0, dh=H0;   // 몬스터도 같은 크기 — 시트 여백이 이미 뱀을 사람의 0.69배로 만든다
-  // 걷기 프레임: 사람은 LPC 9열 중 1~8, 몬스터는 메타의 walk 목록을 돈다(뱀 0~3 · 뱀왕 1~8) — 몬스터는 monFrame(주문 동작 · 서 있음까지)
-  const frame = mon
-    ? monFrame(mon,o,t)
-    : ((o.moveState===1)?(1+Math.floor(t*8+(o.id||0))%8):0);
   shadow(px,py,0.75*ZOOM*sc,fade);
   ctx.imageSmoothingEnabled=false;
 
-  if(o.swingT>0) drawSwing(o,px,py);      // 휘두른 호는 캐릭터 뒤에 (앞에 두면 몸을 가린다)
+  // 휘두른 호는 캐릭터 뒤에 (앞에 두면 몸을 가린다) — 베는 그림이 도는 사람은 안 그린다(단검 그림에 궤적이 있어 두 겹이 된다 · 10-30 사진).
+  //   몬스터(물기)와 베기 그림을 못 받은 경우만 이 호로 「쳤다」를 보인다
+  if(o.swingT>0 && !slashing) drawSwing(o,px,py);
 
   // 피격이면 붉게 물들이고 흔든다. 시체는 흐리게.
   //   점멸(알파)만으로는 정지 화면에서 맞은 티가 거의 안 났다 — 실제로 캡처해 보고 알았다.
@@ -1256,12 +1312,45 @@ function panel(x,y,w,h){
   ctx.strokeStyle='rgba(214,182,112,.70)'; rr(x+.5,y+.5,w-1,h-1,8); ctx.stroke();
   ctx.strokeStyle='rgba(0,0,0,.55)'; rr(x+1.5,y+1.5,w-3,h-3,7); ctx.stroke();
 }
+// 접기 단추 — 가방·상태창·파티 창 제목 줄 오른쪽 끝. 접으면 제목 줄(FOLD_H)만 남아 게임 화면을 덜 가린다.
+//   그리기(drawFoldBtn)와 누르기(foldHit)가 같은 자리 계산(foldBtnRect)을 쓴다 — 창 자리 계산(…Layout)과 같은 꼴
+const FOLD_H=32, FOLD_BTN=18;
+function foldBtnRect(px,py,pw){ return { x:px+pw-10-FOLD_BTN, y:py+7, w:FOLD_BTN, h:FOLD_BTN }; }
+let foldHover=null;   // 마우스가 올라간 접기 단추 — 'bag' | 'stw' | 'party' | null
+function drawFoldBtn(px,py,pw,folded,key){
+  const r=foldBtnRect(px,py,pw), on=foldHover===key;
+  ctx.fillStyle = on ? 'rgba(214,182,112,.30)' : 'rgba(255,255,255,.06)'; rr(r.x+.5,r.y+.5,r.w-1,r.h-1,3); ctx.fill();
+  ctx.strokeStyle = on ? 'rgba(214,182,112,.85)' : 'rgba(214,182,112,.40)'; ctx.lineWidth=1; ctx.stroke();
+  // 기호는 선으로 긋는다 — 글꼴의 「−」「+」는 크기마다 높이가 달라 칸 가운데에 안 선다. 펼침 = −(접기) · 접힘 = +(펼치기)
+  const cx=Math.round(r.x+r.w/2)+.5, cy=Math.round(r.y+r.h/2)+.5;
+  ctx.strokeStyle='#ffe9b8'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(cx-4,cy); ctx.lineTo(cx+4,cy);
+  if(folded){ ctx.moveTo(cx,cy-4); ctx.lineTo(cx,cy+4); }
+  ctx.stroke(); ctx.lineWidth=1;
+  return r.x;   // 단추 왼쪽 끝 — 제목 줄 안내 글자(「I 키로 닫기」 등)를 그 앞에 붙인다
+}
+// 그 자리의 접기 단추 — 지금 보이는 창 것만. 없으면 null
+function foldHit(x,y){
+  if(bag.open){ const L=bagLayout(); if(inRect(x,y,foldBtnRect(L.px,L.py,L.pw))) return 'bag'; }
+  if(stw.open){ const L=statusLayout(); if(inRect(x,y,foldBtnRect(L.px,L.py,L.pw))) return 'stw'; }
+  const L=partyLayout(); if(L && inRect(x,y,foldBtnRect(L.px,L.py,L.pw))) return 'party';
+  return null;
+}
+function toggleFold(k){
+  switch(k){
+    case 'bag':   bag.fold=!bag.fold; bag.hover=null; bagChanged(); break;
+    case 'stw':   stw.fold=!stw.fold; stw.hover=false; statsChanged(); break;
+    case 'party': party.fold=!party.fold; party.hover=null; partyChanged(); break;
+  }
+}
 function drawHUD(){
   // player banner (top-left) — 이름 · 레벨 · 맵 한 줄, 그 아래 체력 · 마력 · 경험치 막대 세 줄.
   //   값이 아직 안 왔으면(입장 직후 · 스킬을 끈 서버의 마력) 막대를 비우고 숫자 자리에 「—」 — 줄이 들쭉날쭉 움직이지 않게 높이는 늘 같다
   panel(14,14,220,BANNER_H);
-  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(15,600); ctx.fillText('주우진', 26, 36);
-  if(me.level!==null){ ctx.fillStyle='#cfe8c8'; ctx.font=uiFont(11,600,true); ctx.fillText('Lv.'+me.level, 88, 35); }
+  // 이름 = 머리 위 이름표와 같은 글자(서버가 준 표시 글자 — 캐릭터 이름 칸은 아직 없다). 내 캐릭터가 생기기 전엔 비운다 · 레벨은 이름 바로 뒤
+  const myName = self ? String.fromCharCode(self.disp||63) : '';
+  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(15,600); ctx.fillText(myName, 26, 36);
+  const lvX = 26 + (myName ? ctx.measureText(myName).width + 10 : 0);
+  if(me.level!==null){ ctx.fillStyle='#cfe8c8'; ctx.font=uiFont(11,600,true); ctx.fillText('Lv.'+me.level, lvX, 35); }
   // 어느 맵인가 — 맵 표의 kind(마을·던전)와 채널. 표를 못 받았으면 번호만
   const mk=(MAPS.get(ZONE.mapId)||{}).kind, mapTxt = ZONE.mapId<0 ? '' : (mk==='town'?'마을':mk==='dungeon'?'던전':'맵 '+ZONE.mapId)+(ZONE.channel?' ch'+ZONE.channel:'');
   ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.75)'; ctx.font=uiFont(11); ctx.fillText(mapTxt, 222, 35); ctx.textAlign='left';
@@ -1333,12 +1422,14 @@ function drawHUD(){
   }
 
   // 로컬 레이더 (우하단) — 클라는 AOI만 받으므로 "세계지도"가 아니라 내 주변만 (맵핵 방지)
-  const ms=138, mx=W-14-ms, my=H-14-ms;
+  const ms=RADAR_S, mx=W-14-ms, my=H-14-ms;
   panel(mx,my,ms,ms);
   ctx.save(); rr(mx+3,my+3,ms-6,ms-6,8); ctx.clip();
   ctx.fillStyle='#233a2c'; ctx.fillRect(mx+3,my+3,ms-6,ms-6);
   const cxp=mx+ms/2, cyp=my+ms/2, s=ZONE.sectorSize;
-  const RANGE=s*2.5, sc=(ms-8)/(RANGE*2);          // 표시 반경(월드 단위) → px
+  // 표시 반경(월드 단위) → px. 섹터 2칸 = 서버가 알려 주는 범위(내 섹터 ±1)의 가장 먼 끝 — 섹터 끝에 서면 반대쪽이 섹터 2칸이다.
+  //   그 밖은 받는 것이 없어 늘 빈다(2.5칸일 때 바깥 고리가 비어 점이 뭉쳤다)
+  const RANGE=s*2.0, sc=(ms-8)/(RANGE*2);
   const ox=self?self.rx:ZONE.mapWidth/2, oy=self?self.ry:ZONE.mapHeight/2;
   // 로컬 섹터 그리드
   ctx.strokeStyle='rgba(120,220,210,.16)'; ctx.lineWidth=1;
@@ -1362,8 +1453,9 @@ function drawHUD(){
   // 단축키 안내 (레이더 왼쪽) — 창을 여는 키는 창을 열어야 「I 키로 닫기」로 보여서, 처음 온 사람은 찾을 길이 없었다
   const KEY_HELP=[['I','가방'],['C','상태창'],['P','파티'],['Z','줍기'],['F','말 걸기'],['`','서버 정보']];
   const kw=104, kx=mx-10-kw;
-  panel(kx,my,kw,ms);
-  KEY_HELP.forEach(([k,t],i)=>{ const y=my+22+i*20;
+  const kh=138, ky=H-14-kh;   // 높이는 여섯 줄에 맞춘 그대로 — 레이더를 키워도 아래 끝만 맞춘다(같이 키우면 빈 줄이 생긴다)
+  panel(kx,ky,kw,kh);
+  KEY_HELP.forEach(([k,t],i)=>{ const y=ky+22+i*20;
     ctx.fillStyle='rgba(214,182,112,.25)'; rr(kx+10,y-12,18,16,3); ctx.fill();
     ctx.textAlign='center'; ctx.fillStyle='#ffe9b8'; ctx.font=uiFont(10,600,true); ctx.fillText(k, kx+19, y);
     ctx.textAlign='left'; ctx.fillStyle='rgba(220,230,215,.85)'; ctx.font=uiFont(10); ctx.fillText(t, kx+36, y); });
@@ -1386,8 +1478,8 @@ function drawHUD(){
   }
 
   drawSkillBar();   // 게임 화면 아래 가운데 — 상태창·가방 창보다 먼저(창이 겹치면 창이 위)
-  if(stw.open) drawStatus();   // 채팅 패널 뒤 — 창이 좁아 채팅 자리까지 내려와도 상태창이 위에 그려진다
-  drawPartyPanel();            // 상태창 아래(왼쪽) — 파티에 들면 늘, P 로 연 관리 창이면 파티가 없어도
+  if(stw.open) drawStatus();   // 오른쪽 위 가방 왼쪽 — 채팅 패널 뒤라 창이 낮아도 상태창이 위에 그려진다
+  drawPartyPanel();            // 이름표 아래(왼쪽) — 파티에 들면 늘, P 로 연 관리 창이면 파티가 없어도
   if(bag.open) drawBag();   // 맨 마지막 — 창이 낮아 레이더 자리까지 내려와도 가방이 위에 그려진다
   drawShop();               // 상점 창 — 게임 화면 위 가운데(가방과 안 겹친다). 받은 파티 요청 창이 같은 자리면 그 창이 위
   drawTrade();              // 거래 창 — 상점 창과 같은 자리(거래창이 열리면 상점을 닫는다)
@@ -1450,8 +1542,10 @@ const BAG_W=232, BAG_CELL=36, BAG_GAP=6, BAG_COLS=5;
 function bagLayout(){
   const tab=P.INV_TAB_RANGES[bag.tab], rows=Math.ceil(tab.n/BAG_COLS);
   const gridW=BAG_COLS*BAG_CELL+(BAG_COLS-1)*BAG_GAP, gridH=rows*BAG_CELL+(rows-1)*BAG_GAP;
-  const pw=BAG_W, ph=66+gridH+26;
-  const px=W-14-pw, py=Math.max(14, Math.min(SHOW_SERVER ? 14+195+12 : 14, H-14-ph));   // 창이 낮으면 위로 올려 화면 안에 둔다
+  const pw=BAG_W, fullH=66+gridH+26;
+  const px=W-14-pw, py=Math.max(14, Math.min(SHOW_SERVER ? 14+195+12 : 14, H-14-fullH));   // 창이 낮으면 위로 올려 화면 안에 둔다 — 접어도 같은 자리(펼칠 때 안 뛴다)
+  if(bag.fold) return {px,py,pw,ph:FOLD_H,tabs:[],cells:[]};                           // 접힘 — 제목 줄뿐(탭·칸이 없어 누를 것도 없다)
+  const ph=fullH;
   const tw=(pw-24-4*(INV_TAB_NAMES.length-1))/INV_TAB_NAMES.length;
   const tabs=INV_TAB_NAMES.map((_,i)=>({x:px+12+i*(tw+4), y:py+34, w:tw, h:22}));
   const gx=px+(pw-gridW)/2, gy=py+66, cells=[];
@@ -1497,7 +1591,9 @@ function drawBag(){
   const L=bagLayout(), px=L.px, py=L.py, pw=L.pw, ph=L.ph;
   panel(px,py,pw,ph);
   ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(13,600); ctx.fillText('가방', px+12, py+21);
-  ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(11); ctx.fillText('I 키로 닫기', px+pw-12, py+21);
+  const fx=drawFoldBtn(px,py,pw,bag.fold,'bag');
+  ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(11); ctx.fillText('I 키로 닫기', fx-8, py+21); ctx.textAlign='left';
+  if(bag.fold) return;   // 접힘 — 제목 줄뿐
   // 안쪽 부품(구분선·탭·칸)도 바깥 테두리(panel)와 같은 금색 계열 — 모서리는 바깥(8)보다 각지게(3)
   ctx.strokeStyle='rgba(214,182,112,.28)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(px+12,py+30.5); ctx.lineTo(px+pw-12,py+30.5); ctx.stroke();
   L.tabs.forEach((t,i)=>{ const on=i===bag.tab;
@@ -1568,14 +1664,23 @@ function drawItemTip(winX, y, e){
 function isEquipTabSlot(slot){ const r=P.INV_TAB_RANGES[INV_TAB_FILE.get('equip')]; return slot>=r.first && slot<r.first+r.n; }
 
 // ---- 상태창 (USE_COMBAT · USE_EQUIP) — 그리기와 마우스 판정이 같은 자리 계산(statusLayout)을 쓴다 ----
-//   자리 = 왼쪽 위, 이름표 아래. 옆 여백이 있으면 연결 표시(resize() 가 이름표 아래 12px 로 옮긴다, 높이 약 30) 아래 12px,
-//   없으면(여백 250px 미만 · 창 전체가 게임 화면) 연결 표시가 위 가운데로 가므로 이름표 바로 아래 12px. 모양은 다른 HUD 와 같은 panel().
-const ST_W=220, ST_ROW=22, ST_TOP=30, ST_CELL=40, ST_ROWS=6;   // 줄 = 레벨 · 체력 · 마력 · 공격력 · 방어력 · 돈
+//   자리 = 오른쪽 줄(가방과 같은 줄). 열고 닫는 창(상태·가방)은 오른쪽, 늘 떠 있는 것(이름표·파티·채팅)은 왼쪽 —
+//   왼쪽에 넷이 쌓이면 낮은 창에서 파티 창이 채팅을 덮었다(10-29 1280×720 캡처). 경우가 셋이라 차례대로 고른다:
+//   가방이 닫혀 있으면 가방 자리 · 열려 있으면 가방 바로 아래 12px · 아래가 레이더에 닿으면(창이 낮거나 서버 정보 창을 켜 가방이 내려감) 가방 왼쪽 12px.
+//   ★ 가방 높이는 탭마다 같다(탭 셋 다 20칸) — 아래 자리가 탭을 바꿔도 안 움직인다. 모양은 다른 HUD 와 같은 panel().
+//   ★ 크기 190×178(10-29 줄임 — 220×264 였다) — 레벨·체력·마력 줄은 왼쪽 위 이름표에 이미 있어 뺐다. 접으면(fold) 제목 줄(FOLD_H)만.
+const ST_W=190, ST_ROW=20, ST_TOP=30, ST_CELL=36, ST_ROWS=3;   // 줄 = 공격력 · 방어력 · 돈
 function statusLayout(){
-  const px=14, py=14+BANNER_H+12+((VX>=250) ? 42 : 0), pw=ST_W;
-  const ph=ST_TOP+12+ST_ROWS*ST_ROW+14+ST_CELL+12+24;
-  const cy=py+ST_TOP+12+ST_ROWS*ST_ROW+14;
-  return { px, py, pw, ph, cell:{ x:px+14, y:cy, w:ST_CELL, h:ST_CELL } };
+  const B=bagLayout(), pw=ST_W, ph=stw.fold ? FOLD_H : ST_TOP+10+ST_ROWS*ST_ROW+10+ST_CELL+10+22;
+  let px=W-14-pw, py=B.py;                                       // 가방이 닫혀 있다 — 가방 자리(오른쪽 맞춤)
+  if(bag.open){
+    const below=B.py+B.ph+12;
+    if(below+ph <= H-14-RADAR_S-12) py=below;                    // 가방 바로 아래 — 레이더 위 12px 까지 들어가면
+    else px=Math.max(14, B.px-12-pw);                            // 안 들어가면 가방 왼쪽(위 끝은 가방과 같은 줄)
+  }
+  const cy=py+ST_TOP+10+ST_ROWS*ST_ROW+10;
+  const cell = stw.fold ? { x:-1e4, y:-1e4, w:0, h:0 } : { x:px+14, y:cy, w:ST_CELL, h:ST_CELL };   // 접힘 — 무기 칸이 없다(누를 수 없게 화면 밖)
+  return { px, py, pw, ph, cell };
 }
 // 마우스가 상태창 위면 'weapon'(무기 칸) · 'panel'(창 안 빈 곳), 밖이면 null
 function statusHit(x,y){
@@ -1587,18 +1692,17 @@ function drawStatus(){
   const L=statusLayout(), px=L.px, py=L.py, pw=L.pw, ph=L.ph, c=L.cell;
   panel(px,py,pw,ph);
   ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(13,600); ctx.fillText('상태', px+12, py+21);
-  ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(11); ctx.fillText('C 키로 닫기', px+pw-12, py+21);
+  const fx=drawFoldBtn(px,py,pw,stw.fold,'stw');
+  ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(11); ctx.fillText('C 키로 닫기', fx-8, py+21); ctx.textAlign='left';
+  if(stw.fold) return;   // 접힘 — 제목 줄뿐
   ctx.strokeStyle='rgba(150,200,150,.14)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(px+12,py+ST_TOP); ctx.lineTo(px+pw-12,py+ST_TOP); ctx.stroke();
-  // 경험치 숫자는 바로 위 이름표에 이미 있다 — 여기엔 레벨만(겹쳐 쓰지 않는다)
+  // 레벨·체력·마력·경험치는 왼쪽 위 이름표에 이미 있다 — 여기엔 이름표에 없는 것만(겹쳐 쓰지 않는다)
   const rows=[
-    ['레벨',   me.level===null ? '—' : 'Lv.'+me.level],
-    ['체력',   self ? self.hp+' / '+self.maxHp : '—'],
-    ['마력',   self && self.maxMp!==null ? self.mp+' / '+self.maxMp : '—'],   // null = 아직 못 받음(스킬을 끈 서버면 끝까지)
     ['공격력', me.attack===null ? '—' : String(me.attack)],
     ['방어력', me.defense===null ? '—' : String(me.defense)],
     ['돈',     fmtMoney(me.money)],                                       // null = 아직 못 받음(가방을 끈 서버면 끝까지)
   ];
-  let y=py+ST_TOP+12+14;
+  let y=py+ST_TOP+10+12;
   for(const [k,v] of rows){
     ctx.textAlign='left'; ctx.fillStyle='rgba(180,210,180,.75)'; ctx.font=uiFont(12); ctx.fillText(k, px+14, y);
     ctx.textAlign='right'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(13,600,true); ctx.fillText(v, px+pw-14, y);
@@ -1618,10 +1722,10 @@ function drawStatus(){
     ctx.fillStyle='rgba(180,210,180,.45)'; ctx.font=uiFont(12); ctx.fillText('무기 없음', c.x+c.w+10, c.y+25);
   }
   ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(11);
-  ctx.fillText(w ? '무기 칸 두 번 누르면 벗기' : '가방 장비를 두 번 누르면 끼우기', px+14, py+ph-10);
-  // 무기 칸 설명 — 창 오른쪽(게임 화면 쪽)에 띄운다. 가방 창 설명이 창 왼쪽(게임 화면 쪽)에 뜨는 것과 같은 규칙
+  ctx.fillText(fitText(w ? '무기 칸 두 번 누르면 벗기' : '가방 장비를 두 번 누르면 끼우기', pw-28), px+14, py+ph-10);
+  // 무기 칸 설명 — 창 왼쪽(게임 화면 쪽)에 띄운다. 가방 창 설명이 창 왼쪽(게임 화면 쪽)에 뜨는 것과 같은 규칙 · 오른쪽은 가방 창 자리다
   if(stw.hover && w){
-    const tx=px+pw+8, ty=c.y-4, tw=150, th=44;
+    const tw=150, th=44, tx=px-tw-8, ty=c.y-4;
     ctx.fillStyle='rgba(8,12,10,.97)'; rr(tx,ty,tw,th,6); ctx.fill();
     ctx.strokeStyle='rgba(255,233,138,.35)'; ctx.stroke();
     ctx.fillStyle='#f2f6ec'; ctx.font=uiFont(12,600); ctx.fillText(fitText(it ? it.name : '#'+w.id, tw-20), tx+10, ty+17);
@@ -1682,7 +1786,7 @@ function shopUiHit(x,y){
 function shopClick(h){
   switch(h.btn){
     case 'buy':   shop.mode='buy'; break;
-    case 'sell':  shop.mode='sell'; if(!bag.open){ bag.open=true; bag.hover=null; bagChanged(); } break;
+    case 'sell':  shop.mode='sell'; if(!bag.open || bag.fold){ bag.open=true; bag.fold=false; bag.hover=null; bagChanged(); } break;
     case 'back':  shop.mode='menu'; break;
     case 'close': closeShop(); return;
     case 'buy1':  shopBuy(h.itemId, 1); return;
@@ -1740,15 +1844,17 @@ function partyMenuLayout(){
   const w=124, h=92, x=Math.min(party.menu.x+10, W-14-w), y=Math.min(party.menu.y+6, H-14-h);
   return { x, y, w, h, req:{ x:x+10, y:y+28, w:w-20, h:24 }, trade:{ x:x+10, y:y+58, w:w-20, h:24 } };
 }
-// 파티 목록(늘) · 관리 창(P) — 왼쪽, 상태창 아래(상태창이 닫혀 있으면 그 자리). 관리 창은 줄마다 단추가 붙어 폭이 넓다
-const PT_ROW=24, PT_TOP=30;
+// 파티 목록(늘) · 관리 창(P) — 왼쪽, 이름표 아래 12px(옆 여백이 있으면 연결 표시가 이름표 아래로 오므로 그만큼 더 내린다). 관리 창은 줄마다 단추가 붙어 폭이 넓다
+//   ★ 줄 높이 20 · 목록 폭 190(10-29 줄임 — 24 · 220 이었다. 목록 폭은 상태창과 같은 ST_W). 접으면(fold) 제목 줄(FOLD_H)만.
+const PT_ROW=20, PT_TOP=30;
 function partyLayout(){
   const visible = !!party.info || party.open; if(!visible) return null;
-  const S=statusLayout(), px=14, py = stw.open ? S.py+S.ph+12 : S.py, pw = party.open ? 268 : ST_W;
-  const ms = party.info ? party.info.members : [];
+  const px=14, py=14+BANNER_H+12+((VX>=250) ? 42 : 0), pw = party.open ? 268 : ST_W;
   const iLead = !!(party.info && self && party.info.leaderId===self.id);
+  if(party.fold) return { px, py, pw, ph:FOLD_H, rows:[], btns:{}, iLead };   // 접힘 — 제목 줄뿐(줄·단추가 없어 누를 것도 없다)
+  const ms = party.info ? party.info.members : [];
   const rows = ms.map((m,i)=>{ const y=py+PT_TOP+8+i*PT_ROW, r={ y, m };
-    if(party.open && iLead && !(self && m.actorId===self.id)){ r.leader={ x:px+pw-120, y:y-1, w:46, h:20 }; r.kick={ x:px+pw-70, y:y-1, w:58, h:20 }; }   // 「내보내기」 네 글자 — 50px 은 글자가 테두리에 닿았다(사진으로 확인)
+    if(party.open && iLead && !(self && m.actorId===self.id)){ r.leader={ x:px+pw-120, y:y-1, w:46, h:18 }; r.kick={ x:px+pw-70, y:y-1, w:58, h:18 }; }   // 「내보내기」 네 글자 — 50px 은 글자가 테두리에 닿았다(사진으로 확인)
     return r; });
   const bodyH = ms.length ? ms.length*PT_ROW : 44;   // 파티가 없으면 안내 두 줄
   const footH = party.open ? 40 : 4;
@@ -1798,7 +1904,9 @@ function drawPartyPanel(){
   panel(px,py,pw,ph);
   const n = party.info ? party.info.members.length : 0;
   ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(13,600); ctx.fillText(party.info ? '파티  '+n+' / '+P.PARTY_MAX_MEMBERS : '파티', px+12, py+21);
-  ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(11); ctx.fillText(party.open ? 'P 키로 닫기' : 'P 키로 관리', px+pw-12, py+21);
+  const fx=drawFoldBtn(px,py,pw,party.fold,'party');
+  ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(11); ctx.fillText(party.open ? 'P 키로 닫기' : 'P 키로 관리', fx-8, py+21); ctx.textAlign='left';
+  if(party.fold) return;   // 접힘 — 제목 줄뿐
   ctx.strokeStyle='rgba(150,200,150,.14)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(px+12,py+PT_TOP); ctx.lineTo(px+pw-12,py+PT_TOP); ctx.stroke();
   ctx.textAlign='left';
   if(!party.info){   // 관리 창을 열었는데 파티가 없다 — 맺는 법
@@ -1810,16 +1918,20 @@ function drawPartyPanel(){
   }
   for(const r of L.rows){ const m=r.m, y=r.y, me = self && m.actorId===self.id;
     if(me){ ctx.fillStyle='rgba(143,214,160,.08)'; rr(px+6,y-2,pw-12,PT_ROW-2,5); ctx.fill(); }
-    if(m.actorId===party.info.leaderId){ ctx.fillStyle='#ffd84d'; ctx.font=uiFont(12,600); ctx.fillText('★', px+10, y+14); }   // 파티장
-    ctx.fillStyle = me ? 'rgba(40,90,60,.92)' : 'rgba(18,26,18,.72)'; rr(px+26,y,20,19,4); ctx.fill();   // 머리 위 이름표와 같은 바탕색
-    ctx.textAlign='center'; ctx.fillStyle = me ? '#bff0c9' : '#eaf3e0'; ctx.font=uiFont(12,600,true); ctx.fillText(String.fromCharCode(m.displayChar), px+36, y+14); ctx.textAlign='left';
-    ctx.fillStyle='rgba(200,220,200,.8)'; ctx.font=uiFont(11,600,true); ctx.fillText('Lv.'+m.level, px+52, y+14);
-    const bx=px+96, bw = party.open ? (r.leader ? 46 : 150) : 70, bh=6, by=y+7;   // 체력 막대 — 머리 위 막대와 같은 색 규칙
-    const ratio = m.maxHp>0 ? Math.max(0,Math.min(1,m.hp/m.maxHp)) : 0;
-    ctx.fillStyle='rgba(28,38,28,.95)'; rr(bx,by,bw,bh,3); ctx.fill();
-    ctx.fillStyle = ratio>0.5 ? '#54d46e' : ratio>0.25 ? '#e6c24a' : '#e2574a'; if(ratio>0){ rr(bx,by,Math.max(3,bw*ratio),bh,3); ctx.fill(); }
-    if(m.hp<=0){ ctx.fillStyle='#f0b8b8'; ctx.font=uiFont(10); ctx.fillText('쓰러짐', bx, by-1); }
-    if(!party.open && m.mapId!==ZONE.mapId){ ctx.textAlign='right'; ctx.fillStyle='rgba(158,200,255,.85)'; ctx.font=uiFont(11); ctx.fillText(mapName(m.mapId), px+pw-12, y+14); ctx.textAlign='left'; }   // 다른 맵이면 어디인지
+    if(m.actorId===party.info.leaderId){ ctx.fillStyle='#ffd84d'; ctx.font=uiFont(12,600); ctx.fillText('★', px+10, y+13); }   // 파티장
+    ctx.fillStyle = me ? 'rgba(40,90,60,.92)' : 'rgba(18,26,18,.72)'; rr(px+26,y,20,17,4); ctx.fill();   // 머리 위 이름표와 같은 바탕색
+    ctx.textAlign='center'; ctx.fillStyle = me ? '#bff0c9' : '#eaf3e0'; ctx.font=uiFont(12,600,true); ctx.fillText(String.fromCharCode(m.displayChar), px+36, y+13); ctx.textAlign='left';
+    ctx.fillStyle='rgba(200,220,200,.8)'; ctx.font=uiFont(11,600,true); ctx.fillText('Lv.'+m.level, px+52, y+13);
+    // 체력 칸 — 경우가 셋이라 차례대로: 쓰러짐(글자) · 다른 맵(어디인지 — 목록에서만) · 그 밖(막대, 머리 위 막대와 같은 색 규칙).
+    //   글자를 막대 자리에 둔다 — 막대 위에 얹으면 줄 높이(20)를 넘어 윗줄과 붙어 어느 줄 것인지 헷갈렸다(10-29 확대 캡처)
+    const bx=px+96, bw = party.open ? (r.leader ? 46 : 150) : 70, bh=6, by=y+6;
+    if(m.hp<=0){ ctx.fillStyle='#f0b8b8'; ctx.font=uiFont(11); ctx.fillText('쓰러짐', bx, y+13); }
+    else if(!party.open && m.mapId!==ZONE.mapId){ ctx.fillStyle='rgba(158,200,255,.85)'; ctx.font=uiFont(11); ctx.fillText(fitText(mapName(m.mapId), px+pw-12-bx), bx, y+13); }
+    else {
+      const ratio = m.maxHp>0 ? Math.max(0,Math.min(1,m.hp/m.maxHp)) : 0;
+      ctx.fillStyle='rgba(28,38,28,.95)'; rr(bx,by,bw,bh,3); ctx.fill();
+      ctx.fillStyle = ratio>0.5 ? '#54d46e' : ratio>0.25 ? '#e6c24a' : '#e2574a'; if(ratio>0){ rr(bx,by,Math.max(3,bw*ratio),bh,3); ctx.fill(); }
+    }
     if(r.leader){ smallBtn(r.leader,'넘기기',isHover('panel','leader',m.actorId),false); smallBtn(r.kick,'내보내기',isHover('panel','kick',m.actorId),true); }
   }
   if(L.btns.leave) smallBtn(L.btns.leave,'나가기',isHover('panel','leave'),false);
@@ -2031,6 +2143,7 @@ function drawGroundItems(){
 function decayCombat(o,dt){
   if(o.hitT>0)   o.hitT  =Math.max(0,o.hitT-dt);
   if(o.swingT>0) o.swingT=Math.max(0,o.swingT-dt);
+  if(o.atkT>0)   o.atkT  =Math.max(0,o.atkT-dt);
   if(o.spawnT>0) o.spawnT=Math.max(0,o.spawnT-dt);
   if(o.skillHitT>0) o.skillHitT=Math.max(0,o.skillHitT-dt);
   if(o.castT>0)  o.castT =Math.max(0,o.castT-dt);
@@ -2075,7 +2188,8 @@ function render(t){
 
 // ---- networking (live) ----
 let ws=null;
-function setConn(ok,txt){ stat.connected=ok; connEl.textContent=txt; connEl.className='conn '+(ok?'ok':'bad'); }
+// 연결 표시는 연결 중·끊김일 때만 띄운다 — 붙어 있을 땐 서버 주소 글자가 게임 화면 위 가운데를 늘 가렸다(10-29). 붙었는지는 서버 정보 창 「접속」 줄에도 있다
+function setConn(ok,txt){ stat.connected=ok; connEl.textContent=txt; connEl.className='conn '+(ok?'ok':'bad'); connEl.style.display = ok ? 'none' : ''; }
 // 존에 딸린 것 비우기 — 남(사람·몬스터)·흐려지던 것·땅의 아이템. 존 정보(S2C_ZONE_INFO)가 올 때마다와 재접속 때 부른다.
 //   새 존의 것은 입장 직후 CREATE(사람·몬스터 · 땅은 SEEN)로 다시 온다. 내 캐릭터·가방은 존에 딸린 게 아니라 여기서 안 비운다
 function clearZoneWorld(){
@@ -2102,17 +2216,26 @@ function connect(){
 const hb=setInterval(()=>{ if(ws&&ws.readyState===1) ws.send(P.enc.heartbeat()); }, 15000);
 
 // ---- boot ----
+// 조합이 쓰는 부위 이름 전부 — 그림 받기(loadAssets)와 빠짐 검사(checkLayers)가 같은 목록을 쓴다
+function lpcLayerNames(){ return [...new Set([...MBODY,...MHEAD,...MHAIR,...MSHIRT,...MPANTS,...FBODY,...FHEAD,...FHAIR,...FSHIRT,...FPANTS,'b_skeleton',...Object.values(NPC_LOOK).flat()])]; }
 function loadAssets(){
   const load=(dict,store)=>Object.keys(dict||{}).map(n=>new Promise(res=>{const im=new Image();
     im.onload=()=>{store[n]=im;res();}; im.onerror=()=>{console.warn('[asset] 로드 실패:',n); res();}; im.src=dict[n];}));
-  return Promise.all([...load(window.IMG,IMG), ...load(window.LPC,LAYER), ...load(window.MON,MONIMG)]);   // 타일(IMG) + LPC 레이어(LAYER) + 몬스터(MONIMG)
+  // 캐릭터 부위 — 파일 그림(assets/lpc/). 「부위_동작」 이름 그대로
+  const lpc=LPC_ANIMS.flatMap(a=>load(Object.fromEntries(lpcLayerNames().map(n=>[n,'assets/lpc/'+n+'_'+a+'.png'])), LAYER[a]));
+  // 무기 — 장면 표의 weapons 마다 동작 × 앞·뒤 한 장씩(weapon_<이름>_<동작>_<front|behind>.png)
+  const weapons=LPC_ANIMS.flatMap(a=>(ANIM.weapons||[]).flatMap(wn=>{ const box=(WEAPON_IMG[a][wn]={});
+    return load({ front:'assets/lpc/weapon_'+wn+'_'+a+'_front.png', behind:'assets/lpc/weapon_'+wn+'_'+a+'_behind.png' }, box); }));
+  return Promise.all([...load(window.IMG,IMG), ...lpc, ...weapons, ...load(window.MON,MONIMG)]);   // 타일(IMG) + LPC 부위(LAYER) + 무기(WEAPON_IMG) + 몬스터(MONIMG)
 }
 // 조합이 쓰는 레이어가 실제로 다 실렸는지 확인. 하나라도 없으면 sheetFor 가 조용히 건너뛰어
 // 그 부위가 통째로 안 그려진다(머리 레이어 누락으로 얼굴이 안 보이던 사고와 같은 형태).
+//   동작마다 본다 — 걷기는 다 있는데 베기 하나가 빠지면 공격할 때만 그 부위가 사라진다
 function checkLayers(){
-  const need=[...MBODY,...MHEAD,...MHAIR,...MSHIRT,...MPANTS,...FBODY,...FHEAD,...FHAIR,...FSHIRT,...FPANTS,'b_skeleton',...Object.values(NPC_LOOK).flat()];
-  const miss=need.filter(n=>!LAYER[n]);
+  const miss=[...LPC_ANIMS.flatMap(a=>lpcLayerNames().filter(n=>!LAYER[a][n]).map(n=>n+'_'+a)),
+              ...LPC_ANIMS.flatMap(a=>(ANIM.weapons||[]).flatMap(wn=>['front','behind'].filter(s=>!(WEAPON_IMG[a][wn]||{})[s]).map(s=>'weapon_'+wn+'_'+a+'_'+s)))];
   if(miss.length) console.warn('[asset] 빠진 LPC 레이어:', miss.join(', '));
+  document.documentElement.setAttribute('data-lpc', JSON.stringify({ anims:LPC_ANIMS, layers:lpcLayerNames().length, loaded:LPC_ANIMS.map(a=>Object.keys(LAYER[a]).length), miss:miss.length }));   // 헤드리스 검증용
 }
 // 아이템 그림 시트(assets/items.js) + 아이템 표(serve.js 의 /data/ItemTable.csv). 어느 쪽이 없어도 멈추지 않는다 —
 //   칸에 번호를 회색으로 쓰는 쪽으로 떨어진다(drawItemIcon). 없다는 사실은 콘솔 경고와 data-bag 에 남는다.
@@ -2138,8 +2261,9 @@ function parseItemTable(text){
     // healMp(8번째 칸) = 마력 회복량(10-11) — 툴팁에만 쓴다. 쓸 수 있는지는 서버가 정한다(스킬을 끈 서버면 NOT_USABLE)
     // price(9번째 칸) = 상점 값(전 · 10-21) — 사기 창 값 · 팔기 툴팁(절반 내림)에 보여 주기만. 받고 내는 돈은 서버가 정한다
     // trade(10번째 칸) = 거래창에 올릴 수 있나(1 · 0 — 10-26) — 거래 중 툴팁에만. 막는 것은 서버(NOT_TRADABLE)
+    // look(11번째 칸) = 손에 든 모습의 그림 이름(10-30 — 단검 dagger · 빈 칸 = 안 그림). 서버는 안 읽는다(icon 과 같은 꼴)
     ITEMS.set(Number(c[0]), { name:c[1], tab, money, maxStack:Number(c[3]), healHp:Number(c[4]), icon:Number(c[5]), attack:Number(c[6]||0), healMp:Number(c[7]||0), price:Number(c[8]||0),
-      trade: c[9]===undefined ? 1 : Number(c[9]) });
+      trade: c[9]===undefined ? 1 : Number(c[9]), look: c[10]||'' });
   }
 }
 // 스킬 표(serve.js 의 /data/SkillTable.csv) — 못 받아도 멈추지 않는다(막대만 안 그린다). 없다는 사실은 콘솔 경고와 data-skill 에 남는다.
@@ -2235,7 +2359,7 @@ async function boot(){
     if(snap.self){ self={...COMBAT_INIT(), ...snap.self, rx:snap.self.x, ry:snap.self.y}; cam.x=self.rx; cam.y=self.ry; }
     (snap.players||[]).forEach(o=>others.set(o.id,{...COMBAT_INIT(), ...o, rx:o.x, ry:o.y, chat:null,chatT:0}));
     (snap.chats||[]).forEach((c)=>{ chatLog.push({disp:c.disp,msg:c.msg}); const o=others.get(c.id); if(o){o.chat=c.msg;o.chatT=BUBBLE_LIFE;} });
-    stat.connected=true; stat.rate={S2C_SECTOR_UPDATES:24,ENTER:2,LEAVE:1,S2C_CHAT:3}; stat.kbps=6.4;
+    stat.connected=true; connEl.style.display='none'; stat.rate={S2C_SECTOR_UPDATES:24,ENTER:2,LEAVE:1,S2C_CHAT:3}; stat.kbps=6.4;
     render(1.0);
     const el=document.createElement('span'); el.setAttribute('data-png', cv.toDataURL()); document.body.appendChild(el);
     document.documentElement.setAttribute('data-ready','1');
