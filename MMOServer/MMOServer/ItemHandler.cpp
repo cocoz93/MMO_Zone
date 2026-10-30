@@ -261,6 +261,11 @@ void CItemHandler::ApplyEquip(CPlayer* player, uint16_t slot, bool unequip)
     //   ★ 순서가 곧 와이어 순서다 — 칸 패킷이 MY_STATS 보다 앞선다(클라가 무기 칸을 먼저 알고 숫자를 채운다).
     FlushInventory(player);
     _selfNotifier.SendMyStats(player);
+
+    // 겉모습 — 주변에(본인 빼고 — 본인은 위 칸 패킷으로 안다). 벗어서 맨몸이 돼도 보낸다(0 — 받는 쪽이 무기를 지운다 · Protocol.h 겉모습 절)
+    //   남에게 처음 보일 때의 겉모습은 보이기 함수들이 등장 바로 뒤에 붙인다(SightBroadcaster.cpp 「보이기」) — 여기는 바뀔 때뿐
+    if (CZone* zone = _mapManager.GetZone(player->_zoneId))
+        _sightBroadcaster.BroadcastAroundSector(zone, player, MakeActorLook(player, LookOf(player)), true);
 }
 #endif // USE_EQUIP
 

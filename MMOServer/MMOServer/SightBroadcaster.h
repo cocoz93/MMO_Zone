@@ -151,6 +151,9 @@ private:
                                    const CSectorManager::SectorPos* sectors, int32_t sectorCount,
                                    CSerialBuffer* pMsg, CCharacter* exclude);
 #endif
+    // 보이기(아웃바운드) — player 를 진입 섹터들의 플레이어에게 나타나게 한다: 등장 + (겉모습이 있으면) 겉모습.
+    //   보이기 셋 중 하나(SightBroadcaster.cpp 「보이기」 절) — 등장 빌더를 직접 부르지 말고 이것을 부른다
+    void ShowToSectors(CZone* zone, const CSectorManager::SectorPos* sectors, int32_t sectorCount, CCharacter* player);
 #endif
 
     // 패킷별 전송 함수 (Fill + Send)

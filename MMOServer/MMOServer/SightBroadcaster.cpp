@@ -363,10 +363,18 @@ void CSightBroadcaster::OnCharacterMoveStop(CZone* zone, CCharacter* character)
     NotifyMoveStop(zone, character, false);   // 본인 포함
 }
 
+// ── 보이기 — 남을 화면에 나타나게 하는 자리는 이 셋뿐이다: SendCreateOtherPlayer · SendCreatePlayerBatch · ShowToSectors ──
+//   셋 다 「등장(CREATE) → 그 사람에게 겉모습이 있으면 바로 뒤에 겉모습(ACTOR_LOOK)」 이다(Protocol.h 겉모습 절).
+//   ★ 등장 빌더(MakeCreateOtherPlayer · MakeCreatePlayerBatch)를 이 셋 밖에서 부르지 말 것 — 겉모습이 빠진 등장이 나간다
+//     (「그 길로 들어온 사람만 무기가 안 보이는」 꼴. 체력 막대가 같은 꼴로 빠졌던 적이 있다 — ShowToSectors 주석).
+//   겉모습은 _tickMembershipSends 에 안 센다 — 멤버십 변경(생성·삭제) 복사 수라 A/B 통제지표가 그대로이게.
 void CSightBroadcaster::SendCreateOtherPlayer(CPlayer* target, CCharacter* who, SpawnReason reason)
 {
     ++_tickMembershipSends;   // 멤버십 변경 복사 집계 (BroadcastAroundSector 밖 경로)
     _sessionHub.SendPacket(target, MakeCreateOtherPlayer(who, reason));
+    const ActorLook look = LookOf(who);
+    if (HasLook(look))
+        _sessionHub.SendPacket(target, MakeActorLook(who, look));   // 같은 송신 큐 — 등장 바로 뒤에 닿는다
 }
 
 void CSightBroadcaster::SendDeletePlayer(CPlayer* target, CCharacter* who)
@@ -386,6 +394,13 @@ void CSightBroadcaster::SendCreatePlayerBatch(CPlayer* target, CCharacter* const
     {
         int chunk = (std::min)(count - i, CREATE_PLAYER_BATCH_MAX_ENTRIES);
         _sessionHub.SendPacket(target, MakeCreatePlayerBatch(others + i, chunk));
+    }
+    // 겉모습 — 묶음을 다 보낸 뒤 겉모습이 있는 사람마다 한 장(맨몸은 안 보낸다 — 더미 묶음 바이트 그대로)
+    for (int i = 0; i < count; ++i)
+    {
+        const ActorLook look = LookOf(others[i]);
+        if (HasLook(look))
+            _sessionHub.SendPacket(target, MakeActorLook(others[i], look));
     }
 }
 
@@ -638,18 +653,8 @@ void CSightBroadcaster::ProcessSectorChange(CZone* zone, const CZone::SightMove&
     // 진입 섹터 — 상호 CREATE
     if (addedCount > 0)
     {
-#if USE_MEMBERSHIP_DIGEST
-        // [Phase 4] 아웃바운드: "나를 생성" 1개 빌드 → 진입 섹터들에 직송 등록.
-        //           1칸 이동은 진입 섹터에 자신이 없고, 멀티섹터 점프로 자기 현재 섹터가 끼면 그 섹터만 개별 폴백
-        //   ★ 이 경로는 SendCreateOtherPlayer 를 안 거치고 빌더를 직접 쓴다. 예전엔 체력(STATS)을 여기서 따로 실어야 했고,
-        //     빠뜨렸더니 "내 HP 막대는 뜨는데 남의 것만 안 뜨는" 증상이 실제로 났다(라이브 캡처로 잡음).
-        //     지금은 빌더가 체력을 싣는다(ActorSnapshot) — 여기서 따로 붙일 것이 없다.
-        RegisterOutboundToSectors(zone, player->_zoneId, added, addedCount,
-                                  MakeCreateOtherPlayer(player, SpawnReason::NORMAL), player);
-#else
-        // 아웃바운드: "나를 생성" 1개 빌드 → 진입 섹터 전원에게 팬아웃 (자기 자신 제외)
-        FanoutToSectors(zone, added, addedCount, MakeCreateOtherPlayer(player, SpawnReason::NORMAL), player);
-#endif
+        // 아웃바운드: "나를 생성" — 보이기 셋째 함수(ShowToSectors · 겉모습까지)
+        ShowToSectors(zone, added, addedCount, player);
 
         // 아래는 전부 "나에게" 보내는 것이다 — 내가 플레이어가 아니면 통째로 건너뛴다
         if (me != nullptr)
@@ -805,6 +810,28 @@ void CSightBroadcaster::RegisterOutboundToSectors(CZone* zone, int32_t zoneId,
     pMsg->SubRef();   // 빌더가 넘긴 소유권 1 회수 (등록 0건이어도 안전)
 }
 #endif // USE_MEMBERSHIP_DIGEST
+
+// 보이기(아웃바운드) — 「보이기」 절의 셋째 함수. 등장 1장 + 겉모습이 있으면 겉모습 1장을 같은 섹터들에 같은 길로 보낸다.
+//   순서: 직송(DIGEST)은 섹터 칸 목록에 넣은 순서대로 쌓였다가 틱 끝에 그 순서로 이어 붙는다(RegisterSectorDirectItem · FlushSectorSends 의 직송 선연접) ·
+//         점프 폴백과 팬아웃은 그 자리에서 수신자 큐에 넣는다 — 어느 길이든 등장 바로 뒤에 겉모습이 닿는다.
+//   ★ 예전 이 자리는 등장 빌더를 직접 불렀다. 그때 체력(STATS)을 따로 실어야 했는데 빠뜨려 "내 HP 막대는 뜨는데 남의 것만 안 뜨는"
+//     증상이 실제로 났다(라이브 캡처로 잡음). 체력은 지금 빌더가 싣고(ActorSnapshot), 겉모습은 여기서 같이 보낸다.
+void CSightBroadcaster::ShowToSectors(CZone* zone, const CSectorManager::SectorPos* sectors, int32_t sectorCount, CCharacter* player)
+{
+    const ActorLook look = LookOf(player);
+#if USE_MEMBERSHIP_DIGEST
+    // [Phase 4] "나를 생성" 1개 빌드 → 진입 섹터들에 직송 등록.
+    //           1칸 이동은 진입 섹터에 자신이 없고, 멀티섹터 점프로 자기 현재 섹터가 끼면 그 섹터만 개별 폴백
+    RegisterOutboundToSectors(zone, player->_zoneId, sectors, sectorCount, MakeCreateOtherPlayer(player, SpawnReason::NORMAL), player);
+    if (HasLook(look))
+        RegisterOutboundToSectors(zone, player->_zoneId, sectors, sectorCount, MakeActorLook(player, look), player);
+#else
+    // "나를 생성" 1개 빌드 → 진입 섹터 전원에게 팬아웃 (자기 자신 제외)
+    FanoutToSectors(zone, sectors, sectorCount, MakeCreateOtherPlayer(player, SpawnReason::NORMAL), player);
+    if (HasLook(look))
+        FanoutToSectors(zone, sectors, sectorCount, MakeActorLook(player, look), player);
+#endif
+}
 #endif // USE_MEMBERSHIP_FANOUT_DEDUP
 
 #if USE_SECTOR_AGGREGATION

@@ -28,6 +28,12 @@
 #include "Player.h"        // 파티원 정보 쓰기 — 레벨(_level)은 플레이어 칸
 #include "MapManager.h"    // 파티원 한 줄 — 존 번호를 맵 번호로 푼다
 #endif
+#if USE_EQUIP
+#include "Player.h"        // 겉모습 — 끼운 무기는 플레이어 가방의 착용 칸
+#include "Inventory.h"     // WornIndexOf
+#include "ItemTable.h"     // MAX_ITEM_ID — 와이어 칸(u16)에 들어가나
+static_assert(CItemTable::MAX_ITEM_ID <= 0xFFFF, "아이템 번호가 겉모습 칸(ActorLook::weaponItemId u16)에 안 들어간다");
+#endif
 
 // 강제 인라인 — 아래 CREATE 항목 쓰기 둘에만 쓴다. 소스는 한 벌, 기계어는 부르는 자리마다 펼친다.
 //   그냥 inline 은 권고라 Release(MSVC)가 따로 떨어진 함수로 남겨, 묶음 루프가 엔트리마다 호출했다
@@ -88,6 +94,35 @@ namespace PacketBuild
         *buf << static_cast<int>(ch->_speed);
         WriteSnapshot(buf, ch);
         *buf << static_cast<uint16_t>(ch->_defId);   // 정의 번호 — 맨 끝(Protocol.h CreatePlayerEntry)
+    }
+
+    // 겉모습(Protocol.h ActorLook) — 남의 화면에 그릴 것. 값은 쓸 때 그 자리에서 읽는다(따로 들고 있지 않는다 —
+    //   끼운 칸과 두 벌이 되면 어긋난다 · 공격력도 같은 칸을 그때 읽는다 StatSystem.cpp RecalcStats). 사람만 · 몬스터·NPC 는 늘 맨몸.
+    //   칸을 늘리면 LookOf · WriteLook 두 함수와 proto.js readLook(Protocol.h 크기 단언이 알려 준다).
+    inline ActorLook LookOf(const CCharacter* ch)
+    {
+        ActorLook look{};
+#if USE_EQUIP
+        if (const CPlayer* p = As<CPlayer>(ch))
+            look.weaponItemId = static_cast<uint16_t>(p->_inventory.At(WornIndexOf(EquipSlot::WEAPON)).itemId);
+#else
+        (void)ch;
+#endif
+        return look;
+    }
+    // 맨몸(모든 칸 0)이면 겉모습 패킷을 안 보낸다 — 무기를 안 든 부하 더미 5,000명의 등장 바이트가 그대로다(Protocol.h 겉모습 절)
+    inline bool HasLook(const ActorLook& look) { return look.weaponItemId != 0; }
+
+    // 겉모습 한 장 — 남이 화면에 나타날 때(CSightBroadcaster 의 보이기 함수들) · 끼우기·빼기 뒤 주변(CItemHandler) 둘이 부른다
+    inline CSerialBuffer* MakeActorLook(const CCharacter* ch, const ActorLook& look)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_ACTOR_LOOK::TYPE);
+        *buf << static_cast<int>(ch->_actorId);
+        *buf << static_cast<uint16_t>(look.weaponItemId);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_ACTOR_LOOK));
+        return buf;
     }
 
 #if USE_COMBAT
