@@ -532,6 +532,7 @@ struct alignas(64) DBSaveCounters
     Counter _droppedJobs;               // 백프레셔 드롭 누적(슬롯 큐 상한 초과 — 저장 묶음은 묶음끼리 센 상한)
     Counter _saveRetried;               // 저장 묶음을 재연결 뒤 묶음째 다시 한 수(성공·실패 무관)
     Counter _saveSlotRows;              // 커밋된 저장 묶음의 칸 줄 수
+    Counter _saveCharRows;              // 커밋된 저장 묶음의 캐릭터 행 수(행 비트가 켜진 묶음만 — 뺀 수 = _savedJobs − 이것)
     Counter _queueDepth[MAX_WORKERS];   // 워커별 게이지: 마지막 배치 인출량
     Counter _workerCount;               // 노출 루프 상한(CDBWorker::Start 에서 설정)
 };

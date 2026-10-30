@@ -189,7 +189,7 @@ void CItemHandler::FlushInventory(CPlayer* player)
         _selfNotifier.SendMoney(player);
 
 #if USE_DB_WORKER
-    // DB 는 이 틱 끝에 — 가방이 스스로 켠 저장 표시(CInventory::HasUnsaved)를 저장소가 캐릭터 행과 한 묶음으로 싣는다.
+    // DB 는 이 틱 끝에 — 가방이 스스로 켠 저장 표시(CInventory::HasUnsaved)를 저장소가 한 묶음으로 싣는다(캐릭터 행은 바뀌었을 때만 같이).
     //   같은 요청에서 바뀐 체력·경험치도 같은 묶음이라 강제 종료 뒤에도 같은 순간으로 돌아온다(물약 · 방 보상 — 저장 플랜 C).
     //   빈 칸은 행을 지우지 않고 itemId 0 으로 덮는다(DB 계정에 DELETE 권한이 없다).
     //   돈은 캐릭터 행의 열이라 칸 표시가 없다 — 바뀌었으면 같은 사유(가방 — 돈은 가방의 일부)로 요청하고, 묶음에 싣는 판정은

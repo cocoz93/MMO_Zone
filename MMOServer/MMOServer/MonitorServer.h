@@ -224,10 +224,10 @@ private:
                      _gameMonitor._sector._moveWallRejects);
 
         // ── DB 저장 파이프라인 (USE_DB_WORKER) — 저장 묶음(트랜잭션 하나). 그릇은 게임 쪽(CGameMonitor::_db · _save, 10-06), 옛 이름은 그대로 ──
-        //   saved·failed 는 이제 묶음 수(묶음마다 캐릭터 행 하나) · dropped 는 살아 있는 캐릭터가 비행 중 묶음 하나라 구조상 0 에 묶인다
+        //   saved·failed 는 이제 묶음 수(캐릭터 행은 바뀐 묶음만 — 행 수는 save_char_rows) · dropped 는 살아 있는 캐릭터가 비행 중 묶음 하나라 구조상 0 에 묶인다
         //   — DB 가 못 따라가는 것은 mmo_db_save_inflight(접속자 수에 붙어 안 내려감) · mmo_db_save_pending_leave · queue_depth 로 본다(저장 플랜 C).
         WriteCounter(ss, "mmo_db_saved_total",
-                     "Total player rows saved (UPSERT ok)", _gameMonitor._db._savedJobs);
+                     "Total save bundles committed (one per bundle; character rows are counted by mmo_db_save_char_rows_total)", _gameMonitor._db._savedJobs);
         WriteCounter(ss, "mmo_db_failed_total",
                      "Total DB save failures", _gameMonitor._db._failedJobs);
         WriteCounter(ss, "mmo_db_dropped_total",
@@ -236,6 +236,8 @@ private:
                      "Save bundles retried whole after a reconnect (success or not)", _gameMonitor._db._saveRetried);
         WriteCounter(ss, "mmo_db_save_slot_rows_total",
                      "Bag slot rows written inside committed save bundles", _gameMonitor._db._saveSlotRows);
+        WriteCounter(ss, "mmo_db_save_char_rows_total",
+                     "Character rows written inside committed save bundles (bundles whose row was unchanged skip it)", _gameMonitor._db._saveCharRows);
         {
             // 저장 묶음 — 게임 스레드 몫(저장소). 등식(조용해진 뒤): sum(txn) = saved + failed = sum(reply)
             const auto& sv = _gameMonitor._save;

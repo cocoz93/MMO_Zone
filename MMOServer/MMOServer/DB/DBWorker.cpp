@@ -151,6 +151,7 @@ bool CDBWorker::EnqueueLoad(const DBLoadJob& job)
 bool CDBWorker::PushBundleLocked(DBWorkerSlot& slot, DBSaveBundle head, const DBInvRow* rows, int rowCount)
 {
     assert(rowCount >= 0 && (rowCount == 0 || rows != nullptr));
+    assert((head.parts != 0 || rowCount > 0) && "실을 덩어리가 하나도 없는 묶음 — 만드는 자리(PrepareBundle · LeaveFinal)가 parts 를 정한다");
 #if !USE_INVENTORY
     assert(rowCount == 0 && "가방을 끈 빌드의 묶음은 칸 줄이 없다");
 #endif
@@ -373,6 +374,8 @@ void CDBWorker::WorkerThread(int idx)
                     {
                         _counters._savedJobs.Inc();
                         _counters._saveSlotRows.Add(b.slotCount);
+                        if (b.parts & SAVE_PART_CHAR_ROW)
+                            _counters._saveCharRows.Inc();
                     }
                     else
                         _counters._failedJobs.Inc();
@@ -476,6 +479,10 @@ static constexpr DbColumn kCharColumns[] = {
 #endif
 };
 static constexpr int kCharColCount = static_cast<int>(sizeof(kCharColumns) / sizeof(kCharColumns[0]));
+// 열을 늘리면 여기서 멈춘다 — 저장소가 안 바뀐 행을 빼므로(save-skip-row-plan.md), 새 열은 그 열만 바뀐 변경을 놓치지 않게
+//   행 판정(CCharacterStore::CharRowChanged)·사본(RecordSaved · Player.h DbSavedValues)에도 넣고 이 수를 고칠 것.
+static_assert(kCharColCount == 9 + USE_INVENTORY,
+              "characters 열이 바뀌었다 — CCharacterStore::CharRowChanged 의 판정·RecordSaved 사본에 새 열을 넣었는지 보고 이 수를 고칠 것");
 
 #if USE_INVENTORY
 // inventory 행 — 저장 DBInvRowBuf · 결과 DBInvRow(한 줄). slot 은 기본 키 (account_id, slot) 의 일부라 UPDATE 에 안 들어간다
@@ -914,8 +921,9 @@ void CDBWorker::ExecLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out
 
 // ==========================================================================
 // 저장 묶음 — 묶음 하나 = 트랜잭션 하나 (save-unify-plan.md 「워커」)
-//   칸이 0줄이면 캐릭터 행 문장 하나 — 자동 커밋 아래서 그 자체가 트랜잭션이라 START/COMMIT 을 안 보낸다(주기 묶음의 대부분).
-//   칸이 1줄 이상이면 START TRANSACTION → 캐릭터 행 UPSERT → 칸 UPSERT × N → COMMIT. 칸 줄은 최종값이라 두 번 써도 같다.
+//   쓰는 것은 켜진 덩어리만 — 캐릭터 행은 parts 에 SAVE_PART_CHAR_ROW 가 있을 때만, 칸은 slotCount 줄(save-skip-row-plan.md).
+//   문장이 하나면(행만 — 주기 묶음의 대부분 · 칸 1줄만) 자동 커밋 아래서 그 자체가 트랜잭션이라 START/COMMIT 을 안 보낸다.
+//   둘 이상이면 START TRANSACTION → (캐릭터 행 UPSERT) → 칸 UPSERT × N → COMMIT. 칸 줄은 최종값이라 두 번 써도 같다.
 //   워커는 주인을 모른다 — 성공·실패를 회신할 뿐, 다시 싣기는 저장소가 정한다.
 // ==========================================================================
 static bool IsConnectionLostErrno(unsigned int err)
@@ -933,8 +941,9 @@ CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSave
     assert(n >= 1 && n <= MAX_BUNDLE_HEADS);
     MYSQL* m = static_cast<MYSQL*>(slot.mysql);
     const DBSaveBundle& b = *heads[0];   // 로그의 머리 — 짝이면 둘째 계정도 같이 적는다(아래 fail)
-    // 짝이면 칸이 0줄이어도 트랜잭션 — 문장이 둘 이상이라 자동 커밋이면 반쪽이 남는다
-    const bool txn = (n > 1 || b.slotCount > 0);
+    // 문장이 둘 이상이면 트랜잭션 — 자동 커밋이면 반쪽이 남는다. 짝은 늘(머리 둘)
+    const int stmtCount = ((b.parts & SAVE_PART_CHAR_ROW) ? 1 : 0) + b.slotCount;
+    const bool txn = (n > 1 || stmtCount > 1);
     const int64_t pairAccount = (n > 1) ? heads[1]->row.accountId : 0;
 
     // 실패 가르기 — 끊김이면 커넥션을 버린다(열린 트랜잭션은 DB 가 되돌린다). 그 밖이면 ROLLBACK,
@@ -982,12 +991,13 @@ CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSave
     if (txn && mysql_real_query(m, "START TRANSACTION", static_cast<unsigned long>(strlen("START TRANSACTION"))) != 0)
         return fail(mysql_errno(m), "start", mysql_error(m));
 
-    // 머리마다 — 캐릭터 행(지금 행 저장과 같은 문장 · 같은 버퍼) → 칸 문장 × N. 문장 번호는 머리를 넘어 이어 센다
-    //   (주입 error@k · lost@k 의 k — 짝이면 A 의 문장 뒤 B 의 문장이다. 짝 가운데서 끊는 시험이 그 번호로 고른다)
+    // 머리마다 — 캐릭터 행(켜졌을 때만 · 지금 행 저장과 같은 문장 · 같은 버퍼) → 칸 문장 × N. 문장 번호는 머리를 넘어 이어 센다
+    //   (주입 error@k · lost@k 의 k — 실제로 보낸 문장만 센다. 짝이면 A 의 문장 뒤 B 의 문장이다. 짝 가운데서 끊는 시험이 그 번호로 고른다)
     int stmtNo = 0;
     for (int h = 0; h < n; ++h)
     {
         const DBSaveBundle& hb = *heads[h];
+        if (hb.parts & SAVE_PART_CHAR_ROW)
         {
             MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmt[kSaveIdx]);
             slot.bSave = hb.row;

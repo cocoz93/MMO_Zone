@@ -4,8 +4,8 @@
 // CDBWorker — DB 실행기: 저장 묶음과 불러오기를 실행하고 결과를 돌려준다
 //
 // [모델] 서버 메모리 = 진실, DB = 저장소.
-//        게임루프(캐릭터 저장소)가 바뀐 캐릭터의 「묶음」(캐릭터 행 + 저장 안 된 가방 칸)을 큐에 넣으면,
-//        전용 워커 스레드가 MySQL 에 쓴다(칸이 있으면 트랜잭션 하나). 게임 틱은 막지 않는다.
+//        게임루프(캐릭터 저장소)가 바뀐 캐릭터의 「묶음」(바뀐 캐릭터 행 + 저장 안 된 가방 칸)을 큐에 넣으면,
+//        전용 워커 스레드가 MySQL 에 쓴다(문장이 둘 이상이면 트랜잭션 하나). 게임 틱은 막지 않는다.
 //
 // [설계] 송신 워커(CIOCPServer::SendWorker) 패턴을 그대로 복제:
 //        게임스레드 push(lock+notify) / 워커스레드 swap-out 배치 처리.
@@ -104,17 +104,24 @@ struct DBInvRow
     int32_t count;
 };
 
-// 저장 묶음의 머리 — 캐릭터 행 통째 + 칸 줄 수 + 주인 + 번호(save-unify-plan.md 「묶음」).
+// 저장 묶음에 실을 덩어리 — 캐릭터당 하나인 덩어리마다 비트 하나(save-skip-row-plan.md). 여러 줄인 덩어리(가방 칸)는 줄 수(slotCount)로 표시한다.
+//   0 = 「안 씀」이라, 묶음을 만드는 자리(CCharacterStore::PrepareBundle · LeaveFinal)가 반드시 정한다.
+constexpr uint8_t SAVE_PART_CHAR_ROW = 1u << 0;   // characters 행 — 행이 바뀌었을 때만(PrepareBundle 이 CharRowChanged 로 켠다)
+constexpr uint8_t SAVE_PART_ALL      = SAVE_PART_CHAR_ROW;   // 나갈 때·종료 — 판정 없이 다 쓴다(덩어리 비트를 늘리면 여기에도 더할 것)
+
+// 저장 묶음의 머리 — 실을 덩어리 + 캐릭터 행 값 + 칸 줄 수 + 주인 + 번호(save-unify-plan.md 「묶음」).
 //   칸 줄은 원소 안에 두지 않는다 — 슬롯 큐 옆 줄 벡터(DBWorkerSlot::rows)에 이어 붙이고 시작 자리만 든다.
 //   원소 안 고정 배열이면 대부분 0줄인 주기 묶음마다 칸 61줄(732B)이 붙는다.
-//   칸이 0줄이면 문장 하나(그 자체가 트랜잭션), 1줄 이상이면 START TRANSACTION … COMMIT 으로 감싼다.
+//   문장이 하나면(행만 · 칸 1줄만) 그 자체가 트랜잭션, 둘 이상이면 START TRANSACTION … COMMIT 으로 감싼다.
 struct DBSaveBundle
 {
     DBCharRow row;         // 캐릭터 행 10열(돈 열은 가방을 켠 빌드만) + 계정(열 표 kCharColumns 가 이 꼴의 멤버를 가리킨다)
+                           //   행 비트가 꺼져 있어도 계정 번호는 늘 쓴다(큐 고르기 · 칸 문장 · 회신 · 로그)
     int64_t   sessionId;   // 주인 — 살아 있는 사람의 세션 번호 · 0 = 저장소의 떠난 기록·종료(회신은 계정 번호로 찾는다)
     uint32_t  bundleNo;    // 회신과 짝을 맞추는 번호(0 은 안 씀)
     uint32_t  slotBegin;   // 줄 벡터 안 시작 자리 — 넣는 함수가 매긴다(부르는 쪽 값은 무시)
     int32_t   slotCount;   // 칸 줄 수(0 ~ 가방 칸 수)
+    uint8_t   parts;       // 실을 덩어리 비트(SAVE_PART_*) — 칸은 slotCount 가 표시한다. 비트도 칸도 없는 묶음은 넣지 않는다(PushBundleLocked)
     uint8_t   pairNext;    // 1 = 큐에서 바로 뒤 머리와 한 트랜잭션(짝 묶음 — 거래 · EnqueueSavePair 만 켠다) · 0 = 혼자
 };
 
@@ -162,7 +169,7 @@ struct DBSaveCounters;
 enum class DBJobKind : uint8_t
 {
     LOAD_CHARACTER,    // 캐릭터 행 + 가방 SELECT — 왕복. 버리지 않는다(버리면 그 사람이 못 들어온다)
-    SAVE_BUNDLE,       // 저장 묶음(캐릭터 행 + 칸 0~N) — 트랜잭션 하나 · 회신 하나(성공·실패). 다시 싣기는 저장소가 정한다
+    SAVE_BUNDLE,       // 저장 묶음(캐릭터 행 0~1 + 칸 0~N · 실을 덩어리는 DBSaveBundle::parts) — 트랜잭션 하나 · 회신 하나(성공·실패). 다시 싣기는 저장소가 정한다
     COUNT
 };
 constexpr int DB_JOB_KIND_COUNT = static_cast<int>(DBJobKind::COUNT);
@@ -226,8 +233,8 @@ struct DBResult
     DBBytes<DB_BUFFS_BYTES>           buffs;
     int64_t      money;       // DB 값 그대로 — 범위(0~MONEY_MAX) 검사는 게임 스레드(CCharacterStore::LoadInventoryRows — 망가진 값은 안 넣는다)
 #if USE_INVENTORY
-    // ↓ FOUND·NOT_FOUND 둘 다 유효 — 캐릭터 행이 없어도 가방은 읽는다(지금은 칸을 쓰는 묶음이 캐릭터 행도 같이 쓰지만,
-    //   저장 묶음 전의 칸 즉시 저장 시절에 생긴 「가방 행만 있는 계정」이 DB 에 남아 있을 수 있다).
+    // ↓ FOUND·NOT_FOUND 둘 다 유효 — 캐릭터 행이 없어도 가방은 읽는다(칸만 쓰는 묶음은 행이 이미 써진 뒤에만 나오지만 —
+    //   새 캐릭터는 첫 묶음에 _dbDirty 로 행이 실린다 —, 저장 묶음 전의 칸 즉시 저장 시절에 생긴 「가방 행만 있는 계정」이 DB 에 남아 있을 수 있다).
     //   가방 조회가 실패하면 code 는 FAILED 다 — 빈 가방으로 들여보내면 첫 아이템이 진짜 행을 덮는다.
     int32_t      invCount;     // inv 에 실린 줄 수
     int32_t      invOverflow;  // DB_INV_MAX_ROWS 를 넘어 못 실은 줄 수 (정상이면 0)
@@ -278,7 +285,7 @@ public:
     //   반환 false = 거절됨. 결과가 오지 않으므로 호출부가 그 자리에서 처리해야 한다.
     bool EnqueueLoad(const DBLoadJob& job);
 
-    // 게임루프 전용 — 저장 묶음 1건(캐릭터 행 + 칸 줄 n). 같은 계정 = 같은 슬롯 큐(accountId%K) — 불러오기와 차례가 맞물린다.
+    // 게임루프 전용 — 저장 묶음 1건(실을 덩어리 비트 + 칸 줄 n). 같은 계정 = 같은 슬롯 큐(accountId%K) — 불러오기와 차례가 맞물린다.
     //   묶음끼리 센 수로 QueueMax 를 건다(불러오기 loadCount 와 같은 꼴 · 남의 원소까지 세지 않는다).
     //   반환 false = 거절(dropped 를 센다). 묶음은 버려지지만 부르는 쪽이 표시를 되살리거나 기록을 남겨 다음 계기에 다시 싣는다.
     bool EnqueueSave(const DBSaveBundle& head, const DBInvRow* rows, int rowCount);

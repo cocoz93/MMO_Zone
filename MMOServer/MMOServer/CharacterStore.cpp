@@ -92,19 +92,26 @@ static bool IsRestorableBuffValue(BuffKind kind, int32_t value)
 
 bool CCharacterStore::ShouldSave(const CPlayer* player) const
 {
-    // 저장 대상 판정(주기·틱 끝 — 나갈 때·종료는 이 판정 없이 쓴다):
-    //   MOVING   = 위치가 계속 변하는 중 → 저장 후 dirty가 리셋돼도 매 주기 재저장 필요
-    //   _dbDirty = 정지/접속/존변경/클램프로 생긴 미저장 변경(일회성, 저장 후 리셋)
-    //   값 비교  = 레벨·경험치·체력·마력·돈·쿨타임·버프 칸이 마지막으로 실은 값(_dbSaved)과 다름 — 바뀌는 자리마다 켜지 않고 여기서 본다(Player.h)
-    //   가방     = 저장 안 된 칸이 있다(CInventory::HasUnsaved — 가방이 스스로 켠다)
+    // 저장 대상 판정(주기·틱 끝 — 나갈 때·종료는 이 판정 없이 쓴다): 덩어리 하나라도 바뀌었나
+    //   가방 = 저장 안 된 칸이 있다(CInventory::HasUnsaved — 가방이 스스로 켠다 · 화면용 표시와 따로 — Inventory.h)
+#if USE_INVENTORY
+    if (player->_inventory.HasUnsaved())
+        return true;
+#endif
+    return CharRowChanged(player);
+}
+
+bool CCharacterStore::CharRowChanged(const CPlayer* player) const
+{
+    // 캐릭터 행 판정 — 참이면 묶음이 행을 싣는다(PrepareBundle 의 SAVE_PART_CHAR_ROW). 열마다 보는 것:
+    //   x · y · map_id                   = MOVING(위치가 계속 변하는 중 → 저장 후 dirty가 리셋돼도 매 주기 재저장) · _dbDirty(정지/접속/존변경/클램프 — 일회성, 저장 후 리셋)
+    //   level · exp · hp · mp · money    = 값 비교 — 마지막으로 실은 값(_dbSaved)과 다름. 바뀌는 자리마다 켜지 않고 여기서 본다(Player.h)
+    //   skill_cooldowns · buffs          = 틱 비교(CooldownsAndBuffsChanged — 바이트는 저장마다 흔들려 못 견준다)
+    //   ★ 열을 늘리면 여기에도 — 안 넣으면 그 열만 바뀐 변경은 행이 안 실린다(열 수 static_assert 가 DBWorker.cpp kCharColumns 옆에서 부른다)
     if (player->_moveState == MoveState::MOVING || player->_dbDirty)
         return true;
     if (CooldownsAndBuffsChanged(player))
         return true;
-#if USE_INVENTORY
-    if (player->_inventory.HasUnsaved())   // 저장 안 된 가방 칸(화면용 표시와 따로 — Inventory.h)
-        return true;
-#endif
 
     // 저장할 값과 같은 식으로 견준다(MakeCharRow) — 토글을 끈 빌드의 「모름(-1)」도 똑같이 나와 헛저장이 없다.
     const DBCharRow now = MakeCharRow(player);
@@ -423,7 +430,7 @@ void CCharacterStore::Shutdown()
 // ==========================================================================
 // 저장 묶음 — 계기 넷 · 비행 기록 · 떠난 기록 (save-unify-plan.md 「목표 구조」)
 //   바뀐 자리는 표시만 한다(자리 _dbDirty · 값 비교 _dbSaved · 가방 _unsaved). 계기가 오면 표시를 비행 기록으로 옮겨
-//   묶음 하나(캐릭터 행 + 저장 안 된 칸)를 넣고, 회신이 확정(성공)하거나 되살린다(실패). 캐릭터당 비행 중 묶음은 하나.
+//   묶음 하나(바뀐 캐릭터 행 + 저장 안 된 칸 — 실을 덩어리는 parts)를 넣고, 회신이 확정(성공)하거나 되살린다(실패). 캐릭터당 비행 중 묶음은 하나.
 //   나간 사람의 묶음은 떠난 기록이 주인 — 실패하면 다음 주기에 다시 싣고, 확정 전엔 같은 계정 불러오기를 실패로 돌린다.
 // ==========================================================================
 
@@ -604,6 +611,9 @@ void CCharacterStore::PrepareBundle(CPlayer* player, DBSaveBundle& head, std::ve
     CPlayer::DbFlight& f = player->_dbFlight;
     assert(f.bundleNo == 0 && "비행 중 묶음은 캐릭터당 하나 — 부르는 쪽이 먼저 본다");
 
+    // ★ 행 판정은 맨 앞에서 — 아래 표시 옮기기(_dbDirty = false)·사본 갱신(RecordSaved) 뒤에 보면 이동 중이 아닌 한 늘 「안 바뀜」이다
+    const bool rowChanged = CharRowChanged(player);
+
     head           = DBSaveBundle{};
     head.row       = MakeCharRow(player);
     head.sessionId = player->_sessionId;
@@ -629,6 +639,10 @@ void CCharacterStore::PrepareBundle(CPlayer* player, DBSaveBundle& head, std::ve
         ++head.slotCount;
     }
 #endif
+
+    // 실을 덩어리 — 행은 바뀌었을 때만(save-skip-row-plan.md). 칸이 0줄이면 행을 싣는다: 판정 없이 부르는 짝 묶음(SendPair)도
+    //   빈 묶음이 되지 않게(PushBundleLocked 단언) · 주기·틱 끝은 판정이 참이었으니 칸이 없으면 행이 바뀐 것이다.
+    head.parts = (rowChanged || head.slotCount == 0) ? SAVE_PART_CHAR_ROW : 0;
 }
 
 void CCharacterStore::AbortBundle(CPlayer* player)
@@ -780,6 +794,7 @@ void CCharacterStore::SaveOnLeave(CPlayer* player)
 void CCharacterStore::LeaveFinal(CPlayer* player, SaveTrigger trigger)
 {
     DBSaveBundle head{};
+    head.parts     = SAVE_PART_ALL;   // 판정 없이 다 쓴다(안전망) — ★ 0 은 「안 씀」이라 이 줄이 빠지면 나갈 때 행이 안 써진다
     head.row       = MakeCharRow(player);
     head.sessionId = 0;   // 주인 = 떠난 기록(회신은 계정 번호로 찾는다)
     std::vector<DBInvRow> rows;

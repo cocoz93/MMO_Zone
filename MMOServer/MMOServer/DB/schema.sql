@@ -136,9 +136,10 @@ CREATE TABLE IF NOT EXISTS inventory (
 
 -- Queries used by CDBWorker (numeric-only params -> no injection surface):
 --   (the column lists are built from one column table in DBWorker.cpp - kCharColumns / kInvColumns)
---   Save bundle = character row UPSERT + one slot UPSERT per changed slot.
---     With slots it is wrapped in START TRANSACTION ... COMMIT (ROLLBACK on error);
---     a bundle with no slots is the single row statement (autocommit).
+--   Save bundle = character row UPSERT (only when the row changed - leave/shutdown always)
+--     + one slot UPSERT per changed slot.
+--     Two or more statements are wrapped in START TRANSACTION ... COMMIT (ROLLBACK on error);
+--     a single statement (row only, or one slot only) runs alone (autocommit).
 --     INSERT INTO characters (account_id,x,y,map_id,level,exp,hp,mp,skill_cooldowns,buffs,money)
 --       VALUES (?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE x=?,y=?,map_id=?,level=?,exp=?,hp=?,mp=?,skill_cooldowns=?,buffs=?,money=?
 --       (money only in a build with the bag - USE_INVENTORY)

@@ -3,7 +3,7 @@
 //
 // [책임]
 //  - DB 워커(CDBWorker)의 주인 — 띄우기(Init) · 멈추기(Shutdown: 전원 최종 저장 → 드레인 → 종료)
-//  - 저장 — 바뀐 자리는 표시만 하고, 계기 넷(주기 · 틱 끝 요청 · 나갈 때 · 종료)이 묶음 하나(캐릭터 행 + 저장 안 된 칸)를 만든다.
+//  - 저장 — 바뀐 자리는 표시만 하고, 계기 넷(주기 · 틱 끝 요청 · 나갈 때 · 종료)이 묶음 하나(바뀐 캐릭터 행 + 저장 안 된 칸)를 만든다.
 //    표시는 DB 확정 회신 때만 지운다(실을 때 비행 기록으로 옮기고 실패면 되살림) · 캐릭터당 비행 중 묶음은 하나 ·
 //    나간 사람의 묶음은 떠난 기록으로 들고 확정될 때까지 다시 싣는다(저장 플랜 C — save-unify-plan.md)
 //    저장 대상 판정과 「마지막으로 실은 값」 사본(_dbSaved)도 여기서 다룬다
@@ -76,7 +76,7 @@ public:
     // 워커가 떠 있나 — 띄우기 전·실패·멈춘 뒤는 false. 저장·불러오기를 부르는 쪽이 먼저 본다.
     bool IsRunning() const { return _dbWorker != nullptr; }
 
-    // ── 저장 — 바뀐 자리는 표시만, 계기 넷이 묶음 하나(캐릭터 행 + 저장 안 된 칸)를 만든다(save-unify-plan.md) ──
+    // ── 저장 — 바뀐 자리는 표시만, 계기 넷이 묶음 하나(바뀐 캐릭터 행 + 저장 안 된 칸)를 만든다(save-unify-plan.md · save-skip-row-plan.md) ──
     //   틱 끝 요청 — 목록에 올리기만 한다(세션 번호로 · 같은 틱 중복은 한 번). 같은 틱 끝 TickSaves 가 판정해 묶음을 넣는다.
     void RequestSave(CPlayer* player, SaveReason reason);
     //   틱 끝 — 주기(그 틱이면 판정 참인 전원 · 실패한 떠난 기록 다시 싣기) → 목록. GameServer 틱의 마지막 일.
@@ -112,7 +112,8 @@ public:
     void ProcessDbResults();                                           // 틱마다: 회신 큐를 통째로 꺼내 종류별로 넘긴다(불러오기 → _loadEvents)
 
 private:
-    bool ShouldSave(const CPlayer* player) const;        // 저장 대상 판정(MOVING||dirty||레벨·경험치·체력·마력·쿨타임·버프 칸이 _dbSaved 와 다름||저장 안 된 가방 칸) — 주기·틱 끝
+    bool ShouldSave(const CPlayer* player) const;        // 저장 대상 판정(CharRowChanged||저장 안 된 가방 칸) — 주기·틱 끝
+    bool CharRowChanged(const CPlayer* player) const;    // 캐릭터 행 판정(MOVING||dirty||레벨·경험치·체력·마력·돈·쿨타임·버프 칸이 _dbSaved 와 다름) — 묶음의 행 비트도 이것
     DBCharRow MakeCharRow(const CPlayer* player) const;  // 캐릭터 행 값 — 위치·레벨·경험치·체력·마력·쿨타임·버프·돈 스냅샷(묶음 머리 · 판정 공용)
     static void RecordSaved(CPlayer* player, const DBCharRow& row);      // 「마지막으로 실은 값」 사본(_dbSaved) 갱신 — 묶음을 만들 때
     void SaveAllPlayers();                     // 종료: 전원 최종 저장(안전망, dirty 무관) — 떠난 기록으로
