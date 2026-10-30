@@ -138,6 +138,7 @@ const CAST_LIFE = 0.3;                       // 범위 스킬(target=shape) 칸 
 const CAST_ANIM_LIFE = 0.7;                  // 주문 동작 그림(MON_META.cast — 뱀왕 7열)을 한 번 도는 시간 — 몬스터가 스킬을 쓸 때(되살리기·격노)
 const SPAWN_LIFE = 0.6;                      // 부활 섬광
 const FADE_LIFE = 0.5;                       // 죽은 채로 지워진 상대가 흐려지며 사라지는 시간(초)
+const DIE_FADE_LIFE = 0.4;                   // 쓰러지는 그림(ANIM.hurt)을 다 돈 뒤 시체 흐림(0.32)까지 옅어지는 시간 — 쓰러지는 동안은 진하게 보인다
 const LEVELUP_LIFE = 1.6;                    // 레벨업 문구 표시 시간(초)
 // 경험치·레벨 (USE_EXP) — 본인 것만 서버가 보낸다. self 에 안 넣는 이유는 self 가
 //   존을 넘을 때 통째로 새로 만들어져서 레벨이 같이 날아가기 때문이다(서버가 다시 보내 주긴 한다).
@@ -417,7 +418,8 @@ const PICKUP_FAIL_TEXT = {
 //   buffs(USE_COMBAT) — S2C_ACTOR_BUFF 가 채우는 Map(종류 → {value, until}). 본인 것만 오므로 남의 액터는 null 그대로다(남의 효과는 안 그린다)
 //   castSelf — 자신(target=self) 시전 표시(발밑 고리 · castT 동안). castCells(칸 깔기)와 둘 중 하나만 켜진다
 //   atkT — 베는 동작의 남은 시간(초). 공격·앞/범위 스킬 시전 때 slashLen() 으로 채운다(그리기는 charPose)
-const COMBAT_INIT = () => ({ hp:null, maxHp:null, mp:null, maxMp:null, hitT:0, hitDmg:0, swingT:0, atkT:0, spawnT:0, castSkill:0, skillHitT:0, castT:0, castCells:null, castSelf:false, buffs:null, dead:false });
+//   dieT — 쓰러지는 동작 + 옅어짐의 남은 시간(초). DEATH 때 dieLen() 으로 채운다 · 0 인 시체(이미 쓰러졌음)는 엎어진 마지막 장
+const COMBAT_INIT = () => ({ hp:null, maxHp:null, mp:null, maxMp:null, hitT:0, hitDmg:0, swingT:0, atkT:0, dieT:0, spawnT:0, castSkill:0, skillHitT:0, castT:0, castCells:null, castSelf:false, buffs:null, dead:false });
 // 죽은 채로 지워진 상대 — 그리기만 한다. id -> others 에 있던 그 객체 + fadeT.
 //   서버는 몬스터가 죽는 순간 지우고 DEATH 바로 뒤에 DELETE 를 보낸다(10-09) — 시체는 이 연출뿐이다.
 //   DELETE 에 사유 칸이 없어 「죽어 있었나(dead)」로 가른다. 살아 있던 사람(시야 밖으로 나감·퇴장)은 바로 지운다.
@@ -442,7 +444,7 @@ setInterval(()=>{ stat.rate=stat.count; stat.count={}; stat.kbps=stat.bytes/1024
 //   장면 표(assets/lpc/anim.js)를 못 받으면 옛 걷기 규격(9열)으로 두고 걷기만 읽는다 — 동작 그림이 없으면 그 동작을 안 그린다
 const ANIM = window.LPC_ANIM || { frame:64, walk:{ cols:9, idle:0, loop:[1,2,3,4,5,6,7,8], frameMs:125 } };
 if(!window.LPC_ANIM) console.warn('[asset] assets/lpc/anim.js 를 못 받았다 — 걷기만 그린다');
-const LPC_ANIMS = Object.keys(ANIM).filter(k=>ANIM[k] && ANIM[k].cols);   // 그림이 있는 동작(walk · slash · idle)
+const LPC_ANIMS = Object.keys(ANIM).filter(k=>ANIM[k] && ANIM[k].cols);   // 그림이 있는 동작(walk · slash · idle · hurt)
 const LAYER = Object.fromEntries(LPC_ANIMS.map(a=>[a,{}]));                 // 동작 -> 부위 이름 -> Image
 // 무기 그림 — 동작 -> 겉모습 이름(ItemTable.csv look 칸 · 장면 표 weapons) -> {front, behind}. behind = 몸 뒤에 깔리는 몫(위를 볼 때 칼이 몸에 가린다)
 const WEAPON_IMG = Object.fromEntries(LPC_ANIMS.map(a=>[a,{}]));
@@ -459,6 +461,9 @@ function weaponLookOf(o){
 }
 // 베는 동작 한 번의 길이(초) = 장 수 × 장당 시간. 장면 표에 베기가 없으면 0(안 벤다)
 function slashLen(){ const S=ANIM.slash; return S ? S.frames.length*S.frameMs/1000 : 0; }
+// 쓰러지는 동작 한 번의 길이(초) · 그 뒤 옅어짐까지 더한 길이. 장면 표에 쓰러짐이 없으면 0(옛 그대로 바로 흐린 시체)
+function fallLen(){ const H=ANIM.hurt; return H ? H.frames.length*H.frameMs/1000 : 0; }
+function dieLen(){ return ANIM.hurt ? fallLen()+DIE_FADE_LIFE : 0; }
 const MBODY=['b_light','b_olive','b_amber','b_bronze','b_brown','b_green','b_zombie'];
 const MHEAD=['hd_light','hd_olive','hd_amber','hd_bronze','hd_brown','hd_green','hd_zombie']; // MBODY 와 같은 순서(피부톤 1:1)
 const MHAIR=['h_plain','h_spiked','h_afro','h_bedhead','h_long','h_messy1','h_mop','h_parted'];
@@ -479,7 +484,7 @@ function comboFor(id){ id=id>>>0;
 }
 // 조합은 최대 2337가지(남 7×8×6×6 + 여 4×5×4×4 + 스켈레톤). 통째로(576x256=590KB) 캐시하면
 // 시야를 스쳐간 사람이 쌓일수록 캔버스가 무제한 누적된다 → 방향 1줄(576x64)만 굽고 최근 사용 N개로 상한.
-const SHEETC = new Map();                            // '조합키:동작:행' -> 구운 캔버스(걷기 576x64 · 베기 384x64 · 숨쉬기 128x64)
+const SHEETC = new Map();                            // '조합키:동작:행' -> 구운 캔버스(걷기 576x64 · 베기 384x64 · 숨쉬기 128x64 · 쓰러짐 384x64)
 const SHEET_CACHE_MAX = 256;                         // 576×64×4B ≈ 147KB × 256 ≈ 37MB 상한
 function rowOf(dir){ return dir===1?0 : dir===3?1 : dir===4?3 : 2; }  // UP/LEFT/RIGHT else DOWN
 
@@ -515,7 +520,7 @@ function monSheetFor(meta,row){ const k=meta.kind+':'+row;
 
 // NPC 는 표의 생김새(NPC_LOOK) — 조합 열쇠를 「npc:생김새」로 둬 사람 조합 캐시와 같은 길로 굽는다. 모르는 생김새 · 표를 못 받음이면 번호로 고른 조합
 function npcCombo(o){ const n=npcOf(o), L=n && NPC_LOOK[n.look]; return L ? { key:'npc:'+n.look, L } : null; }
-// anim = 동작(walk · slash) — 사람만 동작마다 시트가 따로다(몬스터는 걷기 시트 하나). 그 동작 그림이 하나도 없으면 null(부르는 쪽이 걷기로 그린다)
+// anim = 동작(walk · slash · idle · hurt — hurt 는 줄이 하나라 row 0 으로 부른다) — 사람만 동작마다 시트가 따로다(몬스터는 걷기 시트 하나). 그 동작 그림이 하나도 없으면 null(부르는 쪽이 걷기로 그린다)
 function sheetFor(o,row,anim='walk'){ const m=monMeta(o); if(m) return monSheetFor(m,row);
   const A=ANIM[anim], imgs=LAYER[anim]; if(!A || !imgs) return null;
   // 무기도 같이 굽는다 — 피격 물들이기·흐려지기가 몸과 한 장으로 걸리게(따로 그리면 칼만 안 물든다). 열쇠에 무기 이름
@@ -630,11 +635,11 @@ function onPacket(p){
       break; }
     case P.MSG.S2C_DEATH: {
       const a=actorOf(p.targetId);
-      if(a){ a.dead=true; a.hp=0; a.moveState=0; }
+      if(a){ a.dead=true; a.hp=0; a.moveState=0; a.atkT=0; a.dieT=dieLen(); }   // 베던 중이어도 쓰러짐이 이긴다
       break; }
     case P.MSG.S2C_RESPAWN: {
       const a=actorOf(p.targetId);
-      if(a){ a.dead=false; a.hp=p.hp; a.x=p.x; a.y=p.y; a.rx=p.x; a.ry=p.y; a.moveState=0; a.spawnT=SPAWN_LIFE; }
+      if(a){ a.dead=false; a.dieT=0; a.hp=p.hp; a.x=p.x; a.y=p.y; a.rx=p.x; a.ry=p.y; a.moveState=0; a.spawnT=SPAWN_LIFE; }
       break; }
 
     // ---- 스킬 (USE_SKILL) ----
@@ -1035,14 +1040,21 @@ function drawProp(pr){
 
 // fade = 흐려지며 사라지는 중인 상대의 남은 비율(1 → 0, fading 참조). 그림자·몸·이름표·막대가 같이 흐려진다.
 //   알파를 곱하지 않고 자리마다 값으로 넣는 이유 — 앞에서 그린 것이 알파를 1 로 안 돌려놓았어도 영향받지 않게.
-// 어떤 시트의 몇 번째 장인가 — 경우가 셋이라 차례대로 고른다:
+// 어떤 시트의 몇 번째 장인가 — 경우가 넷이라 차례대로 고른다:
 //   몬스터 = 걷기 시트 하나에서 monFrame(주문 동작 · 걷기 · 서 있음)
+//   쓰러진 사람 = 쓰러짐 시트(ANIM.hurt · 정면 한 줄)를 한 번 돌고 마지막 장에서 멈춘다. dieT 가 0 이면(이미 쓰러져 있던 시체) 바로 마지막 장.
+//     drop = 그 장에서 머리 끝이 내려간 px(이름표를 내린다) · alpha = 쓰러지는 동안 1 → 다 돌면 DIE_FADE_LIFE 동안 시체 흐림 0.32 로
 //   베는 중인 사람(atkT > 0) = 베기 시트를 장면 표(ANIM.slash)대로 한 번 — 걷던 중이어도 베기가 이긴다(서버도 이동을 안 막는다)
 //   그 밖의 사람 = 걸으면 걷기 시트의 loop 를 장당 frameMs 로 돌고(번호마다 어긋나게 id 를 더한다),
 //     서 있으면 숨쉬기 시트(ANIM.idle)의 loop 를 같은 식으로 되풀이 — 서 있는지는 서버가 준 moveState 그대로 · 쓰러진 사람은 숨 안 쉼
 //   베기·숨쉬기 그림이 없으면(장면 표·PNG 를 못 받음) 걷기 시트로 그린다(서 있으면 walk.idle 한 장)
 function charPose(o,row,t,mon){
   if(mon) return { sheet:sheetFor(o,row), frame:monFrame(mon,o,t) };
+  const H=ANIM.hurt;
+  if(o.dead && H){ const sheet=sheetFor(o,0,'hurt');
+    if(sheet){ const el=dieLen()-o.dieT, k=Math.max(0,Math.min(H.frames.length-1,Math.floor(el*1000/H.frameMs)));
+      const alpha = el<fallLen() ? 1 : 1-(1-0.32)*Math.min(1,(el-fallLen())/DIE_FADE_LIFE);
+      return { sheet, frame:H.frames[k], drop:(H.drop||[])[k]||0, alpha }; } }
   const S=ANIM.slash;
   if(o.atkT>0 && S){ const sheet=sheetFor(o,row,'slash');
     if(sheet){ const i=Math.floor((slashLen()-o.atkT)*1000/S.frameMs); return { sheet, frame:S.frames[Math.max(0,Math.min(S.frames.length-1,i))], slashing:true }; } }
@@ -1053,7 +1065,7 @@ function charPose(o,row,t,mon){
 function drawChar(o,isMe,t,fade=1){
   const row=rowOf(o.dir);
   const mon=monMeta(o);
-  const { sheet, frame, slashing } = charPose(o,row,t,mon); if(!sheet) return;
+  const { sheet, frame, slashing, drop=0, alpha } = charPose(o,row,t,mon); if(!sheet) return;
   const px=sx(o.rx), py=sy(o.ry);
   const sc=(mon && mon.scale) || 1;   // 보스는 그림만 키운다 — 발 위치(py)는 그대로, 판정은 서버의 점
   const H0=3.0*ZOOM*sc, dw=H0, dh=H0;   // 몬스터도 같은 크기 — 시트 여백이 이미 뱀을 사람의 0.69배로 만든다
@@ -1068,7 +1080,7 @@ function drawChar(o,isMe,t,fade=1){
   //   점멸(알파)만으로는 정지 화면에서 맞은 티가 거의 안 났다 — 실제로 캡처해 보고 알았다.
   const hit=o.hitT>0;
   ctx.save();
-  ctx.globalAlpha=(o.dead ? 0.32 : 1)*fade;
+  ctx.globalAlpha=(alpha!==undefined ? alpha : o.dead ? 0.32 : 1)*fade;   // alpha = 쓰러지는 사람(charPose) · 그 밖의 시체는 옛 그대로 0.32
   const shake = hit ? Math.sin(o.hitT*55)*2.5 : 0;
   // 발 위치: 사람은 칸 바닥(y=62)에 발이 닿아 0.92, 뱀은 발 끝이 y=47 이라 그대로 두면 15px 뜬다 → 메타의 footAdj(0.69)
   const dx=px-dw/2+shake, dy=py-dh*(mon ? mon.footAdj : 0.92);
@@ -1082,7 +1094,7 @@ function drawChar(o,isMe,t,fade=1){
   //   높이는 "머리 끝 위 같은 간격" — 사람 머리 끝은 칸 안 y=12, 몬스터는 방향(행)마다 top 이 달라
   //   그만큼 내린다(뱀은 옆을 볼 때 머리가 6px 낮다).
   //   NPC 는 표의 이름(NPC 부류 값은 글리프가 없는 제어문자다) — 사람 이름표와 바탕색을 달리한다(누르면 말 걸기). 표를 못 받았으면 「NPC」
-  const ny = mon ? dy + dh*(mon.top[row]-12)/64 - 4 : py-dh*0.92-4;
+  const ny = mon ? dy + dh*(mon.top[row]-12)/64 - 4 : py-dh*0.92-4 + dh*drop/64;   // 쓰러진 사람은 머리 끝이 내려간 만큼(drop) 내린다
   const isNpc = o.disp===P.DISPLAY_NPC, npc = isNpc ? npcOf(o) : null;
   const tag = mon ? mon.label : isNpc ? (npc ? npc.name : 'NPC') : String.fromCharCode(o.disp||63);
   ctx.save(); ctx.globalAlpha=fade;       // 이름표·막대도 몸과 같이 흐려진다
@@ -2144,6 +2156,7 @@ function decayCombat(o,dt){
   if(o.hitT>0)   o.hitT  =Math.max(0,o.hitT-dt);
   if(o.swingT>0) o.swingT=Math.max(0,o.swingT-dt);
   if(o.atkT>0)   o.atkT  =Math.max(0,o.atkT-dt);
+  if(o.dieT>0)   o.dieT  =Math.max(0,o.dieT-dt);
   if(o.spawnT>0) o.spawnT=Math.max(0,o.spawnT-dt);
   if(o.skillHitT>0) o.skillHitT=Math.max(0,o.skillHitT-dt);
   if(o.castT>0)  o.castT =Math.max(0,o.castT-dt);
