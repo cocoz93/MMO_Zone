@@ -81,7 +81,8 @@ module.exports.layerImage = (PNG, srcDir, v, anim) => {
 };
 
 // 동작 — 원본 파일 이름. 걷기 9장 · 베기 6장 · 숨쉬기 2장 × 4방향(위·왼·아래·오른 줄), 한 칸 64px
-module.exports.ANIMS = ['walk', 'slash', 'idle'];
+//   쓰러짐(hurt)은 원본이 정면 한 줄 6장뿐이다 — 어느 방향을 보다 죽어도 정면으로 엎어진다
+module.exports.ANIMS = ['walk', 'slash', 'idle', 'hurt'];
 
 // 무기 — 겉모습 이름(ItemTable.csv look 칸) → 원본 그림. front = 몸 앞 · behind = 몸 뒤(원본 폴더 behind/ — 위를 볼 때 칼이 몸에 가린다)
 //   뱀왕의 지팡이(gnarled)는 원본에 베기가 없어 안 넣는다(플랜 10-29 결정 · 찌르기만 있음)
@@ -89,6 +90,7 @@ module.exports.WEAPONS = {
   dagger: {
     walk:  { front: 'weapon/sword/dagger/walk/dagger.png',  behind: 'weapon/sword/dagger/behind/walk/dagger.png' },
     slash: { front: 'weapon/sword/dagger/slash/dagger.png', behind: 'weapon/sword/dagger/behind/slash/dagger.png' },
+    hurt:  { front: 'weapon/sword/dagger/hurt/dagger.png' },   // 원본에 뒤 몫이 없다(정면뿐이라 칼이 몸에 가릴 일이 없다) — build.js 가 빈 그림으로 채운다
   },
 };
 

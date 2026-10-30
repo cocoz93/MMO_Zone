@@ -42,6 +42,29 @@
   ],
   "frameMs": 125
  },
+ "hurt": {
+  "cols": 6,
+  "rows": [
+   "down"
+  ],
+  "frames": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "frameMs": 125,
+  "drop": [
+   0,
+   1,
+   8,
+   12,
+   18,
+   13
+  ]
+ },
  "weapons": [
   "dagger"
  ]

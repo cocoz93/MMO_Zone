@@ -1,4 +1,4 @@
 저장소 https://github.com/liberatedpixelcup/Universal-LPC-Spritesheet-Character-Generator
 커밋 86160e7507d6841259cff624a51a63c1d4847ee3 (2026-10-28T07:46:03Z)
-받은 날 2026-10-30T03:08:09.336Z
-파일 73개 — spritesheets/ 아래 경로 그대로
+받은 날 2026-10-30T03:22:12.600Z
+파일 97개 — spritesheets/ 아래 경로 그대로
