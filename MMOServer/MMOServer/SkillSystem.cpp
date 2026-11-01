@@ -9,7 +9,7 @@
 #include "GameMonitor.h"     // 시전·거절 지표
 #include "Combat.h"          // MAX_BODY_RADIUS — 범위 스킬 후보 반경에 쓰는 맞는 쪽 반지름 상한
 #include "CombatSystem.h"    // FindFrontTarget · CollectCandidates · ApplyHit — 일반 공격과 같이 쓴다
-#include "BuffSystem.h"      // Apply — 지속 효과 걸기(효과 축 BUFF_ATTACK_MUL)
+#include "BuffSystem.h"      // Apply — 지속 효과 걸기(효과 축 BUFF)
 #include "Character.h"       // 종류 · 컴포넌트 자리 — 시전자는 CCharacter 다
 #include "CharacterComponents.h"  // 체력·공격 컴포넌트 — 생사·체력·마력·쿨타임
 #include <cassert>
@@ -194,13 +194,13 @@ void CSkillSystem::ApplyEffect(CZone* zone, CCharacter* caster, const SkillDef& 
         HitTargets(zone, caster, def, static_cast<int32_t>(static_cast<int64_t>(caster->Attack()->_attackPower) * def.power / 100), frame);
         break;
 
-    case SkillEffect::BUFF_ATTACK_MUL:
+    case SkillEffect::BUFF:
     {
-        // 대상(지금은 self 뿐 — 표 읽기가 막는다)마다 공격력 배수를 걸거나 되감는다(같은 종류는 나중 것이 값·시간을 덮는다).
+        // 대상(지금은 self 뿐 — 표 읽기가 막는다)마다 power 번 버프를 걸거나 되감는다(같은 번호는 시간만 다시 — 값·지속은 버프 표 몫).
         //   스탯 다시 세우기와 알림(ACTOR_BUFF → MY_STATS)은 CBuffSystem 이 한다. 와이어 = SKILL_CAST → ACTOR_MP → ACTOR_BUFF → MY_STATS.
         //   _hits 는 안 센다 — 「맞힌 수」는 피해 스킬 것이다. 걸린 수는 mmo_buff_applied_total·refreshed 가 센다.
         for (CCharacter* target : _targets)
-            _buff.Apply(target, BuffKind::ATTACK_MUL, def.power, def.durationFrames, frame);
+            _buff.Apply(target, def.power, frame);
         break;
     }
 

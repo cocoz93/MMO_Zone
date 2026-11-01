@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS characters (
 --   Empty = nothing running. Times inside are UTC milliseconds, so they keep running while
 --   the player is offline. A bad or unknown value is dropped on enter (that cooldown or buff
 --   just ends) - it never blocks the login.
---   Saved with the rest of the row (the same moments as hp/mp above).
+--   Saved with the rest of the row (the same moments as hp/mp above). A buff change alone does not trigger a write.
 -- money = jeon the character carries (0 .. 100000000, Item.h MONEY_MAX). Part of the bag, so the column is
 --   written and read only by a build with the bag (USE_INVENTORY) - a build without it never overwrites it.
 --   Saved with the row (a buy or sell changes slots and money in ONE transaction - the save bundle).

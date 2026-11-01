@@ -8,6 +8,7 @@
 
 #include "GameDataCsv.h"
 #include "LevelTable.h"   // costMp 상한 — 닿을 수 있는 최대 마력(USE_SKILL 은 USE_COMBAT 을 요구하므로 레벨 표가 늘 있다)
+#include "BuffTable.h"    // 효과 buff 줄의 버프 번호 대조 — 같은 까닭으로 늘 있다
 
 using GameDataCsv::DataLine;
 using GameDataCsv::ReadDataLines;
@@ -18,7 +19,7 @@ namespace
 {
     // 파일 글자 — SkillTarget · SkillEffect 순서 그대로. 줄 수가 모자라면 아래 단언이 컴파일을 막는다.
     constexpr const char* TARGET_NAMES[] = { "front", "shape", "self" };
-    constexpr const char* EFFECT_NAMES[] = { "damage", "buff_attack_mul", "damage_attack", "revive" };   // buff_<종류> — 종류 글자는 GameMonitor.h BuffKindName 과 같다
+    constexpr const char* EFFECT_NAMES[] = { "damage", "buff", "damage_attack", "revive" };
     constexpr const char* USER_NAMES[]   = { "player", "monster" };
     static_assert(sizeof(TARGET_NAMES) / sizeof(TARGET_NAMES[0]) == static_cast<size_t>(SkillTarget::COUNT),
                   "TARGET_NAMES 는 SkillTarget 마다 한 줄이어야 한다");
@@ -84,7 +85,7 @@ namespace
     }
 }
 
-bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
+bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const CBuffTable& buffs)
 {
     _rows.clear();
     _rowById.clear();
@@ -117,19 +118,18 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
         SplitCsv(dl.text, cell);
         if (cell.size() < 8)
         {
-            SLOG_ERROR("[SkillTable] {}줄: 칸이 {}개입니다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp 여덟(+ shape, durationMs, user)이 필요합니다",
+            SLOG_ERROR("[SkillTable] {}줄: 칸이 {}개입니다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp 여덟(+ shape, user)이 필요합니다",
                        dl.fileLine, cell.size());
             return false;
         }
-        // 아홉째 shape 칸은 shape 대상만, 열째 durationMs 칸은 지속 효과만, 열한째 user 칸은 몬스터 스킬만 쓴다. 끝의 빈 칸은 SplitCsv 가 안 담으므로
-        //   front 줄은 여덟, 어검술 줄은 아홉, 이중공격 줄은 열, 몬스터 스킬 줄은 열한 칸으로 온다(여덟만 요구하고 나머지는 비면 빈 것으로 본다)
+        // 아홉째 shape 칸은 shape 대상만, 열째 user 칸은 몬스터 스킬만 쓴다. 끝의 빈 칸은 SplitCsv 가 안 담으므로
+        //   front·self 사람 줄은 여덟, 어검술 줄은 아홉, 몬스터 스킬 줄은 열 칸으로 온다(여덟만 요구하고 나머지는 비면 빈 것으로 본다)
         const std::string shapeText    = (cell.size() > 8) ? cell[8] : std::string();
-        const std::string durationText = (cell.size() > 9) ? cell[9] : std::string();
-        const std::string userText     = (cell.size() > 10) ? cell[10] : std::string();
+        const std::string userText     = (cell.size() > 9) ? cell[9] : std::string();
 
-        int64_t skillId = 0, costHpPct = 0, power = 0, cooldownMs = 0, costMp = 0, durationMs = 0;
+        int64_t skillId = 0, costHpPct = 0, power = 0, cooldownMs = 0, costMp = 0;
         if (!ParseInt(cell[0], skillId) || !ParseInt(cell[4], costHpPct) || !ParseInt(cell[5], power) || !ParseInt(cell[6], cooldownMs) ||
-            !ParseInt(cell[7], costMp) || (!durationText.empty() && !ParseInt(durationText, durationMs)))
+            !ParseInt(cell[7], costMp))
         {
             SLOG_ERROR("[SkillTable] {}줄: 숫자여야 하는 칸이 숫자가 아닙니다 — \"{}\"", dl.fileLine, dl.text);
             return false;
@@ -169,7 +169,7 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
         const SkillEffect effect = ParseName<SkillEffect>(cell[3], EFFECT_NAMES);
         if (effect == SkillEffect::COUNT)
         {
-            SLOG_ERROR("[SkillTable] {}줄: 모르는 effect \"{}\" — damage · buff_attack_mul · damage_attack · revive 중 하나여야 합니다 (스킬 {})", dl.fileLine, cell[3], skillId);
+            SLOG_ERROR("[SkillTable] {}줄: 모르는 effect \"{}\" — damage · buff · damage_attack · revive 중 하나여야 합니다 (스킬 {})", dl.fileLine, cell[3], skillId);
             return false;
         }
 
@@ -192,7 +192,7 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
             return false;
         }
 
-        // ⑸ 위력·지속·대상 짝 — 효과마다 뜻이 다르다. 안 쓰이는 칸(피해의 durationMs)은 0 이어야 한다(front 의 shape 와 같은 규칙 — 뜻을 가진 척하지 않게)
+        // ⑸ 위력·대상 짝 — 효과마다 뜻이 다르다
         switch (effect)
         {
         case SkillEffect::DAMAGE:
@@ -201,11 +201,6 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
             {
                 SLOG_ERROR("[SkillTable] {}줄: damage 의 power {} 는 1~{} 이고 costHpPct({}) 이상이어야 합니다 (스킬 {})",
                            dl.fileLine, power, MAX_POWER, costHpPct, skillId);
-                return false;
-            }
-            if (durationMs != 0)
-            {
-                SLOG_ERROR("[SkillTable] {}줄: damage 는 durationMs 를 비워야 합니다 — {} (스킬 {})", dl.fileLine, durationMs, skillId);
                 return false;
             }
             // 자기를 때리는 스킬은 없다 — 「자기 스킬로는 안 죽는다」(LOW_HP) 규칙의 연장
@@ -224,11 +219,6 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
                 SLOG_ERROR("[SkillTable] {}줄: damage_attack 의 power {} 는 1~{} 여야 합니다 (스킬 {})", dl.fileLine, power, MAX_POWER, skillId);
                 return false;
             }
-            if (durationMs != 0)
-            {
-                SLOG_ERROR("[SkillTable] {}줄: damage_attack 은 durationMs 를 비워야 합니다 — {} (스킬 {})", dl.fileLine, durationMs, skillId);
-                return false;
-            }
             if (target == SkillTarget::SELF)
             {
                 SLOG_ERROR("[SkillTable] {}줄: damage_attack 은 target self 와 짝지을 수 없습니다 (스킬 {})", dl.fileLine, skillId);
@@ -236,36 +226,26 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
             }
             break;
 
-        case SkillEffect::BUFF_ATTACK_MUL:
-            // 배수 2~MAX_BUFF_MUL(1 은 아무 일도 안 한다) · 지속 1ms~상한(0 이면 비어 있는 칸과 구별이 안 된다 — BuffSlot) · 대상은 자기 자신만
-            if (power < 2 || power > MAX_BUFF_MUL)
+        case SkillEffect::BUFF:
+            // 위력 = 버프 번호 — 버프 표에 있어야 한다(지속·값은 그 줄 몫) · 대상은 자기 자신만
+            if (power < 1 || power > MAX_BUFF_ID || buffs.Find(static_cast<int32_t>(power)) == nullptr)
             {
-                SLOG_ERROR("[SkillTable] {}줄: buff_attack_mul 의 power(배수) {} 는 2~{} 여야 합니다 (스킬 {})", dl.fileLine, power, MAX_BUFF_MUL, skillId);
-                return false;
-            }
-            if (durationMs < 1 || durationMs > MAX_COOLDOWN_MS)
-            {
-                SLOG_ERROR("[SkillTable] {}줄: buff_attack_mul 의 durationMs {} 는 1~{} 여야 합니다 (스킬 {})", dl.fileLine, durationMs, MAX_COOLDOWN_MS, skillId);
+                SLOG_ERROR("[SkillTable] {}줄: buff 의 power(버프 번호) {} 가 버프 표(BuffTable.csv)에 없습니다 (스킬 {})", dl.fileLine, power, skillId);
                 return false;
             }
             if (target != SkillTarget::SELF)
             {
-                SLOG_ERROR("[SkillTable] {}줄: buff_attack_mul 은 target self 여야 합니다 — \"{}\" (스킬 {})", dl.fileLine, cell[2], skillId);
+                SLOG_ERROR("[SkillTable] {}줄: buff 는 target self 여야 합니다 — \"{}\" (스킬 {})", dl.fileLine, cell[2], skillId);
                 return false;
             }
             break;
 
         case SkillEffect::REVIVE:
             // 위력 = 되살릴 몬스터 번호 — 1 이상(있는지·보스 아닌지·같은 맵에 깔리는지는 몬스터 스킬 표 읽기가 본다 — 이 표는 몬스터 표를 모른다).
-            //   대상은 자기 자신(누구를 맞히는 스킬이 아니다) · 쓰는 쪽은 몬스터만(사람이 쓰면 몬스터를 부르는 사람이 된다) · 지속 없음
+            //   대상은 자기 자신(누구를 맞히는 스킬이 아니다) · 쓰는 쪽은 몬스터만(사람이 쓰면 몬스터를 부르는 사람이 된다)
             if (power < 1)
             {
                 SLOG_ERROR("[SkillTable] {}줄: revive 의 power(되살릴 몬스터 번호) {} 는 1 이상이어야 합니다 (스킬 {})", dl.fileLine, power, skillId);
-                return false;
-            }
-            if (durationMs != 0)
-            {
-                SLOG_ERROR("[SkillTable] {}줄: revive 는 durationMs 를 비워야 합니다 — {} (스킬 {})", dl.fileLine, durationMs, skillId);
                 return false;
             }
             if (target != SkillTarget::SELF)
@@ -355,8 +335,6 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
         d.cooldownMs     = static_cast<int32_t>(cooldownMs);
         // 올림 — 480ms 면 12틱(일반 공격 쿨타임과 같다). 내림이면 틱 주기를 바꿀 때 쿨타임이 짧아질 수 있다
         d.cooldownFrames = static_cast<uint64_t>((cooldownMs + FRAME_INTERVAL_MS - 1) / FRAME_INTERVAL_MS);
-        d.durationMs     = static_cast<int32_t>(durationMs);
-        d.durationFrames = static_cast<uint64_t>((durationMs + FRAME_INTERVAL_MS - 1) / FRAME_INTERVAL_MS);   // 같은 올림 — 30000 → 750
         d.shapeReach     = ShapeReach(shape);
         d.shape          = std::move(shape);
     }

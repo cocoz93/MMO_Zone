@@ -535,27 +535,27 @@ private:
 #if USE_COMBAT
         // 지속 효과(버프). 등식(조용해진 뒤) = Σ applied + Σ restored = Σ ended + mmo_buff_active (GameMonitor.h) — 다 표를 돈다(늘어도 노출에서 안 빠진다).
         const auto& bf = _gameMonitor._buff;
-        ss << "# HELP mmo_buff_applied_total Buffs newly applied (an empty slot turned on), split by kind\n";
+        ss << "# HELP mmo_buff_applied_total Buffs newly applied, split by buff id\n";
         ss << "# TYPE mmo_buff_applied_total counter\n";
-        for (int i = 0; i < BUFF_KIND_COUNT; ++i)
-            ss << "mmo_buff_applied_total{kind=\"" << BuffKindName(static_cast<BuffKind>(i)) << "\"} " << bf._applied[i] << "\n";
+        for (int i = 0; i < bf._buffRows; ++i)
+            ss << "mmo_buff_applied_total{buff=\"" << bf._buffIdOf[i] << "\"} " << bf._applied[i] << "\n";
         ss << "\n";
-        ss << "# HELP mmo_buff_refreshed_total Buffs re-applied onto a live slot (value and time overwritten), split by kind\n";
+        ss << "# HELP mmo_buff_refreshed_total Buffs re-applied while still active (time rewound), split by buff id\n";
         ss << "# TYPE mmo_buff_refreshed_total counter\n";
-        for (int i = 0; i < BUFF_KIND_COUNT; ++i)
-            ss << "mmo_buff_refreshed_total{kind=\"" << BuffKindName(static_cast<BuffKind>(i)) << "\"} " << bf._refreshed[i] << "\n";
+        for (int i = 0; i < bf._buffRows; ++i)
+            ss << "mmo_buff_refreshed_total{buff=\"" << bf._buffIdOf[i] << "\"} " << bf._refreshed[i] << "\n";
         ss << "\n";
-        ss << "# HELP mmo_buff_restored_total Buff slots filled on enter from the saved DB value (characters.buffs), split by kind\n";
+        ss << "# HELP mmo_buff_restored_total Buffs restored on enter from the saved DB value (characters.buffs), split by buff id\n";
         ss << "# TYPE mmo_buff_restored_total counter\n";
-        for (int i = 0; i < BUFF_KIND_COUNT; ++i)
-            ss << "mmo_buff_restored_total{kind=\"" << BuffKindName(static_cast<BuffKind>(i)) << "\"} " << bf._restored[i] << "\n";
+        for (int i = 0; i < bf._buffRows; ++i)
+            ss << "mmo_buff_restored_total{buff=\"" << bf._buffIdOf[i] << "\"} " << bf._restored[i] << "\n";
         ss << "\n";
-        ss << "# HELP mmo_buff_ended_total Buff slots turned off, split by reason (expired, death, leave)\n";
+        ss << "# HELP mmo_buff_ended_total Buffs ended, split by reason (expired, death, leave)\n";
         ss << "# TYPE mmo_buff_ended_total counter\n";
         for (int i = 0; i < static_cast<int>(BuffEnd::COUNT); ++i)
             ss << "mmo_buff_ended_total{reason=\"" << BuffEndName(static_cast<BuffEnd>(i)) << "\"} " << bf._ended[i] << "\n";
         ss << "\n";
-        ss << "# HELP mmo_buff_active Buff slots live right now across every character\n";
+        ss << "# HELP mmo_buff_active Buffs active right now across every character\n";
         ss << "# TYPE mmo_buff_active gauge\n";
         ss << "mmo_buff_active " << bf._active << "\n\n";
         WriteCounter(ss, "mmo_actor_buff_sent_total",
@@ -917,7 +917,7 @@ private:
                      "Saved cooldown or buff entries already over on enter (ran out while offline) - dropped",
                      e._timerExpired);
         WriteCounter(ss, "mmo_enter_timer_skipped_total",
-                     "Saved cooldown or buff entries skipped for bad content (unknown skill, buff kind or value out of range, duplicate slot, buff time over the cap)",
+                     "Saved cooldown or buff entries skipped for bad content (skill or buff id not in the table, skill not in the book, duplicate id)",
                      e._timerSkipped);
         WriteCounter(ss, "mmo_enter_timer_bad_total",
                      "Saved cooldown or buff columns dropped whole for a bad format (unknown version, length mismatch, longer than the buffer)",
@@ -925,6 +925,9 @@ private:
         WriteCounter(ss, "mmo_enter_cooldown_old_format_total",
                      "Saved cooldown columns read in the old format (version 1, one-byte skill id) - kept and rewritten as version 2 on the next save",
                      e._cooldownOldFormat);
+        WriteCounter(ss, "mmo_enter_buff_old_format_total",
+                     "Saved buff columns read in the old format (version 1, kind + value) - kept and rewritten as version 2 on the next save",
+                     e._buffOldFormat);
 
         // 게이지 — 조용해지면 0 이어야 한다(안 내려가면 대기표가 샌 것)
         ss << "# HELP mmo_enter_pending Sessions currently waiting for their character load\n";

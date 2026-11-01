@@ -48,13 +48,12 @@ namespace
     }
 
     // 지속 효과 통보 — 본인에게만(Protocol.h MSG_S2C_ACTOR_BUFF). remainMs 0 = 풀림
-    CSerialBuffer* MakeActorBuff(int32_t actorId, uint8_t kind, int32_t value, uint32_t remainMs)
+    CSerialBuffer* MakeActorBuff(int32_t actorId, uint16_t buffId, uint32_t remainMs)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_ACTOR_BUFF::TYPE);
         *buf << static_cast<int>(actorId);
-        *buf << static_cast<uint8_t>(kind);
-        *buf << static_cast<int>(value);
+        *buf << static_cast<uint16_t>(buffId);
         *buf << static_cast<unsigned int>(remainMs);
         FinalizePacket(buf);
         assert(buf->GetDataSize() == sizeof(MSG_S2C_ACTOR_BUFF));
@@ -186,33 +185,29 @@ void CSelfNotifier::SendMyStats(CPlayer* player)
 // 지속 효과 — 걸기·만료·정리는 CBuffSystem(BuffSystem.cpp), 여기는 본인에게 보내기만
 // ==========================================================================
 
-// 효과 칸 하나를 본인에게 — 비었으면 value 0 · remainMs 0(풀림). 세는 곳도 여기 한 곳(SendActorMp 와 같은 꼴).
-//   ★ 켜진 칸에 0 을 보내지 않는다 — 0 은 「풀림」의 뜻이다. 존 이동 패킷이 같은 틱의 만료 훑기(3-2b) 앞에 처리되면 남은 틱이 0 이
+// 버프 하나를 본인에게 — 안 걸려 있으면 remainMs 0(풀림). 세는 곳도 여기 한 곳(SendActorMp 와 같은 꼴).
+//   ★ 걸려 있는 버프에 0 을 보내지 않는다 — 0 은 「풀림」의 뜻이다. 존 이동 패킷이 같은 틱의 만료 훑기(3-2b) 앞에 처리되면 남은 틱이 0 이
 //     될 수 있어 그때는 1ms 로 올린다(다음 틱의 만료가 곧 0 을 보낸다).
-void CSelfNotifier::SendActorBuff(CPlayer* player, BuffKind kind)
+void CSelfNotifier::SendActorBuff(CPlayer* player, int32_t buffId)
 {
-    const BuffSlot& slot = player->_buffs._slots[static_cast<int>(kind)];
     uint32_t remainMs = 0;
-    if (slot.IsActive())
+    if (const ActiveBuff* active = player->_buffs.Find(buffId))
     {
-        const uint64_t leftFrames = (slot.expireFrame > _frameCount) ? (slot.expireFrame - _frameCount) : 0;
+        const uint64_t leftFrames = (active->expireFrame > _frameCount) ? (active->expireFrame - _frameCount) : 0;
         remainMs = static_cast<uint32_t>(leftFrames * FRAME_INTERVAL_MS);
         if (remainMs == 0)
             remainMs = 1;
     }
-    _sessionHub.SendPacket(player, MakeActorBuff(player->_actorId, static_cast<uint8_t>(kind), slot.IsActive() ? slot.value : 0, remainMs));
+    _sessionHub.SendPacket(player, MakeActorBuff(player->_actorId, static_cast<uint16_t>(buffId), remainMs));
     _gameMonitor._buff._actorBuffSent.Inc();
 }
 
-// 켜져 있는 칸을 전부 — 입장·존 이동. 입장엔 DB 저장값으로 되살린 효과가 가고(없으면 0장 — RestoreCooldownsAndBuffs),
+// 걸려 있는 버프를 전부 — 입장·존 이동. 입장엔 DB 저장값으로 되살린 효과가 가고(없으면 0장 — RestoreCooldownsAndBuffs),
 //   존 이동엔 그대로 따라온 효과가 다시 간다(웹이 존을 넘으면 내 액터를 새로 만드는 날 비지 않게 — ACTOR_MP 와 같은 까닭, 10-11).
 void CSelfNotifier::SendActiveBuffs(CPlayer* player)
 {
-    for (int k = 0; k < BUFF_KIND_COUNT; ++k)
-    {
-        if (player->_buffs._slots[k].IsActive())
-            SendActorBuff(player, static_cast<BuffKind>(k));
-    }
+    for (const ActiveBuff& active : player->_buffs._activeBuffs)
+        SendActorBuff(player, active.buffId);
 }
 
 // 되살아남을 본인에게 — 마을 부활(도착 차례 2-1). 지금 자리·체력(되살린 뒤 값)을 싣는다.

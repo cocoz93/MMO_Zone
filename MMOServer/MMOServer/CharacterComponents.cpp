@@ -89,14 +89,19 @@ void CAttackComponent::RestoreMp(int32_t saved)
 // ── 효과 컴포넌트 ──
 #if USE_COMBAT
 
-bool CBuffComponent::AnyActive() const
+ActiveBuff* CBuffComponent::Find(int32_t buffId)
 {
-    for (const BuffSlot& slot : _slots)
+    for (ActiveBuff& active : _activeBuffs)
     {
-        if (slot.IsActive())
-            return true;
+        if (active.buffId == buffId)
+            return &active;
     }
-    return false;
+    return nullptr;
+}
+
+const ActiveBuff* CBuffComponent::Find(int32_t buffId) const
+{
+    return const_cast<CBuffComponent*>(this)->Find(buffId);
 }
 
 #endif // USE_COMBAT

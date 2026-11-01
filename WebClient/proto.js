@@ -83,8 +83,6 @@
   const EQUIP_FAIL = ['BAD_SLOT','EMPTY','NOT_EQUIPPABLE','DEAD','COOLDOWN','TAB_FULL','IN_TRADE'];
   // 스킬 거절 사유 — Protocol.h SkillFail 순서 그대로(값이 와이어에 실린다). 거절이면 체력·마력·쿨타임이 그대로다
   const SKILL_FAIL = ['BAD_SKILL','DEAD','COOLDOWN','LOW_HP','NO_TARGET','LOW_MP'];
-  // 지속 효과 종류 — Protocol.h BuffKind 순서 그대로(값이 와이어에 실린다). 스킬 표의 effect 「buff_<종류>」 와 이름이 같다
-  const BUFF_KIND = ['attack_mul'];
   // 맵 이동 실패 사유 — Protocol.h MSG_S2C_ZONE_CHANGE_FAIL 의 reason 주석 순서 그대로(존 이동 요청 · 포털 공통)
   const ZONE_FAIL = ['NOT_FOUND','FULL','SAME_ZONE','NOT_ALLOWED','TOO_FAR','NO_PORTAL'];
   // 표시 문자의 부류 값 — Protocol.h DISPLAY_MONSTER · DISPLAY_NPC 사본. 0x20 미만이면 사람이 아니고, 어느 몬스터·NPC 인지는 등장 엔트리의 defId
@@ -272,10 +270,9 @@
       //   ACTOR_MP 16B = actorId i32 · mp i32 · maxMp i32 — 본인에게만(접속·존 이동·레벨업·스킬 소모·마력 물약)
       case MSG.S2C_ACTOR_MP:
         p.actorId=dv.getInt32(o,true); p.mp=dv.getInt32(o+4,true); p.maxMp=dv.getInt32(o+8,true); break;
-      //   ACTOR_BUFF 17B = actorId i32 · kind u8 · value i32 · remainMs u32 — 본인에게만(걸림·되감김·만료·죽음·존 이동). remainMs 0 = 풀림
+      //   ACTOR_BUFF 14B = actorId i32 · buffId u16 · remainMs u32 — 본인에게만(걸림·되감김·만료·죽음·존 이동). remainMs 0 = 풀림
       case MSG.S2C_ACTOR_BUFF:
-        p.actorId=dv.getInt32(o,true); p.kind=dv.getUint8(o+4); p.kindName=BUFF_KIND[p.kind] || ('?'+p.kind);
-        p.value=dv.getInt32(o+5,true); p.remainMs=dv.getUint32(o+9,true); break;
+        p.actorId=dv.getInt32(o,true); p.buffId=dv.getUint16(o+4,true); p.remainMs=dv.getUint32(o+6,true); break;
       //   SKILL_COOLDOWN_REMAIN 14B = actorId i32 · skillId u16 · remainMs u32 — 본인에게만(입장·존 이동). remainMs 는 늘 1 이상
       case MSG.S2C_SKILL_COOLDOWN_REMAIN:
         p.actorId=dv.getInt32(o,true); p.skillId=dv.getUint16(o+4,true); p.remainMs=dv.getUint32(o+6,true); break;
@@ -418,7 +415,7 @@
     }
   };
 
-  const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, EQUIP_SLOT, USE_FAIL, EQUIP_FAIL, SKILL_FAIL, BUFF_KIND, ZONE_FAIL, GROUND_APPEAR, GROUND_GONE, PICKUP_FAIL,
+  const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, EQUIP_SLOT, USE_FAIL, EQUIP_FAIL, SKILL_FAIL, ZONE_FAIL, GROUND_APPEAR, GROUND_GONE, PICKUP_FAIL,
                 PARTY_ASK_KIND, PARTY_NOTICE, PARTY_MAX_MEMBERS, DISPLAY_MONSTER, DISPLAY_NPC, CREATE_ENTRY_BYTES, SHOP_FAIL,
                 TRADE_FAIL, TRADE_END, TRADE_MAX_ITEMS, decodePacket, Reassembler, enc };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;

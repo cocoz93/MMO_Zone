@@ -80,6 +80,17 @@ bool CGameServer::LoadGameDataFiles(const std::string& dir)
     if (!_gameDataFiles.LoadAll(dir))
         return false;
 
+#if USE_COMBAT
+    // 버프 지표의 칸 → 버프 번호(노출 라벨) — 아래 스킬 지표와 같은 까닭·같은 때(GameMonitor.h BuffCounters).
+    {
+        CGameMonitor::BuffCounters& bf = _gameMonitor._buff;
+        const CBuffTable& buffs = _gameDataFiles.Buffs();
+        bf._buffRows = buffs.Count();   // 표 읽기가 MAX_BUFF_ROWS 를 넘지 않게 막았다(BuffTable.cpp ⑴)
+        for (int32_t i = 0; i < bf._buffRows; ++i)
+            bf._buffIdOf[i] = buffs.Row(i).buffId;
+    }
+#endif
+
 #if USE_SKILL
     // 스킬 지표의 칸 → 스킬 번호(노출 라벨) — 칸은 표의 안쪽 순번이라 표를 읽은 뒤에야 정해진다(GameMonitor.h SkillCounters).
     //   지표 HTTP 스레드가 뜨기 전이다(main — 표 읽기 뒤에 Start) — 그 뒤로 안 바뀌어 원자 변수가 필요 없다.

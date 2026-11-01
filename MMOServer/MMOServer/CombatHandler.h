@@ -27,7 +27,7 @@
 #if USE_COMBAT
 
 #include "CombatSystem.h"    // ICombatEvents
-#include "BuffSystem.h"      // IBuffEvents · BuffKind
+#include "BuffSystem.h"      // IBuffEvents
 #include "SkillSystem.h"     // USE_SKILL — ISkillEvents · SkillDef (헤더 안에서 스스로 토글을 본다)
 
 class CZone;
@@ -105,7 +105,7 @@ private:
     // 걸기·만료·정리는 CBuffSystem(_buffSystem) — 여기는 알림을 받아 CSelfNotifier 에 넘기기만. 틱 3-2b 가 만료를 훑고,
     //   사라지는 두 길(놓기의 「떠남」 알림 — 게임 서버의 OnLeavingGame → Forget · OnDeath → ClearAll)이 목록에서 뺀다(BuffSystem.h [목록은 틱 너머로 주소를 든다]).
     // 효과 알림 (IBuffEvents) — 스탯은 이미 다시 선 뒤다. 사람이면 S2C_ACTOR_BUFF(본인) — 바뀐 스탯은 틱 끝 CStatSync 가 뒤따라 보낸다. 몬스터면 보낼 세션이 없다.
-    void OnBuffChanged(CCharacter* target, BuffKind kind) override;
+    void OnBuffChanged(CCharacter* target, int32_t buffId) override;
 
 #if USE_SKILL
     // ── 스킬 (USE_SKILL) ──
@@ -121,7 +121,7 @@ private:
 #endif
 
     CSessionHub&       _sessionHub;         // 스킬 거절(한 사람에게)
-    CSelfNotifier&     _selfNotifier;       // 효과 칸(본인에게)
+    CSelfNotifier&     _selfNotifier;       // 걸린 버프(본인에게)
     CSightBroadcaster& _sightBroadcaster;   // 휘두름 · 피해 · 죽음 · 시전 · 제자리 부활을 주변에
     CStatSync&         _statSync;           // 스킬 비용으로 준 체력·마력 표시(틱 끝에 한 번)
     CPlayerPlacement&  _placement;          // 마을 부활 옮기기 · 죽은 몬스터 존에서 빼기

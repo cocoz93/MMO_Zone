@@ -1106,17 +1106,8 @@ struct MSG_S2C_ACTOR_MP
 
 static_assert(sizeof(MSG_S2C_ACTOR_MP) == 16, "ACTOR_MP 는 16B (proto.js 와 맞출 것)");
 
-// 지속 효과(버프)의 종류 — 와이어 값이자 서버 효과 칸의 색인(효과 컴포넌트 CBuffComponent::_slots — InvTab 처럼 서버가 이 enum 을 그대로 쓴다).
-//   효과의 정체는 「어느 스킬이 걸었나」가 아니라 종류다 — 스킬이 걸든 아이템이 걸든 같은 칸이고, 같은 종류는 나중 것이 값·시간을 덮는다.
-//   ★ 끝에만 붙인다(값이 와이어에 실린다) — 가운데에 끼우면 옛 클라가 다른 효과로 읽는다.
-enum class BuffKind : uint8_t
-{
-    ATTACK_MUL,   // 공격력 × value (이중공격 2 · 삼중공격 3 …) — 바탕 + 장비 뒤에 곱한다(CStatSystem::RecalcStats)
-    COUNT
-};
-
 // S2C: 지속 효과 통보 — 걸림·되감김(시간만 다시)·만료·죽음(풀림)·존 이동(살아 있는 효과마다 한 장) 때 보낸다.
-//   remainMs 0 = 풀렸다(만료·죽음). value 는 그때의 배수 — 클라가 표를 안 뒤져도 「공격력 ×2」를 그린다(아이템이 걸어도 같다).
+//   remainMs 0 = 풀렸다(만료·죽음). buffId = 버프 표 번호(Run/bin/BuffTable.csv) — 무엇을 얼마나 바꾸는지는 클라가 같은 표에서 읽는다(스킬 번호와 같은 길).
 //   공격력이 바뀐 숫자는 S2C_MY_STATS 가 곧 뒤따른다 — 이 패킷은 「무엇이 걸렸고 언제 풀리나」만 말한다.
 //   ★ 받는 사람 = 본인만 — 방송 함수로 보내지 말 것(S2C_ACTOR_MP 와 같은 함정 — 남의 효과는 화면에 안 그린다).
 //   ★ CCharacter 에 있는 값은 대상 번호를 싣는다(S2C_ACTOR_MP 주석의 원칙).
@@ -1126,14 +1117,13 @@ struct MSG_S2C_ACTOR_BUFF
     static constexpr MsgType TYPE = MsgType::S2C_ACTOR_BUFF;
     MsgHeader header;
     int32_t  actorId;
-    uint8_t  kind;       // BuffKind
-    int32_t  value;      // 종류마다 뜻이 다르다 — ATTACK_MUL 은 배수
+    uint16_t buffId;     // 버프 표 번호
     uint32_t remainMs;   // 남은 시간(ms) — 0 = 풀림
 
-    MSG_S2C_ACTOR_BUFF() : header{ sizeof(*this), TYPE }, actorId(0), kind(0), value(0), remainMs(0) {}
+    MSG_S2C_ACTOR_BUFF() : header{ sizeof(*this), TYPE }, actorId(0), buffId(0), remainMs(0) {}
 };
 
-static_assert(sizeof(MSG_S2C_ACTOR_BUFF) == 17, "ACTOR_BUFF 는 17B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_ACTOR_BUFF) == 14, "ACTOR_BUFF 는 14B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_ACTOR_BUFF) == 1046, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 // C2S: 포털 사용 — 포털 위에서 상호작용 키를 눌렀을 때 한 번. 어디로 가는지는 서버 포털 표(PortalTable.csv)가 정한다 — 클라는 번호만 보낸다.

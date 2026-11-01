@@ -58,11 +58,12 @@ public:
     //   정지·접속·존 변경·경계 클램프 때 켠다. 레벨·경험치·체력·마력은 여기가 아니라 아래 _dbSaved 비교로 본다.
     bool _dbDirty = false;
 
-    // USE_DB_WORKER: 마지막으로 저장 잡에 실은 레벨·경험치·체력·마력·돈·쿨타임 칸·버프 칸 — 주기 저장 판정(CCharacterStore::ShouldSave)이 지금 값과 비교한다.
+    // USE_DB_WORKER: 마지막으로 저장 잡에 실은 레벨·경험치·체력·마력·돈·쿨타임 칸 — 주기 저장 판정(CCharacterStore::ShouldSave)이 지금 값과 비교한다.
     //   ★ 비교로 보는 이유 — 레벨·경험치·체력·마력은 바뀌는 자리가 여럿이다(피해·부활·물약·스킬 비용·레벨업·입장 보정).
     //     자리마다 _dbDirty 를 켜면 하나를 빠뜨려도 컴파일·화면이 멀쩡하고, 정지한 사람의 그 변경만 조용히 안 써진다.
     //   위치는 비교하지 않는다 — 이동 중(MOVING)은 매 주기 저장하고, 멈출 때 위 _dbDirty 를 켠다.
-    //   쿨타임·버프는 틱 값 그대로 든다 — 묶은 바이트(실제 시각)로 견주지 않는 까닭은 CCharacterStore::CooldownsAndBuffsChanged.
+    //   쿨타임은 틱 값 그대로 든다 — 묶은 바이트(실제 시각)로 견주지 않는 까닭은 CCharacterStore::CooldownsChanged.
+    //   버프는 안 든다 — 버프만 바뀌었다고 저장하지 않는다(CCharacterStore::CharRowChanged).
     struct DbSavedValues
     {
         int32_t level = 0;
@@ -72,9 +73,6 @@ public:
         int64_t money = 0;   // 가진 돈 — 가방을 끈 빌드는 늘 0 끼리 견준다(CCharacterStore::MakeCharRow)
 #if USE_SKILL
         uint64_t skillReadyFrame[MAX_SKILL_BOOK] = {};      // _attack._skillBook 의 readyFrame 사본 — 칸 = 목록 자리(목록은 입장 때 한 번 채우고 순서가 안 바뀐다)
-#endif
-#if USE_COMBAT
-        BuffSlot buffs[BUFF_KIND_COUNT];                    // _buffs._slots 사본
 #endif
     };
     DbSavedValues _dbSaved;

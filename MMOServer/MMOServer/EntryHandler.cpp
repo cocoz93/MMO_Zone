@@ -387,7 +387,7 @@ CPlayer* CEntryHandler::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t 
 
 #if USE_DB_WORKER
     // ── 쿨타임·버프 되살리기 — 스탯 세우기 「앞」 ──
-    //   버프 칸을 먼저 채워야 아래 RecalcStats 한 번에 배수까지 선다(첫 S2C_MY_STATS 가 2배 공격력으로 나간다).
+    //   버프를 먼저 되살려야 아래 RecalcStats 한 번에 효과까지 선다(첫 S2C_MY_STATS 가 2배 공격력으로 나간다).
     //   알림은 여기서 안 보낸다 — 아래 NotifyArrival 이 CREATE_MY_PLAYER 뒤에 SendActiveBuffs·SendActiveSkillCooldowns 로 보낸다.
     //   사본(_dbSaved)도 여기서 맞춘다 — 되살린 칸이 곧 DB 값이라 첫 주기에 헛저장하지 않게.
     _characterStore.RestoreCooldownsAndBuffs(player, place.cooldownsAndBuffs, place.dropBuffs);   // 저장소 — 배치 구조체에서 쓰는 두 칸만 넘긴다

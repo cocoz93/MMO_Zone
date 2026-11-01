@@ -6,12 +6,14 @@
 #include <cassert>
 
 #include "Character.h"     // 효과 컴포넌트 자리(Buffs)
-#include "CharacterComponents.h" // 효과 컴포넌트(CBuffComponent) — 칸과 AnyActive
-#include "StatSystem.h"    // 바뀐 칸을 스탯에 반영
+#include "CharacterComponents.h" // 효과 컴포넌트(CBuffComponent) — 걸린 버프 목록
+#include "StatSystem.h"    // 바뀐 효과를 스탯에 반영
 #include "GameMonitor.h"   // 걸림·끝남·게이지 지표
+#include "GameDataFiles.h" // 버프 표 — 지속과 지표 칸
 
-CBuffSystem::CBuffSystem(CGameMonitor& gameMonitor, CStatSystem& statSystem, IBuffEvents& events)
-    : _gameMonitor(gameMonitor)
+CBuffSystem::CBuffSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor, CStatSystem& statSystem, IBuffEvents& events)
+    : _tables(tables)
+    , _gameMonitor(gameMonitor)
     , _statSystem(statSystem)
     , _events(events)
 {
@@ -37,30 +39,33 @@ void CBuffSystem::RemoveFromList(CCharacter* c)
     _buffed.erase(std::remove(_buffed.begin(), _buffed.end(), c), _buffed.end());
 }
 
-void CBuffSystem::Apply(CCharacter* target, BuffKind kind, int32_t value, uint64_t durationFrames, uint64_t frame)
+void CBuffSystem::Apply(CCharacter* target, int32_t buffId, uint64_t frame)
 {
-    assert(durationFrames > 0 && "지속 0 은 비어 있는 칸과 구별이 안 된다 — 표 읽기가 막는다");
-    CBuffComponent& buffs = BuffsOf(target);
-    BuffSlot& slot = buffs._slots[static_cast<int>(kind)];
-    auto& m = _gameMonitor._buff;
+    const BuffDef* def = _tables.Buffs().Find(buffId);
+    assert(def != nullptr && "표에 없는 버프 — 거는 쪽의 표 읽기(스킬 표 ⑸)가 번호를 대조했다");
+    if (def == nullptr)
+        return;
 
-    if (slot.IsActive())
+    CBuffComponent& buffs = BuffsOf(target);
+    auto& m = _gameMonitor._buff;
+    const uint64_t expireFrame = frame + def->durationFrames;
+
+    if (ActiveBuff* active = buffs.Find(buffId))
     {
-        m._refreshed[static_cast<int>(kind)].Inc();   // 되감기 — 같은 종류는 나중 것이 값·시간을 덮는다
+        m._refreshed[def->index].Inc();   // 되감기 — 같은 번호를 다시 걸면 시간만 다시
+        active->expireFrame = expireFrame;
     }
     else
     {
-        if (!buffs.AnyActive())   // 첫 칸이 켜진다 — 목록에 들어온다(칸을 채우기 전에 봐야 한다)
+        if (!buffs.AnyActive())   // 첫 버프가 걸린다 — 효과 목록에 들어온다(걸린 버프 목록에 넣기 전에 봐야 한다)
             _buffed.push_back(target);
-        m._applied[static_cast<int>(kind)].Inc();
+        m._applied[def->index].Inc();
         m._active.Inc();
+        buffs._activeBuffs.push_back(ActiveBuff{ buffId, expireFrame });
     }
 
-    slot.value       = value;
-    slot.expireFrame = frame + durationFrames;
-
-    _statSystem.RecalcStats(target, false);   // 바탕 + 장비 뒤에 배수 — 체력·마력은 최대치만 맞춘다
-    _events.OnBuffChanged(target, kind);
+    _statSystem.RecalcStats(target, false);   // 바탕 + 장비 뒤에 수정 항목 — 체력·마력은 최대치만 맞춘다
+    _events.OnBuffChanged(target, buffId);
 }
 
 void CBuffSystem::Tick(uint64_t frame)
@@ -72,22 +77,27 @@ void CBuffSystem::Tick(uint64_t frame)
     {
         CCharacter* c = _buffed[i];
         CBuffComponent& buffs = BuffsOf(c);
-        bool expired[BUFF_KIND_COUNT] = {};
-        bool any = false;
+        std::vector<ActiveBuff>& list = buffs._activeBuffs;
+        assert(list.size() <= static_cast<size_t>(MAX_BUFF_ROWS) && "표에 있는 번호만 하나씩 걸린다(Buff.h MAX_BUFF_ROWS)");
+        int32_t expired[MAX_BUFF_ROWS];
+        int nExpired = 0;
 
-        for (int k = 0; k < BUFF_KIND_COUNT; ++k)
+        // 뒤엣것과 바꿔치기로 제거 — 순서가 뜻을 갖지 않는 목록이다. k 는 안 올린다(방금 당겨온 것을 아직 안 봤다)
+        for (size_t k = 0; k < list.size(); )
         {
-            BuffSlot& slot = buffs._slots[k];
-            if (!slot.IsActive() || frame < slot.expireFrame)
+            if (frame < list[k].expireFrame)
+            {
+                ++k;
                 continue;
-            slot = BuffSlot{};
+            }
+            expired[nExpired++] = list[k].buffId;
+            list[k] = list.back();
+            list.pop_back();
             _gameMonitor._buff._ended[static_cast<int>(BuffEnd::EXPIRED)].Inc();
             _gameMonitor._buff._active.Add(-1);
-            expired[k] = true;
-            any = true;
         }
 
-        if (!any)
+        if (nExpired == 0)
         {
             ++i;
             continue;
@@ -95,13 +105,10 @@ void CBuffSystem::Tick(uint64_t frame)
 
         // 스탯을 먼저 다시 세운 뒤 알린다 — 받는 쪽이 보내는 S2C_MY_STATS 가 풀린 값이어야 한다
         _statSystem.RecalcStats(c, false);
-        for (int k = 0; k < BUFF_KIND_COUNT; ++k)
-        {
-            if (expired[k])
-                _events.OnBuffChanged(c, static_cast<BuffKind>(k));
-        }
+        for (int k = 0; k < nExpired; ++k)
+            _events.OnBuffChanged(c, expired[k]);
 
-        // 마지막 칸이 꺼졌으면 목록에서 — 뒤엣것과 바꿔치기로 O(1) 제거, i 는 안 올린다(방금 당겨온 것을 아직 안 봤다). TickRespawn 꼴
+        // 마지막 버프가 풀렸으면 목록에서 — 뒤엣것과 바꿔치기로 O(1) 제거, i 는 안 올린다(방금 당겨온 것을 아직 안 봤다). TickRespawn 꼴
         if (!buffs.AnyActive())
         {
             _buffed[i] = _buffed.back();
@@ -117,67 +124,57 @@ void CBuffSystem::Tick(uint64_t frame)
 void CBuffSystem::ClearAll(CCharacter* target)
 {
     CBuffComponent& buffs = BuffsOf(target);
-    bool cleared[BUFF_KIND_COUNT] = {};
-    bool any = false;
-    for (int k = 0; k < BUFF_KIND_COUNT; ++k)
+    std::vector<ActiveBuff>& list = buffs._activeBuffs;
+    assert(list.size() <= static_cast<size_t>(MAX_BUFF_ROWS) && "표에 있는 번호만 하나씩 걸린다(Buff.h MAX_BUFF_ROWS)");
+    int32_t cleared[MAX_BUFF_ROWS];
+    int nCleared = 0;
+    for (const ActiveBuff& active : list)
     {
-        BuffSlot& slot = buffs._slots[k];
-        if (!slot.IsActive())
-            continue;
-        slot = BuffSlot{};
+        cleared[nCleared++] = active.buffId;
         _gameMonitor._buff._ended[static_cast<int>(BuffEnd::DEATH)].Inc();
         _gameMonitor._buff._active.Add(-1);
-        cleared[k] = true;
-        any = true;
     }
+    list.clear();
 
-    RemoveFromList(target);   // 칸이 다 비어 있었어도 목록에 남아 있을 길을 막는다(위 RemoveFromList 주석)
-    if (!any)
+    RemoveFromList(target);   // 걸린 것이 없었어도 목록에 남아 있을 길을 막는다(위 RemoveFromList 주석)
+    if (nCleared == 0)
         return;
 
     _statSystem.RecalcStats(target, false);
-    for (int k = 0; k < BUFF_KIND_COUNT; ++k)
-    {
-        if (cleared[k])
-            _events.OnBuffChanged(target, static_cast<BuffKind>(k));
-    }
+    for (int k = 0; k < nCleared; ++k)
+        _events.OnBuffChanged(target, cleared[k]);
 }
 
-bool CBuffSystem::Restore(CCharacter* target, BuffKind kind, int32_t value, uint64_t remainFrames, uint64_t frame)
+bool CBuffSystem::Restore(CCharacter* target, const BuffDef& def, uint64_t remainFrames, uint64_t frame)
 {
-    assert(remainFrames > 0 && "남은 틱 0 은 비어 있는 칸과 구별이 안 된다 — 호출부가 지난 항목을 거른다");
+    assert(remainFrames > 0 && "남은 틱 0 은 이미 끝난 항목이다 — 호출부가 지난 항목을 거른다");
     CBuffComponent& buffs = BuffsOf(target);
-    BuffSlot& slot = buffs._slots[static_cast<int>(kind)];
-    if (slot.IsActive())
+    if (buffs.Find(def.buffId) != nullptr)
         return false;
 
-    if (!buffs.AnyActive())   // 첫 칸이 켜진다 — 목록에 들어온다(칸을 채우기 전에 봐야 한다 — Apply 와 같은 순서)
+    if (!buffs.AnyActive())   // 첫 버프가 걸린다 — 효과 목록에 들어온다(걸린 버프 목록에 넣기 전에 봐야 한다 — Apply 와 같은 순서)
         _buffed.push_back(target);
-    _gameMonitor._buff._restored[static_cast<int>(kind)].Inc();
+    _gameMonitor._buff._restored[def.index].Inc();
     _gameMonitor._buff._active.Inc();
 
-    slot.value       = value;
-    slot.expireFrame = frame + remainFrames;
+    buffs._activeBuffs.push_back(ActiveBuff{ def.buffId, frame + remainFrames });
     return true;   // 스탯·알림은 호출부 몫(헤더 주석 ⑴)
 }
 
-void CBuffSystem::EndSlotsAsLeave(CCharacter* c)
+void CBuffSystem::EndAllAsLeave(CCharacter* c)
 {
     CBuffComponent& buffs = BuffsOf(c);
-    for (int k = 0; k < BUFF_KIND_COUNT; ++k)
+    for (size_t k = 0; k < buffs._activeBuffs.size(); ++k)
     {
-        BuffSlot& slot = buffs._slots[k];
-        if (!slot.IsActive())
-            continue;
-        slot = BuffSlot{};
         _gameMonitor._buff._ended[static_cast<int>(BuffEnd::LEAVE)].Inc();
         _gameMonitor._buff._active.Add(-1);
     }
+    buffs._activeBuffs.clear();
 }
 
 void CBuffSystem::Forget(CCharacter* target)
 {
-    EndSlotsAsLeave(target);
+    EndAllAsLeave(target);
     RemoveFromList(target);   // 알림·재계산 없음 — 곧 해제되고 받을 세션도 없다
 }
 
@@ -192,7 +189,7 @@ void CBuffSystem::ForgetZone(int32_t zoneId)
             ++i;
             continue;
         }
-        EndSlotsAsLeave(c);
+        EndAllAsLeave(c);
         _buffed[i] = _buffed.back();
         _buffed.pop_back();
     }

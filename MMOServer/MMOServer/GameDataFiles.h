@@ -10,6 +10,7 @@
 #include "MonsterTable.h"
 #include "SpawnRegionTable.h"
 #include "DropTable.h"
+#include "BuffTable.h"
 #include "SkillTable.h"
 #include "MonsterSkillTable.h"
 #include "ShopTable.h"
@@ -73,6 +74,9 @@ public:
 #if USE_DROP
     const CDropTable& Drop() const { return _drop; }
 #endif
+#if USE_COMBAT
+    const CBuffTable& Buffs() const { return _buff; }
+#endif
 #if USE_SKILL
     const CSkillTable& Skill() const { return _skill; }
 #endif
@@ -101,8 +105,11 @@ private:
 #if USE_DROP
     CDropTable _drop;   // 아이템 표·몬스터 표를 먼저 읽고 그 결과로 대조한다(LoadAll 순서)
 #endif
+#if USE_COMBAT
+    CBuffTable _buff;     // 스킬 표가 이 표의 번호를 대조한다(LoadAll 순서). 전투 소유 — 거는 쪽이 스킬만이 아니라서(Buff.h [토글])
+#endif
 #if USE_SKILL
-    CSkillTable _skill;   // 레벨 표를 먼저 읽고 마력 비용을 최대 마력과 대조한다(LoadAll 순서). 대상·효과 종류는 코드의 이름표와 대조한다(SkillTable.cpp)
+    CSkillTable _skill;   // 레벨 표 · 버프 표를 먼저 읽고 마력 비용 · 버프 번호를 대조한다(LoadAll 순서). 대상·효과 종류는 SkillTable.h
 #endif
 #if USE_MONSTER && USE_SKILL
     CMonsterSkillTable _monsterSkill;   // 몬스터 표·스킬 표를 먼저 읽고 그 결과로 대조한다(LoadAll 순서) — 몬스터가 어떤 스킬을 언제 쓰나

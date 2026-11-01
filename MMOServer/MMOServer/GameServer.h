@@ -178,7 +178,7 @@ private:
     // 지속 효과 규칙 — 알림은 CCombatHandler(_combatHandler · IBuffEvents)로 간다. 바뀌면 _statSystem 으로 스탯을 다시 세운다(그래서 그 뒤에 선언).
     //   거는 쪽은 _skillSystem(아래 — 그 참조를 받으므로 이보다 뒤) · 아이템이 걸게 되면 _itemSystem 도 받는다.
     //   알림 받는 _combatHandler 는 한참 뒤에 선언된다(그 클래스가 이 규칙의 참조를 받는다) — 참조를 묶기만 하고 생성 중엔 안 부른다.
-    CBuffSystem _buffSystem{ _gameMonitor, _statSystem, _combatHandler };
+    CBuffSystem _buffSystem{ _gameDataFiles, _gameMonitor, _statSystem, _combatHandler };
 #endif
 
 #if USE_INVENTORY

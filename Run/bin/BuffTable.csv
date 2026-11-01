@@ -1,0 +1,17 @@
+# Buff table - design data, read once at startup (CBuffTable). The web client reads the same file.
+#   UTF-8 without BOM (names are Korean). No commas inside a cell.
+#   One row = one buff. A skill names a buff by number (SkillTable.csv effect buff, power = buffId); an item could name the same row.
+#   buffId     : 1..65535 (MAX_BUFF_ID - u16 on the wire and in the DB). A name tag, not an array index - gaps are fine. At most 16 rows (MAX_BUFF_ROWS).
+#   durationMs : 1..3600000. Rounded UP to server ticks (40ms) - 30000 = 750.
+#                Applying the same buff again only rewinds its time. A buff ends on expiry or death and follows the player across zones.
+#                Saved with the character row (characters.buffs): on logout and shutdown always, otherwise only when the row is written for another
+#                reason - a buff change alone does not trigger a save, so a server crash may lose it. The clock keeps running while offline.
+#   mods       : what it changes, "stat:how:value" joined by ';', up to 4, no repeated stat+how.
+#                stat = attack | defense | max_hp | max_mp. max_hp and max_mp raise the maximum only - the current value is not filled up.
+#                how  = add (a non-zero integer, -1000000..1000000) | pct (1..1000, 30 = +30%, rounded down) | mul (2..10).
+#                Order is fixed: level table + gear -> sum of add -> sum of pct -> product of mul. Changing gear keeps the buff.
+#   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
+#   1 Dual Attack (Lv1 attack 10): attack 20 for 30s. 2 Rage = the bosses' (cast rules in MonsterSkill.csv): attack x2 for 10s.
+buffId,name,durationMs,mods
+1,이중공격,30000,attack:mul:2
+2,격노,10000,attack:mul:2

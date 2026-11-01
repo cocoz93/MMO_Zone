@@ -302,12 +302,12 @@ void CCombatHandler::OnRevive(CZone* zone, CCharacter* caster, int32_t monsterId
 // ==========================================================================
 
 // 효과가 바뀌었다(걸림·되감김·만료·죽음) — 와이어 = ACTOR_BUFF → (틱 끝) 바뀐 스탯. 스탯은 CBuffSystem 이 다시 세울 때 표시가 남아
-//   틱 끝 스탯 알림(CStatSync)이 보낸다 — 공격력이면 MY_STATS, 최대 체력이면 주변에도 ACTOR_STATS. 여기는 효과 칸만.
+//   틱 끝 스탯 알림(CStatSync)이 보낸다 — 공격력이면 MY_STATS, 최대 체력이면 주변에도 ACTOR_STATS. 여기는 걸린 버프만.
 //   몬스터면 보낼 세션이 없어 안 한다(스탯은 CBuffSystem 이 이미 세웠다 — 보스가 자기에게 건 버프가 이 길을 탄다. 다른 사람 화면엔 시전 방송의 고리만 순간 보이고 지속 표시는 아직 없다).
-void CCombatHandler::OnBuffChanged(CCharacter* target, BuffKind kind)
+void CCombatHandler::OnBuffChanged(CCharacter* target, int32_t buffId)
 {
     if (CPlayer* player = As<CPlayer>(target))
-        _selfNotifier.SendActorBuff(player, kind);
+        _selfNotifier.SendActorBuff(player, buffId);
 }
 
 // 부활 대기자 훑기 — 틱마다 1회. 죽은 것만 따로 들고 있어 존 전체를 돌지 않는다.

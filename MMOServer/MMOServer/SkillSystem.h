@@ -8,8 +8,8 @@
 //    지속 효과(걸림·되감김)는 CBuffSystem::Apply 가 IBuffEvents 로 알린다. 되살리기는 ISkillEvents::OnRevive 로 넘긴다(깔기는 몬스터 관리자).
 //    거절은 알림이 아니라 돌려주는 값이다(CItemSystem::UseItem 꼴) — 게임 서버가 와이어 SkillFail 로 바꿔 보낸다
 //
-// [세 칸] 정의 = 스킬 표(CSkillTable — 기획 데이터) · 진행 = 캐릭터마다의 쿨타임·마력·효과 칸(공격 컴포넌트의 쿨타임·마력 · 효과 컴포넌트 — CharacterComponents.h) · 규칙 = 여기
-//   (효과 칸의 규칙은 CBuffSystem — 여기는 걸기만 부른다)
+// [세 칸] 정의 = 스킬 표(CSkillTable — 기획 데이터) · 진행 = 캐릭터마다의 쿨타임·마력·걸린 버프(공격 컴포넌트의 쿨타임·마력 · 효과 컴포넌트 — CharacterComponents.h) · 규칙 = 여기
+//   (버프의 규칙은 CBuffSystem — 여기는 걸기만 부른다)
 //
 // [시전자] CCharacter 다 — 사람도 몬스터(보스)도 같은 규칙으로 쓴다(10-11). 일반 공격(CCombatSystem::PerformAttack)과 같은 꼴.
 //   종류로 갈리는 것은 대상 후보 하나뿐이다(SelectTargets). 몬스터가 스킬을 부르는 곳은 CMonsterManager::Think 다(MonsterAI 가 규칙 표에서 고른 번호 — 10-13).

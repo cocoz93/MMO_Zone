@@ -6,7 +6,7 @@
 //        능력이 늘면 컴포넌트가 는다 — 상속을 늘리지 않는다(덫 = 공격만 · 부서지는 문 = 체력만 같은 조합이 상속 없이 된다).
 //
 // [감추는 칸] 규칙이 있는 칸(체력·마력 — 0 ~ 최대 · 죽음)은 감추고 함수만 연다. 규칙을 쓰는 자리가 여기 하나다.
-//        규칙이 없는 칸(공격력 · 쿨타임 · 효과 칸)은 공개 칸이다 — CCharacter 의 지금 꼴(공개 칸 + 행동은 시스템)과 같다.
+//        규칙이 없는 칸(공격력 · 쿨타임 · 걸린 버프)은 공개 칸이다 — CCharacter 의 지금 꼴(공개 칸 + 행동은 시스템)과 같다.
 //
 // [토글] 칸은 원래 칸의 토글을 따른다 — 마력·스킬 쿨타임 = USE_SKILL · 효과 컴포넌트 = USE_COMBAT. 체력 컴포넌트·공격력·일반 쿨타임은 토글 없음.
 // ==========================================================================
@@ -16,7 +16,7 @@
 #include <vector>          // 기술 목록(USE_SKILL)
 
 #include "BuildConfig.h"   // USE_SKILL · USE_COMBAT — 안 읽으면 아래 #if 가 조용히 0 이 된다
-#include "Buff.h"          // USE_COMBAT — BuffSlot·BUFF_KIND_COUNT(효과 칸). 같은 규칙
+#include "Buff.h"          // USE_COMBAT — ActiveBuff(걸린 버프 목록). 같은 규칙
 
 // ── 체력 컴포넌트 — 맞는 쪽 ──
 //   체력은 0 ~ 최대. 0 이 되는 순간이 죽음이다 — 체력 0 과 죽음 표시를 TakeDamage 한 곳이 같이 적는다
@@ -56,7 +56,7 @@ private:
 
 // ── 공격 컴포넌트 — 때리는 쪽 ──
 //   공격력·방어력(방어력은 체력 컴포넌트)은 "최종값"이다 — CStatSystem::RecalcStats 가 「바탕(플레이어 = 레벨 표 · 몬스터 = 몬스터 표) + 착용 장비(플레이어)
-//   → 지속 효과 배수(효과 컴포넌트)」 순서로 세운다. 몬스터는 생성자가 표 값을 먼저 넣고, 효과가 걸리면 같은 함수가 표 값에서 다시 세운다.
+//   → 지속 효과(효과 컴포넌트)」 순서로 세운다. 몬스터는 생성자가 표 값을 먼저 넣고, 효과가 걸리면 같은 함수가 표 값에서 다시 세운다.
 //   때릴 때마다 다시 세지 않는다(바뀌는 자리가 입장·레벨업·끼우기·빼기·효과 걸림·풀림뿐이라 때리는 경로는 필드만 읽는다).
 //   피해 = Combat::CalcDamage(때린 쪽 _attackPower, 맞는 쪽 Defense()) — 최소 1.
 //   마력은 스킬만 쓰므로 스킬 쿨타임과 같이 여기 둔다 — 체력과 같은 꼴의 규칙(채우기 · 최대 맞추기 · 저장)이라 함수 이름도 같은 꼴이다.
@@ -129,15 +129,19 @@ private:
 
 #if USE_COMBAT
 // ── 효과 컴포넌트 — 지속 효과를 받는 쪽 ──
-//   지속 효과 칸 — 종류마다 하나(Buff.h BuffSlot · 색인 = BuffKind). 비우는 자리는 CBuffSystem(만료·죽음·퇴장)뿐 — 여기서 직접 손대지 않는다.
-//   공격력 최종값은 RecalcStats 가 이 칸을 읽어 곱한다. 몬스터도 같은 칸이다(보스가 스킬로 자기에게 거는 버프 — MonsterAI 가 고르고 CMonsterManager 가 CSkillSystem 을 부른다).
+//   걸린 버프 목록(Buff.h ActiveBuff — 버프 번호·끝나는 프레임, 값은 버프 표). 넣고 빼는 자리는 CBuffSystem(걸기·되살리기·만료·죽음·퇴장)뿐 — 여기서 직접 손대지 않는다.
+//   최종 스탯은 RecalcStats 가 이 목록과 버프 표를 읽어 세운다. 몬스터도 같은 목록이다(보스가 스킬로 자기에게 거는 버프 — MonsterAI 가 고르고 CMonsterManager 가 CSkillSystem 을 부른다).
 //   전투 토글 소유다 — 거는 쪽이 스킬만이 아니라서(아이템도 걸 수 있는 틀).
 //   사람 것은 DB 에 저장한다(characters.buffs — 실제 시각으로 묶어 접속하지 않은 동안에도 흐른다 · CCharacterStore::PackCooldownsAndBuffs).
 class CBuffComponent
 {
 public:
-    BuffSlot _slots[BUFF_KIND_COUNT];
+    std::vector<ActiveBuff> _activeBuffs;   // 걸린 버프 — 같은 번호는 하나뿐 · 순서는 뜻이 없다. 길이 ≤ MAX_BUFF_ROWS(Buff.h)
 
-    bool AnyActive() const;   // 켜진 칸이 하나라도 있나 — CBuffSystem 의 효과 목록(_buffed)에 들어 있어야 하는가
+    // 찾기는 앞에서부터 훑는다 — 몇 개뿐이고 걸기·풀기·스탯 세우기 때만 찾는다(틱마다 전원을 훑는 곳이 없다 — 기술 목록과 같은 꼴)
+    ActiveBuff* Find(int32_t buffId);
+    const ActiveBuff* Find(int32_t buffId) const;
+
+    bool AnyActive() const { return !_activeBuffs.empty(); }   // 걸린 것이 하나라도 있나 — CBuffSystem 의 효과 목록(_buffed)에 들어 있어야 하는가
 };
 #endif

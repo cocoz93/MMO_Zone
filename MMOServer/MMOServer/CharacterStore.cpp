@@ -7,7 +7,7 @@
 #include "MapManager.h"         // CMapManager::GetMapIdFromZoneId — 저장 잡의 맵 번호
 #include "GameMonitor.h"
 #include "GameDataFiles.h"      // 스킬 표 · 아이템 표
-#include "BuffSystem.h"         // USE_COMBAT — 지속 효과 칸 되살리기(Restore)
+#include "BuffSystem.h"         // USE_COMBAT — 버프 되살리기(Restore)
 #include "CooldownBuffBlob.h"   // 쿨타임·버프 열의 바이트 형식(토글을 안 보는 헤더)
 #include <Common/ErrorLog.h>
 #include <cassert>
@@ -44,7 +44,7 @@ bool CCharacterStore::Init(const DBConfig& dbConfig, int savePeriodSec, int work
     return true;
 }
 
-#if USE_SKILL || USE_COMBAT   // 쿨타임·버프 칸이 하나도 없는 빌드는 아래 셋을 안 쓴다(쓰지 않는 static 함수 경고)
+#if USE_SKILL || USE_COMBAT   // 쿨타임·버프가 하나도 없는 빌드는 아래 셋을 안 쓴다(쓰지 않는 static 함수 경고)
 // 실제 시각(UTC 밀리초) — 쿨타임·버프를 DB 에 남기고 되살릴 때만 쓴다. 접속하지 않은 동안에도 흘러야 해서 틱으로는 못 센다.
 //   게임 안의 시간은 여전히 틱(_frameCount)이다 — 이 값은 「틱 ↔ 실제 시각」을 바꾸는 기준점일 뿐이다.
 static int64_t WallNowMs()
@@ -60,7 +60,7 @@ static int64_t FramesToMs(uint64_t frames) { return static_cast<int64_t>(frames)
 static uint64_t MsToFramesCeil(int64_t ms) { return static_cast<uint64_t>((ms + FRAME_INTERVAL_MS - 1) / FRAME_INTERVAL_MS); }
 #endif
 
-// 형식의 최대 길이가 DB 쪽 버퍼에 들어가야 한다 — 스킬·버프 종류를 늘리면 여기서 막힌다(DBWorker.h 의 숫자를 올릴 것)
+// 형식의 최대 길이가 DB 쪽 버퍼에 들어가야 한다 — 기술 목록·버프 표 상한을 늘리면 여기서 막힌다(DBWorker.h 의 숫자를 올릴 것)
 #if USE_SKILL
 static_assert(CooldownBuffBlob::CooldownsMaxBytes(MAX_SKILL_BOOK) <= DB_SKILL_COOLDOWNS_BYTES, "기술 목록 상한을 늘렸으면 DBWorker.h 의 DB_SKILL_COOLDOWNS_BYTES 를 올릴 것");
 static_assert(DB_SKILL_COOLDOWNS_BYTES <= 255, "skill_cooldowns 열은 VARBINARY(255) 다(schema.sql)");
@@ -68,28 +68,10 @@ static_assert(MAX_SKILL_BOOK <= 255, "묶음의 개수 칸이 1바이트다(Cool
 static_assert(MAX_SKILL_ID <= 0xFFFF, "스킬 번호를 2바이트에 싣는다(CooldownBuffBlob 판 2)");
 #endif
 #if USE_COMBAT
-static_assert(CooldownBuffBlob::BuffsMaxBytes(BUFF_KIND_COUNT) <= DB_BUFFS_BYTES, "버프 종류를 늘렸으면 DBWorker.h 의 DB_BUFFS_BYTES 를 올릴 것");
-
-// 되살릴 버프의 상한 — 지금 버프를 거는 쪽은 스킬뿐이라 스킬 표 읽기의 상한과 같은 값이다(CSkillTable::MAX_BUFF_MUL · MAX_COOLDOWN_MS).
-//   버프 칸은 전투 토글 소유라 스킬을 끈 빌드에도 있다 — 그래서 표 클래스 대신 숫자로 두고, 스킬 빌드에선 static_assert 가 둘을 맞춘다.
-constexpr int32_t BUFF_RESTORE_MAX_MUL       = 10;
-constexpr int64_t BUFF_RESTORE_MAX_REMAIN_MS = 3600000;   // 1시간 — 스킬 표의 지속 상한
-#if USE_SKILL
-static_assert(BUFF_RESTORE_MAX_MUL == CSkillTable::MAX_BUFF_MUL && BUFF_RESTORE_MAX_REMAIN_MS == CSkillTable::MAX_COOLDOWN_MS,
-              "스킬 표의 상한을 바꿨으면 되살리기 상한도 맞출 것");
-#endif
-
-// 되살릴 버프 값이 그 종류에 맞나 — 종류마다 뜻이 달라 switch 로 전수한다(종류를 늘리면 static_assert 가 여기로 부른다).
-static bool IsRestorableBuffValue(BuffKind kind, int32_t value)
-{
-    static_assert(BUFF_KIND_COUNT == 1, "BuffKind 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
-    switch (kind)
-    {
-    case BuffKind::ATTACK_MUL: return value >= 2 && value <= BUFF_RESTORE_MAX_MUL;   // 스킬 표 읽기와 같은 범위(1 은 아무 일도 안 한다)
-    case BuffKind::COUNT:      break;
-    }
-    return false;
-}
+static_assert(CooldownBuffBlob::BuffsMaxBytes(MAX_BUFF_ROWS) <= DB_BUFFS_BYTES, "버프 표 상한을 늘렸으면 DBWorker.h 의 DB_BUFFS_BYTES 를 올릴 것");
+static_assert(DB_BUFFS_BYTES <= 255, "buffs 열은 VARBINARY(255) 다(schema.sql)");
+static_assert(MAX_BUFF_ROWS <= 255, "묶음의 개수 칸이 1바이트다(CooldownBuffBlob)");
+static_assert(MAX_BUFF_ID <= 0xFFFF, "버프 번호를 2바이트에 싣는다(CooldownBuffBlob 판 2)");
 #endif
 
 bool CCharacterStore::ShouldSave(const CPlayer* player) const
@@ -108,11 +90,13 @@ bool CCharacterStore::CharRowChanged(const CPlayer* player) const
     // 캐릭터 행 판정 — 참이면 묶음이 행을 싣는다(PrepareBundle 의 SAVE_PART_CHAR_ROW). 열마다 보는 것:
     //   x · y · map_id                   = MOVING(위치가 계속 변하는 중 → 저장 후 dirty가 리셋돼도 매 주기 재저장) · _dbDirty(정지/접속/존변경/클램프 — 일회성, 저장 후 리셋)
     //   level · exp · hp · mp · money    = 값 비교 — 마지막으로 실은 값(_dbSaved)과 다름. 바뀌는 자리마다 켜지 않고 여기서 본다(Player.h)
-    //   skill_cooldowns · buffs          = 틱 비교(CooldownsAndBuffsChanged — 바이트는 저장마다 흔들려 못 견준다)
+    //   skill_cooldowns                  = 틱 비교(CooldownsChanged — 바이트는 저장마다 흔들려 못 견준다)
+    //   buffs                            = 안 본다 — 버프만 바뀌었다고 저장하지 않는다(11-02 사용자 결정 — 서버가 죽으면 날아가도 되는 값이다).
+    //                                      행이 실릴 때 그때까지 걸려 있으면 같이 실리고, 나갈 때·종료는 이 판정 없이 쓴다
     //   ★ 열을 늘리면 여기에도 — 안 넣으면 그 열만 바뀐 변경은 행이 안 실린다(열 수 static_assert 가 DBWorker.cpp kCharColumns 옆에서 부른다)
     if (player->_moveState == MoveState::MOVING || player->_dbDirty)
         return true;
-    if (CooldownsAndBuffsChanged(player))
+    if (CooldownsChanged(player))
         return true;
 
     // 저장할 값과 같은 식으로 견준다(MakeCharRow) — 토글을 끈 빌드의 「모름(-1)」도 똑같이 나와 헛저장이 없다.
@@ -159,8 +143,8 @@ void CCharacterStore::RecordSaved(CPlayer* player, const DBCharRow& row)
     player->_dbSaved.hp      = row.hp;
     player->_dbSaved.mp      = row.mp;
     player->_dbSaved.money   = row.money;
-    // 쿨타임·버프는 잡의 바이트가 아니라 칸(틱)을 사본으로 남긴다 — 같은 틱에 만든 잡이라 내용은 같다(까닭은 CooldownsAndBuffsChanged)
-    RecordSavedCooldownsAndBuffs(player);
+    // 쿨타임은 잡의 바이트가 아니라 칸(틱)을 사본으로 남긴다 — 같은 틱에 만든 잡이라 내용은 같다(까닭은 CooldownsAndBuffsChanged)
+    RecordSavedCooldowns(player);
 }
 
 // ── 쿨타임·버프 ↔ DB 묶음 ─────────────────────────────────────────────────
@@ -192,15 +176,16 @@ void CCharacterStore::PackCooldownsAndBuffs(const CPlayer* player, DBCharRow& ro
 #endif
 
 #if USE_COMBAT
-    // 켜져 있고 끝나는 틱이 지금보다 뒤인 칸만 — 이번 틱의 만료 훑기(CBuffSystem::Tick) 전에 이미 끝난 칸은 뺀다(Tick 의 경계 frame >= expire)
-    CooldownBuffBlob::Buff buffs[BUFF_KIND_COUNT];
+    // 끝나는 틱이 지금보다 뒤인 것만 — 이번 틱의 만료 훑기(CBuffSystem::Tick) 전에 이미 끝난 것은 뺀다(Tick 의 경계 frame >= expire)
+    //   [불변식] 목록 길이 ≤ MAX_BUFF_ROWS — 표에 있는 번호만 하나씩 걸린다(Buff.h)
+    assert(player->_buffs._activeBuffs.size() <= static_cast<size_t>(MAX_BUFF_ROWS));
+    CooldownBuffBlob::Buff buffs[MAX_BUFF_ROWS];
     int nBuff = 0;
-    for (int k = 0; k < BUFF_KIND_COUNT; ++k)
+    for (const ActiveBuff& active : player->_buffs._activeBuffs)
     {
-        const BuffSlot& slot = player->_buffs._slots[k];
-        if (!slot.IsActive() || slot.expireFrame <= _frameCount)
+        if (active.expireFrame <= _frameCount || nBuff >= MAX_BUFF_ROWS)
             continue;
-        buffs[nBuff++] = { static_cast<uint8_t>(k), slot.value, nowMs + FramesToMs(slot.expireFrame - _frameCount) };
+        buffs[nBuff++] = { static_cast<uint16_t>(active.buffId), nowMs + FramesToMs(active.expireFrame - _frameCount) };
     }
     row.buffs.len = static_cast<unsigned long>(
         CooldownBuffBlob::PackBuffs(buffs, nBuff, row.buffs.data, sizeof(row.buffs.data)));
@@ -209,12 +194,12 @@ void CCharacterStore::PackCooldownsAndBuffs(const CPlayer* player, DBCharRow& ro
     (void)player;
 }
 
-// 칸이 마지막 저장 때 사본(_dbSaved)과 다른가 — 틱 값끼리 견준다.
+// 쿨타임이 마지막 저장 때 사본(_dbSaved)과 다른가 — 틱 값끼리 견준다.
 //   묶은 바이트(실제 시각)로 견주지 않는 까닭 — 같은 칸이어도 저장할 때마다 환산값이 흔들린다(명목 40ms × 남은 틱 vs 실제로 흐른 시간).
 //   실측 틱이 명목보다 조금 길면 60초 사이 끝 시각이 1초 넘게 밀려, 쿨타임이 남은 사람은 매 주기 헛저장된다.
-//   끝난 쿨타임 칸은 틱 값이 안 바뀌어 저장을 부르지 않는다(버프 칸은 만료 때 CBuffSystem::Tick 이 비워 한 번 실린다)
+//   끝난 쿨타임 칸은 틱 값이 안 바뀌어 저장을 부르지 않는다
 //   — DB 에 지난 항목이 남아도 들어올 때 버려진다(RestoreCooldownsAndBuffs).
-bool CCharacterStore::CooldownsAndBuffsChanged(const CPlayer* player)
+bool CCharacterStore::CooldownsChanged(const CPlayer* player)
 {
 #if USE_SKILL
     // 칸 = 목록 자리 — 목록은 입장 때 한 번 채우고 순서가 안 바뀐다(Player.h _dbSaved). 목록 길이는 MAX_SKILL_BOOK 안(PackCooldownsAndBuffs 의 불변식)
@@ -225,35 +210,22 @@ bool CCharacterStore::CooldownsAndBuffsChanged(const CPlayer* player)
             return true;
     }
 #endif
-#if USE_COMBAT
-    for (int k = 0; k < BUFF_KIND_COUNT; ++k)
-    {
-        const BuffSlot& now   = player->_buffs._slots[k];
-        const BuffSlot& saved = player->_dbSaved.buffs[k];
-        if (now.expireFrame != saved.expireFrame || now.value != saved.value)
-            return true;
-    }
-#endif
     (void)player;
     return false;
 }
 
-void CCharacterStore::RecordSavedCooldownsAndBuffs(CPlayer* player)
+void CCharacterStore::RecordSavedCooldowns(CPlayer* player)
 {
 #if USE_SKILL
     const std::vector<CAttackComponent::SkillBookEntry>& book = player->_attack._skillBook;
     for (size_t i = 0; i < book.size() && i < static_cast<size_t>(MAX_SKILL_BOOK); ++i)
         player->_dbSaved.skillReadyFrame[i] = book[i].readyFrame;
 #endif
-#if USE_COMBAT
-    for (int k = 0; k < BUFF_KIND_COUNT; ++k)
-        player->_dbSaved.buffs[k] = player->_buffs._slots[k];
-#endif
     (void)player;
 }
 
-// 입장 — 불러온 묶음을 풀어 칸을 채운다(SpawnPlayer, 스탯 세우기 「앞」 — 버프 배수가 한 번의 RecalcStats 에 들어가게).
-//   검사 셋: 형식(버전·길이 — CooldownBuffBlob) · 내용(표에 있는 스킬인가 · 버프 종류·값) · 시각(이미 지났나 · 상한).
+// 입장 — 불러온 묶음을 풀어 칸을 채운다(SpawnPlayer, 스탯 세우기 「앞」 — 버프 효과가 한 번의 RecalcStats 에 들어가게).
+//   검사 셋: 형식(버전·길이 — CooldownBuffBlob) · 내용(표에 있는 스킬·버프인가) · 시각(이미 지났나 · 표의 값으로 자름).
 //   어느 검사에 걸려도 입장은 막지 않는다 — 그 칸이 풀릴 뿐이다. 세는 곳은 여기 한 곳(GameMonitor.h EnterCounters).
 //   불량·건너뜀이 있었으면 다음 주기에 한 번 다시 써 행을 정리한다(_dbDirty) — 안 쓰면 칸이 바뀌기 전까지 입장마다 같은 불량을 다시 만난다
 //   (형식 불량은 경고 로그 · 건너뜀은 지표만).
@@ -339,17 +311,26 @@ void CCharacterStore::RestoreCooldownsAndBuffs(CPlayer* player, const DBResult* 
 #if USE_COMBAT
         if (!dropBuffs)   // 죽은 채 저장된 행이면 버프는 풀지 않고 버린다(GameMonitor.h — 행 단위로 _deadRespawn 이 센다)
         {
-            CooldownBuffBlob::Buff items[BUFF_KIND_COUNT];
+            CooldownBuffBlob::Buff items[MAX_BUFF_ROWS];
             int n = 0;
+            bool oldFormat = false;
             const unsigned long len = row.buffs.len;
             const CooldownBuffBlob::Unpack r = (len > DB_BUFFS_BYTES)
                 ? CooldownBuffBlob::Unpack::BAD
-                : CooldownBuffBlob::UnpackBuffs(row.buffs.data, len, items, BUFF_KIND_COUNT, n);
+                : CooldownBuffBlob::UnpackBuffs(row.buffs.data, len, items, MAX_BUFF_ROWS, n, oldFormat);
             if (unpacked(r, "buffs", len))
             {
+                // 옛 판(1 — 종류 + 값)이면 다음 주기에 새 판으로 다시 쓴다(옮기기 · 11-01). 내용은 같은 목록이라 아래 검사를 그대로 지난다
+                if (oldFormat)
+                {
+                    enter._buffOldFormat.Inc();
+                    rewrite = true;
+                }
                 for (int i = 0; i < n; ++i)
                 {
-                    if (items[i].kind >= BUFF_KIND_COUNT || !IsRestorableBuffValue(static_cast<BuffKind>(items[i].kind), items[i].value))
+                    // 표에 없는 번호(패치로 지움 · 옛 판의 모르는 종류)
+                    const BuffDef* def = _gameDataFiles.Buffs().Find(items[i].buffId);
+                    if (def == nullptr)
                     {
                         enter._timerSkipped.Inc();
                         rewrite = true;
@@ -361,18 +342,14 @@ void CCharacterStore::RestoreCooldownsAndBuffs(CPlayer* player, const DBResult* 
                         enter._timerExpired.Inc();
                         continue;
                     }
-                    // 남은 시간이 상한보다 길면 시계가 튀었거나 행이 망가진 것이라 건너뛴다(BUFF_RESTORE_MAX_REMAIN_MS)
-                    const int64_t remainMs = items[i].expireAtMs - nowMs;
-                    if (remainMs > BUFF_RESTORE_MAX_REMAIN_MS)
+                    // 남은 틱은 표의 지속으로 자른다 — 시계가 튀었거나 패치로 지속을 줄였을 때 오래 남지 않게(쿨타임과 같은 규칙).
+                    //   자르기를 바꾸기 앞에 둔다 — 터무니없이 큰 값을 틱으로 바꾸다 넘치지 않게.
+                    const int64_t  remainMs = items[i].expireAtMs - nowMs;
+                    const uint64_t frames   = (remainMs >= FramesToMs(def->durationFrames)) ? def->durationFrames : MsToFramesCeil(remainMs);
+                    // 목록·지표(_buff._restored)는 CBuffSystem 이 맡는다. 스탯은 호출부(SpawnPlayer)의 RecalcStats 가 곧 세운다.
+                    if (!_buffSystem.Restore(player, *def, frames, _frameCount))
                     {
-                        enter._timerSkipped.Inc();
-                        rewrite = true;
-                        continue;
-                    }
-                    // 칸·지표(_buff._restored)·목록은 CBuffSystem 이 맡는다. 스탯은 호출부(SpawnPlayer)의 RecalcStats 가 곧 세운다.
-                    if (!_buffSystem.Restore(player, static_cast<BuffKind>(items[i].kind), items[i].value, MsToFramesCeil(remainMs), _frameCount))
-                    {
-                        enter._timerSkipped.Inc();   // 같은 종류가 둘(불량) — 첫 것만 썼다
+                        enter._timerSkipped.Inc();   // 같은 번호가 둘(불량) — 첫 것만 썼다
                         rewrite = true;
                     }
                 }
@@ -389,7 +366,7 @@ void CCharacterStore::RestoreCooldownsAndBuffs(CPlayer* player, const DBResult* 
 #endif
 
     // 되살린 칸이 곧 DB 값이다 — 사본을 맞춰 두지 않으면 첫 주기에 같은 값을 헛저장한다
-    RecordSavedCooldownsAndBuffs(player);
+    RecordSavedCooldowns(player);
 }
 
 void CCharacterStore::SaveAllPlayers()

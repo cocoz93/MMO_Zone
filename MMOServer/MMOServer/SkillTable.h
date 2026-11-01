@@ -12,6 +12,7 @@
 #if USE_SKILL
 
 class CLevelTable;
+class CBuffTable;
 
 // 스킬 번호 상한 — 와이어(u16)와 DB 쿨타임 묶음(2바이트)에 실리는 크기다. 배열 색인이 아니다(11-01 기술 목록).
 //   번호는 이름표일 뿐이라 띄엄띄엄 매겨도 된다 — 캐릭터는 자기가 가진 기술 목록(CAttackComponent::_skillBook)을 들고,
@@ -109,7 +110,7 @@ enum class SkillTarget : uint8_t
 enum class SkillEffect : uint8_t
 {
     DAMAGE,            // 피해 — 공격값 = 시전 전 체력 × power%. 방어력은 맞힌 뒤 처리(CCombatSystem::ApplyHit)가 뺀다
-    BUFF_ATTACK_MUL,   // 지속 효과 — 공격력 × power 를 durationMs 동안(CBuffSystem::Apply, 종류 BuffKind::ATTACK_MUL). 대상은 self 만(표 읽기가 막는다)
+    BUFF,              // 지속 효과 — power 번 버프를 건다(CBuffSystem::Apply · 무엇을 얼마나 몇 초는 버프 표). 대상은 self 만(표 읽기가 막는다)
     DAMAGE_ATK,        // 피해 — 공격값 = 시전자 공격력(최종값) × power%. 방어력은 DAMAGE 와 같이 맞힌 뒤에 뺀다.
                        //   DAMAGE 는 시전자의 현재 체력이 식에 들어가(체력을 떼고 그 체력으로 치는 스킬) 체력이 줄수록 약해진다 — 몬스터(보스)가 쓰면 안 맞아서 따로 둔다(10-13)
     REVIVE,            // 되살리기 — 시전자 존에서 죽은 power 번 몬스터를 빈 점 수만큼 되살린다(10-18 뱀왕). 대상은 self · 쓰는 쪽은 monster 만(표 읽기가 막는다).
@@ -138,7 +139,7 @@ enum class SkillUser : uint8_t
 //        줄마다 안쪽 순번(index, 0~)을 매긴다 — 지표 칸이 이 순번이다.
 //        번호는 와이어에도 실린다(C2S_USE_SKILL · S2C_SKILL_CAST — u16) — 웹이 같은 파일에서 이름을 읽는다.
 //
-// [스킬마다 클래스 없음] 스킬마다 다른 것은 숫자(체력·마력 소모·위력·쿨타임·지속)와 범위 스킬의 칸 목록뿐이라 표 한 줄이다.
+// [스킬마다 클래스 없음] 스킬마다 다른 것은 숫자(체력·마력 소모·위력·쿨타임)와 범위 스킬의 칸 목록뿐이라 표 한 줄이다.
 //        코드로 늘어나는 것은 대상 종류(SkillTarget)와 효과 종류(SkillEffect) 두 축이다.
 // ==========================================================================
 struct SkillDef
@@ -148,15 +149,13 @@ struct SkillDef
     std::string name;                 // UTF-8. 서버는 로그에만 쓴다
     SkillTarget target         = SkillTarget::COUNT;
     SkillEffect effect         = SkillEffect::COUNT;
-    SkillUser   user           = SkillUser::PLAYER;   // 누가 쓰나 — 표의 11번째 칸(빈 칸 = PLAYER)
+    SkillUser   user           = SkillUser::PLAYER;   // 누가 쓰나 — 표의 10번째 칸(빈 칸 = PLAYER)
     int32_t     costHpPct      = 0;   // 시전 때 떼는 현재 체력의 % (0 = 소모 없음)
     int32_t     costMp         = 0;   // 시전 때 떼는 마력 — 고정값(0 = 소모 없음). 모자라면 LOW_MP
-    int32_t     power          = 0;   // DAMAGE = 시전 전 체력의 % · DAMAGE_ATK = 시전자 공격력의 % · BUFF_ATTACK_MUL = 배수(2 = 이중공격)
+    int32_t     power          = 0;   // DAMAGE = 시전 전 체력의 % · DAMAGE_ATK = 시전자 공격력의 % · BUFF = 버프 번호(버프 표 — 표 읽기가 대조한다)
                                       //   REVIVE = 되살릴 몬스터 번호(몬스터 표 — 있는지·보스 아닌지는 몬스터 스킬 표 읽기가 본다. 이 표는 몬스터 표를 모른다)
     int32_t     cooldownMs     = 0;   // 파일에 적힌 값 그대로 — 로그용
     uint64_t    cooldownFrames = 0;   // 쿨타임(틱) — ms 를 올림해서 담는다(짧아지지 않게)
-    int32_t     durationMs     = 0;   // 지속(ms) — 지속 효과(BUFF_*)만. 그 밖은 0 이어야 한다(표 읽기가 막는다) — 로그용
-    uint64_t    durationFrames = 0;   // 지속(틱) — 올림(쿨타임과 같은 까닭). 30000 → 750
     std::vector<ShapeCell> shape;     // SHAPE 의 칸 목록(다른 대상 종류는 빈 목록)
     float       shapeReach     = 0.0f;   // ShapeReach(shape) — 대상 찾기가 훑을 반경(몸 크기는 ShapeScanRadius 가 더한다). 표 읽기가 한 번 센다
 };
@@ -165,12 +164,12 @@ class CSkillTable
 {
 public:
     static constexpr int32_t MAX_POWER       = 1000;      // % — 체력 × power 를 int64 로 세지만 오타 하나가 값을 터뜨리지 않게
-    static constexpr int32_t MAX_COOLDOWN_MS = 3600000;   // 1시간 — 그 위는 오타로 본다(지속 시간 상한도 같다)
-    static constexpr int32_t MAX_BUFF_MUL    = 10;        // 배수 상한 — 1 은 아무 일도 안 하고(표 읽기가 막는다) 그 위는 오타. 원본 오중공격이 5
+    static constexpr int32_t MAX_COOLDOWN_MS = 3600000;   // 1시간 — 그 위는 오타로 본다
 
     // 파일을 읽어 표를 세운다. 실패하면 false 이고 까닭을 로그로 남긴다 — main 이 서버를 안 띄운다.
     //   levels = 먼저 읽은 레벨 표 — costMp 가 닿을 수 있는 최대 마력을 넘는지 대조한다(드랍 표가 아이템 표를 받는 꼴).
-    bool Load(const std::string& path, const CLevelTable& levels);
+    //   buffs  = 먼저 읽은 버프 표 — 효과 buff 줄의 power(버프 번호)가 표에 있나 본다.
+    bool Load(const std::string& path, const CLevelTable& levels, const CBuffTable& buffs);
 
     // 없는 번호면 nullptr — 와이어로 온 번호(아무 값이나 올 수 있다)를 그대로 넣어도 된다.
     const SkillDef* Find(int32_t skillId) const

@@ -22,7 +22,7 @@
 #include "GroundItem.h"       // USE_DROP — 땅에서 빠진 까닭(GroundItemRemoval, 땅 아이템 관리자의 어휘) 수만큼 칸을 잡는다
 #include "ItemSystem.h"       // USE_INVENTORY — 쓰기·장착 거절 사유(UseItemReject·EquipReject) 수만큼 칸을 잡는다
 #include "SkillSystem.h"      // USE_SKILL — 스킬 거절 사유(SkillReject) 수만큼 칸을 잡는다
-#include "Buff.h"             // USE_COMBAT — 지속 효과 종류(BuffKind)·끝난 사유(BuffEnd) 수만큼 칸을 잡는다
+#include "Buff.h"             // USE_COMBAT — 버프 표 상한(MAX_BUFF_ROWS)·끝난 사유(BuffEnd) 수만큼 칸을 잡는다
 #include "SkillTable.h"       // USE_SKILL — 스킬 표 줄 수 상한(MAX_SKILL_ROWS)만큼 시전 칸을 잡는다
 #include "MapManager.h"       // 존 이동 요청 결과(ZoneChangeReject — 맵 관리자의 어휘) 수만큼 칸을 잡는다
 #include "PartySystem.h"      // USE_PARTY — 빠진 까닭(PartyLeave)·요청이 끝난 까닭(PartyRequestEnd) 수만큼 칸을 잡는다
@@ -471,19 +471,7 @@ inline const char* ShopRejectName(ShopReject r)
 #endif
 
 #if USE_COMBAT
-// 지속 효과의 지표 라벨 둘 — 종류(BuffKind, 와이어 enum — Protocol.h)와 끝난 사유(BuffEnd — Buff.h).
-//   종류 이름은 스킬 표의 effect 글자 「buff_<종류>」 뒤쪽과 같게 둔다(웹 proto.js BUFF_KIND 도 같은 이름).
-inline const char* BuffKindName(BuffKind k)
-{
-    static_assert(static_cast<int>(BuffKind::COUNT) == 1, "BuffKind 를 늘렸으면 이름도 붙일 것");
-    switch (k)
-    {
-    case BuffKind::ATTACK_MUL: return "attack_mul";
-    case BuffKind::COUNT:      break;
-    }
-    return "?";
-}
-
+// 지속 효과의 지표 라벨 — 끝난 사유(BuffEnd — Buff.h). 버프 라벨은 버프 번호 그대로다(BuffCounters::_buffIdOf).
 inline const char* BuffEndName(BuffEnd e)
 {
     static_assert(static_cast<int>(BuffEnd::COUNT) == 3, "BuffEnd 를 늘렸으면 이름도 붙일 것");
@@ -585,15 +573,19 @@ public:
     //   ★ 등식(조용해진 뒤): Σ _applied + Σ _restored = Σ _ended + _active — 끝나는 자리가 셋이라 사유마다 한 칸이다(드랍 등식과 같은 꼴).
     //     켜지는 자리도 둘이다(스킬로 걸림 · 입장 때 DB 저장값으로 되살림) — 되살림을 안 세면 그 효과가 끝날 때 오른쪽만 늘어 등식이 깨진다.
     //     한 자리라도 안 세면 등식이 영영 안 맞는다. _refreshed 는 등식 밖이다(칸이 이미 켜져 있어 _active 가 안 변한다).
-    //   토글 안에 두는 까닭 — 칸 수(BuffKind·BuffEnd)가 Buff.h 의 토글 안에 있다(스킬 카운터와 같은 꼴).
+    //   칸 = 버프 표의 안쪽 순번(BuffDef::index) · 노출 라벨은 버프 번호(_buffIdOf — 기동 때 한 번 · CGameServer::LoadGameDataFiles). 스킬 지표와 같은 꼴.
+    //   토글 안에 두는 까닭 — 칸 수(MAX_BUFF_ROWS·BuffEnd)가 Buff.h 의 토글 안에 있다(스킬 카운터와 같은 꼴).
     // ══════════════════════════════════════════════════════════════
     struct alignas(64) BuffCounters
     {
-        Counter _applied[BUFF_KIND_COUNT];                      // 새로 걸림(빈 칸이 켜짐), 종류별
-        Counter _refreshed[BUFF_KIND_COUNT];                    // 켜진 칸을 덮음(되감기 — 값·시간 다시), 종류별
-        Counter _restored[BUFF_KIND_COUNT];                     // 입장 때 DB 저장값으로 빈 칸을 채움(CBuffSystem::Restore), 종류별 — 걸림과 따로 센다
+        Counter _applied[MAX_BUFF_ROWS];                        // 새로 걸림, 버프별
+        Counter _refreshed[MAX_BUFF_ROWS];                      // 걸려 있는 버프를 다시 걸음(되감기 — 시간만 다시), 버프별
+        Counter _restored[MAX_BUFF_ROWS];                       // 입장 때 DB 저장값으로 되살림(CBuffSystem::Restore), 버프별 — 걸림과 따로 센다
         Counter _ended[static_cast<int>(BuffEnd::COUNT)];      // 끝남, 사유별(만료·죽음·퇴장)
-        Counter _active;                                        // [게이지] 지금 켜져 있는 칸 수(전원 합계) — 켤 때 +1, 끝낼 때 −1
+        Counter _active;                                        // [게이지] 지금 걸려 있는 버프 수(전원 합계) — 걸 때 +1, 끝낼 때 −1
+
+        int32_t _buffRows = 0;                                  // 표 줄 수 — 노출이 이만큼만 찍는다
+        int32_t _buffIdOf[MAX_BUFF_ROWS] = {};                  // 칸(안쪽 순번) → 버프 번호(노출 라벨)
 
         // S2C_ACTOR_BUFF 보낸 수 — SendActorBuff 한 곳에서만 센다(_myStatsSent 와 같은 꼴). 걸림·되감김·만료·죽음·존 이동마다 1.
         Counter _actorBuffSent;
@@ -807,9 +799,10 @@ public:
         //   죽은 채 저장된 행의 버프는 풀지 않고 버린다 — 칸 단위로 안 세고 행 단위 _deadRespawn 이 센다.
         Counter _cooldownRestored;   // 되살린 쿨타임 칸
         Counter _timerExpired;       // 저장값이 이미 지나 버린 칸(쿨타임·버프) — 접속하지 않은 동안 끝났다(정상)
-        Counter _timerSkipped;       // 내용이 틀려 건너뛴 칸 — 표에 없는 스킬 번호 · 기술 목록에 없는 번호 · 범위 밖 버프 종류·값 · 같은 칸이 둘 · 버프 남은 시간이 상한 초과
+        Counter _timerSkipped;       // 내용이 틀려 건너뛴 칸 — 표에 없는 스킬·버프 번호 · 기술 목록에 없는 번호 · 같은 번호가 둘
         Counter _timerBad;           // 형식이 틀려 통째로 버린 열(쿨타임 열·버프 열 따로 1씩) — 버전 모름 · 길이 불일치 · 버퍼보다 긴 값(잘림)
         Counter _cooldownOldFormat;  // 옛 판(1 — 스킬 번호 1바이트)으로 읽은 쿨타임 열 — 버리지 않고 읽어 다음 저장에 새 판(2)으로 옮긴다(11-01).
+        Counter _buffOldFormat;      // 옛 판(1 — 종류 + 값)으로 읽은 버프 열 — 같은 규칙으로 옮긴다(11-02).
                                      //   행 단위(열 하나에 1). 옛 행이 다 한 번씩 들어왔다 나가면 더는 안 오른다
 
         // 요청 → 결과 수령 지연. 평균은 튄 값을 못 보므로 구간별 개수로 담는다(비누적, 노출 때 누적 변환).

@@ -9,6 +9,7 @@
 #include "GameMonitor.h"     // 레벨업·보정 지표
 #include <Common/ErrorLog.h>
 #include <cassert>           // 몬스터를 끈 빌드에 몬스터 종류가 오는 일은 없다
+#include <cstdint>           // INT32_MAX — std::numeric_limits::max 는 윈도 헤더의 max 매크로에 먹힌다
 
 CStatSystem::CStatSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor, IStatEvents& events)
     : _tables(tables)
@@ -51,6 +52,43 @@ namespace
         if (b.mp != a.mp || b.maxMp != a.maxMp)              changed |= StatChange::SELF_MP;
         return changed;
     }
+
+    // 스탯 하나에 모인 수정치 — 걸린 버프를 다 돈 합·곱
+    struct StatMods
+    {
+        int64_t add = 0;   // add 합
+        int64_t pct = 0;   // pct 합
+        int64_t mul = 1;   // mul 곱 — 넘치지 않게 INT32_MAX 에서 멈춘다
+    };
+
+    void CollectMods(const BuffDef& def, StatMods (&out)[static_cast<int>(BuffStat::COUNT)])
+    {
+        for (int32_t i = 0; i < def.modCount; ++i)
+        {
+            const BuffMod& mod = def.mods[i];
+            StatMods& s = out[static_cast<int>(mod.stat)];
+            switch (mod.kind)
+            {
+            case BuffModKind::ADD: s.add += mod.value; break;
+            case BuffModKind::PCT: s.pct += mod.value; break;
+            case BuffModKind::MUL: s.mul = (s.mul * mod.value > INT32_MAX) ? INT32_MAX : s.mul * mod.value; break;
+            case BuffModKind::COUNT: break;   // 표 읽기가 막는다 — 여기 오지 않는다
+            }
+        }
+    }
+
+    // 순서 고정 — 바탕 + 장비 → add 합 → pct 합(내림) → mul 곱. int64 로 세고 [lowest, INT32_MAX] 로 자른다.
+    //   넘침 — 값 2^31 미만 · add 합 1600만 · pct 합 16000 이라 pct 까지 int64 안이고, mul 앞에서 값을 자르므로 2^31 × 2^31 도 안이다.
+    int32_t ApplyMods(int32_t base, const StatMods& m, int32_t lowest)
+    {
+        int64_t v = (static_cast<int64_t>(base) + m.add) * (100 + m.pct) / 100;
+        if (v > INT32_MAX)
+            v = INT32_MAX;
+        v *= m.mul;
+        if (v > INT32_MAX)
+            v = INT32_MAX;
+        return (v < lowest) ? lowest : static_cast<int32_t>(v);
+    }
 }
 
 // 세우고 → 전후를 견줘 바뀐 몫만 알린다. 보내기는 받는 쪽(CStatSync)이 틱 끝에 한 번 — 한 틱에 여러 번 세워도 한 장씩이다.
@@ -66,8 +104,8 @@ void CStatSystem::RecalcStats(CCharacter* character, bool refill)
 // ==========================================================================
 // 스탯 — 최대 체력·공격력·방어력을 세우는 한 곳
 //   공격력·방어력은 최종값을 필드에 둔다(Character.h [전투 스탯]). 때리는 경로는 필드만 읽는다.
-//   순서 = 바탕(종류로 갈림) → 장비(플레이어) → 지속 효과 배수(공통). 배수를 맨 뒤에 두는 까닭 — 장착이 이 함수를 다시 부르는데,
-//   배수가 앞에 있으면 무기를 바꾸는 순간 효과가 사라진다.
+//   순서 = 바탕(종류로 갈림) → 장비(플레이어) → 지속 효과(공통 — 버프 표의 수정 항목). 효과를 맨 뒤에 두는 까닭 — 장착이 이 함수를 다시 부르는데,
+//   효과가 앞에 있으면 무기를 바꾸는 순간 효과가 사라진다.
 //   플레이어 바탕은 레벨 표 하나다 — 표는 전투(USE_COMBAT)가 켜지면 늘 읽는다(경험치를 꺼도 1레벨 줄은 바탕 스탯이라 필요).
 //   코드 상수(CHARACTER_DEFAULT_*)는 10-06 에 없앴다 — 표와 두 벌이었고, 전투를 끈 빌드는 스탯을 안 보낸다(WriteSnapshot 0).
 //   몬스터 바탕은 몬스터 표 행(_def) — 생성자(Monster.cpp)가 넣는 것과 같은 복사다(식이 아니라 복사라 두 곳에 둔다, 10-12).
@@ -88,7 +126,7 @@ void CStatSystem::BuildStats(CCharacter* character, bool refill)
         attack._attackPower = table.AttackPower(player->_level);
         health.SetDefense(table.Defense(player->_level));
         // GM 모드(운영자 /gm) — 최대 체력·공격력의 바탕만 GM 값으로 바꾼다. 방어력·마력은 레벨 표 그대로,
-        //   장비 몫·효과 배수는 아래에서 그 위에 그대로 얹는다(끼우거나 효과가 걸려도 GM 이 안 풀린다).
+        //   장비 몫·지속 효과는 아래에서 그 위에 그대로 얹는다(끼우거나 효과가 걸려도 GM 이 안 풀린다).
         if (player->_gmMode)
         {
             health.SetMaxHp(CPlayer::GM_MAX_HP);
@@ -141,17 +179,30 @@ void CStatSystem::BuildStats(CCharacter* character, bool refill)
     CHealthComponent& health = *character->Health();
     CAttackComponent& attack = *character->Attack();
 
-    // ── 2) 지속 효과 배수 — 바탕 + 장비 "뒤". 칸은 CBuffSystem 만 켜고 끈다(CharacterComponents.h CBuffComponent) ──
+    // ── 2) 지속 효과 — 바탕 + 장비 "뒤". 걸린 버프 목록은 CBuffSystem 만 넣고 뺀다(CharacterComponents.h CBuffComponent) ──
+    //   걸린 것이 없으면 아무것도 안 건드린다(보통).
+    assert(character->Buffs() != nullptr && "효과 컴포넌트 없는 것의 스탯을 세움");
+    if (character->Buffs()->AnyActive())
     {
-        assert(character->Buffs() != nullptr && "효과 컴포넌트 없는 것의 스탯을 세움");
-        const BuffSlot& mul = character->Buffs()->_slots[static_cast<int>(BuffKind::ATTACK_MUL)];
-        if (mul.IsActive())
-            attack._attackPower *= mul.value;
+        static_assert(static_cast<int>(BuffStat::COUNT) == 4, "BuffStat 을 늘렸으면 아래에 그 스탯의 줄을 넣을 것");
+        StatMods mods[static_cast<int>(BuffStat::COUNT)];
+        for (const ActiveBuff& active : character->Buffs()->_activeBuffs)
+        {
+            // 표에 있는 번호만 걸린다(거는 쪽 · 되살리기가 대조했다)
+            if (const BuffDef* def = _tables.Buffs().Find(active.buffId))
+                CollectMods(*def, mods);
+        }
+        attack._attackPower = ApplyMods(attack._attackPower, mods[static_cast<int>(BuffStat::ATTACK)], 0);
+        health.SetDefense(ApplyMods(health.Defense(), mods[static_cast<int>(BuffStat::DEFENSE)], 0));
+        health.SetMaxHp(ApplyMods(health.MaxHp(), mods[static_cast<int>(BuffStat::MAX_HP)], 1));   // 최대 체력 0 이면 살아 있을 수 없다
+#if USE_SKILL
+        attack.SetMaxMp(ApplyMods(attack.MaxMp(), mods[static_cast<int>(BuffStat::MAX_MP)], 0));
+#endif
     }
 
     // ── 3) 체력·마력 맞추기 ──
     // 레벨이 올랐을 때만 채운다. 입장은 false 로 최대치만 세우고, DB 가 들고 있던 체력·마력은 RestoreHpMp 가 넣는다.
-    //   효과 걸림·풀림도 false(최대치만 맞춘다 — 효과가 최대 체력을 안 바꿔 지금은 아무 일 없다).
+    //   효과 걸림·풀림도 false(최대치만 맞춘다 — 최대를 올리는 버프여도 지금 값은 안 올린다).
     if (refill)
         health.FillToMax();
     else

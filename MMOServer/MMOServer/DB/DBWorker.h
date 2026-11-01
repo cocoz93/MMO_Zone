@@ -67,10 +67,10 @@ struct DBBytes
     uint8_t       data[N];
 };
 
-// 쿨타임·버프 열의 버퍼 크기 — 형식(CooldownBuffBlob.h)의 최대 길이와 같다(기술 목록 24개 = 2 + 24×10 · 버프 1종 = 2 + 1×13).
-//   기술 목록 상한·버프 종류를 늘려 형식이 커지면 CharacterStore.cpp 의 static_assert 가 여기를 올리라고 막는다. 열 자체는 VARBINARY(255).
+// 쿨타임·버프 열의 버퍼 크기 — 형식(CooldownBuffBlob.h)의 최대 길이와 같다(기술 목록 24개 = 2 + 24×10 · 버프 표 16줄 = 2 + 16×10).
+//   기술 목록 상한·버프 표 상한을 늘려 형식이 커지면 CharacterStore.cpp 의 static_assert 가 여기를 올리라고 막는다. 열 자체는 VARBINARY(255).
 constexpr size_t DB_SKILL_COOLDOWNS_BYTES = 242;
-constexpr size_t DB_BUFFS_BYTES           = 15;
+constexpr size_t DB_BUFFS_BYTES           = 162;
 
 // 캐릭터 행 값 = 값 스냅샷 (포인터 없음 → 플레이어가 사라져도 안전). 저장 묶음의 머리(DBSaveBundle::row)이자 행 문장의 버퍼 꼴.
 //   ※ level·exp 는 USE_EXP 로, hp·mp 는 USE_COMBAT·USE_SKILL 로 안 가른다 — 열은 테이블에 늘 있고, 숫자 넷을 싣는 값이

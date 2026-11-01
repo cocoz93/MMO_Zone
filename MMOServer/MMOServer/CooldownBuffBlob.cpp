@@ -11,12 +11,6 @@ namespace
         p[1] = static_cast<uint8_t>(v >> 8);
     }
 
-    void PutU32(uint8_t* p, uint32_t v)
-    {
-        for (int i = 0; i < 4; ++i)
-            p[i] = static_cast<uint8_t>(v >> (8 * i));
-    }
-
     void PutU64(uint8_t* p, uint64_t v)
     {
         for (int i = 0; i < 8; ++i)
@@ -26,14 +20,6 @@ namespace
     uint16_t GetU16(const uint8_t* p)
     {
         return static_cast<uint16_t>(p[0] | (static_cast<uint16_t>(p[1]) << 8));
-    }
-
-    uint32_t GetU32(const uint8_t* p)
-    {
-        uint32_t v = 0;
-        for (int i = 0; i < 4; ++i)
-            v |= static_cast<uint32_t>(p[i]) << (8 * i);
-        return v;
     }
 
     uint64_t GetU64(const uint8_t* p)
@@ -92,9 +78,8 @@ size_t PackBuffs(const Buff* items, int n, uint8_t* out, size_t cap)
     uint8_t* p = out + HEADER_BYTES;
     for (int i = 0; i < n; ++i, p += BUFF_BYTES)
     {
-        p[0] = items[i].kind;
-        PutU32(p + 1, static_cast<uint32_t>(items[i].value));
-        PutU64(p + 5, static_cast<uint64_t>(items[i].expireAtMs));
+        PutU16(p, items[i].buffId);
+        PutU64(p + 2, static_cast<uint64_t>(items[i].expireAtMs));
     }
     return need;
 }
@@ -129,23 +114,40 @@ Unpack UnpackCooldowns(const uint8_t* data, size_t len, Cooldown* out, int maxN,
     return Unpack::OK;
 }
 
-Unpack UnpackBuffs(const uint8_t* data, size_t len, Buff* out, int maxN, int& n)
+Unpack UnpackBuffs(const uint8_t* data, size_t len, Buff* out, int maxN, int& n, bool& outOldFormat)
 {
     n = 0;
+    outOldFormat = false;
     if (len == 0)
         return Unpack::EMPTY;
-    if (data[0] != BUFF_VERSION)
-        return Unpack::BAD;
-    const Unpack r = CheckHeader(data, len, BUFF_BYTES, maxN, n);
+
+    // 판마다 항목 길이가 다르다 — 값이 둘이고 나머지는 모르는 버전
+    size_t entryBytes = 0;
+    switch (data[0])
+    {
+    case BUFF_VERSION:    entryBytes = BUFF_BYTES;                             break;
+    case BUFF_VERSION_V1: entryBytes = BUFF_BYTES_V1; outOldFormat = true;     break;
+    default:              return Unpack::BAD;                                  // 모르는 버전
+    }
+
+    const Unpack r = CheckHeader(data, len, entryBytes, maxN, n);
     if (r != Unpack::OK)
         return r;
 
     const uint8_t* p = data + HEADER_BYTES;
-    for (int i = 0; i < n; ++i, p += BUFF_BYTES)
+    for (int i = 0; i < n; ++i, p += entryBytes)
     {
-        out[i].kind       = p[0];
-        out[i].value      = static_cast<int32_t>(GetU32(p + 1));
-        out[i].expireAtMs = static_cast<int64_t>(GetU64(p + 5));
+        if (outOldFormat)
+        {
+            // 옛 판 종류 0(공격력 배수)만 있었다 — 그 밖은 표에 없는 번호 0 으로 돌려줘 호출부가 건너뛰게 한다. 값(p+1)은 표 몫이라 버린다
+            out[i].buffId     = (p[0] == 0) ? BUFF_ID_OF_V1_ATTACK_MUL : static_cast<uint16_t>(0);
+            out[i].expireAtMs = static_cast<int64_t>(GetU64(p + 5));
+        }
+        else
+        {
+            out[i].buffId     = GetU16(p);
+            out[i].expireAtMs = static_cast<int64_t>(GetU64(p + 2));
+        }
     }
     return Unpack::OK;
 }

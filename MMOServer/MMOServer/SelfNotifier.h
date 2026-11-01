@@ -21,7 +21,6 @@
 #include <string>
 
 #include "BuildConfig.h"          // USE_EXP · USE_COMBAT · USE_INVENTORY · USE_SKILL — 안 읽으면 아래 #if 가 조용히 0 이 된다
-#include <Protocol/Protocol.h>    // BuffKind — 와이어 enum(지속 효과 종류)
 
 class CPlayer;
 class CSessionHub;
@@ -50,9 +49,9 @@ public:
     //   존 이동 때는 안 보낸다 — 값이 안 바뀌고, 웹은 판을 안 비우며, 콘솔은 이 값을 안 그린다.
     void SendMyStats(CPlayer* player);
 
-    // 본인에게 효과 칸 하나(S2C_ACTOR_BUFF) — 비었으면 remainMs 0(풀림). 세는 곳도 여기 한 곳.
+    // 본인에게 버프 하나(S2C_ACTOR_BUFF) — 안 걸려 있으면 remainMs 0(풀림). 세는 곳도 여기 한 곳.
     //   ★ 본인 전용이다 — BroadcastAroundSector 로 보내지 말 것(Protocol.h MSG_S2C_ACTOR_BUFF).
-    void SendActorBuff(CPlayer* player, BuffKind kind);
+    void SendActorBuff(CPlayer* player, int32_t buffId);
 
     // 켜져 있는 효과를 전부 본인에게 — 입장·존 이동(NotifyArrival). 입장 때는 DB 저장값으로 되살린 효과만 간다(없으면 0장 — RestoreCooldownsAndBuffs).
     void SendActiveBuffs(CPlayer* player);
