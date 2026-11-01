@@ -51,8 +51,9 @@ SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skil
 
     // ── 1) 시전자 검사 — 번호·생사·쿨타임·체력·마력. 뗄 체력은 여기서 세고 4) 가 그대로 뗀다 ──
     const SkillDef* def = nullptr;
+    CAttackComponent::SkillBookEntry* entry = nullptr;
     int32_t hpCost = 0;
-    SkillReject reject = CheckCaster(caster, health, attack, skillId, frame, def, hpCost);
+    SkillReject reject = CheckCaster(health, attack, skillId, frame, def, entry, hpCost);
 
     // ── 2) 대상 고르기 — 없으면 NO_TARGET. 아직 아무것도 안 뗐다 ──
     if (reject == SkillReject::COUNT)
@@ -70,8 +71,8 @@ SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skil
     // ── 4) 떼기 — 여기까지 왔으면 효과가 반드시 난다(모든 검사를 지났다) ──
     health.SpendHp(hpCost);       // 「떼고 1 이상」은 1) 의 LOW_HP 검사가 이미 봤다
     attack.SpendMp(def->costMp);  // 모자라지 않음은 1) 의 LOW_MP 검사가 이미 봤다
-    attack._skillReadyFrame[def->skillId] = frame + def->cooldownFrames;   // 성공했을 때만 — 거절은 쿨타임을 안 건다
-    (byMonster ? counters._monsterCast : counters._cast)[def->skillId].Inc();
+    entry->readyFrame = frame + def->cooldownFrames;   // 성공했을 때만 — 거절은 쿨타임을 안 건다. entry = 1) 이 찾은 기술 목록 항목
+    (byMonster ? counters._monsterCast : counters._cast)[def->index].Inc();
 
     // ── 5) 시전 알림 — 방송과 시전자 체력·마력 알림은 받는 쪽(게임 서버) ──
     _events.OnCast(zone, caster, *def);
@@ -81,24 +82,27 @@ SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skil
     return SkillReject::COUNT;
 }
 
-SkillReject CSkillSystem::CheckCaster(const CCharacter* caster, const CHealthComponent& health, const CAttackComponent& attack,
-                                      int32_t skillId, uint64_t frame, const SkillDef*& outDef, int32_t& outHpCost) const
+SkillReject CSkillSystem::CheckCaster(const CHealthComponent& health, CAttackComponent& attack,
+                                      int32_t skillId, uint64_t frame, const SkillDef*& outDef,
+                                      CAttackComponent::SkillBookEntry*& outEntry, int32_t& outHpCost) const
 {
     // SkillReject 의 순서 그대로 본다 — 여럿이 겹치면 먼저 걸린 하나로 답한다(열거 순서가 곧 확인 순서).
-    //   번호 0 · 상한 밖 · 표에 없는 번호는 Find 가 다 nullptr 이다 — 그래서 아래 배열 색인은 늘 1~MAX_SKILL_ID 다.
+    //   번호 0 · 상한 밖 · 표에 없는 번호는 Find 가 다 nullptr 이다.
     outDef = _tables.Skill().Find(skillId);
     if (outDef == nullptr)
         return SkillReject::BAD_SKILL;
 
-    // 이 시전자 종류의 스킬인가 — 표는 사람과 몬스터가 한 장을 같이 쓴다(SkillUser). 사람은 PLAYER 줄만, 몬스터는 MONSTER 줄만.
-    const SkillUser who = IsMonsterCaster(caster) ? SkillUser::MONSTER : SkillUser::PLAYER;
-    if (outDef->user != who)
+    // 이 시전자가 가진 기술인가 — 기술 목록(CAttackComponent::_skillBook)에 있어야 한다.
+    //   목록을 채울 때 표의 user 칸으로 갈랐다(사람 = PLAYER 줄 전부 · 몬스터 = 자기 규칙의 MONSTER 줄) — 그래서 사람이 몬스터 스킬을,
+    //   몬스터가 사람 스킬을 쓰려 하면 여기서 막힌다(전에는 user 칸을 직접 견줬다 — 11-01 기술 목록).
+    outEntry = attack.FindSkill(outDef->skillId);
+    if (outEntry == nullptr)
         return SkillReject::NOT_FOR_CASTER;
 
     if (health.IsDead())
         return SkillReject::DEAD;
 
-    if (frame < attack._skillReadyFrame[outDef->skillId])
+    if (frame < outEntry->readyFrame)
         return SkillReject::COOLDOWN;
 
     // 체력 비용 — 현재 체력 × % 를 내림, 소모가 있는 스킬이면 최소 1
@@ -221,7 +225,7 @@ void CSkillSystem::HitTargets(CZone* zone, CCharacter* caster, const SkillDef& d
     Counter* hits = IsMonsterCaster(caster) ? _gameMonitor._skill._monsterHits : _gameMonitor._skill._hits;
     for (CCharacter* target : _targets)
     {
-        hits[def.skillId].Inc();   // 맞힌 대상마다 1 — ApplyHit 앞에서 센다(몬스터면 그 안에서 해제된다)
+        hits[def.index].Inc();   // 맞힌 대상마다 1 — ApplyHit 앞에서 센다(몬스터면 그 안에서 해제된다). 칸 = 표의 안쪽 순번
         _combat.ApplyHit(zone, caster, target, attackValue, frame);
     }
 }

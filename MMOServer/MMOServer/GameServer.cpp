@@ -80,6 +80,18 @@ bool CGameServer::LoadGameDataFiles(const std::string& dir)
     if (!_gameDataFiles.LoadAll(dir))
         return false;
 
+#if USE_SKILL
+    // 스킬 지표의 칸 → 스킬 번호(노출 라벨) — 칸은 표의 안쪽 순번이라 표를 읽은 뒤에야 정해진다(GameMonitor.h SkillCounters).
+    //   지표 HTTP 스레드가 뜨기 전이다(main — 표 읽기 뒤에 Start) — 그 뒤로 안 바뀌어 원자 변수가 필요 없다.
+    {
+        CGameMonitor::SkillCounters& sk = _gameMonitor._skill;
+        const CSkillTable& skills = _gameDataFiles.Skill();
+        sk._skillRows = skills.Count();   // 표 읽기가 MAX_SKILL_ROWS 를 넘지 않게 막았다(SkillTable.cpp ⑴)
+        for (int32_t i = 0; i < sk._skillRows; ++i)
+            sk._skillIdOf[i] = skills.Row(i).skillId;
+    }
+#endif
+
 #if USE_MONSTER
     // 몬스터 속도는 AI 판단 주기가 전제하는 상한 안이어야 한다 — 상한은 AI 사정이라 표만으로는 못 본다(MonsterAI.h MAX_SPEED).
     if (!_gameDataFiles.Monsters().CheckSpeed(MonsterAI::MAX_SPEED))

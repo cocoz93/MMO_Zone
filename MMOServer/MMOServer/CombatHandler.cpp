@@ -92,23 +92,23 @@ namespace
     }
 
     // 필드 순서는 Protocol.h 의 구조체와 글자 그대로 — 위 전투 패킷과 같은 주의(assert 는 크기만 본다)
-    CSerialBuffer* MakeSkillCast(int32_t casterId, uint8_t skillId, uint8_t direction)
+    CSerialBuffer* MakeSkillCast(int32_t casterId, uint16_t skillId, uint8_t direction)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_SKILL_CAST::TYPE);
         *buf << static_cast<int>(casterId);
-        *buf << static_cast<uint8_t>(skillId);
+        *buf << static_cast<uint16_t>(skillId);
         *buf << static_cast<uint8_t>(direction);
         FinalizePacket(buf);
         assert(buf->GetDataSize() == sizeof(MSG_S2C_SKILL_CAST));
         return buf;
     }
 
-    CSerialBuffer* MakeSkillFail(uint8_t skillId, SkillFail reason)
+    CSerialBuffer* MakeSkillFail(uint16_t skillId, SkillFail reason)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_SKILL_FAIL::TYPE);
-        *buf << static_cast<uint8_t>(skillId);
+        *buf << static_cast<uint16_t>(skillId);
         *buf << static_cast<uint8_t>(reason);
         FinalizePacket(buf);
         assert(buf->GetDataSize() == sizeof(MSG_S2C_SKILL_FAIL));
@@ -269,7 +269,7 @@ void CCombatHandler::RecvUseSkill(CPlayer* player, CSerialBuffer* pMsg)
 void CCombatHandler::OnCast(CZone* zone, CCharacter* caster, const SkillDef& def)
 {
     _sightBroadcaster.BroadcastAroundSector(zone, caster,
-        MakeSkillCast(caster->_actorId, static_cast<uint8_t>(def.skillId), static_cast<uint8_t>(caster->_direction)), false);
+        MakeSkillCast(caster->_actorId, static_cast<uint16_t>(def.skillId), static_cast<uint8_t>(caster->_direction)), false);
 
     // 비용 표시 — 시전자가 사람일 때만이다(몬스터 스킬은 비용 0 만 허용 — MonsterSkillTable.cpp. 몬스터 시전도 이 함수를 지난다).
     //   체력 = 본인과 주변(남의 머리 위 막대도 줄어야 한다) · 마력 = 본인만(남의 마력은 화면에 안 그린다 — Protocol.h MSG_S2C_ACTOR_MP)

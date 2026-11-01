@@ -87,7 +87,8 @@ namespace
 bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
 {
     _rows.clear();
-    _count = 0;
+    _rowById.clear();
+    _playerSkillIds.clear();
 
     // 사람이 닿을 수 있는 가장 큰 최대 마력 — costMp 가 이보다 크면 어느 레벨에서도 못 쓴다(아래 ⑺).
     //   만렙 값이 아니라 전 레벨의 최댓값이다 — 표가 레벨마다 늘지 않아도 맞게.
@@ -134,15 +135,20 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
             return false;
         }
 
-        // ⑴ 번호 — 1~MAX_SKILL_ID · 중복 없음. 번호가 곧 색인이고 캐릭터마다의 쿨타임 배열 칸이다
+        // ⑴ 번호 — 1~MAX_SKILL_ID(와이어 u16) · 중복 없음 · 줄 수 상한. 번호는 이름표라 띄엄띄엄이어도 된다(색인이 아니다)
         if (skillId <= 0 || skillId > MAX_SKILL_ID)
         {
             SLOG_ERROR("[SkillTable] {}줄: 스킬 번호 {} 는 1~{} 여야 합니다", dl.fileLine, skillId, MAX_SKILL_ID);
             return false;
         }
-        if (skillId < static_cast<int64_t>(_rows.size()) && _rows[static_cast<size_t>(skillId)].skillId != 0)
+        if (_rowById.count(static_cast<int32_t>(skillId)) != 0)
         {
             SLOG_ERROR("[SkillTable] {}줄: 스킬 번호 {} 가 겹칩니다", dl.fileLine, skillId);
+            return false;
+        }
+        if (static_cast<int32_t>(_rows.size()) >= MAX_SKILL_ROWS)
+        {
+            SLOG_ERROR("[SkillTable] {}줄: 스킬 줄이 {} 개를 넘습니다 — 지표 칸 수(MAX_SKILL_ROWS)를 올릴 것 (스킬 {})", dl.fileLine, MAX_SKILL_ROWS, skillId);
             return false;
         }
 
@@ -323,11 +329,22 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
             return false;   // 위 ⑶ 이 이미 걸렀다 — 여기 오지 않는다
         }
 
-        if (static_cast<int64_t>(_rows.size()) <= skillId)
-            _rows.resize(static_cast<size_t>(skillId) + 1);
+        // ⑼ 사람 기술 수 — 사람은 사람 기술 전부를 기술 목록에 든다(입장 때). 목록이 DB 쿨타임 묶음에 들어가야 한다(MAX_SKILL_BOOK)
+        if (user == SkillUser::PLAYER && static_cast<int32_t>(_playerSkillIds.size()) >= MAX_SKILL_BOOK)
+        {
+            SLOG_ERROR("[SkillTable] {}줄: 사람 기술이 {} 개를 넘습니다 — 한 캐릭터의 기술 목록 상한(MAX_SKILL_BOOK · DB 묶음 크기) (스킬 {})",
+                       dl.fileLine, MAX_SKILL_BOOK, skillId);
+            return false;
+        }
 
-        SkillDef& d = _rows[static_cast<size_t>(skillId)];
+        _rowById[static_cast<int32_t>(skillId)] = _rows.size();
+        if (user == SkillUser::PLAYER)
+            _playerSkillIds.push_back(static_cast<int32_t>(skillId));
+
+        _rows.emplace_back();
+        SkillDef& d = _rows.back();
         d.skillId        = static_cast<int32_t>(skillId);
+        d.index          = static_cast<int32_t>(_rows.size()) - 1;
         d.name           = cell[1];
         d.target         = target;
         d.effect         = effect;
@@ -342,10 +359,9 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels)
         d.durationFrames = static_cast<uint64_t>((durationMs + FRAME_INTERVAL_MS - 1) / FRAME_INTERVAL_MS);   // 같은 올림 — 30000 → 750
         d.shapeReach     = ShapeReach(shape);
         d.shape          = std::move(shape);
-        ++_count;
     }
 
-    SLOG_INFO("[SkillTable] {} — 스킬 {}개", path, _count);
+    SLOG_INFO("[SkillTable] {} — 스킬 {}개 (사람 {}개)", path, _rows.size(), _playerSkillIds.size());
     return true;
 }
 

@@ -13,9 +13,9 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>          // 기술 목록(USE_SKILL)
 
 #include "BuildConfig.h"   // USE_SKILL · USE_COMBAT — 안 읽으면 아래 #if 가 조용히 0 이 된다
-#include "SkillTable.h"    // USE_SKILL — MAX_SKILL_ID(쿨타임 배열 크기). 헤더 안에서 스스로 토글을 본다
 #include "Buff.h"          // USE_COMBAT — BuffSlot·BUFF_KIND_COUNT(효과 칸). 같은 규칙
 
 // ── 체력 컴포넌트 — 맞는 쪽 ──
@@ -67,12 +67,44 @@ public:
     uint64_t _lastAttackFrame = 0;   // 마지막 공격 프레임 (쿨타임 판정 — 틱 번호 기준). 0 = 아직 한 번도 안 휘둘렀다
 
 #if USE_SKILL
-    // 스킬마다 다시 쓸 수 있는 프레임 — 색인 = 스킬 번호(1~MAX_SKILL_ID, [0] 칸은 안 쓴다). 0 = 바로 쓸 수 있다.
-    //   성공했을 때만 앞으로 민다(CSkillSystem::UseSkill — 거절은 쿨타임을 안 건다).
+    // 가진 기술 하나 — 기술 번호와 그 기술을 다시 쓸 수 있는 프레임(0 = 바로 쓸 수 있다).
+    struct SkillBookEntry
+    {
+        int32_t  skillId    = 0;
+        uint64_t readyFrame = 0;
+    };
+
+    // 기술 목록 — 이 캐릭터가 가진 기술과 각자의 쿨타임(11-01 — 기술 번호를 배열 칸에서 뗐다. 전에는 번호가 곧 쿨타임 배열 칸이었다).
+    //   쿨타임은 가진 기술의 상태라 항목이 든다. 직업·배우기·기술 레벨이 오면 같은 항목에 붙는다.
+    //   채우기: 사람 = 입장 때 표의 사람 기술 전부(CEntryHandler::SpawnPlayer) · 몬스터 = 자기 규칙의 기술(CMonsterManager::Spawn).
+    //   목록에 없는 기술은 못 쓴다(CSkillSystem::CheckCaster NOT_FOR_CASTER). 한 캐릭터 ≤ MAX_SKILL_BOOK(SkillTable.h).
+    //   쿨타임은 성공했을 때만 앞으로 민다(CSkillSystem::UseSkill — 거절은 쿨타임을 안 건다).
     //   사람 것은 DB 에 저장한다(characters.skill_cooldowns — 접속을 끊어도 실제 시각으로 계속 돈다 · CCharacterStore::PackCooldownsAndBuffs).
     //   일반 공격 쿨타임(_lastAttackFrame)과 따로 센다 — 스킬을 써도 일반 공격은 안 막힌다(10-10 기본값).
     //   몬스터·보스도 스킬을 쓴다(10-11) — 그래서 사람·몬스터가 같은 컴포넌트를 든다. 시전자는 CCharacter 다(SkillSystem.h).
-    uint64_t _skillReadyFrame[MAX_SKILL_ID + 1] = {};
+    //   찾기는 앞에서부터 훑는다 — 몇 개뿐이고 시전·몬스터 판단 때만 찾는다(틱마다 전원을 훑는 곳이 없다).
+    std::vector<SkillBookEntry> _skillBook;
+
+    SkillBookEntry* FindSkill(int32_t skillId)
+    {
+        for (SkillBookEntry& e : _skillBook)
+        {
+            if (e.skillId == skillId)
+                return &e;
+        }
+        return nullptr;
+    }
+    const SkillBookEntry* FindSkill(int32_t skillId) const
+    {
+        return const_cast<CAttackComponent*>(this)->FindSkill(skillId);
+    }
+
+    // 목록에 넣기 — 이미 있으면 그대로(쿨타임을 안 건드린다)
+    void AddSkill(int32_t skillId)
+    {
+        if (FindSkill(skillId) == nullptr)
+            _skillBook.push_back(SkillBookEntry{ skillId, 0 });
+    }
 
     // 마력 — 스킬 비용(SkillDef::costMp)으로 쓰고 마력 물약으로만 찬다(자연 회복 없음 — 체력과 같다, 10-01).
     //   플레이어는 CStatSystem::RecalcStats 가 레벨 표 maxMp 로 세운다. 몬스터는 0 이다(몬스터 스킬은 비용 0 만 허용 — 마력 칸은 몬스터 표에 없다).

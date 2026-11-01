@@ -1,7 +1,8 @@
 # Skill table - design data, read once at startup (CSkillTable). The web client reads the same file.
 #   UTF-8 without BOM (names are Korean). No commas inside a cell.
 #   One row = one skill. Every player has every player skill (no classes yet). A row whose user cell is monster is for monsters only (see user below).
-#   skillId    : 1..8 (MAX_SKILL_ID). The number is the array index and goes on the wire - keep ids small.
+#   skillId    : 1..65535 (MAX_SKILL_ID - u16 on the wire). A name tag, not an array index - gaps are fine. At most 64 rows (MAX_SKILL_ROWS)
+#                and at most 24 player rows (MAX_SKILL_BOOK - every player carries all of them and the DB cooldown blob must hold them).
 #   target     : front = the nearest monster in front, same range and facing as a normal attack. Players are never hit.
 #                shape = every monster standing on a cell listed in the shape column - several can be hit, and two on one cell are both hit.
 #                self  = the caster (no target search, so never NO_TARGET) - what buffs use.

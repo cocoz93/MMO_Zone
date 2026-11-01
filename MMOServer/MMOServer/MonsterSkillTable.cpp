@@ -25,6 +25,9 @@ const std::vector<MonsterSkillRule> CMonsterSkillTable::EMPTY;
 // 규칙이 볼 수 있는 가장 먼 거리는 AI 가 대상을 보는 시야다 — 시야 밖의 대상은 AI 가 아예 안 보므로 그보다 먼 maxDist 는 뜻이 없다
 static_assert(CMonsterSkillTable::MAX_DIST <= MonsterAI::SIGHT_RANGE, "MonsterSkill 의 maxDist 상한이 몬스터 시야를 넘으면 안 된다");
 
+// 몬스터의 기술 목록 = 자기 규칙의 기술(CMonsterManager::Spawn) — 같은 기술 줄은 아래 ⑺ 이 막으므로 목록 길이 ≤ 규칙 수다
+static_assert(CMonsterSkillTable::MAX_RULES_PER_MONSTER <= MAX_SKILL_BOOK, "몬스터 규칙 수가 한 캐릭터의 기술 목록 상한을 넘으면 안 된다");
+
 bool CMonsterSkillTable::Load(const std::string& path, const CMonsterTable& monsters, const CSkillTable& skills,
                               const CMapTable& maps, const CSpawnRegionTable& spawns)
 {

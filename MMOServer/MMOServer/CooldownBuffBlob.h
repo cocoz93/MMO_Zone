@@ -6,12 +6,14 @@
 //  - 내용 검사(스킬 번호가 표에 있나 · 버프 종류·값)와 틱 변환·캐릭터 칸 쓰기는 캐릭터 저장소(CCharacterStore) 몫이다
 //    (RestoreCooldownsAndBuffs · PackCooldownsAndBuffs)
 //
-// [형식 — 버전 1] 열마다 따로. 숫자는 little-endian 고정(시프트로 쓴다 — 빌드 대상과 무관)
-//   skill_cooldowns : [버전 1B][개수 1B] { [스킬 번호 1B][다시 쓸 수 있는 시각 8B] }  × 개수
-//   buffs           : [버전 1B][개수 1B] { [종류 1B][값 4B][끝나는 시각 8B] }        × 개수
+// [형식] 열마다 따로, 버전도 열마다 따로. 숫자는 little-endian 고정(시프트로 쓴다 — 빌드 대상과 무관)
+//   skill_cooldowns 판 2 : [버전 1B = 2][개수 1B] { [스킬 번호 2B][다시 쓸 수 있는 시각 8B] }  × 개수   ← 쓰기는 이 판만
+//   skill_cooldowns 판 1 : [버전 1B = 1][개수 1B] { [스킬 번호 1B][다시 쓸 수 있는 시각 8B] }  × 개수   ← 읽기만(11-01 전 행)
+//   buffs           판 1 : [버전 1B = 1][개수 1B] { [종류 1B][값 4B][끝나는 시각 8B] }        × 개수
 //   시각 = UTC 밀리초(1970 기준) — 접속하지 않은 동안에도 흐른다. 빈 값(길이 0) = 돌고 있는 것 없음.
-//   ★ 형식을 바꾸면 버전을 올린다 — 옛 버전은 풀기가 BAD 로 돌려 그 열을 버린다.
-//     잃어도 쿨타임·버프가 풀리는 정도라 옛 형식을 옮기는 코드는 안 짠다.
+//   ★ 형식을 바꾸면 버전을 올리고, 옛 판은 읽어서 새 판으로 옮긴다(11-01 사용자 결정 — 잃으면 쿨타임·버프가 풀리는 정도라도 버리지 않는다).
+//     옮기기 = 풀기가 옛 판을 새 판과 같은 목록으로 돌려주고(outOldFormat), 저장소가 다음 저장에 새 판으로 쓰게 한다(CCharacterStore::RestoreCooldownsAndBuffs).
+//     모르는 버전만 BAD(그 열을 버린다).
 //
 // [계층 경계] 캐릭터·스킬 표·DB 를 모른다 — 바이트와 목록만. 그래서 형식을 아는 곳이 여기 한 곳이다.
 //   토글도 안 본다 — 스킬·전투를 끈 빌드는 부르지 않을 뿐이다.
@@ -23,19 +25,22 @@
 
 namespace CooldownBuffBlob
 {
-    constexpr uint8_t FORMAT_VERSION = 1;
-    constexpr size_t  HEADER_BYTES   = 2;           // 버전 + 개수
-    constexpr size_t  COOLDOWN_BYTES = 1 + 8;       // 스킬 번호 + 다시 쓸 수 있는 시각
-    constexpr size_t  BUFF_BYTES     = 1 + 4 + 8;   // 종류 + 값 + 끝나는 시각
+    constexpr uint8_t COOLDOWN_VERSION    = 2;           // 쓰는 판
+    constexpr uint8_t COOLDOWN_VERSION_V1 = 1;           // 읽기만 하는 옛 판(스킬 번호 1바이트)
+    constexpr uint8_t BUFF_VERSION        = 1;
+    constexpr size_t  HEADER_BYTES        = 2;           // 버전 + 개수
+    constexpr size_t  COOLDOWN_BYTES      = 2 + 8;       // 스킬 번호(u16) + 다시 쓸 수 있는 시각
+    constexpr size_t  COOLDOWN_BYTES_V1   = 1 + 8;       // 옛 판 — 스킬 번호(u8) + 시각
+    constexpr size_t  BUFF_BYTES          = 1 + 4 + 8;   // 종류 + 값 + 끝나는 시각
 
-    // 열의 최대 길이 — 칸이 가득 찼을 때. DB 쪽 버퍼(DBWorker.h DB_SKILL_COOLDOWNS_BYTES · DB_BUFFS_BYTES)와 대조한다(CharacterStore.cpp).
+    // 열의 최대 길이 — 칸이 가득 찼을 때(쓰는 판 기준 — 옛 판은 항목이 더 짧다). DB 쪽 버퍼(DBWorker.h DB_SKILL_COOLDOWNS_BYTES · DB_BUFFS_BYTES)와 대조한다(CharacterStore.cpp).
     constexpr size_t CooldownsMaxBytes(int slots) { return HEADER_BYTES + static_cast<size_t>(slots) * COOLDOWN_BYTES; }
     constexpr size_t BuffsMaxBytes(int kinds)     { return HEADER_BYTES + static_cast<size_t>(kinds) * BUFF_BYTES; }
 
     struct Cooldown
     {
-        uint8_t skillId;
-        int64_t readyAtMs;    // 다시 쓸 수 있는 실제 시각(UTC ms)
+        uint16_t skillId;
+        int64_t  readyAtMs;   // 다시 쓸 수 있는 실제 시각(UTC ms)
     };
 
     struct Buff
@@ -59,6 +64,7 @@ namespace CooldownBuffBlob
         COUNT
     };
 
-    Unpack UnpackCooldowns(const uint8_t* data, size_t len, Cooldown* out, int maxN, int& n);
+    // outOldFormat = 옛 판(1)을 읽었다 — OK 일 때만 뜻이 있다. 부르는 쪽이 다음 저장에 새 판으로 쓰게 한다(옮기기)
+    Unpack UnpackCooldowns(const uint8_t* data, size_t len, Cooldown* out, int maxN, int& n, bool& outOldFormat);
     Unpack UnpackBuffs(const uint8_t* data, size_t len, Buff* out, int maxN, int& n);
 }

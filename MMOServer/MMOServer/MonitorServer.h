@@ -790,18 +790,19 @@ private:
 #endif
 
 #if USE_SKILL
-        // 스킬 — 시전·맞힌 수는 스킬 번호마다, 거절은 사유마다 한 줄. 다 표를 돈다(늘어도 노출에서 안 빠진다).
+        // 스킬 — 시전·맞힌 수는 스킬마다, 거절은 사유마다 한 줄. 다 표를 돈다(늘어도 노출에서 안 빠진다).
+        //   스킬 줄은 표의 줄마다 하나(칸 = 안쪽 순번, 라벨 = 스킬 번호 — GameMonitor.h _skillIdOf). 표에 없는 번호는 줄이 없다.
         //   시전 = 비용을 뗀 수, 거절 = 아무것도 안 뗀 수, 맞힌 수 = 피해를 준 대상 수. 죽인 수는 일반 공격과 같은 mmo_deaths_total 등으로 센다.
         const auto& sk = _gameMonitor._skill;
         ss << "# HELP mmo_skill_cast_total Skill casts that passed every check (cost paid), split by skill id\n";
         ss << "# TYPE mmo_skill_cast_total counter\n";
-        for (int i = 1; i <= MAX_SKILL_ID; ++i)
-            ss << "mmo_skill_cast_total{skill=\"" << i << "\"} " << sk._cast[i] << "\n";
+        for (int i = 0; i < sk._skillRows; ++i)
+            ss << "mmo_skill_cast_total{skill=\"" << sk._skillIdOf[i] << "\"} " << sk._cast[i] << "\n";
         ss << "\n";
         ss << "# HELP mmo_skill_hits_total Targets hit by damage skills (one per target per cast - an area skill can hit several; buffs count in mmo_buff_*), split by skill id\n";
         ss << "# TYPE mmo_skill_hits_total counter\n";
-        for (int i = 1; i <= MAX_SKILL_ID; ++i)
-            ss << "mmo_skill_hits_total{skill=\"" << i << "\"} " << sk._hits[i] << "\n";
+        for (int i = 0; i < sk._skillRows; ++i)
+            ss << "mmo_skill_hits_total{skill=\"" << sk._skillIdOf[i] << "\"} " << sk._hits[i] << "\n";
         ss << "\n";
         ss << "# HELP mmo_skill_rejected_total Skill casts refused (nothing paid), split by reason\n";
         ss << "# TYPE mmo_skill_rejected_total counter\n";
@@ -814,13 +815,13 @@ private:
         // 위 셋의 몬스터(보스) 몫 — 사람 지표와 이름이 겹치지 않게 따로 낸다(합치면 sum(mmo_skill_cast_total) 에 보스가 섞인다)
         ss << "# HELP mmo_monster_skill_cast_total Skill casts by monsters that passed every check, split by skill id (players' casts are mmo_skill_cast_total)\n";
         ss << "# TYPE mmo_monster_skill_cast_total counter\n";
-        for (int i = 1; i <= MAX_SKILL_ID; ++i)
-            ss << "mmo_monster_skill_cast_total{skill=\"" << i << "\"} " << sk._monsterCast[i] << "\n";
+        for (int i = 0; i < sk._skillRows; ++i)
+            ss << "mmo_monster_skill_cast_total{skill=\"" << sk._skillIdOf[i] << "\"} " << sk._monsterCast[i] << "\n";
         ss << "\n";
         ss << "# HELP mmo_monster_skill_hits_total Targets hit by monsters' damage skills, split by skill id\n";
         ss << "# TYPE mmo_monster_skill_hits_total counter\n";
-        for (int i = 1; i <= MAX_SKILL_ID; ++i)
-            ss << "mmo_monster_skill_hits_total{skill=\"" << i << "\"} " << sk._monsterHits[i] << "\n";
+        for (int i = 0; i < sk._skillRows; ++i)
+            ss << "mmo_monster_skill_hits_total{skill=\"" << sk._skillIdOf[i] << "\"} " << sk._monsterHits[i] << "\n";
         ss << "\n";
         ss << "# HELP mmo_monster_skill_rejected_total Skill casts by monsters that were refused (nothing paid), split by reason\n";
         ss << "# TYPE mmo_monster_skill_rejected_total counter\n";
@@ -921,6 +922,9 @@ private:
         WriteCounter(ss, "mmo_enter_timer_bad_total",
                      "Saved cooldown or buff columns dropped whole for a bad format (unknown version, length mismatch, longer than the buffer)",
                      e._timerBad);
+        WriteCounter(ss, "mmo_enter_cooldown_old_format_total",
+                     "Saved cooldown columns read in the old format (version 1, one-byte skill id) - kept and rewritten as version 2 on the next save",
+                     e._cooldownOldFormat);
 
         // 게이지 — 조용해지면 0 이어야 한다(안 내려가면 대기표가 샌 것)
         ss << "# HELP mmo_enter_pending Sessions currently waiting for their character load\n";

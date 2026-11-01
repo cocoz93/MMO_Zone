@@ -30,13 +30,13 @@
 #include <vector>
 
 #include "BuildConfig.h"   // USE_SKILL — 안 읽으면 아래 #if 가 조용히 0 이 된다
+#include "CharacterComponents.h"   // CAttackComponent::SkillBookEntry — CheckCaster 가 기술 목록 항목을 돌려준다(중첩 타입은 앞선 선언으로 못 쓴다)
 
 #if USE_SKILL
 
 class CZone;
 class CCharacter;
 class CHealthComponent;
-class CAttackComponent;
 class CGameDataFiles;
 class CGameMonitor;
 class CCombatSystem;
@@ -88,11 +88,13 @@ public:
     SkillReject UseSkill(CZone* zone, CCharacter* caster, int32_t skillId, uint64_t frame);
 
 private:
-    // 1) 시전자 — 번호·생사·쿨타임·체력·마력. 통과면 COUNT 이고 outDef 에 스킬, outHpCost 에 뗄 체력(4) 가 그대로 뗀다).
+    // 1) 시전자 — 번호·가진 기술인가·생사·쿨타임·체력·마력. 통과면 COUNT 이고 outDef 에 스킬, outEntry 에 시전자 기술 목록의 그 항목
+    //    (4) 가 쿨타임을 거기에 건다), outHpCost 에 뗄 체력(4) 가 그대로 뗀다).
     //    뗄 마력은 표 값 그대로(SkillDef::costMp)라 따로 돌려주지 않는다.
-    //    시전자의 컴포넌트(체력·공격)은 UseSkill 이 입구에서 한 번 꺼내 넘긴다 — 시전자 자체는 종류(사람·몬스터)를 가르려고 받는다.
-    SkillReject CheckCaster(const CCharacter* caster, const CHealthComponent& health, const CAttackComponent& attack,
-                            int32_t skillId, uint64_t frame, const SkillDef*& outDef, int32_t& outHpCost) const;
+    //    시전자의 컴포넌트(체력·공격)은 UseSkill 이 입구에서 한 번 꺼내 넘긴다. 공격 컴포넌트가 const 가 아닌 까닭은 항목을 돌려주려고다(검사는 아무것도 안 바꾼다).
+    SkillReject CheckCaster(const CHealthComponent& health, CAttackComponent& attack,
+                            int32_t skillId, uint64_t frame, const SkillDef*& outDef,
+                            CAttackComponent::SkillBookEntry*& outEntry, int32_t& outHpCost) const;
 
     // 2) 대상 축 — _targets 를 채운다. 하나도 없으면 NO_TARGET, 있으면 COUNT.
     SkillReject SelectTargets(CZone* zone, CCharacter* caster, const SkillDef& def);

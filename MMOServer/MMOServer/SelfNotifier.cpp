@@ -129,12 +129,12 @@ namespace
 
 #if USE_SKILL
     // 남은 스킬 쿨타임 — 본인에게만(Protocol.h MSG_S2C_SKILL_COOLDOWN_REMAIN). remainMs 는 1 이상(다 돈 칸은 안 보낸다)
-    CSerialBuffer* MakeSkillCooldownRemain(int32_t actorId, uint8_t skillId, uint32_t remainMs)
+    CSerialBuffer* MakeSkillCooldownRemain(int32_t actorId, uint16_t skillId, uint32_t remainMs)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_SKILL_COOLDOWN_REMAIN::TYPE);
         *buf << static_cast<int>(actorId);
-        *buf << static_cast<uint8_t>(skillId);
+        *buf << static_cast<uint16_t>(skillId);
         *buf << static_cast<unsigned int>(remainMs);
         FinalizePacket(buf);
         assert(buf->GetDataSize() == sizeof(MSG_S2C_SKILL_COOLDOWN_REMAIN));
@@ -250,17 +250,16 @@ void CSelfNotifier::SendActorMp(CPlayer* player)
     _gameMonitor._skill._actorMpSent.Inc();
 }
 
-// 아직 돌고 있는 쿨타임 칸마다 한 장 — 입장·존 이동(NotifyArrival). 다 돈 칸(ready ≤ 지금)은 안 보낸다(0 은 이 패킷에 없는 값이다).
+// 아직 돌고 있는 쿨타임마다 한 장 — 기술 목록을 훑는다. 입장·존 이동(NotifyArrival). 다 돈 항목(ready ≤ 지금)은 안 보낸다(0 은 이 패킷에 없는 값이다).
 //   남은 시간은 남은 틱 × 명목 40ms — 클라는 받은 순간부터 깎는다. 시전 순간의 쿨타임은 지금처럼 클라가 SKILL_CAST 로 센다.
 void CSelfNotifier::SendActiveSkillCooldowns(CPlayer* player)
 {
-    for (int id = 1; id <= MAX_SKILL_ID; ++id)
+    for (const CAttackComponent::SkillBookEntry& e : player->_attack._skillBook)
     {
-        const uint64_t ready = player->_attack._skillReadyFrame[id];
-        if (ready <= _frameCount)
+        if (e.readyFrame <= _frameCount)
             continue;
-        const uint32_t remainMs = static_cast<uint32_t>((ready - _frameCount) * FRAME_INTERVAL_MS);   // 표 상한 1시간 → 360만 ms, u32 안
-        _sessionHub.SendPacket(player, MakeSkillCooldownRemain(player->_actorId, static_cast<uint8_t>(id), remainMs));
+        const uint32_t remainMs = static_cast<uint32_t>((e.readyFrame - _frameCount) * FRAME_INTERVAL_MS);   // 표 상한 1시간 → 360만 ms, u32 안
+        _sessionHub.SendPacket(player, MakeSkillCooldownRemain(player->_actorId, static_cast<uint16_t>(e.skillId), remainMs));
         _gameMonitor._skill._cooldownRemainSent.Inc();
     }
 }

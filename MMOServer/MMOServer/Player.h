@@ -6,6 +6,7 @@
 
 #include "Character.h"   // CCharacter ← CActor · Direction · MoveState
 #include "CharacterComponents.h"   // 컴포넌트를 값으로 든다
+#include "SkillTable.h"  // USE_SKILL — MAX_SKILL_BOOK(저장 사본 칸 수). 헤더 안에서 스스로 토글을 본다
 #include "Inventory.h"   // USE_INVENTORY — 헤더 안에서 스스로 토글을 본다
 
 // CPlayer — 사람이 조종하는 캐릭터.
@@ -70,7 +71,7 @@ public:
         int32_t mp    = 0;
         int64_t money = 0;   // 가진 돈 — 가방을 끈 빌드는 늘 0 끼리 견준다(CCharacterStore::MakeCharRow)
 #if USE_SKILL
-        uint64_t skillReadyFrame[MAX_SKILL_ID + 1] = {};   // _attack._skillReadyFrame 사본
+        uint64_t skillReadyFrame[MAX_SKILL_BOOK] = {};      // _attack._skillBook 의 readyFrame 사본 — 칸 = 목록 자리(목록은 입장 때 한 번 채우고 순서가 안 바뀐다)
 #endif
 #if USE_COMBAT
         BuffSlot buffs[BUFF_KIND_COUNT];                    // _buffs._slots 사본

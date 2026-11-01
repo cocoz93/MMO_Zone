@@ -52,7 +52,7 @@ class CMonsterSkillTable
 {
 public:
     static constexpr int32_t MAX_RULES_PER_MONSTER = 8;     // 몬스터 하나의 규칙 수 상한 — 한 번의 판단이 훑는 길이를 묶는다.
-                                                            //   지금은 스킬 번호 상한(MAX_SKILL_ID 8)과 같고 같은 스킬 줄은 겹침으로 막혀 닿을 수 없다 — 스킬 번호를 올리는 날 뜻이 생긴다
+                                                            //   규칙의 기술이 곧 그 몬스터의 기술 목록이라 MAX_SKILL_BOOK(SkillTable.h) 안이어야 한다(.cpp 의 단언)
     static constexpr float   MAX_DIST              = 6.0f;  // 몬스터 시야(MonsterAI::SIGHT_RANGE) — 그 밖의 대상은 AI 가 아예 안 본다(.cpp 의 단언이 맞춘다)
 
     // 파일을 읽어 표를 세운다. 실패하면 false 이고 까닭을 로그로 남긴다 — main 이 서버를 안 띄운다.

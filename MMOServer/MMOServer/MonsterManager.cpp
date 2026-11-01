@@ -278,6 +278,12 @@ void CMonsterManager::Spawn(const MonsterContext& ctx, int32_t regionIndex, int3
     monster->_actorId = ctx.events.AllocActorId(); // 단일 증가 카운터라 플레이어와 충돌하지 않는다 — 다시 깔 때마다 새 번호
     monster->_spawnRegion = regionIndex;           // 죽으면 이 구역의
     monster->_spawnPoint  = point;                 //   이 점을 비운다(Despawn)
+#if USE_SKILL
+    // 기술 목록 — 자기 규칙의 기술(몬스터 스킬 표 · 같은 몬스터의 같은 기술 줄은 표 읽기가 막는다). 목록에 없으면 CSkillSystem 이 NOT_FOR_CASTER 로 막는다.
+    //   규칙 수 ≤ MAX_RULES_PER_MONSTER(8) ≤ MAX_SKILL_BOOK — MonsterSkillTable.cpp 의 단언
+    for (const MonsterSkillRule& rule : _gameData.MonsterSkills().RulesOf(def->monsterId))
+        monster->_attack.AddSkill(rule.skillId);
+#endif
 
     // 자리는 그 점의 범위 안 무작위. 방향·정지 상태·섹터 등록·주민 목록 추가는 EnterZoneAt 이 전부 한다.
     float x = 0.0f;

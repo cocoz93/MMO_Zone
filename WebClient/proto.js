@@ -263,12 +263,12 @@
       case MSG.S2C_EQUIP_FAIL:
         p.slot=dv.getUint16(o,true); p.reason=dv.getUint8(o+2); p.reasonName=EQUIP_FAIL[p.reason] || ('?'+p.reason); break;
       // ---- 스킬 (USE_SKILL) ----
-      //   SKILL_CAST 10B = casterId i32 · skillId u8 · direction u8 — 시전자 주변 방송(본인 포함). 쿨타임은 표의 cooldownMs 로 받은 순간부터 센다
+      //   SKILL_CAST 11B = casterId i32 · skillId u16 · direction u8 — 시전자 주변 방송(본인 포함). 쿨타임은 표의 cooldownMs 로 받은 순간부터 센다
       case MSG.S2C_SKILL_CAST:
-        p.casterId=dv.getInt32(o,true); p.skillId=dv.getUint8(o+4); p.direction=dv.getUint8(o+5); break;
-      //   SKILL_FAIL 6B = skillId u8 · reason u8 (요청에 실린 번호 그대로)
+        p.casterId=dv.getInt32(o,true); p.skillId=dv.getUint16(o+4,true); p.direction=dv.getUint8(o+6); break;
+      //   SKILL_FAIL 7B = skillId u16 · reason u8 (요청에 실린 번호 그대로)
       case MSG.S2C_SKILL_FAIL:
-        p.skillId=dv.getUint8(o); p.reason=dv.getUint8(o+1); p.reasonName=SKILL_FAIL[p.reason] || ('?'+p.reason); break;
+        p.skillId=dv.getUint16(o,true); p.reason=dv.getUint8(o+2); p.reasonName=SKILL_FAIL[p.reason] || ('?'+p.reason); break;
       //   ACTOR_MP 16B = actorId i32 · mp i32 · maxMp i32 — 본인에게만(접속·존 이동·레벨업·스킬 소모·마력 물약)
       case MSG.S2C_ACTOR_MP:
         p.actorId=dv.getInt32(o,true); p.mp=dv.getInt32(o+4,true); p.maxMp=dv.getInt32(o+8,true); break;
@@ -276,9 +276,9 @@
       case MSG.S2C_ACTOR_BUFF:
         p.actorId=dv.getInt32(o,true); p.kind=dv.getUint8(o+4); p.kindName=BUFF_KIND[p.kind] || ('?'+p.kind);
         p.value=dv.getInt32(o+5,true); p.remainMs=dv.getUint32(o+9,true); break;
-      //   SKILL_COOLDOWN_REMAIN 13B = actorId i32 · skillId u8 · remainMs u32 — 본인에게만(입장·존 이동). remainMs 는 늘 1 이상
+      //   SKILL_COOLDOWN_REMAIN 14B = actorId i32 · skillId u16 · remainMs u32 — 본인에게만(입장·존 이동). remainMs 는 늘 1 이상
       case MSG.S2C_SKILL_COOLDOWN_REMAIN:
-        p.actorId=dv.getInt32(o,true); p.skillId=dv.getUint8(o+4); p.remainMs=dv.getUint32(o+5,true); break;
+        p.actorId=dv.getInt32(o,true); p.skillId=dv.getUint16(o+4,true); p.remainMs=dv.getUint32(o+6,true); break;
       //   ACTOR_SPEED 12B = actorId i32 · speed i32(칸/초 — CREATE 의 speed 와 같은 단위) — 본인 + 주변
       case MSG.S2C_ACTOR_SPEED:
         p.actorId=dv.getInt32(o,true); p.speed=dv.getInt32(o+4,true); break;
@@ -377,8 +377,8 @@
     equip(slot){ const {b,d}=hdr(6,MSG.C2S_EQUIP); d.setUint16(4, slot, true); return b; },
     // C2S_UNEQUIP: header(4) + slot u16 = 6B — 착용 칸(EQUIP_SLOT)
     unequip(slot){ const {b,d}=hdr(6,MSG.C2S_UNEQUIP); d.setUint16(4, slot, true); return b; },
-    // C2S_USE_SKILL: header(4) + skillId u8 = 5B — 방향·대상은 서버가 정한다(지금 바라보는 쪽)
-    useSkill(skillId){ const {b,d}=hdr(5,MSG.C2S_USE_SKILL); d.setUint8(4, skillId); return b; },
+    // C2S_USE_SKILL: header(4) + skillId u16 = 6B — 방향·대상은 서버가 정한다(지금 바라보는 쪽)
+    useSkill(skillId){ const {b,d}=hdr(6,MSG.C2S_USE_SKILL); d.setUint16(4, skillId, true); return b; },
     // C2S_PORTAL_USE: header(4) + portalId i32 = 8B — 어디로 가는지는 서버 포털 표가 정한다(클라는 번호만)
     portalUse(portalId){ const {b,d}=hdr(8,MSG.C2S_PORTAL_USE); d.setInt32(4, portalId, true); return b; },
     // ---- 파티 (USE_PARTY) ----

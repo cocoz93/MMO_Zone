@@ -62,8 +62,10 @@ static uint64_t MsToFramesCeil(int64_t ms) { return static_cast<uint64_t>((ms + 
 
 // 형식의 최대 길이가 DB 쪽 버퍼에 들어가야 한다 — 스킬·버프 종류를 늘리면 여기서 막힌다(DBWorker.h 의 숫자를 올릴 것)
 #if USE_SKILL
-static_assert(CooldownBuffBlob::CooldownsMaxBytes(MAX_SKILL_ID) <= DB_SKILL_COOLDOWNS_BYTES, "스킬 칸을 늘렸으면 DBWorker.h 의 DB_SKILL_COOLDOWNS_BYTES 를 올릴 것");
-static_assert(MAX_SKILL_ID <= 255, "스킬 번호를 1바이트에 싣는다(CooldownBuffBlob)");
+static_assert(CooldownBuffBlob::CooldownsMaxBytes(MAX_SKILL_BOOK) <= DB_SKILL_COOLDOWNS_BYTES, "기술 목록 상한을 늘렸으면 DBWorker.h 의 DB_SKILL_COOLDOWNS_BYTES 를 올릴 것");
+static_assert(DB_SKILL_COOLDOWNS_BYTES <= 255, "skill_cooldowns 열은 VARBINARY(255) 다(schema.sql)");
+static_assert(MAX_SKILL_BOOK <= 255, "묶음의 개수 칸이 1바이트다(CooldownBuffBlob)");
+static_assert(MAX_SKILL_ID <= 0xFFFF, "스킬 번호를 2바이트에 싣는다(CooldownBuffBlob 판 2)");
 #endif
 #if USE_COMBAT
 static_assert(CooldownBuffBlob::BuffsMaxBytes(BUFF_KIND_COUNT) <= DB_BUFFS_BYTES, "버프 종류를 늘렸으면 DBWorker.h 의 DB_BUFFS_BYTES 를 올릴 것");
@@ -162,7 +164,7 @@ void CCharacterStore::RecordSaved(CPlayer* player, const DBCharRow& row)
 }
 
 // ── 쿨타임·버프 ↔ DB 묶음 ─────────────────────────────────────────────────
-//   칸은 틱으로 들고(공격 컴포넌트 _skillReadyFrame · 효과 컴포넌트 _slots), DB 엔 실제 시각으로 묶어 넣는다(CooldownBuffBlob.h).
+//   칸은 틱으로 들고(공격 컴포넌트의 기술 목록 _skillBook · 효과 컴포넌트 _slots), DB 엔 실제 시각으로 묶어 넣는다(CooldownBuffBlob.h).
 //   저장 = 돌고 있는 칸만 「끝나는 실제 시각」으로 · 입장 = 지난 것은 버리고 남은 몫을 틱으로.
 
 void CCharacterStore::PackCooldownsAndBuffs(const CPlayer* player, DBCharRow& row) const
@@ -174,15 +176,16 @@ void CCharacterStore::PackCooldownsAndBuffs(const CPlayer* player, DBCharRow& ro
 #endif
 
 #if USE_SKILL
-    // 다시 쓸 수 있는 틱이 지금보다 뒤인 칸만 — 0(한 번도 안 씀)·지난 칸은 돌고 있지 않다(CSkillSystem 의 판정 frame < ready 와 같은 경계)
-    CooldownBuffBlob::Cooldown cooldowns[MAX_SKILL_ID];
+    // 다시 쓸 수 있는 틱이 지금보다 뒤인 항목만 — 0(한 번도 안 씀)·지난 항목은 돌고 있지 않다(CSkillSystem 의 판정 frame < ready 와 같은 경계)
+    //   [불변식] 목록 길이 ≤ MAX_SKILL_BOOK — 사람 목록은 표의 사람 기술 전부이고 표 읽기가 그 수를 막았다(SkillTable.cpp ⑼)
+    assert(player->_attack._skillBook.size() <= static_cast<size_t>(MAX_SKILL_BOOK));
+    CooldownBuffBlob::Cooldown cooldowns[MAX_SKILL_BOOK];
     int nCooldown = 0;
-    for (int id = 1; id <= MAX_SKILL_ID; ++id)
+    for (const CAttackComponent::SkillBookEntry& e : player->_attack._skillBook)
     {
-        const uint64_t ready = player->_attack._skillReadyFrame[id];
-        if (ready <= _frameCount)
+        if (e.readyFrame <= _frameCount || nCooldown >= MAX_SKILL_BOOK)
             continue;
-        cooldowns[nCooldown++] = { static_cast<uint8_t>(id), nowMs + FramesToMs(ready - _frameCount) };
+        cooldowns[nCooldown++] = { static_cast<uint16_t>(e.skillId), nowMs + FramesToMs(e.readyFrame - _frameCount) };
     }
     row.skillCooldowns.len = static_cast<unsigned long>(
         CooldownBuffBlob::PackCooldowns(cooldowns, nCooldown, row.skillCooldowns.data, sizeof(row.skillCooldowns.data)));
@@ -214,9 +217,11 @@ void CCharacterStore::PackCooldownsAndBuffs(const CPlayer* player, DBCharRow& ro
 bool CCharacterStore::CooldownsAndBuffsChanged(const CPlayer* player)
 {
 #if USE_SKILL
-    for (int id = 1; id <= MAX_SKILL_ID; ++id)
+    // 칸 = 목록 자리 — 목록은 입장 때 한 번 채우고 순서가 안 바뀐다(Player.h _dbSaved). 목록 길이는 MAX_SKILL_BOOK 안(PackCooldownsAndBuffs 의 불변식)
+    const std::vector<CAttackComponent::SkillBookEntry>& book = player->_attack._skillBook;
+    for (size_t i = 0; i < book.size() && i < static_cast<size_t>(MAX_SKILL_BOOK); ++i)
     {
-        if (player->_attack._skillReadyFrame[id] != player->_dbSaved.skillReadyFrame[id])
+        if (book[i].readyFrame != player->_dbSaved.skillReadyFrame[i])
             return true;
     }
 #endif
@@ -236,8 +241,9 @@ bool CCharacterStore::CooldownsAndBuffsChanged(const CPlayer* player)
 void CCharacterStore::RecordSavedCooldownsAndBuffs(CPlayer* player)
 {
 #if USE_SKILL
-    for (int id = 0; id <= MAX_SKILL_ID; ++id)
-        player->_dbSaved.skillReadyFrame[id] = player->_attack._skillReadyFrame[id];
+    const std::vector<CAttackComponent::SkillBookEntry>& book = player->_attack._skillBook;
+    for (size_t i = 0; i < book.size() && i < static_cast<size_t>(MAX_SKILL_BOOK); ++i)
+        player->_dbSaved.skillReadyFrame[i] = book[i].readyFrame;
 #endif
 #if USE_COMBAT
     for (int k = 0; k < BUFF_KIND_COUNT; ++k)
@@ -281,19 +287,28 @@ void CCharacterStore::RestoreCooldownsAndBuffs(CPlayer* player, const DBResult* 
 
 #if USE_SKILL
         {
-            CooldownBuffBlob::Cooldown items[MAX_SKILL_ID];
+            CooldownBuffBlob::Cooldown items[MAX_SKILL_BOOK];
             int n = 0;
+            bool oldFormat = false;
             const unsigned long len = row.skillCooldowns.len;
             const CooldownBuffBlob::Unpack r = (len > DB_SKILL_COOLDOWNS_BYTES)
                 ? CooldownBuffBlob::Unpack::BAD   // 버퍼보다 긴 값 — 앞부분만 읽혔다(DBWorker.cpp RunLoadOnce)
-                : CooldownBuffBlob::UnpackCooldowns(row.skillCooldowns.data, len, items, MAX_SKILL_ID, n);
+                : CooldownBuffBlob::UnpackCooldowns(row.skillCooldowns.data, len, items, MAX_SKILL_BOOK, n, oldFormat);
             if (unpacked(r, "skill_cooldowns", len))
             {
+                // 옛 판(1 — 번호 1바이트)이면 다음 주기에 새 판으로 다시 쓴다(옮기기 · 11-01). 내용은 같은 목록이라 아래 검사를 그대로 지난다
+                if (oldFormat)
+                {
+                    enter._cooldownOldFormat.Inc();
+                    rewrite = true;
+                }
                 for (int i = 0; i < n; ++i)
                 {
                     const int32_t   id  = items[i].skillId;
                     const SkillDef* def = _gameDataFiles.Skill().Find(id);
-                    if (def == nullptr || player->_attack._skillReadyFrame[id] != 0)   // 표에 없는 번호(패치로 지움) · 같은 칸이 둘(불량)
+                    // 표에 없는 번호(패치로 지움) · 이 캐릭터의 기술 목록에 없는 번호(사람 기술이 아니게 된 줄) · 같은 번호가 둘(불량 — 앞 것이 이미 걸었다)
+                    CAttackComponent::SkillBookEntry* entry = (def == nullptr) ? nullptr : player->_attack.FindSkill(id);
+                    if (entry == nullptr || entry->readyFrame != 0)
                     {
                         enter._timerSkipped.Inc();
                         rewrite = true;
@@ -314,7 +329,7 @@ void CCharacterStore::RestoreCooldownsAndBuffs(CPlayer* player, const DBResult* 
                         enter._timerExpired.Inc();   // 쿨타임 0 인 스킬(표를 고친 패치) — 돌 것이 없다
                         continue;
                     }
-                    player->_attack._skillReadyFrame[id] = _frameCount + frames;
+                    entry->readyFrame = _frameCount + frames;
                     enter._cooldownRestored.Inc();
                 }
             }

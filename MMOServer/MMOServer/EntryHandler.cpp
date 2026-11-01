@@ -319,6 +319,13 @@ CPlayer* CEntryHandler::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t 
     player->_colorIndex = CalcColorIndex(player->_actorId);
     if (_playerSpeed > 0)
         player->_speed = _playerSpeed;   // 게임용 속도 — 0 이면 생성자의 25~50 무작위(부하 시험 기준) 그대로
+#if USE_SKILL
+    // 기술 목록 — 표의 사람 기술 전부(배우기가 생기기 전 규칙 · SkillTable.csv 머리글 「Every player has every player skill」).
+    //   ★ 아래 쿨타임 되살리기(RestoreCooldownsAndBuffs)보다 앞이다 — 되살리기는 목록에 있는 기술에만 쿨타임을 건다.
+    //   배운 기술 저장은 배우기가 생길 때(지금은 들어올 때마다 표에서 다시 채운다).
+    for (int32_t skillId : _gameDataFiles.Skill().PlayerSkillIds())
+        player->_attack.AddSkill(skillId);
+#endif
 
     // 저장된 자리가 있으면 그 자리에, 없으면 그 맵의 시작 위치에(시작 구역 · 없으면 무작위) (입장은 실패가 없다 — CZone::EnterZone 주석)
     if (place.hasPos)

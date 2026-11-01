@@ -74,7 +74,7 @@ namespace
     //   ⑶ 대상이 거리 안인가 — 제곱끼리 견준다(루트 안 씀). 규칙의 maxDist 는 두 몸의 가장자리 사이 거리라 중심 사이로는 두 반지름을 더해 본다
     //      (표 읽기의 FRONT·SHAPE 상한이 가장자리 사이 거리로 대조되므로 닿지 않는 거리를 뽑지 않는다 — MonsterSkillTable.h maxDist)
     //   ⑷ 되살리기 줄이면 되살릴 빈 점이 있나 — 없으면 건너뛴다(Think 선언 주석의 vacancy)
-    //   쿨타임 칸은 캐릭터 것이다(공격 컴포넌트 CAttackComponent::_skillReadyFrame — 사람과 같은 컴포넌트). 비용·대상·효과는 여기서 안 본다 — 그건 CSkillSystem 의 일이다.
+    //   쿨타임은 캐릭터 것이다(공격 컴포넌트의 기술 목록 CAttackComponent::_skillBook — 사람과 같은 컴포넌트). 비용·대상·효과는 여기서 안 본다 — 그건 CSkillSystem 의 일이다.
     int32_t PickSkill(const CMonster& monster, const CCharacter& target, uint64_t frame, const SkillRules& rules, const RuleVacancy& vacancy)
     {
         if (rules.empty())
@@ -89,7 +89,10 @@ namespace
         for (size_t i = 0; i < rules.size(); ++i)
         {
             const MonsterSkillRule& r = rules[i];
-            if (frame < monster._attack._skillReadyFrame[r.skillId])
+            // [불변식] 규칙의 기술은 깔 때 기술 목록에 넣었다(CMonsterManager::Spawn) — 없으면 깔기 쪽 결함
+            const CAttackComponent::SkillBookEntry* entry = monster._attack.FindSkill(r.skillId);
+            assert(entry != nullptr && "규칙의 기술이 몬스터 기술 목록에 없다 — CMonsterManager::Spawn 이 안 넣었다");
+            if (entry == nullptr || frame < entry->readyFrame)
                 continue;
             if (static_cast<int64_t>(monster._health.Hp()) * 100 > static_cast<int64_t>(monster._health.MaxHp()) * r.hpBelowPct)
                 continue;

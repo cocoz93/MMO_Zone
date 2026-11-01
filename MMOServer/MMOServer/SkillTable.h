@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "BuildConfig.h"   // USE_SKILL — 안 읽으면 아래 #if 가 조용히 0 이 된다
@@ -12,9 +13,17 @@
 
 class CLevelTable;
 
-// 스킬 번호 상한 — 번호가 곧 배열 색인이다(이 표도, 캐릭터마다의 쿨타임 배열 CAttackComponent::_skillReadyFrame 도).
-//   표 읽기가 1~MAX_SKILL_ID 밖 번호를 거부한다. 스킬이 여덟을 넘는 날 올린다.
-constexpr int32_t MAX_SKILL_ID = 8;
+// 스킬 번호 상한 — 와이어(u16)와 DB 쿨타임 묶음(2바이트)에 실리는 크기다. 배열 색인이 아니다(11-01 기술 목록).
+//   번호는 이름표일 뿐이라 띄엄띄엄 매겨도 된다 — 캐릭터는 자기가 가진 기술 목록(CAttackComponent::_skillBook)을 들고,
+//   지표는 표가 읽을 때 매긴 안쪽 순번(SkillDef::index)으로 센다.
+constexpr int32_t MAX_SKILL_ID = 0xFFFF;
+
+// 남는 상한은 번호 크기가 아니라 개수다.
+//   MAX_SKILL_ROWS  = 표 줄 수(사람·몬스터 합) — 지표 칸 수(GameMonitor.h SkillCounters)
+//   MAX_SKILL_BOOK  = 한 캐릭터가 가진 기술 수 — DB 쿨타임 묶음(2 + 24 × 10 = 242바이트 ≤ VARBINARY(255), DBWorker.h)이 묶는다.
+//                     사람은 표의 사람 기술 전부를 가지므로 표 읽기가 사람 기술 수를 이 값과 견준다. 몬스터는 규칙 수 상한(8)이 그 안이다
+constexpr int32_t MAX_SKILL_ROWS = 64;
+constexpr int32_t MAX_SKILL_BOOK = 24;
 
 // 범위 스킬의 칸 하나 — 시전자 기준 (앞, 옆). 옆은 바라보는 쪽 기준 오른쪽이 +. 표의 shape 칸이 「앞:옆」 으로 적는다.
 //   칸 크기는 1타일 — 대상 좌표(float)를 반올림해 어느 칸인지 정한다(IsInShape).
@@ -108,8 +117,9 @@ enum class SkillEffect : uint8_t
     COUNT
 };
 
-// 누가 쓰는 스킬인가 — 이 표는 사람과 몬스터가 한 장을 같이 쓴다(번호 한 줄·쿨타임 칸 하나·와이어 의미 하나).
-//   사람은 PLAYER 줄만, 몬스터는 MONSTER 줄만 쓴다(CSkillSystem::CheckCaster 가 NOT_FOR_CASTER 로 막는다 — 몬스터 스킬 표 읽기가 한 번 더 막는다).
+// 누가 쓰는 스킬인가 — 이 표는 사람과 몬스터가 한 장을 같이 쓴다(번호 한 줄·와이어 의미 하나).
+//   사람은 PLAYER 줄만, 몬스터는 MONSTER 줄만 쓴다 — 이 칸이 기술 목록에 들어갈 자격이다(사람 = 입장 때 PLAYER 줄 전부 ·
+//   몬스터 = 자기 규칙의 줄, 몬스터 스킬 표 읽기가 MONSTER 인지 본다). 목록에 없는 번호는 CSkillSystem::CheckCaster 가 NOT_FOR_CASTER 로 막는다.
 //   칸이 비면 PLAYER 다(옛 줄이 그대로 사람 스킬). 새 종류 = 여기 한 줄 + 표 이름 한 줄(SkillTable.cpp USER_NAMES).
 enum class SkillUser : uint8_t
 {
@@ -122,17 +132,19 @@ enum class SkillUser : uint8_t
 // CSkillTable — 스킬 정의 (Run/bin/SkillTable.csv)
 //
 // [어디 것이냐] 기획 데이터다. 「백호참은 체력 몇 %를 떼나」는 전원 공통이라 여기,
-//        「이 캐릭터가 백호참을 언제 다시 쓸 수 있나」는 캐릭터 쪽(공격 컴포넌트 CAttackComponent::_skillReadyFrame)이다.
+//        「이 캐릭터가 백호참을 언제 다시 쓸 수 있나」는 캐릭터 쪽(공격 컴포넌트의 기술 목록 CAttackComponent::_skillBook)이다.
 //
-// [색인] 번호가 곧 색인이다(아이템·몬스터 표와 같은 꼴). 0 = 없음, 구멍은 skillId 0 인 빈 행.
-//        번호는 와이어에도 실린다(C2S_USE_SKILL · S2C_SKILL_CAST) — 웹이 같은 파일에서 이름을 읽는다.
+// [색인] 번호는 색인이 아니다 — 줄은 파일 순서로 들고, 번호로 찾을 땐 번호 → 줄 표(_rowById)를 본다. 0 = 없음.
+//        줄마다 안쪽 순번(index, 0~)을 매긴다 — 지표 칸이 이 순번이다.
+//        번호는 와이어에도 실린다(C2S_USE_SKILL · S2C_SKILL_CAST — u16) — 웹이 같은 파일에서 이름을 읽는다.
 //
 // [스킬마다 클래스 없음] 스킬마다 다른 것은 숫자(체력·마력 소모·위력·쿨타임·지속)와 범위 스킬의 칸 목록뿐이라 표 한 줄이다.
 //        코드로 늘어나는 것은 대상 종류(SkillTarget)와 효과 종류(SkillEffect) 두 축이다.
 // ==========================================================================
 struct SkillDef
 {
-    int32_t     skillId        = 0;   // 0 = 이 번호의 스킬은 없다(배열 구멍)
+    int32_t     skillId        = 0;   // 1~MAX_SKILL_ID — 표 읽기가 겹침을 막는다
+    int32_t     index          = 0;   // 안쪽 순번 0~(줄 수 − 1) — 파일 순서. 지표 칸(GameMonitor.h SkillCounters)이 이 값이다
     std::string name;                 // UTF-8. 서버는 로그에만 쓴다
     SkillTarget target         = SkillTarget::COUNT;
     SkillEffect effect         = SkillEffect::COUNT;
@@ -163,17 +175,22 @@ public:
     // 없는 번호면 nullptr — 와이어로 온 번호(아무 값이나 올 수 있다)를 그대로 넣어도 된다.
     const SkillDef* Find(int32_t skillId) const
     {
-        if (skillId <= 0 || skillId >= static_cast<int32_t>(_rows.size()))
-            return nullptr;
-        const SkillDef& d = _rows[static_cast<size_t>(skillId)];
-        return d.skillId == 0 ? nullptr : &d;
+        const auto it = _rowById.find(skillId);
+        return (it == _rowById.end()) ? nullptr : &_rows[it->second];
     }
 
-    int32_t Count() const { return _count; }
+    int32_t Count() const { return static_cast<int32_t>(_rows.size()); }
+
+    // 안쪽 순번으로 — 0~Count()−1. 지표 이름표(스킬 번호)를 적어 둘 때 훑는다(CGameServer::LoadGameDataFiles)
+    const SkillDef& Row(int32_t index) const { return _rows[static_cast<size_t>(index)]; }
+
+    // 사람 기술 번호 — 파일 순서. 입장 때 기술 목록을 채운다(CEntryHandler::SpawnPlayer — 「사람은 사람 기술 전부를 가진다」)
+    const std::vector<int32_t>& PlayerSkillIds() const { return _playerSkillIds; }
 
 private:
-    std::vector<SkillDef> _rows;   // 색인 = 스킬 번호. 구멍은 skillId 0
-    int32_t _count = 0;            // 실제로 정의된 스킬 수
+    std::vector<SkillDef> _rows;                        // 파일 순서 — 색인 = SkillDef::index. 읽은 뒤로 안 늘어 Find 의 포인터가 안 흔들린다
+    std::unordered_map<int32_t, size_t> _rowById;       // 스킬 번호 → _rows 색인
+    std::vector<int32_t> _playerSkillIds;               // user=player 줄의 번호 — 파일 순서
 };
 
 #endif // USE_SKILL

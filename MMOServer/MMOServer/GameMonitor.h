@@ -23,7 +23,7 @@
 #include "ItemSystem.h"       // USE_INVENTORY — 쓰기·장착 거절 사유(UseItemReject·EquipReject) 수만큼 칸을 잡는다
 #include "SkillSystem.h"      // USE_SKILL — 스킬 거절 사유(SkillReject) 수만큼 칸을 잡는다
 #include "Buff.h"             // USE_COMBAT — 지속 효과 종류(BuffKind)·끝난 사유(BuffEnd) 수만큼 칸을 잡는다
-#include "SkillTable.h"       // USE_SKILL — 스킬 번호 수(MAX_SKILL_ID)만큼 시전 칸을 잡는다
+#include "SkillTable.h"       // USE_SKILL — 스킬 표 줄 수 상한(MAX_SKILL_ROWS)만큼 시전 칸을 잡는다
 #include "MapManager.h"       // 존 이동 요청 결과(ZoneChangeReject — 맵 관리자의 어휘) 수만큼 칸을 잡는다
 #include "PartySystem.h"      // USE_PARTY — 빠진 까닭(PartyLeave)·요청이 끝난 까닭(PartyRequestEnd) 수만큼 칸을 잡는다
 #include "Room.h"             // USE_PARTY — 방 들어가기 결과(RoomEntryReject) 수만큼 칸을 잡는다
@@ -726,21 +726,28 @@ public:
 
 #if USE_SKILL
     // ══════════════════════════════════════════════════════════════
-    // 스킬 (USE_SKILL) — 시전·맞힌 수는 스킬 번호마다, 거절은 사유마다 한 칸(배열).
+    // 스킬 (USE_SKILL) — 시전·맞힌 수는 스킬마다, 거절은 사유마다 한 칸(배열).
+    //   스킬 칸 = 표가 읽을 때 매긴 안쪽 순번(SkillDef::index — 파일 순서). 스킬 번호는 이름표라 색인으로 못 쓴다(11-01 기술 목록 · 띄엄띄엄 · u16).
+    //   노출 라벨은 그대로 스킬 번호다 — 칸마다 번호를 _skillIdOf 에 적어 둔다(기동 때 한 번 · CGameServer::LoadGameDataFiles).
     //   세는 곳은 CSkillSystem 안이다(시전·거절 = UseSkill, 맞힌 수 = ApplyEffect). 시전 = 비용을 뗀 수(모든 검사를 지났다), 거절 = 아무것도 안 뗀 수.
     //   죽인 수는 여기서 안 센다 — 맞힌 뒤 처리(ApplyHit)가 일반 공격과 같은 죽음 지표로 센다.
     // ══════════════════════════════════════════════════════════════
     struct alignas(64) SkillCounters
     {
-        Counter _cast[MAX_SKILL_ID + 1];                            // 시전 성공, 스킬 번호별([0] 칸은 안 쓴다)
+        Counter _cast[MAX_SKILL_ROWS];                              // 시전 성공, 스킬별(칸 = 안쪽 순번)
         Counter _rejected[static_cast<int>(SkillReject::COUNT)];    // 거절, 사유별
-        Counter _hits[MAX_SKILL_ID + 1];                            // 스킬로 맞힌 대상 수, 스킬 번호별 — 범위 스킬은 한 시전에 여럿([0] 칸은 안 쓴다). 피해 스킬만(지속 효과는 _buff 가 센다)
+        Counter _hits[MAX_SKILL_ROWS];                              // 스킬로 맞힌 대상 수, 스킬별 — 범위 스킬은 한 시전에 여럿. 피해 스킬만(지속 효과는 _buff 가 센다)
 
         // 몬스터(보스)가 쓴 몫 — 위 셋과 같은 칸 모양이다. 위 셋은 **사람 몫** 그대로 두고(이름·뜻 불변 — 대시보드 호환) 몬스터 것은 따로 센다.
         //   안 가르면 보스의 시전이 사람 시전 수에 섞인다(SkillSystem.cpp UseSkill 의 약속, 10-13). 가르는 곳은 CSkillSystem 한 곳(시전자 종류).
-        Counter _monsterCast[MAX_SKILL_ID + 1];
+        Counter _monsterCast[MAX_SKILL_ROWS];
         Counter _monsterRejected[static_cast<int>(SkillReject::COUNT)];
-        Counter _monsterHits[MAX_SKILL_ID + 1];
+        Counter _monsterHits[MAX_SKILL_ROWS];
+
+        // 칸 → 스킬 번호(노출 라벨). 기동 때 표를 읽은 직후 한 번 적고(지표 HTTP 스레드가 뜨기 전) 그 뒤로 안 바뀐다 — 그래서 원자 변수가 아니다.
+        //   _skillRows = 적힌 칸 수(표의 줄 수). 그 밖의 칸은 안 쓴다
+        int32_t _skillIdOf[MAX_SKILL_ROWS] = {};
+        int32_t _skillRows = 0;
 
         // S2C_ACTOR_MP 보낸 수 — SendActorMp 한 곳에서만 센다(_combat._myStatsSent 와 같은 꼴). 입장·존 이동마다 1,
         //   그 뒤로는 레벨업·마력 소모·마력 물약이 있었던 틱마다 1(틱 끝 스탯 알림 CStatSync — 한 틱에 둘이면 1).
@@ -800,8 +807,10 @@ public:
         //   죽은 채 저장된 행의 버프는 풀지 않고 버린다 — 칸 단위로 안 세고 행 단위 _deadRespawn 이 센다.
         Counter _cooldownRestored;   // 되살린 쿨타임 칸
         Counter _timerExpired;       // 저장값이 이미 지나 버린 칸(쿨타임·버프) — 접속하지 않은 동안 끝났다(정상)
-        Counter _timerSkipped;       // 내용이 틀려 건너뛴 칸 — 표에 없는 스킬 번호 · 범위 밖 버프 종류·값 · 같은 칸이 둘 · 버프 남은 시간이 상한 초과
+        Counter _timerSkipped;       // 내용이 틀려 건너뛴 칸 — 표에 없는 스킬 번호 · 기술 목록에 없는 번호 · 범위 밖 버프 종류·값 · 같은 칸이 둘 · 버프 남은 시간이 상한 초과
         Counter _timerBad;           // 형식이 틀려 통째로 버린 열(쿨타임 열·버프 열 따로 1씩) — 버전 모름 · 길이 불일치 · 버퍼보다 긴 값(잘림)
+        Counter _cooldownOldFormat;  // 옛 판(1 — 스킬 번호 1바이트)으로 읽은 쿨타임 열 — 버리지 않고 읽어 다음 저장에 새 판(2)으로 옮긴다(11-01).
+                                     //   행 단위(열 하나에 1). 옛 행이 다 한 번씩 들어왔다 나가면 더는 안 오른다
 
         // 요청 → 결과 수령 지연. 평균은 튄 값을 못 보므로 구간별 개수로 담는다(비누적, 노출 때 누적 변환).
         //   개수 합 = 꺼낸 결과 전부 = found + newCharacter + failed + orphaned (등식의 둘째 대조군).

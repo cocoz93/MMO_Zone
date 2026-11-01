@@ -1054,18 +1054,18 @@ struct MSG_C2S_USE_SKILL
 {
     static constexpr MsgType TYPE = MsgType::C2S_USE_SKILL;
     MsgHeader header;
-    uint8_t   skillId;   // 스킬 표 번호(1~)
+    uint16_t  skillId;   // 스킬 표 번호(1~) — 11-01 u8 → u16(번호를 배열 칸에서 뗐다 · 표 번호 상한 MAX_SKILL_ID)
 };
 
 // S2C: 시전 — 시전자 주변(본인 포함)에 방송. 맞은 결과는 따로 온다(S2C_DAMAGE · S2C_DEATH …).
-//   시전자 체력 소모는 S2C_ACTOR_STATS 가 바로 뒤따르고, 마력 소모는 그 뒤 S2C_ACTOR_MP(시전자 본인에게만)가 따른다.
+//   시전자 체력 소모(S2C_ACTOR_STATS)와 마력 소모(S2C_ACTOR_MP — 시전자 본인에게만)는 같은 틱 끝에 따른다(스탯 알림 CStatSync).
 //   쿨타임은 안 싣는다 — 클라가 표의 cooldownMs 로 이 장을 받은 순간부터 센다.
 struct MSG_S2C_SKILL_CAST
 {
     static constexpr MsgType TYPE = MsgType::S2C_SKILL_CAST;
     MsgHeader header;
     int32_t   casterId;
-    uint8_t   skillId;
+    uint16_t  skillId;
     uint8_t   direction;   // Direction enum (시전한 방향 — 시전 모양을 그쪽으로 그린다)
 
     MSG_S2C_SKILL_CAST() : header{ sizeof(*this), TYPE }, casterId(0), skillId(0), direction(0) {}
@@ -1076,15 +1076,15 @@ struct MSG_S2C_SKILL_FAIL
 {
     static constexpr MsgType TYPE = MsgType::S2C_SKILL_FAIL;
     MsgHeader header;
-    uint8_t   skillId;   // 요청에 실려 온 번호 그대로
+    uint16_t  skillId;   // 요청에 실려 온 번호 그대로
     uint8_t   reason;    // SkillFail
 
     MSG_S2C_SKILL_FAIL() : header{ sizeof(*this), TYPE }, skillId(0), reason(0) {}
 };
 
-static_assert(sizeof(MSG_C2S_USE_SKILL)  == 5,  "C2S_USE_SKILL 은 5B (proto.js 와 맞출 것)");
-static_assert(sizeof(MSG_S2C_SKILL_CAST) == 10, "SKILL_CAST 는 10B (proto.js 와 맞출 것)");
-static_assert(sizeof(MSG_S2C_SKILL_FAIL) == 6,  "SKILL_FAIL 은 6B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_USE_SKILL)  == 6,  "C2S_USE_SKILL 은 6B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_SKILL_CAST) == 11, "SKILL_CAST 는 11B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_SKILL_FAIL) == 7,  "SKILL_FAIL 은 7B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_SKILL_FAIL) == 1044, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 // S2C: 마력 통보 — 접속·존 이동·레벨업·스킬 마력 소모·마력 물약 때 보낸다.
@@ -1163,13 +1163,13 @@ struct MSG_S2C_SKILL_COOLDOWN_REMAIN
     static constexpr MsgType TYPE = MsgType::S2C_SKILL_COOLDOWN_REMAIN;
     MsgHeader header;
     int32_t  actorId;
-    uint8_t  skillId;    // 스킬 표 번호(1~)
+    uint16_t skillId;    // 스킬 표 번호(1~)
     uint32_t remainMs;   // 남은 시간(ms) — 늘 1 이상(끝난 쿨타임은 안 보낸다)
 
     MSG_S2C_SKILL_COOLDOWN_REMAIN() : header{ sizeof(*this), TYPE }, actorId(0), skillId(0), remainMs(0) {}
 };
 
-static_assert(sizeof(MSG_S2C_SKILL_COOLDOWN_REMAIN) == 13, "SKILL_COOLDOWN_REMAIN 은 13B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_SKILL_COOLDOWN_REMAIN) == 14, "SKILL_COOLDOWN_REMAIN 은 14B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_SKILL_COOLDOWN_REMAIN) == 1048, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 // S2C: 이동 속도 — 캐릭터의 속도가 바뀌었을 때(지금은 운영자 /gm 켬·끔뿐).
