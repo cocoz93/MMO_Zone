@@ -575,6 +575,7 @@ public:
         Counter _damageFloored;
 
         // S2C_MY_STATS 보낸 수 — SendMyStats 한 곳에서만 센다. 입장마다 1 이라 더미 시험의 분모다.
+        //   그 뒤로는 공격력·방어력이 실제로 바뀐 틱마다 1(틱 끝 스탯 알림 CStatSync — 레벨업 · 장착 · GM · 효과). 안 바뀐 장착은 안 센다.
         Counter _myStatsSent;
     } _combat;
 
@@ -741,7 +742,8 @@ public:
         Counter _monsterRejected[static_cast<int>(SkillReject::COUNT)];
         Counter _monsterHits[MAX_SKILL_ID + 1];
 
-        // S2C_ACTOR_MP 보낸 수 — SendActorMp 한 곳에서만 센다(_combat._myStatsSent 와 같은 꼴). 입장·존 이동·레벨업·마력 소모·마력 물약마다 1.
+        // S2C_ACTOR_MP 보낸 수 — SendActorMp 한 곳에서만 센다(_combat._myStatsSent 와 같은 꼴). 입장·존 이동마다 1,
+        //   그 뒤로는 레벨업·마력 소모·마력 물약이 있었던 틱마다 1(틱 끝 스탯 알림 CStatSync — 한 틱에 둘이면 1).
         //   마력은 스킬 토글 소유라 여기 둔다.
         Counter _actorMpSent;
 

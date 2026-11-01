@@ -172,6 +172,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/Combat.cpp
     ${SRV_DIR}/CombatSystem.cpp
     ${SRV_DIR}/StatSystem.cpp
+    ${SRV_DIR}/StatSync.cpp
     ${SRV_DIR}/ItemSystem.cpp
     ${SRV_DIR}/ShopSystem.cpp
     ${SRV_DIR}/TradeSystem.cpp

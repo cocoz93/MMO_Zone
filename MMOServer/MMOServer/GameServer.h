@@ -11,9 +11,9 @@
 //  - 생애 알림 나눠 부르기 — 존에서 빠짐 · 떠남(IPlacementEvents) · 존 지우기 직전(OnErasingZone).
 //    틱 너머 목록이 여러 모듈·시스템에 흩어져 있어, 한 클래스가 받으면 그 클래스가 남의 목록을 알게 된다 — 그래서 조립하는 쪽이 받아 차례대로 부른다
 //
-// [모듈] 멤버 이름(헤더) — 기반 다섯과 컨텐츠 열둘. 존·맵은 맵 관리자(_mapManager)가 든다
-//  기반: _sessionHub(세션 칸 · 보내기) · _selfNotifier(본인 알림) · _sightBroadcaster(시야 방송) · _characterStore(저장·불러오기 — USE_DB_WORKER) ·
-//        _placement(존에 넣기·옮기기·빼기 · 도착 차례)
+// [모듈] 멤버 이름(헤더) — 기반 여섯과 컨텐츠 열둘. 존·맵은 맵 관리자(_mapManager)가 든다
+//  기반: _sessionHub(세션 칸 · 보내기) · _selfNotifier(본인 알림) · _sightBroadcaster(시야 방송) · _statSync(스탯 알림 — USE_COMBAT) ·
+//        _characterStore(저장·불러오기 — USE_DB_WORKER) · _placement(존에 넣기·옮기기·빼기 · 도착 차례)
 //  컨텐츠: _entryHandler(입장·존 이동) · _moveHandler(이동) · _combatHandler(전투 — USE_COMBAT) · _monsterHandler(몬스터 — USE_MONSTER) ·
 //          _rewardHandler(처치 보상 — USE_COMBAT && USE_MONSTER) · _itemHandler(가방·땅 — USE_INVENTORY) · _partyHandler(파티·방 — USE_PARTY) · _chatHandler(채팅·운영) ·
 //          _commandHandler(채팅 명령 — 토글 없음 · 명령 줄만 토글) · _npcHandler(NPC — 토글 없음) · _shopHandler(상점 — USE_SHOP) · _tradeHandler(거래 — USE_TRADE)
@@ -59,6 +59,7 @@
 #include "SessionHub.h"    // 세션 칸 · 플레이어 찾기 · 보내기 · 캐릭터 번호 발급 — 게임 서버 나누기 1 단계(B1)
 #include "SelfNotifier.h"  // 본인 알림(내 상태 패킷을 나에게만) — 게임 서버 나누기 2 단계(B5)
 #include "SightBroadcaster.h" // 시야 방송(섹터 바뀜 · 주변 방송 · 송신 묶음 · 존 알림) — 게임 서버 나누기 3 단계(B2)
+#include "StatSync.h"         // 스탯 알림(바뀐 사람 표시 → 틱 끝 한 번 — USE_COMBAT · IStatEvents 구현) — warrior-skills-plan 1단계
 #include "CharacterStore.h"   // 캐릭터 저장소(DB 워커 · 저장 계기 넷과 묶음 · 불러오기 — USE_DB_WORKER) — 게임 서버 나누기 4 단계(B3)
 #include "PlayerPlacement.h"  // 배치(존에 넣기·옮기기·빼기·떠나보내기 · 도착 차례) — 게임 서버 나누기 5 단계(B4)
 #include "ItemHandler.h"      // 가방·땅(물약 · 장착 · 줍기 · 땅 아이템 알림 — USE_INVENTORY) — 게임 서버 나누기 6 단계(C6)
@@ -171,7 +172,8 @@ private:
 #if USE_COMBAT
     // 스탯·레벨 규칙 — 표(_gameDataFiles)를 참조한다.
     //   ★ _gameDataFiles·_gameMonitor 보다 뒤에 선언해야 한다(멤버는 선언 순서로 세워진다 — _combatSystem 주석과 같은 까닭).
-    CStatSystem _statSystem{ _gameDataFiles, _gameMonitor };
+    //   알림 받는 _statSync 는 뒤에 선언된다(그 클래스가 본인 알림·시야 방송의 참조를 받는다) — 참조를 묶기만 하고 생성 중엔 안 부른다.
+    CStatSystem _statSystem{ _gameDataFiles, _gameMonitor, _statSync };
 
     // 지속 효과 규칙 — 알림은 CCombatHandler(_combatHandler · IBuffEvents)로 간다. 바뀌면 _statSystem 으로 스탯을 다시 세운다(그래서 그 뒤에 선언).
     //   거는 쪽은 _skillSystem(아래 — 그 참조를 받으므로 이보다 뒤) · 아이템이 걸게 되면 _itemSystem 도 받는다.
@@ -204,6 +206,12 @@ private:
     //   ★ _sessionHub · _mapManager · _monitor · _gameMonitor 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
     CSightBroadcaster _sightBroadcaster{ _sessionHub, _mapManager, _monitor, _gameMonitor };
 
+#if USE_COMBAT
+    // 스탯 알림 — 바뀐 사람을 표시해 두고 틱 끝(게임 루프 3-4)에 한 번 보낸다(StatSync.h). 표시는 _statSystem(IStatEvents) · 물약 · 스킬 비용.
+    //   ★ _selfNotifier · _sightBroadcaster · _mapManager 보다 뒤에 선언 — 그 참조를 받는다. 부르는 쪽(_placement = 지우기 · _itemHandler · _combatHandler = 표시)은 이 뒤다.
+    CStatSync _statSync{ _selfNotifier, _sightBroadcaster, _mapManager };
+#endif
+
 #if USE_DB_WORKER
     // 캐릭터 저장소 — DB 워커의 주인 · 저장 계기 넷과 묶음 · 불러오기 요청과 회신 꺼내기(CharacterStore.h). 불러오기 결과는 CEntryHandler(_entryHandler · ICharacterLoadEvents)로 간다.
     //   ★ _sessionHub · _gameMonitor · _gameDataFiles · _buffSystem · _frameCount 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
@@ -216,9 +224,12 @@ private:
 #endif
 
     // 배치 — 존에 넣기·옮기기·빼기·떠나보내기 · 도착 차례(PlayerPlacement.h). 틱 너머 목록 정리는 이 클래스(IPlacementEvents)로 알려 온다.
-    //   ★ _sessionHub · _selfNotifier · _sightBroadcaster · _characterStore · _mapManager · _gameMonitor 보다 뒤에 선언 — 그 참조를 받는다.
+    //   ★ _sessionHub · _selfNotifier · _sightBroadcaster · _statSync · _characterStore · _mapManager · _gameMonitor 보다 뒤에 선언 — 그 참조를 받는다.
     //     *this 는 참조만 넘긴다(생성 중엔 부르지 않는다).
     CPlayerPlacement _placement{ _sessionHub, _selfNotifier, _sightBroadcaster,
+#if USE_COMBAT
+                                 _statSync,
+#endif
 #if USE_DB_WORKER
                                  _characterStore,
 #endif
@@ -226,9 +237,9 @@ private:
 
 #if USE_INVENTORY
     // 가방·땅 — 물약·장착·줍기 요청 · 바뀐 칸 내보내기 · 땅 아이템 알림(IGroundItemEvents) · 수명 훑기(ItemHandler.h).
-    //   ★ _sessionHub · _selfNotifier · _sightBroadcaster · _characterStore · _itemSystem · _mapManager · _gameMonitor · _gameDataFiles · _frameCount
+    //   ★ _sessionHub · _selfNotifier · _sightBroadcaster · _statSync · _characterStore · _itemSystem · _mapManager · _gameMonitor · _gameDataFiles · _frameCount
     //     보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
-    CItemHandler _itemHandler{ _sessionHub, _selfNotifier, _sightBroadcaster,
+    CItemHandler _itemHandler{ _sessionHub, _selfNotifier, _sightBroadcaster, _statSync,
 #if USE_DB_WORKER
                                _characterStore,
 #endif
@@ -286,9 +297,9 @@ private:
 
 #if USE_COMBAT && USE_MONSTER
     // 처치 보상 — 몬스터 경험치 · 드랍 굴림 · 방 보상(RewardHandler.h). 처치 알림(OnDeath)이 부른다.
-    //   ★ _selfNotifier · _sightBroadcaster · _characterStore · _itemHandler · _partyHandler · _statSystem · _gameMonitor · _gameDataFiles · _frameCount
+    //   ★ _selfNotifier · _characterStore · _itemHandler · _partyHandler · _statSystem · _gameMonitor · _gameDataFiles · _frameCount
     //     보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
-    CRewardHandler _rewardHandler{ _selfNotifier, _sightBroadcaster,
+    CRewardHandler _rewardHandler{ _selfNotifier,
 #if USE_DB_WORKER
                                    _characterStore,
 #endif
@@ -303,10 +314,10 @@ private:
 
 #if USE_COMBAT
     // 전투 — 공격·스킬 요청 · 공격·시전·효과 알림(ICombatEvents · ISkillEvents · IBuffEvents) · 부활 대기열(CombatHandler.h).
-    //   ★ _sessionHub · _selfNotifier · _sightBroadcaster · _placement · _rewardHandler · _combatSystem · _buffSystem · _skillSystem · _mapManager ·
+    //   ★ _sessionHub · _selfNotifier · _sightBroadcaster · _statSync · _placement · _rewardHandler · _combatSystem · _buffSystem · _skillSystem · _mapManager ·
     //     _gameMonitor · _frameCount 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
     //     규칙 셋(_buffSystem · _combatSystem · _skillSystem)은 거꾸로 이것의 참조를 받는다 — 알림 받는 쪽이라 묶기만 하고 생성 중엔 안 부른다.
-    CCombatHandler _combatHandler{ _sessionHub, _selfNotifier, _sightBroadcaster, _placement,
+    CCombatHandler _combatHandler{ _sessionHub, _selfNotifier, _sightBroadcaster, _statSync, _placement,
 #if USE_MONSTER
                                    _rewardHandler,
 #endif

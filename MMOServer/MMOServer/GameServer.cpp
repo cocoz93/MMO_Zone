@@ -245,6 +245,12 @@ void CGameServer::GameLoopThread()
         _itemHandler.TickGroundItems();
 #endif
 
+#if USE_COMBAT
+        // 3-4) 스탯 알림 — 이번 틱에 스탯이 바뀐 사람마다 한 번(체력 → 공격력·방어력 → 마력). 표시하는 자리(1 ~ 3-3)가 전부 앞이라 같은 틱에 나간다.
+        //   아래 FlushSends 앞이어야 이번 틱 송신 묶음에 실린다(StatSync.h [언제 보내나]).
+        _statSync.Flush();
+#endif
+
         auto phaseT3 = Clock::now();
 
         // 4) 주기적 위치 동기화 (MOVING 플레이어 → 주변 브로드캐스트) — CSightBroadcaster
@@ -396,6 +402,9 @@ void CGameServer::OnLeavingGame(CPlayer* player)
 
     // 지속 효과 목록도 같은 까닭으로 여기서 뺀다(알림 없음 — 세션이 없다). RemoveFromZone 에서는 안 뺀다 — 존 이동이 그 길을 지난다.
     _buffSystem.Forget(player);
+
+    // 스탯 알림 목록도 같은 까닭으로 — 표시된 뒤 같은 틱에 떠나면 틱 끝 Flush 가 해제된 주소를 밟는다(StatSync.h [수명])
+    _statSync.Forget(player);
 #endif
 
 #if USE_PARTY

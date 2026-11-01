@@ -4,7 +4,7 @@
 #include "MapManager.h"
 #include "Zone.h"
 #include "Player.h"           // CPlayer · 운영자 표시 · GM 칸 · 체력 컴포넌트 · 가방(Inventory.h — USE_INVENTORY)
-#include "PacketBuild.h"      // 머리 쓰기·닫기 · 체력 바뀜(MakeActorStats — /gm)
+#include "PacketBuild.h"      // 머리 쓰기·닫기 · 속도 바뀜(MakeActorSpeed — /gm)
 #include "SerialBuffer.h"
 #include <Protocol/Protocol.h>
 #include <Common/ErrorLog.h>  // SLOG_INFO — /item · /gm · /die 기록
@@ -167,19 +167,13 @@ void CCommandHandler::RunGmCommand(CPlayer* player, const std::vector<std::strin
     {
         player->_speed = player->_speedBeforeGm;
     }
-    _statSystem.RecalcStats(player, player->_gmMode);   // 켤 때만 가득 채운다
+    // 켤 때만 가득 채운다. 바뀐 체력·공격력·마력은 여기서 표시가 남아 틱 끝 스탯 알림(CStatSync)이 보낸다 — 끌 때 안 바뀐 마력은 안 간다
+    _statSystem.RecalcStats(player, player->_gmMode);
     counters._gmToggled[player->_gmMode ? 1 : 0].Inc();
 
-    CZone* zone = _mapManager.GetZone(player->_zoneId);
-    if (zone != nullptr)
-    {
-        _sightBroadcaster.BroadcastAroundSector(zone, player, MakeActorStats(player->_actorId, player->_health.Hp(), player->_health.MaxHp()), false);
+    // 속도는 스탯이 아니다(레벨 표 값이 아니라 입장 때 정해진 값) — 여기서 바로 주변에
+    if (CZone* zone = _mapManager.GetZone(player->_zoneId))
         _sightBroadcaster.BroadcastAroundSector(zone, player, MakeActorSpeed(player->_actorId, player->_speed), false);
-    }
-    _selfNotifier.SendMyStats(player);
-#if USE_SKILL
-    _selfNotifier.SendActorMp(player);   // 켤 때 가득 채운 마력 — 끌 때는 안 바뀌지만 같은 한 벌로 보낸다
-#endif
 
     SLOG_INFO("[GM] /gm (account={}, player={}) -> {} (speed {}, maxHp {}, attack {})",
               player->_accountId, player->_actorId, player->_gmMode ? "on" : "off",

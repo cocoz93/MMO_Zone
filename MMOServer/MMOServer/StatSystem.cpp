@@ -10,10 +10,57 @@
 #include <Common/ErrorLog.h>
 #include <cassert>           // 몬스터를 끈 빌드에 몬스터 종류가 오는 일은 없다
 
-CStatSystem::CStatSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor)
+CStatSystem::CStatSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor, IStatEvents& events)
     : _tables(tables)
     , _gameMonitor(gameMonitor)
+    , _events(events)
 {
+}
+
+namespace
+{
+    // 알림을 가르는 값 여섯 — 세우기 전후로 한 번씩 읽어 견준다. NPC 는 컴포넌트가 없어 전부 0(BuildStats 가 단언으로 막는다 — Release 에선 그냥 돌아가 전후 모두 0, 알림 없음).
+    struct StatValues
+    {
+        int32_t hp = 0, maxHp = 0, attack = 0, defense = 0, mp = 0, maxMp = 0;
+    };
+
+    StatValues ReadStats(const CCharacter& c)
+    {
+        StatValues v;
+        if (const CHealthComponent* h = c.Health())
+        {
+            v.hp      = h->Hp();
+            v.maxHp   = h->MaxHp();
+            v.defense = h->Defense();
+        }
+        if (const CAttackComponent* a = c.Attack())
+        {
+            v.attack = a->_attackPower;
+            v.mp     = a->Mp();
+            v.maxMp  = a->MaxMp();
+        }
+        return v;
+    }
+
+    uint8_t DiffStats(const StatValues& b, const StatValues& a)
+    {
+        uint8_t changed = 0;
+        if (b.hp != a.hp || b.maxHp != a.maxHp)              changed |= StatChange::AROUND_HP;
+        if (b.attack != a.attack || b.defense != a.defense)  changed |= StatChange::SELF_STATS;
+        if (b.mp != a.mp || b.maxMp != a.maxMp)              changed |= StatChange::SELF_MP;
+        return changed;
+    }
+}
+
+// 세우고 → 전후를 견줘 바뀐 몫만 알린다. 보내기는 받는 쪽(CStatSync)이 틱 끝에 한 번 — 한 틱에 여러 번 세워도 한 장씩이다.
+void CStatSystem::RecalcStats(CCharacter* character, bool refill)
+{
+    const StatValues before = ReadStats(*character);
+    BuildStats(character, refill);
+    const uint8_t changed = DiffStats(before, ReadStats(*character));
+    if (changed != 0)
+        _events.OnStatsChanged(character, changed);
 }
 
 // ==========================================================================
@@ -26,7 +73,7 @@ CStatSystem::CStatSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor
 //   몬스터 바탕은 몬스터 표 행(_def) — 생성자(Monster.cpp)가 넣는 것과 같은 복사다(식이 아니라 복사라 두 곳에 둔다, 10-12).
 //   효과가 풀릴 때 돌아갈 「바탕」이 여기서 다시 선다 — 생성자 값을 필드에 두고 거기서 곱하면 풀 때 나눌 수밖에 없고, 그건 반올림이 남는다.
 // ==========================================================================
-void CStatSystem::RecalcStats(CCharacter* character, bool refill)
+void CStatSystem::BuildStats(CCharacter* character, bool refill)
 {
     // ── 1) 바탕 — 종류마다 표가 다르다. 경우가 둘이라 switch 다(하나가 나머지를 삼키지 않게) ──
     switch (character->_kind)

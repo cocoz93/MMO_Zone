@@ -30,6 +30,7 @@ class CGameMonitor;
 class CSessionHub;
 class CSelfNotifier;
 class CSightBroadcaster;
+class CStatSync;
 #if USE_DB_WORKER
 class CCharacterStore;
 #endif
@@ -68,11 +69,17 @@ public:
     // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(보내기 셋(CSessionHub · CSelfNotifier · CSightBroadcaster) · 저장소 · 맵 관리자 · 게임 지표)보다 뒤에 이것을 선언해야 한다
     //   (멤버는 선언 순서로 세워진다). 생성 중엔 쓰지 않는다.
     CPlayerPlacement(CSessionHub& sessionHub, CSelfNotifier& selfNotifier, CSightBroadcaster& sightBroadcaster,
+#if USE_COMBAT
+                     CStatSync& statSync,
+#endif
 #if USE_DB_WORKER
                      CCharacterStore& characterStore,
 #endif
                      CMapManager& mapManager, CGameMonitor& gameMonitor, IPlacementEvents& events)
         : _sessionHub(sessionHub), _selfNotifier(selfNotifier), _sightBroadcaster(sightBroadcaster)
+#if USE_COMBAT
+        , _statSync(statSync)
+#endif
 #if USE_DB_WORKER
         , _characterStore(characterStore)
 #endif
@@ -117,6 +124,9 @@ private:
     CSessionHub&       _sessionHub;         // 한 사람 패킷 · 칸 비우기
     CSelfNotifier&     _selfNotifier;       // 도착 차례의 본인 상태 패킷
     CSightBroadcaster& _sightBroadcaster;   // 퇴장의 시야 몫 · 입장의 주변과 서로 생성
+#if USE_COMBAT
+    CStatSync&         _statSync;           // 도착 차례가 보낸 스탯 몫 지우기(틱 끝에 겹쳐 안 가게)
+#endif
 #if USE_DB_WORKER
     CCharacterStore&   _characterStore;     // 놓기 전 최종 저장
 #endif

@@ -33,6 +33,9 @@ public:
     CAttackComponent _attack;
 #if USE_COMBAT
     CBuffComponent   _buffs;
+
+    // 틱 끝에 보낼 스탯 몫(StatChange 비트 — StatSystem.h). CStatSync 만 켜고 끈다 — 0 이 아니면 그 목록에 들어 있다(StatSync.h).
+    uint8_t _statDirty = 0;
 #endif
 
     bool _isAdmin;        // 운영자 여부

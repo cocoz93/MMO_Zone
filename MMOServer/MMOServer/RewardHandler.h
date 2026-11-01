@@ -2,14 +2,14 @@
 // CRewardHandler — 처치 보상: 몬스터 경험치 · 드랍 굴림 · 방 보상 (게임 서버 나누기 8 단계 · C5 · USE_COMBAT && USE_MONSTER)
 //
 // [책임]
-//  - 몬스터 경험치 주기 한 곳(GrantMonsterExp — 준 뒤에 세기 · 경험치 알림 · 레벨업이면 체력 방송·스탯·마력·즉시 저장)
+//  - 몬스터 경험치 주기 한 곳(GrantMonsterExp — 준 뒤에 세기 · 경험치 알림 · 레벨업이면 즉시 저장. 레벨업 스탯은 스탯 세우기가 표시해 CStatSync 가 보낸다)
 //  - 드랍 굴림(DropLoot — 표를 굴려 존의 땅 아이템 관리자에 넘긴다 · 주인 = 막타 계정)
 //  - 방 보상(RewardRoom — 방 안 사람 각자: 경험치 전액 · 드랍을 가방에 바로 · 넘치면 발밑 땅 · 다시 들어가기 잠금 · 채팅 알림 줄)
 //
 // [경계]
 //  누가 보상을 받나(막타 길인가 방 길인가)는 부르는 쪽(처치 알림 OnDeath)이 고른다 — 여기는 고른 대로 준다.
 //  경험치·레벨 규칙은 CStatSystem, 무엇이 떨어지나는 순수 함수 RollDrops(DropTable.h), 땅에 놓기는 존의 CGroundItemManager.
-//  보내기는 다른 모듈에 맡긴다 — 본인 상태(본인 알림) · 주변 체력(시야 방송) · 가방 칸(CItemHandler). 즉시 저장은 캐릭터 저장소, 잠금 표는 CPartyHandler.
+//  보내기는 다른 모듈에 맡긴다 — 경험치·알림 줄(본인 알림) · 레벨업 스탯(스탯 알림 CStatSync — 스탯 세우기가 표시) · 가방 칸(CItemHandler). 즉시 저장은 캐릭터 저장소, 잠금 표는 CPartyHandler.
 //
 // [모르는 것]
 //  공격 판정·죽음 처리·부활. 세션·패킷 분기·입장 절차.
@@ -29,7 +29,6 @@ class CZone;
 class CPlayer;
 class CMonster;
 class CSelfNotifier;
-class CSightBroadcaster;
 class CStatSystem;
 class CGameMonitor;
 class CGameDataFiles;
@@ -46,9 +45,9 @@ class CPartyHandler;
 class CRewardHandler
 {
 public:
-    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(보내기 둘(CSelfNotifier · CSightBroadcaster) · 저장소 · CItemHandler · CPartyHandler · 스탯 규칙 · 게임 지표 · 기획 데이터 · 틱 번호)보다
+    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(본인 알림(CSelfNotifier) · 저장소 · CItemHandler · CPartyHandler · 스탯 규칙 · 게임 지표 · 기획 데이터 · 틱 번호)보다
     //   뒤에 이것을 선언해야 한다(멤버는 선언 순서로 세워진다). 생성 중엔 쓰지 않는다.
-    CRewardHandler(CSelfNotifier& selfNotifier, CSightBroadcaster& sightBroadcaster,
+    CRewardHandler(CSelfNotifier& selfNotifier,
 #if USE_DB_WORKER
                    CCharacterStore& characterStore,
 #endif
@@ -59,7 +58,7 @@ public:
                    CPartyHandler& partyHandler,
 #endif
                    CStatSystem& statSystem, CGameMonitor& gameMonitor, const CGameDataFiles& gameDataFiles, const uint64_t& frameCount)
-        : _selfNotifier(selfNotifier), _sightBroadcaster(sightBroadcaster)
+        : _selfNotifier(selfNotifier)
 #if USE_DB_WORKER
         , _characterStore(characterStore)
 #endif
@@ -72,8 +71,8 @@ public:
         , _statSystem(statSystem), _gameMonitor(gameMonitor), _gameDataFiles(gameDataFiles), _frameCount(frameCount) {}
 
 #if USE_EXP && USE_MONSTER
-    // 몬스터 경험치 주기 한 곳 — 막타 경로(OnDeath 6)와 방 보상(RewardRoom)이 같이 쓴다. 준 뒤에 세고, 오르면 알리고 바로 저장한다.
-    void GrantMonsterExp(CZone* zone, CPlayer* player, int32_t reward);
+    // 몬스터 경험치 주기 한 곳 — 막타 경로(OnDeath 6)와 방 보상(RewardRoom)이 같이 쓴다. 준 뒤에 세고, 오르면 바로 저장한다(오른 스탯 알림은 CStatSync).
+    void GrantMonsterExp(CPlayer* player, int32_t reward);
 #endif
 
 #if USE_PARTY && USE_MONSTER
@@ -91,8 +90,7 @@ public:
 #endif
 
 private:
-    CSelfNotifier&        _selfNotifier;       // 경험치 · 스탯 · 마력 · 알림 줄(본인에게)
-    CSightBroadcaster&    _sightBroadcaster;   // 레벨업 체력을 주변에
+    CSelfNotifier&        _selfNotifier;       // 경험치 · 알림 줄(본인에게)
 #if USE_DB_WORKER
     CCharacterStore&      _characterStore;     // 레벨업 틱 끝 저장 요청
 #endif

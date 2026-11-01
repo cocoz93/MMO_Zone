@@ -529,7 +529,7 @@ private:
                      "Hits raised to the minimum damage (attack - defense < 1), any attacker",
                      _gameMonitor._combat._damageFloored);
         WriteCounter(ss, "mmo_my_stats_sent_total",
-                     "S2C_MY_STATS packets sent (only SendMyStats sends them; one per enter, level-up, equip change and buff change)",
+                     "S2C_MY_STATS packets sent (only SendMyStats sends them; one per enter, then one per tick in which attack or defense changed - level-up, equip, GM, buff)",
                      _gameMonitor._combat._myStatsSent);
 
 #if USE_COMBAT
@@ -831,7 +831,7 @@ private:
         }
         ss << "\n";
         WriteCounter(ss, "mmo_actor_mp_sent_total",
-                     "S2C_ACTOR_MP packets sent (only SendActorMp sends them, to the owner only; one per enter, zone change, level-up, mana cast and mana potion)",
+                     "S2C_ACTOR_MP packets sent (only SendActorMp sends them, to the owner only; one per enter and zone change, then one per tick with a level-up, mana cast or mana potion)",
                      sk._actorMpSent);
         WriteCounter(ss, "mmo_skill_cooldown_remain_sent_total",
                      "S2C_SKILL_COOLDOWN_REMAIN packets sent (only SendActiveSkillCooldowns sends them, to the owner only; one per running cooldown on enter and zone change)",

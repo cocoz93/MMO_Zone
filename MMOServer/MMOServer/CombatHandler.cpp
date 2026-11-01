@@ -5,6 +5,7 @@
 #include "SessionHub.h"
 #include "SelfNotifier.h"
 #include "SightBroadcaster.h"
+#include "StatSync.h"         // 스킬 비용 체력·마력 표시 · StatChange
 #include "PlayerPlacement.h"
 #include "RewardHandler.h"    // USE_MONSTER — 경험치 · 드랍 · 방 보상
 #include "Combat.h"           // 부활 시각 · 부활 · 부활 자리 규칙(RespawnsToTown)
@@ -22,7 +23,7 @@
 #include <Common/ErrorLog.h>
 #include <algorithm>          // std::remove — 부활 대기열 빼기
 #include <cassert>
-#include "PacketBuild.h"      // 머리 쓰기·닫기 · 부활(MakeRespawn) · 체력 바뀜(MakeActorStats) — 게임 서버 나누기 0-②
+#include "PacketBuild.h"      // 머리 쓰기·닫기 · 부활(MakeRespawn) — 게임 서버 나누기 0-②
 
 using namespace PacketBuild;   // 아래 조립 함수들이 머리 쓰기·닫기를 이름만으로 부른다
 
@@ -216,7 +217,7 @@ void CCombatHandler::OnDeath(CZone* zone, CCharacter* attacker, CCharacter* targ
     //   PvP 는 안 준다: 당한 쪽이 몬스터일 때만이다. 방 맵은 위 RewardRoom 이 이미 줬다.
     CPlayer* killer = As<CPlayer>(attacker);
     if (!roomReward && killer != nullptr && target->_kind == CharacterKind::MONSTER)
-        _rewardHandler.GrantMonsterExp(zone, killer, As<CMonster>(target)->_def.exp);   // 잡힌 몬스터 종류의 경험치(몬스터 표)
+        _rewardHandler.GrantMonsterExp(killer, As<CMonster>(target)->_def.exp);   // 잡힌 몬스터 종류의 경험치(몬스터 표)
 #endif
 
 #if USE_DROP
@@ -263,22 +264,21 @@ void CCombatHandler::RecvUseSkill(CPlayer* player, CSerialBuffer* pMsg)
         _sessionHub.SendPacket(player, MakeSkillFail(recvMsg.skillId, ToSkillFail(reject)));
 }
 
-// 시전했다 — 비용을 뗀 뒤, 효과 전에 온다. 와이어 순서 = 시전 모양 → 시전자 체력 → 시전자 마력(본인만) → (효과의 DAMAGE …)
+// 시전했다 — 비용을 뗀 뒤, 효과 전에 온다. 와이어 순서 = 시전 모양 → (효과의 DAMAGE …) → 틱 끝에 시전자 체력 · 시전자 마력(본인만)
+//   비용은 같은 틱 끝 스탯 알림(CStatSync)이 보낸다 — 같은 송신 묶음이라 화면엔 같은 순간이다(StatSync.h [언제 보내나]).
 void CCombatHandler::OnCast(CZone* zone, CCharacter* caster, const SkillDef& def)
 {
     _sightBroadcaster.BroadcastAroundSector(zone, caster,
         MakeSkillCast(caster->_actorId, static_cast<uint8_t>(def.skillId), static_cast<uint8_t>(caster->_direction)), false);
 
-    // 체력을 뗐으면 본인과 주변에 — 남의 머리 위 막대도 줄어야 한다(물약·레벨업 때 체력 방송과 같은 꼴)
-    if (def.costHpPct > 0)
-        _sightBroadcaster.BroadcastAroundSector(zone, caster, MakeActorStats(caster->_actorId, caster->Health()->Hp(), caster->Health()->MaxHp()), false);
-
-    // 마력을 뗐으면 시전자 본인에게만 — 남의 마력은 화면에 안 그린다(주변 방송 금지, Protocol.h MSG_S2C_ACTOR_MP).
-    //   시전자가 사람일 때만이다 — 몬스터는 받을 세션이 없다(몬스터 시전도 이 함수를 지나지만 몬스터 스킬은 마력이 0 이라 여기 안 온다).
-    if (def.costMp > 0)
+    // 비용 표시 — 시전자가 사람일 때만이다(몬스터 스킬은 비용 0 만 허용 — MonsterSkillTable.cpp. 몬스터 시전도 이 함수를 지난다).
+    //   체력 = 본인과 주변(남의 머리 위 막대도 줄어야 한다) · 마력 = 본인만(남의 마력은 화면에 안 그린다 — Protocol.h MSG_S2C_ACTOR_MP)
+    if (CPlayer* player = As<CPlayer>(caster))
     {
-        if (CPlayer* player = As<CPlayer>(caster))
-            _selfNotifier.SendActorMp(player);
+        uint8_t spent = 0;
+        if (def.costHpPct > 0) spent |= StatChange::AROUND_HP;
+        if (def.costMp > 0)    spent |= StatChange::SELF_MP;
+        _statSync.Mark(player, spent);
     }
 }
 
@@ -301,15 +301,13 @@ void CCombatHandler::OnRevive(CZone* zone, CCharacter* caster, int32_t monsterId
 // 지속 효과 — 걸기·만료·정리는 CBuffSystem(BuffSystem.cpp), 여기는 알림을 받아 CSelfNotifier 에 넘기기만
 // ==========================================================================
 
-// 효과가 바뀌었다(걸림·되감김·만료·죽음) — 스탯은 이미 다시 선 뒤라 MY_STATS 가 새 공격력이다. 와이어 = ACTOR_BUFF → MY_STATS.
-//   몬스터면 보낼 세션이 없어 둘 다 안 한다(스탯은 CBuffSystem 이 이미 세웠다 — 보스가 자기에게 건 버프가 이 길을 탄다. 다른 사람 화면엔 시전 방송의 고리만 순간 보이고 지속 표시는 아직 없다).
+// 효과가 바뀌었다(걸림·되감김·만료·죽음) — 와이어 = ACTOR_BUFF → (틱 끝) 바뀐 스탯. 스탯은 CBuffSystem 이 다시 세울 때 표시가 남아
+//   틱 끝 스탯 알림(CStatSync)이 보낸다 — 공격력이면 MY_STATS, 최대 체력이면 주변에도 ACTOR_STATS. 여기는 효과 칸만.
+//   몬스터면 보낼 세션이 없어 안 한다(스탯은 CBuffSystem 이 이미 세웠다 — 보스가 자기에게 건 버프가 이 길을 탄다. 다른 사람 화면엔 시전 방송의 고리만 순간 보이고 지속 표시는 아직 없다).
 void CCombatHandler::OnBuffChanged(CCharacter* target, BuffKind kind)
 {
     if (CPlayer* player = As<CPlayer>(target))
-    {
         _selfNotifier.SendActorBuff(player, kind);
-        _selfNotifier.SendMyStats(player);
-    }
 }
 
 // 부활 대기자 훑기 — 틱마다 1회. 죽은 것만 따로 들고 있어 존 전체를 돌지 않는다.

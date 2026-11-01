@@ -38,6 +38,7 @@ class CPacketRoutes;
 class CSessionHub;
 class CSelfNotifier;
 class CSightBroadcaster;
+class CStatSync;
 class CPlayerPlacement;
 class CMapManager;
 class CGameMonitor;
@@ -59,7 +60,7 @@ public:
     //   뒤에 이것을 선언해야 한다(멤버는 선언 순서로 세워진다). 생성 중엔 쓰지 않는다.
     //   거꾸로 규칙 셋은 이것보다 앞에 세워지며 이것의 참조를 묶기만 한다(알림 받는 쪽 — 게임 서버가 *this 를 넘기던 것과 같은 꼴).
     //   기본 맵 번호(마을 부활)는 맵 관리자에게 묻는다(CMapManager::GetDefaultMapId — 게임 서버 나누기 14 단계 전에는 게임 서버가 들고 빌려 줬다).
-    CCombatHandler(CSessionHub& sessionHub, CSelfNotifier& selfNotifier, CSightBroadcaster& sightBroadcaster, CPlayerPlacement& placement,
+    CCombatHandler(CSessionHub& sessionHub, CSelfNotifier& selfNotifier, CSightBroadcaster& sightBroadcaster, CStatSync& statSync, CPlayerPlacement& placement,
 #if USE_MONSTER
                    CRewardHandler& rewardHandler,
 #endif
@@ -68,7 +69,7 @@ public:
                    CSkillSystem& skillSystem,
 #endif
                    CMapManager& mapManager, CGameMonitor& gameMonitor, const uint64_t& frameCount)
-        : _sessionHub(sessionHub), _selfNotifier(selfNotifier), _sightBroadcaster(sightBroadcaster), _placement(placement)
+        : _sessionHub(sessionHub), _selfNotifier(selfNotifier), _sightBroadcaster(sightBroadcaster), _statSync(statSync), _placement(placement)
 #if USE_MONSTER
         , _rewardHandler(rewardHandler)
 #endif
@@ -103,7 +104,7 @@ private:
     // ── 지속 효과 (USE_COMBAT) ──
     // 걸기·만료·정리는 CBuffSystem(_buffSystem) — 여기는 알림을 받아 CSelfNotifier 에 넘기기만. 틱 3-2b 가 만료를 훑고,
     //   사라지는 두 길(놓기의 「떠남」 알림 — 게임 서버의 OnLeavingGame → Forget · OnDeath → ClearAll)이 목록에서 뺀다(BuffSystem.h [목록은 틱 너머로 주소를 든다]).
-    // 효과 알림 (IBuffEvents) — 스탯은 이미 다시 선 뒤다. 사람이면 S2C_ACTOR_BUFF(본인) → S2C_MY_STATS(바뀐 공격력). 몬스터면 보낼 세션이 없다.
+    // 효과 알림 (IBuffEvents) — 스탯은 이미 다시 선 뒤다. 사람이면 S2C_ACTOR_BUFF(본인) — 바뀐 스탯은 틱 끝 CStatSync 가 뒤따라 보낸다. 몬스터면 보낼 세션이 없다.
     void OnBuffChanged(CCharacter* target, BuffKind kind) override;
 
 #if USE_SKILL
@@ -120,8 +121,9 @@ private:
 #endif
 
     CSessionHub&       _sessionHub;         // 스킬 거절(한 사람에게)
-    CSelfNotifier&     _selfNotifier;       // 시전자 마력 · 효과 칸 · 스탯(본인에게)
-    CSightBroadcaster& _sightBroadcaster;   // 휘두름 · 피해 · 죽음 · 시전 · 체력 · 제자리 부활을 주변에
+    CSelfNotifier&     _selfNotifier;       // 효과 칸(본인에게)
+    CSightBroadcaster& _sightBroadcaster;   // 휘두름 · 피해 · 죽음 · 시전 · 제자리 부활을 주변에
+    CStatSync&         _statSync;           // 스킬 비용으로 준 체력·마력 표시(틱 끝에 한 번)
     CPlayerPlacement&  _placement;          // 마을 부활 옮기기 · 죽은 몬스터 존에서 빼기
 #if USE_MONSTER
     CRewardHandler&    _rewardHandler;      // 경험치 · 드랍 · 방 보상

@@ -3,7 +3,6 @@
 #if USE_COMBAT && USE_MONSTER
 
 #include "SelfNotifier.h"
-#include "SightBroadcaster.h"
 #include "CharacterStore.h"   // USE_DB_WORKER — 레벨업 틱 끝 저장 요청
 #include "ItemHandler.h"      // USE_INVENTORY — 바뀐 칸 내보내기 · 땅 아이템 묶음
 #include "PartyHandler.h"     // USE_PARTY — 방 다시 들어가기 잠금 넣기
@@ -17,12 +16,9 @@
 #include <cassert>
 #include <string>
 #include <random>             // USE_DROP — 드랍 굴림 난수
-#include "PacketBuild.h"      // 체력 바뀜(MakeActorStats — 레벨업 체력의 주변 방송) — 게임 서버 나누기 0-②
-
-using namespace PacketBuild;   // 조립 함수를 이름만으로 부른다
 
 #if USE_EXP && USE_MONSTER
-void CRewardHandler::GrantMonsterExp(CZone* zone, CPlayer* killer, int32_t reward)
+void CRewardHandler::GrantMonsterExp(CPlayer* killer, int32_t reward)
 {
     {   // 옛 OnDeath 6) 의 몸 그대로(10-17 도우미로 뺌 — 막타 경로와 방 보상이 같이 부른다. killer = 받는 사람)
         // ★ 준 뒤에 센다 — GainExp 는 만렙이면 한 톨도 안 쌓는다.
@@ -43,18 +39,8 @@ void CRewardHandler::GrantMonsterExp(CZone* zone, CPlayer* killer, int32_t rewar
 
         if (leveled)
         {
-            // 늘어난 체력을 본인과 주변에 다시 알린다 — 막대가 옛 최대치로 남지 않게.
-            //   excludeSelf=false 라 본인에게도 간다(부활 방송과 같은 꼴).
-            _sightBroadcaster.BroadcastAroundSector(zone, killer,
-                MakeActorStats(killer->_actorId, killer->_health.Hp(), killer->_health.MaxHp()), false);
-
-            // 오른 공격력·방어력은 본인에게만 — 남의 공격력은 화면에 안 쓴다(S2C_MY_STATS 는 본인 전용)
-            _selfNotifier.SendMyStats(killer);
-
-#if USE_SKILL
-            // 늘고 가득 찬 마력도 본인에게만(RecalcStats 가 레벨업 때 채운다)
-            _selfNotifier.SendActorMp(killer);
-#endif
+            // 늘어난 체력(본인 + 주변) · 오른 공격력·방어력(본인) · 가득 찬 마력(본인)은 GainExp 의 스탯 세우기가 표시를 남겨
+            //   틱 끝 스탯 알림(CStatSync)이 보낸다 — 막대가 옛 최대치로 남지 않는다.
 
 #if USE_DB_WORKER
             // 레벨업은 이 틱 끝에 저장한다 — 주기(60초) 전에 서버가 죽어도 오른 레벨이 되돌아가지 않게.
@@ -97,7 +83,7 @@ void CRewardHandler::RewardRoom(CZone* zone, CMonster* monster)
 
 #if USE_EXP
         const int64_t beforeExp = p->_exp;
-        GrantMonsterExp(zone, p, monster->_def.exp);   // 전액 — 나누지 않는다(room-plan.md 「사람이 정할 것」 3)
+        GrantMonsterExp(p, monster->_def.exp);   // 전액 — 나누지 않는다(room-plan.md 「사람이 정할 것」 3)
         head += " 경험치 " + std::to_string(p->_exp - beforeExp);   // 만렙이면 0
 #endif
         _selfNotifier.SendSystemMessage(p, head);

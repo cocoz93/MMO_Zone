@@ -5,7 +5,7 @@
 //  - 걸기(비어 있으면 새로, 차 있으면 값·시간 덮기 = 되감기) · 만료 틱 · 죽음(풀림) · 퇴장(목록에서만 뺌) · 되살리기(입장 — DB 저장값)
 //  - 바뀌면 스탯을 다시 세운다(CStatSystem::RecalcStats — 바탕 + 장비 뒤에 배수) → 알림(IBuffEvents)
 //  - 그 과정에서 정한 것(걸림·되감김·끝난 사유·살아 있는 칸 수)을 지표(CGameMonitor)로 센다 — CCombatSystem 과 같은 꼴
-//  - 보내기는 하지 않는다 — 게임 서버가 알림을 받아 S2C_ACTOR_BUFF(본인)·S2C_MY_STATS 로 보낸다
+//  - 보내기는 하지 않는다 — 효과 칸은 알림(IBuffEvents)을 받은 CCombatHandler 가 S2C_ACTOR_BUFF(본인)로, 바뀐 스탯은 스탯 세우기가 표시해 틱 끝 CStatSync 가 보낸다
 //
 // [왜 따로인가]
 //  세우기(CStatSystem)와 「시간이 지나 풀림」은 다른 일이고, 거는 쪽이 스킬·아이템 둘이라 어느 한쪽 것이 아니다(10-12).

@@ -66,9 +66,9 @@ public:
     virtual ~ISkillEvents() = default;
 
     // 시전했다 — 비용(체력·마력·쿨타임)을 뗀 뒤, 효과를 적용하기 "전"에 온다.
-    //   → S2C_SKILL_CAST(주변) + 체력이 줄었으면 S2C_ACTOR_STATS(주변) + 마력이 줄었으면 S2C_ACTOR_MP(시전자 본인만 — 사람일 때)
-    //   ★ 효과(피해·죽음·보상)는 이 뒤에 ICombatEvents 로 따로 온다 — 와이어 순서가 시전 → 시전자 체력 → 시전자 마력 → 피해다.
-    //     지속 효과는 IBuffEvents 로 온다 — 시전 → 시전자 마력 → ACTOR_BUFF → MY_STATS.
+    //   → S2C_SKILL_CAST(주변). 줄어든 체력(주변)·마력(시전자 본인만 — 사람일 때)은 표시만 하고 틱 끝 CStatSync 가 보낸다.
+    //   ★ 효과(피해·죽음·보상)는 이 뒤에 ICombatEvents 로 따로 온다 — 와이어 순서가 시전 → 피해 → (틱 끝) 시전자 체력·마력이다.
+    //     지속 효과는 IBuffEvents 로 온다 — 시전 → ACTOR_BUFF → (틱 끝) 시전자 체력·공격력·마력.
     virtual void OnCast(CZone* zone, CCharacter* caster, const SkillDef& def) = 0;
 
     // 되살려라 — 효과 REVIVE(시전 알림 뒤). 이 존에서 죽은 monsterId 를 빈 점 수만큼 되살리는 일을 받는 쪽이 존의 몬스터 관리자에 요청한다

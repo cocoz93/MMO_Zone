@@ -6,7 +6,8 @@
 //  - 입장 때 저장된 체력·마력 넣기 — 세운 최대치로 깎는다(RestoreHpMp)
 //  - 경험치 더하기와 레벨 올리기 · 표 밖 레벨 보정(플레이어만 — 레벨은 사람만 쌓는다)
 //  - 그 과정에서 정한 것(레벨업·보정)을 지표(CGameMonitor)로 센다 — 무엇을 정했는지는 여기서만 안다(CCombatSystem 과 같은 꼴)
-//  - 보내기·저장·보상은 하지 않는다 — 부르는 쪽(CRewardHandler · CCommandHandler 등)이 CSelfNotifier 의 SendExp·SendMyStats·SendActorMp(마력 — USE_SKILL)로 보내고, 저장은 마지막 저장값과 견주어 정한다(ShouldSave)
+//  - 보내기·저장·보상은 하지 않는다 — 스탯을 세우면 무엇이 바뀌었는지만 알린다(IStatEvents — 받는 CStatSync 가 틱 끝에 한 번 보낸다).
+//    경험치(SendExp)는 부르는 쪽(CRewardHandler)이 보내고, 저장은 마지막 저장값과 견주어 정한다(ShouldSave)
 //
 // [왜 떼어냈나]
 //  규칙의 입력이 CPlayer 필드와 기획 표뿐인데 CGameServer 멤버였다. 그러면 게임 서버가 부르는 쪽(존·몬스터 관리자)은
@@ -32,11 +33,32 @@ class CAttackComponent;
 class CGameDataFiles;
 class CGameMonitor;
 
+// 스탯이 바뀐 몫 — RecalcStats 가 계산 전후를 견줘 켠다. 받는 쪽(CStatSync)이 비트마다 패킷 한 장으로 바꾼다.
+//   비트는 「누구에게 보이는 값인가」로 나눴다 — 체력은 남의 머리 위 막대에도 그려지고, 공격력·마력은 본인만 본다.
+namespace StatChange
+{
+    constexpr uint8_t AROUND_HP  = 0x01;   // 체력 · 최대 체력 — 본인 + 주변(S2C_ACTOR_STATS)
+    constexpr uint8_t SELF_STATS = 0x02;   // 공격력 · 방어력 — 본인만(S2C_MY_STATS)
+    constexpr uint8_t SELF_MP    = 0x04;   // 마력 · 최대 마력 — 본인만(S2C_ACTOR_MP · USE_SKILL)
+    constexpr uint8_t ALL        = AROUND_HP | SELF_STATS | SELF_MP;
+}
+
+// 스탯이 바뀌었다 — CStatSync 가 구현한다(표시만 하고 보내기는 틱 끝 · StatSync.h). IBuffEvents 와 같은 꼴.
+//   바뀐 것이 있을 때만 온다(changed != 0). 사람·몬스터를 가리지 않고 알린다 — 누구에게 보낼지는 받는 쪽이 정한다.
+//   ★ 순수 가상이라 빠뜨리면 컴파일이 안 된다.
+class IStatEvents
+{
+public:
+    virtual ~IStatEvents() = default;
+    virtual void OnStatsChanged(CCharacter* character, uint8_t changed) = 0;
+};
+
 class CStatSystem
 {
 public:
     // 표는 게임 서버가 든 것을 참조한다 — 기동 때 LoadGameDataFiles 가 채운 뒤에만 부른다.
-    CStatSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor);
+    //   events(CStatSync)는 게임 서버에서 이보다 뒤에 선언된다 — 참조를 묶기만 하고 생성 중엔 안 부른다(IBuffEvents 와 같은 규칙).
+    CStatSystem(const CGameDataFiles& tables, CGameMonitor& gameMonitor, IStatEvents& events);
 
     // 스탯 함수 — 최대 체력·공격력·방어력·최대 마력을 이 한 곳에서 세운다(입장·레벨업·끼우기·빼기·효과 걸림·풀림 공통).
     //   바탕은 종류로 갈린다(switch — 둘) : 플레이어 = 레벨 표(전투가 켜지면 늘 읽는다 — 코드 상수 없음, 10-06) + 착용 장비, 마력은
@@ -46,6 +68,7 @@ public:
     //     USE_COMBAT 안인 이유 — 스탯을 읽는 곳이 전투뿐이고, 경험치·가방·장착이 전부 USE_COMBAT 을 요구한다.
     //   refill = 체력·마력을 가득 채우나(레벨업). false 면 둘 다 최대치를 넘은 몫만 깎는다. 몬스터는 false 로만 부른다.
     //     입장도 false 다 — 최대치만 세우고 저장된 체력·마력은 RestoreHpMp 가 넣는다.
+    //   세운 뒤 전후를 견줘 바뀐 몫을 알린다(IStatEvents) — 부르는 쪽은 보내기를 신경 쓰지 않는다.
     void RecalcStats(CCharacter* character, bool refill);
 
     // 입장 — DB 에서 불러온 체력·마력을 넣는다. ★ RecalcStats 뒤에 부를 것 — 최대치(레벨 표·장비)가 서 있어야 넘은 몫을 깎는다.
@@ -68,8 +91,12 @@ public:
 #endif
 
 private:
+    // 바탕 → 장비 → 효과 배수 → 체력·마력 맞추기(옛 RecalcStats 의 몸). 알림은 감싸는 RecalcStats 가 한다.
+    void BuildStats(CCharacter* character, bool refill);
+
     const CGameDataFiles& _tables;
     CGameMonitor&         _gameMonitor;
+    IStatEvents&          _events;
 };
 
 #endif // USE_COMBAT

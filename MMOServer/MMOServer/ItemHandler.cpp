@@ -5,6 +5,7 @@
 #include "SessionHub.h"
 #include "SelfNotifier.h"
 #include "SightBroadcaster.h"
+#include "StatSync.h"         // 물약이 채운 체력·마력 표시 · StatChange
 #include "CharacterStore.h"   // USE_DB_WORKER — 가방이 바뀐 틱 끝 저장 요청
 #include "ItemSystem.h"
 #include "MapManager.h"
@@ -17,7 +18,7 @@
 #include <Protocol/Protocol.h>
 #include <Common/ErrorLog.h>
 #include <cassert>
-#include "PacketBuild.h" // 머리 쓰기·닫기 · 체력 바뀜(MakeActorStats — 체력 물약의 주변 방송) — 게임 서버 나누기 0-②
+#include "PacketBuild.h" // 머리 쓰기·닫기 — 게임 서버 나누기 0-②
 
 using namespace PacketBuild;   // 아래 조립 함수들이 머리 쓰기·닫기를 이름만으로 부른다
 
@@ -213,21 +214,17 @@ void CItemHandler::RecvUseItem(CPlayer* player, CSerialBuffer* pMsg)
         return;
     }
 
-    // 칸 갱신(본인) → 채운 쪽 통보. 효과마다 받는 사람이 다르다(10-11) — 한 물약 한 효과라 둘 중 하나만 간다.
+    // 칸 갱신(본인) → 채운 쪽 표시. 효과마다 받는 사람이 다르다(10-11) — 한 물약 한 효과라 둘 중 하나만 간다.
     //   체력이면 본인 + 주변(남의 머리 위 막대도 차야 한다 — 레벨업 때 체력 방송과 같은 꼴),
-    //   마력이면 본인에게만(S2C_ACTOR_MP — 남의 마력은 화면에 안 그린다).
-    //   ★ 순서가 곧 와이어 순서다 — 칸 패킷이 통보보다 앞선다(시험이 이 순서로 "이 값이 물약 몫"을 가린다).
+    //   마력이면 본인에게만(S2C_ACTOR_MP — 남의 마력은 화면에 안 그린다). 보내기는 틱 끝 스탯 알림(CStatSync).
+    //   ★ 칸 패킷이 통보보다 앞선다(시험이 이 순서로 "이 값이 물약 몫"을 가린다) — 통보가 틱 끝이라 늘 뒤다.
     FlushInventory(player);
-    if (used->healHp > 0)
-    {
-        CZone* zone = _mapManager.GetZone(player->_zoneId);
-        if (zone != nullptr)
-            _sightBroadcaster.BroadcastAroundSector(zone, player, MakeActorStats(player->_actorId, player->_health.Hp(), player->_health.MaxHp()), false);
-    }
+    uint8_t healed = 0;
+    if (used->healHp > 0) healed |= StatChange::AROUND_HP;
 #if USE_SKILL
-    if (used->healMp > 0)
-        _selfNotifier.SendActorMp(player);
+    if (used->healMp > 0) healed |= StatChange::SELF_MP;
 #endif
+    _statSync.Mark(player, healed);
 }
 
 #if USE_EQUIP
@@ -257,10 +254,9 @@ void CItemHandler::ApplyEquip(CPlayer* player, uint16_t slot, bool unequip)
         return;
     }
 
-    // 칸 패킷 둘(DB 는 틱 끝 묶음 하나) → 본인에게 새 공격력(공격력은 CItemSystem::Equip 이 이미 다시 세웠다).
-    //   ★ 순서가 곧 와이어 순서다 — 칸 패킷이 MY_STATS 보다 앞선다(클라가 무기 칸을 먼저 알고 숫자를 채운다).
+    // 칸 패킷 둘(DB 는 틱 끝 묶음 하나). 새 공격력은 CItemSystem::Equip 이 다시 세울 때 표시가 남아 틱 끝 스탯 알림(CStatSync)이 보낸다
+    //   (공격력이 그대로면 안 보낸다). ★ 칸 패킷이 MY_STATS 보다 앞선다(클라가 무기 칸을 먼저 알고 숫자를 채운다) — MY_STATS 가 틱 끝이라 늘 뒤다.
     FlushInventory(player);
-    _selfNotifier.SendMyStats(player);
 
     // 겉모습 — 주변에(본인 빼고 — 본인은 위 칸 패킷으로 안다). 벗어서 맨몸이 돼도 보낸다(0 — 받는 쪽이 무기를 지운다 · Protocol.h 겉모습 절)
     //   남에게 처음 보일 때의 겉모습은 보이기 함수들이 등장 바로 뒤에 붙인다(SightBroadcaster.cpp 「보이기」) — 여기는 바뀔 때뿐

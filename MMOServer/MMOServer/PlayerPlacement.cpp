@@ -2,6 +2,7 @@
 #include "SessionHub.h"
 #include "SelfNotifier.h"
 #include "SightBroadcaster.h"
+#include "StatSync.h"         // USE_COMBAT — 도착 차례가 보낸 스탯 몫 지우기
 #include "CharacterStore.h"   // USE_DB_WORKER — 놓기 전 최종 저장
 #include "MapManager.h"
 #include "Zone.h"
@@ -106,7 +107,7 @@ void CPlayerPlacement::ReleasePlayer(CPlayer* player)
         _characterStore.SaveOnLeave(player);   // 떠난 기록으로 — 확정될 때까지 저장소가 들고 다시 싣는다
 #endif
 
-    // 「떠남」 — 틱 너머 목록(부활 대기열 · 지속 효과 · 파티)을 든 쪽이 뺀다(받는 쪽 몸·까닭 주석은 CGameServer::OnLeavingGame).
+    // 「떠남」 — 틱 너머 목록(부활 대기열 · 지속 효과 · 스탯 알림 · 파티)을 든 쪽이 뺀다(받는 쪽 몸·까닭 주석은 CGameServer::OnLeavingGame).
     //   최종 저장 뒤 · 칸 비우기 앞 — 옮기기 전 이 자리에 몸이 있을 때와 같은 차례(게임 서버 나누기 5 단계 · 0-③ ⑶).
     _events.OnLeavingGame(player);
 
@@ -251,6 +252,13 @@ void CPlayerPlacement::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind k
         _selfNotifier.SendMyStats(player);
 #endif
     }
+
+#if USE_COMBAT
+    // 3-3) 위에서 보낸 스탯 몫은 틱 끝 스탯 알림(CStatSync)에서 지운다 — 입장 때 스탯 세우기(RecalcStats)가 표시를 남겨 두 벌이 나가지 않게.
+    //   보낸 것만 지운다: 접속 = 셋 다(체력은 CREATE_MY 와 아래 주변 CREATE 가 싣는다) · 존 이동 = 마력만(MY_STATS 는 접속에만 보낸다 —
+    //   통째로 지우면 「장착하고 같은 틱에 포털」 때 새 공격력이 안 간다). 체력 몫은 존 이동이면 남겨 둔다 — 새 존 주변에 한 번 더 가도 같은 값이다.
+    _statSync.Clear(player, rule.firstEntry ? StatChange::ALL : StatChange::SELF_MP);
+#endif
 
     // 4) 주변 상호 CREATE — 본인 몫을 다 보낸 뒤
     _sightBroadcaster.BroadcastEnterZone(zone, player, rule.reason);

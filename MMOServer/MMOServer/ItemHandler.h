@@ -32,6 +32,7 @@ class CPacketRoutes;
 class CSessionHub;
 class CSelfNotifier;
 class CSightBroadcaster;
+class CStatSync;
 class CItemSystem;
 class CMapManager;
 class CGameMonitor;
@@ -49,13 +50,13 @@ class CItemHandler
 public:
     // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(보내기 셋(CSessionHub · CSelfNotifier · CSightBroadcaster) · 저장소 · 아이템 규칙 · 맵 관리자 · 게임 지표 · 기획 데이터 · 틱 번호)보다
     //   뒤에 이것을 선언해야 한다(멤버는 선언 순서로 세워진다). 생성 중엔 쓰지 않는다.
-    CItemHandler(CSessionHub& sessionHub, CSelfNotifier& selfNotifier, CSightBroadcaster& sightBroadcaster,
+    CItemHandler(CSessionHub& sessionHub, CSelfNotifier& selfNotifier, CSightBroadcaster& sightBroadcaster, CStatSync& statSync,
 #if USE_DB_WORKER
                  CCharacterStore& characterStore,
 #endif
                  CItemSystem& itemSystem, CMapManager& mapManager, CGameMonitor& gameMonitor,
                  const CGameDataFiles& gameDataFiles, const uint64_t& frameCount)
-        : _sessionHub(sessionHub), _selfNotifier(selfNotifier), _sightBroadcaster(sightBroadcaster)
+        : _sessionHub(sessionHub), _selfNotifier(selfNotifier), _sightBroadcaster(sightBroadcaster), _statSync(statSync)
 #if USE_DB_WORKER
         , _characterStore(characterStore)
 #endif
@@ -92,7 +93,7 @@ private:
 #if USE_EQUIP
     // ── 장착 (USE_EQUIP) ──
     // 끼우기(가방 칸 → 무기 칸, 차 있으면 맞바꿈) · 빼기(무기 칸 → 장비 탭 첫 빈 칸).
-    //   성공 = (CItemSystem: 칸 둘 맞바꾸기 → 대기시간 → RecalcStats) → FlushInventory(칸 패킷 둘 + 틱 끝 저장 요청) → S2C_MY_STATS.
+    //   성공 = (CItemSystem: 칸 둘 맞바꾸기 → 대기시간 → RecalcStats) → FlushInventory(칸 패킷 둘 + 틱 끝 저장 요청) → (틱 끝) S2C_MY_STATS — 공격력이 바뀌었을 때만(CStatSync).
     //   성공 알림은 따로 없다. 거절 = S2C_EQUIP_FAIL(요청 칸 번호, 사유) — 아무것도 안 바뀐다.
     void RecvEquip(CPlayer* player, CSerialBuffer* pMsg);
     void RecvUnequip(CPlayer* player, CSerialBuffer* pMsg);
@@ -116,8 +117,9 @@ private:
 #endif
 
     CSessionHub&          _sessionHub;         // 한 사람 패킷(칸 · 거절)
-    CSelfNotifier&        _selfNotifier;       // 마력 물약 · 장착 뒤 스탯
-    CSightBroadcaster&    _sightBroadcaster;   // 체력 물약 주변 방송 · 땅 아이템 보이기·지우기
+    CSelfNotifier&        _selfNotifier;       // 가진 돈(본인)
+    CSightBroadcaster&    _sightBroadcaster;   // 땅 아이템 보이기·지우기 · 장착 겉모습
+    CStatSync&            _statSync;           // 물약이 채운 체력·마력 표시(틱 끝에 한 번 — 장착 뒤 스탯은 RecalcStats 가 표시)
 #if USE_DB_WORKER
     CCharacterStore&      _characterStore;     // 가방이 바뀐 틱 끝 저장 요청
 #endif
