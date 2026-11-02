@@ -76,6 +76,12 @@ public:
     //   (CMonsterManager::RequestRevive — 깔기는 다음 틱). 이 층은 몬스터 관리자를 모른다([계층 경계]) — 그래서 알림이다.
     //   몬스터를 끈 빌드에선 받는 쪽이 아무것도 안 한다(되살리기 줄은 user=monster 라 몬스터가 없으면 아무도 안 쓴다).
     virtual void OnRevive(CZone* zone, CCharacter* caster, int32_t monsterId) = 0;
+
+    // 피해가 없는 효과가 이 대상에게 났다(회복 · 남에게 건 버프) → 대상 주변에 S2C_SKILL_EFFECT. 자기에게만 거는 버프는 안 온다.
+    virtual void OnSkillEffect(CZone* zone, CCharacter* caster, const SkillDef& def, CCharacter* target) = 0;
+
+    // 회복했다 → 틱 끝 스탯 알림(체력 — 본인 + 주변)
+    virtual void OnHealed(CCharacter* target) = 0;
 };
 
 class CSkillSystem

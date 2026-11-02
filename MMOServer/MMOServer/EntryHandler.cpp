@@ -323,7 +323,7 @@ CPlayer* CEntryHandler::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t 
     player->_displayChar = CalcDisplayChar(player->_actorId);
     player->_colorIndex = CalcColorIndex(player->_actorId);
     if (_playerSpeed > 0)
-        player->_speed = _playerSpeed;   // 게임용 속도 — 0 이면 생성자의 25~50 무작위(부하 시험 기준) 그대로
+        player->_baseSpeed = player->_speed = _playerSpeed;   // 게임용 속도 — 0 이면 생성자의 25~50 무작위(부하 시험 기준) 그대로
 #if USE_SKILL
     // 기술 목록 — 표에서 내 직업의 사람 기술(job 칸 · 아직 안 고른 사람은 공용 줄만 — 고르는 순간 CJobHandler 가 채운다).
     //   ★ 아래 쿨타임 되살리기(RestoreCooldownsAndBuffs)보다 앞이다 — 되살리기는 목록에 있는 기술에만 쿨타임을 건다.

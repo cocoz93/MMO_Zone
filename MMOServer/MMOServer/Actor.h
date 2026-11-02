@@ -99,6 +99,7 @@ public:
     Direction _direction;
     MoveState _moveState;
     int32_t _speed;
+    bool    _rooted = false;   // 묶임 — 스탯 세우기가 걸린 버프(root)로 세운다. 지금은 몬스터 이동 결정만 본다(CMonsterManager::Think)
 
     int32_t _zoneId;      // 소속 존 ID (-1: 미배정)
 

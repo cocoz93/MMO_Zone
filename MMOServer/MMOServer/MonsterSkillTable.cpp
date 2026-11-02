@@ -118,6 +118,8 @@ bool CMonsterSkillTable::Load(const std::string& path, const CMonsterTable& mons
             break;
         case SkillTarget::SELF:   // 대상을 안 찾는 스킬 — 「대상이 시야 안에 있을 때만 쓴다」 뜻이라 위 시야 상한만 본다
         case SkillTarget::AROUND: // 사람 스킬만이라 여기 오지 않는다 — 스킬 표 읽기가 user monster 를 막고, 위에서 몬스터 줄인지 봤다
+        case SkillTarget::AROUND_ALLY:   // 위와 같다
+        case SkillTarget::TARGET:        // 위와 같다
         case SkillTarget::COUNT:
             break;
         }

@@ -7,16 +7,19 @@
 #                shape = every monster standing on a cell listed in the area column - several can be hit, and two on one cell are both hit.
 #                self  = the caster (no target search, so never NO_TARGET) - what buffs use.
 #                around = every monster within the radius in the area column, any direction (player rows only).
+#                around_ally = the caster and every party member within the radius in the area column (alive, same zone). No party = the caster only. Player rows only.
 #                target = the one monster the player picked on screen, any direction (player rows only). The client sends its number; the server checks it
 #                         is alive, a monster, in this zone and within the range in the area column. Too far is refused as OUT_OF_RANGE, gone as NO_TARGET.
-#   effect     : damage = hit the targets (target front, shape, around or target). buff = apply buff number "power" from BuffTable.csv (target must be self).
+#   effect     : damage = hit the targets (target front, shape, around or target). buff = apply buff number "power" from BuffTable.csv (target must be self, target or around_ally).
 #                damage_attack = hit the targets with the CASTER's attack x power % (hp does not enter the formula - monsters use it; target front, shape, around or target).
+#                heal = give each target "power" % of that target's own max hp (target self or around_ally). A target at full hp still costs the caster.
 #                revive = bring back the dead monsters of kind "power" in the caster's zone - one per empty spawn spot of that kind, born at the
 #                         server tick after the cast (target self, user monster only). A monster casts it only while at least one is dead (MonsterSkill.csv).
 #   costHpPct  : % of the CURRENT hp paid on cast, rounded down, at least 1 when above 0. 0..99.
 #                Refused (LOW_HP) when it would leave hp below 1 - your own skill never kills you.
 #   power      : damage = % of the hp BEFORE the cost. damage needs power >= costHpPct (the hit is never smaller than the cost).
 #                buff = the buffId (BuffTable.csv - checked at startup). What it changes and for how long is on that row.
+#                heal = % of the target's max hp, 1..100.
 #                damage_attack = % of the caster's attack (100 = the same value as a normal attack), 1..1000. The target's defense is subtracted afterwards (at least 1).
 #                revive = the monsterId to bring back (MonsterTable.csv) - not a boss, and born in every map the caster is born in (checked at startup).
 #   cooldownMs : rounded UP to server ticks (40ms) - 480 = 12 ticks, the same as a normal attack.
@@ -27,6 +30,7 @@
 #                Measured from the caster's exact position, not snapped to tiles - cell k covers [k-0.5, k+0.5). Up to 16 cells, no repeats.
 #                target=around - the radius in tiles, 1..20 (the sector size - beyond it a monster off the caster's screen could be hit).
 #                Measured between the two bodies: centre distance - caster radius - target radius <= radius.
+#                target=around_ally - the radius in tiles, 1..20, measured like around.
 #                target=target - the range in tiles, 1..20, measured like around.
 #                Must be empty for target=front or self - the cell may be left out (8 cells), since a trailing empty cell is dropped anyway.
 #   Eogeomsul (Lv1, full hp 800): pay 400, hit 400 on every monster in its 4 cells - 1 ahead, then 3 across the row after (inverted triangle).

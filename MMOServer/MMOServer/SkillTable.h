@@ -119,8 +119,9 @@ enum class SkillTarget : uint8_t
 {
     FRONT,   // 앞의 한 명 — 일반 공격과 같은 사거리·정면 판정(CCombatSystem::FindFrontTarget), 단 사람이 쓰면 몬스터만·몬스터가 쓰면 사람만
     SHAPE,   // 칸 목록 — 표의 area 칸(시전자 기준 앞:옆)에 선 상대 전부(IsInShape). 한 칸에 여럿이면 다 맞는다. 상대 종류는 FRONT 와 같다
-    SELF,    // 자기 자신 — 후보를 안 찾는다(비는 일이 없어 NO_TARGET 이 안 난다). 지속 효과(버프)가 쓴다. 남에게 거는 버프는 대지의기원 때 늘린다
+    SELF,    // 자기 자신 — 후보를 안 찾는다(비는 일이 없어 NO_TARGET 이 안 난다). 지속 효과(버프)가 쓴다
     AROUND,  // 시전자 둘레 반경 안의 상대 전부(IsInAround) — 반경은 표의 area 칸. 방향을 안 본다. 상대 종류는 FRONT 와 같다. 사람 스킬만(표 읽기가 막는다)
+    AROUND_ALLY, // 시전자 자신 + 둘레 반경 안의 같은 파티원(살아 있는 사람) — 반경은 표의 area 칸. 파티가 없으면 자신만. 회복·버프가 쓴다. 사람 스킬만(표 읽기가 막는다)
     TARGET,  // 화면에서 고른 상대 하나(C2S_USE_SKILL 의 번호) — 사거리는 표의 area 칸, 재는 법은 AROUND 와 같다. 방향을 안 본다. 사람 스킬만(표 읽기가 막는다)
     COUNT
 };
@@ -129,9 +130,10 @@ enum class SkillTarget : uint8_t
 enum class SkillEffect : uint8_t
 {
     DAMAGE,            // 피해 — 공격값 = 시전 전 체력 × power%. 방어력은 맞힌 뒤 처리(CCombatSystem::ApplyHit)가 뺀다
-    BUFF,              // 지속 효과 — power 번 버프를 건다(CBuffSystem::Apply · 무엇을 얼마나 몇 초는 버프 표). 대상은 self 만(표 읽기가 막는다)
+    BUFF,              // 지속 효과 — power 번 버프를 건다(CBuffSystem::Apply · 무엇을 얼마나 몇 초는 버프 표). 대상은 self · target · around_ally 만(표 읽기가 막는다)
     DAMAGE_ATK,        // 피해 — 공격값 = 시전자 공격력(최종값) × power%. 방어력은 DAMAGE 와 같이 맞힌 뒤에 뺀다.
                        //   DAMAGE 는 시전자의 현재 체력이 식에 들어가(체력을 떼고 그 체력으로 치는 스킬) 체력이 줄수록 약해진다 — 몬스터(보스)가 쓰면 안 맞아서 따로 둔다(10-13)
+    HEAL,              // 회복 — 대상마다 그 대상의 최대 체력 × power%(내림 · 최소 1). 대상은 self · around_ally 만(표 읽기가 막는다). 쓰러진 사람은 후보에 안 든다
     REVIVE,            // 되살리기 — 시전자 존에서 죽은 power 번 몬스터를 빈 점 수만큼 되살린다(10-18 뱀왕). 대상은 self · 쓰는 쪽은 monster 만(표 읽기가 막는다).
                        //   직접 깔지 않고 알림(ISkillEvents::OnRevive)으로 넘긴다 — 시전은 몬스터 판단 순회 안이라 그 자리에서 깔면 순회가 깨진다(MonsterManager.h RequestRevive)
     COUNT
@@ -172,13 +174,13 @@ struct SkillDef
     int32_t     job            = 0;   // 어느 직업의 기술인가 — 표의 11번째 칸(0 = 빈 칸 = 모든 직업, 고르기 전 포함)
     int32_t     costHpPct      = 0;   // 시전 때 떼는 현재 체력의 % (0 = 소모 없음)
     int32_t     costMp         = 0;   // 시전 때 떼는 마력 — 고정값(0 = 소모 없음). 모자라면 LOW_MP
-    int32_t     power          = 0;   // DAMAGE = 시전 전 체력의 % · DAMAGE_ATK = 시전자 공격력의 % · BUFF = 버프 번호(버프 표 — 표 읽기가 대조한다)
+    int32_t     power          = 0;   // DAMAGE = 시전 전 체력의 % · DAMAGE_ATK = 시전자 공격력의 % · BUFF = 버프 번호(버프 표 — 표 읽기가 대조한다) · HEAL = 대상 최대 체력의 %
                                       //   REVIVE = 되살릴 몬스터 번호(몬스터 표 — 있는지·보스 아닌지는 몬스터 스킬 표 읽기가 본다. 이 표는 몬스터 표를 모른다)
     int32_t     cooldownMs     = 0;   // 파일에 적힌 값 그대로 — 로그용
     uint64_t    cooldownFrames = 0;   // 쿨타임(틱) — ms 를 올림해서 담는다(짧아지지 않게)
     std::vector<ShapeCell> shape;     // SHAPE 의 칸 목록(다른 대상 종류는 빈 목록)
     float       shapeReach     = 0.0f;   // ShapeReach(shape) — 대상 찾기가 훑을 반경(몸 크기는 ShapeScanRadius 가 더한다). 표 읽기가 한 번 센다
-    int32_t     aroundRadius   = 0;      // AROUND 의 반경 · TARGET 의 사거리(칸) — 1~MAX_AROUND_RADIUS. 다른 대상 종류는 0
+    int32_t     aroundRadius   = 0;      // AROUND · AROUND_ALLY 의 반경 · TARGET 의 사거리(칸) — 1~MAX_AROUND_RADIUS. 다른 대상 종류는 0
 };
 
 class CSkillTable

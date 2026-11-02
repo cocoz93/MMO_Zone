@@ -106,6 +106,8 @@ private:
     //   사라지는 두 길(놓기의 「떠남」 알림 — 게임 서버의 OnLeavingGame → Forget · OnDeath → ClearAll)이 목록에서 뺀다(BuffSystem.h [목록은 틱 너머로 주소를 든다]).
     // 효과 알림 (IBuffEvents) — 스탯은 이미 다시 선 뒤다. 사람이면 S2C_ACTOR_BUFF(본인) — 바뀐 스탯은 틱 끝 CStatSync 가 뒤따라 보낸다. 몬스터면 보낼 세션이 없다.
     void OnBuffChanged(CCharacter* target, int32_t buffId) override;
+    void OnSpeedChanged(CCharacter* target) override;
+    void OnRooted(CCharacter* target) override;
 
 #if USE_SKILL
     // ── 스킬 (USE_SKILL) ──
@@ -118,6 +120,8 @@ private:
 
     // 되살려라 (ISkillEvents) — 존의 몬스터 관리자에 요청만 넘긴다(RequestRevive — 깔기는 다음 틱 리젠 · 등장 알림은 OnMonsterSpawn 그대로).
     void OnRevive(CZone* zone, CCharacter* caster, int32_t monsterId) override;
+    void OnSkillEffect(CZone* zone, CCharacter* caster, const SkillDef& def, CCharacter* target) override;
+    void OnHealed(CCharacter* target) override;
 #endif
 
     CSessionHub&       _sessionHub;         // 스킬 거절(한 사람에게)

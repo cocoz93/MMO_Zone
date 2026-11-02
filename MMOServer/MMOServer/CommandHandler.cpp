@@ -59,20 +59,6 @@ namespace
             out.push_back(cur);
     }
 
-#if USE_COMBAT
-    // 속도 — 본인 + 주변(BroadcastAroundSector, excludeSelf=false — Protocol.h MSG_S2C_ACTOR_SPEED).
-    //   부르는 곳이 /gm 하나라 명령 구역에 둔다(/gm 과 같은 토글 — 안 쓰는 파일 안 함수로 경고가 나지 않게). 속도를 바꾸는 둘째 길(효과 등)이 생기면 위의 Make 묶음으로 옮긴다.
-    CSerialBuffer* MakeActorSpeed(int32_t actorId, int32_t speed)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_ACTOR_SPEED::TYPE);
-        *buf << static_cast<int>(actorId);
-        *buf << static_cast<int>(speed);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_ACTOR_SPEED));
-        return buf;
-    }
-#endif
 }
 
 void CCommandHandler::Handle(CPlayer* player, const ChatChar* msg, uint16_t len)
@@ -158,15 +144,7 @@ void CCommandHandler::RunGmCommand(CPlayer* player, const std::vector<std::strin
     }
 
     player->_gmMode = !player->_gmMode;
-    if (player->_gmMode)
-    {
-        player->_speedBeforeGm = player->_speed;
-        player->_speed         = CPlayer::GM_SPEED;
-    }
-    else
-    {
-        player->_speed = player->_speedBeforeGm;
-    }
+    // 속도도 아래 스탯 세우기가 세운다(GM 이면 GM_SPEED · 아니면 바탕 속도 — 속도 버프는 그 위에)
     // 켤 때만 가득 채운다. 바뀐 체력·공격력·마력은 여기서 표시가 남아 틱 끝 스탯 알림(CStatSync)이 보낸다 — 끌 때 안 바뀐 마력은 안 간다
     _statSystem.RecalcStats(player, player->_gmMode);
     counters._gmToggled[player->_gmMode ? 1 : 0].Inc();

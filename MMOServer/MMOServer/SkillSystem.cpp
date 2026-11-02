@@ -183,6 +183,20 @@ SkillReject CSkillSystem::SelectTargets(CZone* zone, CCharacter* caster, const S
         break;
     }
 
+    case SkillTarget::AROUND_ALLY:
+    {
+        // 자신 + 둘레 파티원 — 자신은 늘 들어 NO_TARGET 이 안 난다. 몸 반지름은 사람이라 0 이지만 재는 식은 AROUND 와 같다
+        _combat.CollectAllies(zone, caster->_x, caster->_y, static_cast<float>(def.aroundRadius) + caster->_bodyRadius, caster, _targets);
+        const float casterX = caster->_x;
+        const float casterY = caster->_y;
+        const float casterRadius = caster->_bodyRadius;
+        _targets.erase(std::remove_if(_targets.begin(), _targets.end(), [&](const CCharacter* t)
+        {
+            return !IsInAround(t->_x - casterX, t->_y - casterY, def.aroundRadius, casterRadius, t->_bodyRadius);
+        }), _targets.end());
+        break;
+    }
+
     case SkillTarget::TARGET:
     {
         // 화면에서 고른 대상 하나 — 번호는 클라가 보냈으니 믿지 않는다. 후보 목록(살아 있고 맞을 수 있는 상대)에 그 번호가 있어야 한다.
@@ -236,11 +250,31 @@ void CSkillSystem::ApplyEffect(CZone* zone, CCharacter* caster, const SkillDef& 
 
     case SkillEffect::BUFF:
     {
-        // 대상(지금은 self 뿐 — 표 읽기가 막는다)마다 power 번 버프를 걸거나 되감는다(같은 번호는 시간만 다시 — 값·지속은 버프 표 몫).
+        // 대상(self · target · around_ally — 표 읽기가 막는다)마다 power 번 버프를 걸거나 되감는다(같은 번호는 시간만 다시 — 값·지속은 버프 표 몫).
         //   스탯 다시 세우기와 알림(ACTOR_BUFF → MY_STATS)은 CBuffSystem 이 한다. 와이어 = SKILL_CAST → ACTOR_MP → ACTOR_BUFF → MY_STATS.
         //   _hits 는 안 센다 — 「맞힌 수」는 피해 스킬 것이다. 걸린 수는 mmo_buff_applied_total·refreshed 가 센다.
         for (CCharacter* target : _targets)
+        {
             _buff.Apply(target, def.power, frame);
+            if (def.target != SkillTarget::SELF)   // 자기에게만 거는 것은 시전이 곧 대상이다 — 와이어를 안 늘린다
+                _events.OnSkillEffect(zone, caster, def, target);
+        }
+        break;
+    }
+
+    case SkillEffect::HEAL:
+    {
+        // 대상 자신의 최대 체력 기준 — 시전자 체력이 아니다. 후보는 살아 있는 사람뿐이다(CollectAllies · 시전자는 1) 의 DEAD 검사)
+        //   이미 가득이어도 비용은 든다(거절하면 파티원 하나만 다친 때 못 쓰는 기술이 된다)
+        for (CCharacter* target : _targets)
+        {
+            assert(target->Health() != nullptr && "회복 대상은 사람이다");
+            CHealthComponent& h = *target->Health();
+            const int64_t amount = static_cast<int64_t>(h.MaxHp()) * def.power / 100;
+            h.Heal(amount < 1 ? 1 : static_cast<int32_t>(amount));
+            _events.OnHealed(target);
+            _events.OnSkillEffect(zone, caster, def, target);
+        }
         break;
     }
 

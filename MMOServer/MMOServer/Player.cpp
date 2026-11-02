@@ -17,6 +17,7 @@ CPlayer::CPlayer()
     static thread_local std::mt19937 rng(std::random_device{}());
     std::uniform_int_distribution<int> dist(5, 10);
     _speed = dist(rng) * 5;
+    _baseSpeed = _speed;
 }
 
 CPlayer::~CPlayer()

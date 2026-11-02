@@ -7,7 +7,9 @@
 #                Saved with the character row (characters.buffs): on logout and shutdown always, otherwise only when the row is written for another
 #                reason - a buff change alone does not trigger a save, so a server crash may lose it. The clock keeps running while offline.
 #   mods       : what it changes, "stat:how:value" joined by ';', up to 4, no repeated stat+how.
-#                stat = attack | defense | max_hp | max_mp. max_hp and max_mp raise the maximum only - the current value is not filled up.
+#                stat = attack | defense | max_hp | max_mp | move_speed | root. max_hp and max_mp raise the maximum only - the current value is not filled up.
+#                move_speed = walking speed (never below 1). Everyone nearby sees the change.
+#                root = cannot walk while it lasts. Only root:add:1 is allowed. It stops monsters only for now - a monster still bites what stands next to it.
 #                how  = add (a non-zero integer, -1000000..1000000) | pct (1..1000, 30 = +30%, rounded down) | mul (2..10).
 #                Order is fixed: level table + gear -> sum of add -> sum of pct -> product of mul. Changing gear keeps the buff.
 #   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.

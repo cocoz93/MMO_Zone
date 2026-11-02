@@ -16,7 +16,7 @@ using GameDataCsv::ParseInt;
 namespace
 {
     // 파일 글자 — BuffStat · BuffModKind 순서 그대로. 줄 수가 모자라면 아래 단언이 컴파일을 막는다.
-    constexpr const char* STAT_NAMES[]     = { "attack", "defense", "max_hp", "max_mp" };
+    constexpr const char* STAT_NAMES[]     = { "attack", "defense", "max_hp", "max_mp", "move_speed", "root" };
     constexpr const char* MOD_KIND_NAMES[] = { "add", "pct", "mul" };
     static_assert(sizeof(STAT_NAMES) / sizeof(STAT_NAMES[0]) == static_cast<size_t>(BuffStat::COUNT),
                   "STAT_NAMES 는 BuffStat 마다 한 줄이어야 한다");
@@ -70,13 +70,19 @@ namespace
             const BuffStat stat = ParseName<BuffStat>(item.substr(0, colon1), STAT_NAMES);
             if (stat == BuffStat::COUNT)
             {
-                why = "항목 \"" + item + "\" — 모르는 스탯입니다(attack · defense · max_hp · max_mp)";
+                why = "항목 \"" + item + "\" — 모르는 스탯입니다(attack · defense · max_hp · max_mp · move_speed · root)";
                 return false;
             }
             const BuffModKind kind = ParseName<BuffModKind>(item.substr(colon1 + 1, colon2 - colon1 - 1), MOD_KIND_NAMES);
             if (kind == BuffModKind::COUNT)
             {
                 why = "항목 \"" + item + "\" — 모르는 방식입니다(add · pct · mul)";
+                return false;
+            }
+            // 묶임은 켜고 끄는 값이라 root:add:1 하나뿐이다 — 다른 꼴은 뜻이 없다
+            if (stat == BuffStat::ROOT && (kind != BuffModKind::ADD || value != 1))
+            {
+                why = "항목 \"" + item + "\" — root 는 root:add:1 만 됩니다";
                 return false;
             }
             if (!IsModValueInRange(kind, value))

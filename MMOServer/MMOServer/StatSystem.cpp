@@ -114,6 +114,7 @@ void CStatSystem::RecalcStats(CCharacter* character, bool refill)
 void CStatSystem::BuildStats(CCharacter* character, bool refill)
 {
     // ── 1) 바탕 — 종류마다 표가 다르다. 경우가 둘이라 switch 다(하나가 나머지를 삼키지 않게) ──
+    int32_t baseSpeed = character->_speed;   // 속도 바탕 — 사람·몬스터만 세운다(아래). 버프가 없으면 이 값이 그대로 지금 속도다
     switch (character->_kind)
     {
     case CharacterKind::PLAYER:
@@ -122,6 +123,7 @@ void CStatSystem::BuildStats(CCharacter* character, bool refill)
         const CLevelTable& table = _tables.Level();
         CHealthComponent& health = player->_health;
         CAttackComponent& attack = player->_attack;
+        baseSpeed = player->_gmMode ? CPlayer::GM_SPEED : player->_baseSpeed;
         health.SetMaxHp(table.MaxHp(player->_job, player->_level));
         attack._attackPower = table.AttackPower(player->_job, player->_level);
         health.SetDefense(table.Defense(player->_job, player->_level));
@@ -161,6 +163,7 @@ void CStatSystem::BuildStats(CCharacter* character, bool refill)
         monster->_health.SetMaxHp(def.maxHp);
         monster->_attack._attackPower = def.attack;
         monster->_health.SetDefense(def.defense);
+        baseSpeed = def.speed;
 #else
         assert(false && "몬스터를 끈 빌드에 몬스터가 있을 수 없다");
 #endif
@@ -182,9 +185,11 @@ void CStatSystem::BuildStats(CCharacter* character, bool refill)
     // ── 2) 지속 효과 — 바탕 + 장비 "뒤". 걸린 버프 목록은 CBuffSystem 만 넣고 뺀다(CharacterComponents.h CBuffComponent) ──
     //   걸린 것이 없으면 아무것도 안 건드린다(보통).
     assert(character->Buffs() != nullptr && "효과 컴포넌트 없는 것의 스탯을 세움");
+    character->_speed  = baseSpeed;
+    character->_rooted = false;
     if (character->Buffs()->AnyActive())
     {
-        static_assert(static_cast<int>(BuffStat::COUNT) == 4, "BuffStat 을 늘렸으면 아래에 그 스탯의 줄을 넣을 것");
+        static_assert(static_cast<int>(BuffStat::COUNT) == 6, "BuffStat 을 늘렸으면 아래에 그 스탯의 줄을 넣을 것");
         StatMods mods[static_cast<int>(BuffStat::COUNT)];
         for (const ActiveBuff& active : character->Buffs()->_activeBuffs)
         {
@@ -198,6 +203,8 @@ void CStatSystem::BuildStats(CCharacter* character, bool refill)
 #if USE_SKILL
         attack.SetMaxMp(ApplyMods(attack.MaxMp(), mods[static_cast<int>(BuffStat::MAX_MP)], 0));
 #endif
+        character->_speed  = ApplyMods(baseSpeed, mods[static_cast<int>(BuffStat::MOVE_SPEED)], 1);   // 0 이면 걷는 상태로 멈춰 보인다 — 멈추는 일은 묶임이 맡는다
+        character->_rooted = mods[static_cast<int>(BuffStat::ROOT)].add > 0;
     }
 
     // ── 3) 체력·마력 맞추기 ──

@@ -311,6 +311,45 @@ void CCombatHandler::OnBuffChanged(CCharacter* target, int32_t buffId)
         _selfNotifier.SendActorBuff(player, buffId);
 }
 
+// 속도 버프 걸림·풀림 — 본인 + 주변. 안 보내면 옛 속도로 그리다 서버 좌표에 끌려간다(웹 advance)
+void CCombatHandler::OnSpeedChanged(CCharacter* target)
+{
+    if (CZone* zone = _mapManager.GetZone(target->_zoneId))
+        _sightBroadcaster.BroadcastAroundSector(zone, target, MakeActorSpeed(target->_actorId, target->_speed), false);
+}
+
+// 묶였다 — 걷던 몬스터를 그 자리에 세운다. 사람은 묶임이 아직 아무 일도 안 한다(BuffTable.h ROOT)
+void CCombatHandler::OnRooted(CCharacter* target)
+{
+    if (target->_kind != CharacterKind::MONSTER || target->_moveState != MoveState::MOVING)
+        return;
+    target->_moveState = MoveState::IDLE;
+    if (CZone* zone = _mapManager.GetZone(target->_zoneId))
+        _sightBroadcaster.NotifyMoveStop(zone, target, false);
+}
+
+#if USE_SKILL
+// 피해가 없는 효과의 대상 — 대상 주변(본인 포함)에 한 장. 웹이 대상 쪽 그림을 띄운다(Protocol.h MSG_S2C_SKILL_EFFECT)
+void CCombatHandler::OnSkillEffect(CZone* zone, CCharacter* caster, const SkillDef& def, CCharacter* target)
+{
+    CSerialBuffer* buf = CSerialBuffer::Alloc();
+    BeginPacket(buf, MSG_S2C_SKILL_EFFECT::TYPE);
+    *buf << static_cast<int>(caster->_actorId);
+    *buf << static_cast<int>(target->_actorId);
+    *buf << static_cast<uint16_t>(def.skillId);
+    FinalizePacket(buf);
+    assert(buf->GetDataSize() == sizeof(MSG_S2C_SKILL_EFFECT));
+    _sightBroadcaster.BroadcastAroundSector(zone, target, buf, false);
+}
+
+// 회복 — 체력 표시만(보내기는 틱 끝 CStatSync, 본인 + 주변). 대상은 사람뿐이다(표 읽기가 막는다)
+void CCombatHandler::OnHealed(CCharacter* target)
+{
+    if (CPlayer* player = As<CPlayer>(target))
+        _statSync.Mark(player, StatChange::AROUND_HP);
+}
+#endif // USE_SKILL
+
 // 부활 대기자 훑기 — 틱마다 1회. 죽은 것만 따로 들고 있어 존 전체를 돌지 않는다.
 void CCombatHandler::TickRespawn()
 {

@@ -17,6 +17,8 @@ enum class BuffStat : uint8_t
     DEFENSE,   // 방어력
     MAX_HP,    // 최대 체력 — 지금 체력은 안 올린다(넘은 몫만 깎는다)
     MAX_MP,    // 최대 마력 — 지금 마력은 안 올린다(넘은 몫만 깎는다)
+    MOVE_SPEED,// 이동 속도 — 바뀌면 주변에 ACTOR_SPEED(CBuffSystem → IBuffEvents::OnSpeedChanged). 최소 1
+    ROOT,      // 묶임 — add 1 만 쓴다. 걸린 동안 안 움직인다. 지금은 몬스터만 막는다(이동 결정 CMonsterManager::Think) — 사람에게 걸면 아무 일도 안 난다
     COUNT
 };
 

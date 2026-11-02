@@ -214,6 +214,23 @@ CCharacter* CCombatSystem::FindFrontTarget(CZone* zone, CCharacter* attacker, Ca
 
 // 반경 안의 후보를 다 모은다 — 범위 스킬(CSkillSystem::SelectTargets 의 SHAPE)이 쓴다. 어느 칸이 맞나는 부른 쪽이 거른다.
 //   FindFrontTarget 과 같은 훑기(ForEachCandidate)라 후보 목록 고르기가 일반 공격·스킬에서 갈리지 않는다.
+void CCombatSystem::CollectAllies(CZone* zone, float x, float y, float range, CCharacter* caster, std::vector<CCharacter*>& out) const
+{
+    out.push_back(caster);
+#if USE_PARTY
+    const int32_t myParty = PartyIdOf(caster);
+    if (myParty == 0)
+        return;
+    ForEachCandidate(zone->GetSectorManager(), x, y, range, CandidateList::PLAYERS, [&](CCharacter* candidate)
+    {
+        if (candidate != caster && PartyIdOf(candidate) == myParty && !HealthOf(candidate).IsDead())
+            out.push_back(candidate);
+    });
+#else
+    (void)zone; (void)x; (void)y; (void)range;
+#endif
+}
+
 void CCombatSystem::CollectCandidates(CZone* zone, float x, float y, float range, CandidateList which, const CCharacter* exclude,
                                       std::vector<CCharacter*>& out) const
 {

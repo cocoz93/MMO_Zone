@@ -19,8 +19,8 @@ using GameDataCsv::ParseInt;
 namespace
 {
     // 파일 글자 — SkillTarget · SkillEffect 순서 그대로. 줄 수가 모자라면 아래 단언이 컴파일을 막는다.
-    constexpr const char* TARGET_NAMES[] = { "front", "shape", "self", "around", "target" };
-    constexpr const char* EFFECT_NAMES[] = { "damage", "buff", "damage_attack", "revive" };
+    constexpr const char* TARGET_NAMES[] = { "front", "shape", "self", "around", "around_ally", "target" };
+    constexpr const char* EFFECT_NAMES[] = { "damage", "buff", "damage_attack", "heal", "revive" };
     constexpr const char* USER_NAMES[]   = { "player", "monster" };
     static_assert(sizeof(TARGET_NAMES) / sizeof(TARGET_NAMES[0]) == static_cast<size_t>(SkillTarget::COUNT),
                   "TARGET_NAMES 는 SkillTarget 마다 한 줄이어야 한다");
@@ -160,13 +160,13 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
         const SkillTarget target = ParseName<SkillTarget>(cell[2], TARGET_NAMES);
         if (target == SkillTarget::COUNT)
         {
-            SLOG_ERROR("[SkillTable] {}줄: 모르는 target \"{}\" — front · shape · self · around · target 중 하나여야 합니다 (스킬 {})", dl.fileLine, cell[2], skillId);
+            SLOG_ERROR("[SkillTable] {}줄: 모르는 target \"{}\" — front · shape · self · around · around_ally · target 중 하나여야 합니다 (스킬 {})", dl.fileLine, cell[2], skillId);
             return false;
         }
         const SkillEffect effect = ParseName<SkillEffect>(cell[3], EFFECT_NAMES);
         if (effect == SkillEffect::COUNT)
         {
-            SLOG_ERROR("[SkillTable] {}줄: 모르는 effect \"{}\" — damage · buff · damage_attack · revive 중 하나여야 합니다 (스킬 {})", dl.fileLine, cell[3], skillId);
+            SLOG_ERROR("[SkillTable] {}줄: 모르는 effect \"{}\" — damage · buff · damage_attack · heal · revive 중 하나여야 합니다 (스킬 {})", dl.fileLine, cell[3], skillId);
             return false;
         }
 
@@ -216,10 +216,10 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
                            dl.fileLine, power, MAX_POWER, costHpPct, skillId);
                 return false;
             }
-            // 자기를 때리는 스킬은 없다 — 「자기 스킬로는 안 죽는다」(LOW_HP) 규칙의 연장
-            if (target == SkillTarget::SELF)
+            // 자기·아군을 때리는 스킬은 없다 — 「자기 스킬로는 안 죽는다」(LOW_HP) 규칙의 연장
+            if (target == SkillTarget::SELF || target == SkillTarget::AROUND_ALLY)
             {
-                SLOG_ERROR("[SkillTable] {}줄: damage 는 target self 와 짝지을 수 없습니다 (스킬 {})", dl.fileLine, skillId);
+                SLOG_ERROR("[SkillTable] {}줄: damage 는 target {} 와 짝지을 수 없습니다 (스킬 {})", dl.fileLine, cell[2], skillId);
                 return false;
             }
             break;
@@ -232,23 +232,37 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
                 SLOG_ERROR("[SkillTable] {}줄: damage_attack 의 power {} 는 1~{} 여야 합니다 (스킬 {})", dl.fileLine, power, MAX_POWER, skillId);
                 return false;
             }
-            if (target == SkillTarget::SELF)
+            if (target == SkillTarget::SELF || target == SkillTarget::AROUND_ALLY)
             {
-                SLOG_ERROR("[SkillTable] {}줄: damage_attack 은 target self 와 짝지을 수 없습니다 (스킬 {})", dl.fileLine, skillId);
+                SLOG_ERROR("[SkillTable] {}줄: damage_attack 은 target {} 와 짝지을 수 없습니다 (스킬 {})", dl.fileLine, cell[2], skillId);
                 return false;
             }
             break;
 
         case SkillEffect::BUFF:
-            // 위력 = 버프 번호 — 버프 표에 있어야 한다(지속·값은 그 줄 몫) · 대상은 자기 자신만
+            // 위력 = 버프 번호 — 버프 표에 있어야 한다(지속·값은 그 줄 몫) · 대상은 자기 · 고른 상대 · 자기와 파티원
             if (power < 1 || power > MAX_BUFF_ID || buffs.Find(static_cast<int32_t>(power)) == nullptr)
             {
                 SLOG_ERROR("[SkillTable] {}줄: buff 의 power(버프 번호) {} 가 버프 표(BuffTable.csv)에 없습니다 (스킬 {})", dl.fileLine, power, skillId);
                 return false;
             }
-            if (target != SkillTarget::SELF)
+            if (target != SkillTarget::SELF && target != SkillTarget::TARGET && target != SkillTarget::AROUND_ALLY)
             {
-                SLOG_ERROR("[SkillTable] {}줄: buff 는 target self 여야 합니다 — \"{}\" (스킬 {})", dl.fileLine, cell[2], skillId);
+                SLOG_ERROR("[SkillTable] {}줄: buff 는 target self · target · around_ally 여야 합니다 — \"{}\" (스킬 {})", dl.fileLine, cell[2], skillId);
+                return false;
+            }
+            break;
+
+        case SkillEffect::HEAL:
+            // 위력 = 대상 최대 체력의 % — 1~100. 대상은 자기 · 자기와 파티원(몬스터를 고쳐 주는 기술은 없다)
+            if (power < 1 || power > 100)
+            {
+                SLOG_ERROR("[SkillTable] {}줄: heal 의 power {} 는 1~100 이어야 합니다 (스킬 {})", dl.fileLine, power, skillId);
+                return false;
+            }
+            if (target != SkillTarget::SELF && target != SkillTarget::AROUND_ALLY)
+            {
+                SLOG_ERROR("[SkillTable] {}줄: heal 은 target self · around_ally 여야 합니다 — \"{}\" (스킬 {})", dl.fileLine, cell[2], skillId);
                 return false;
             }
             break;
@@ -320,8 +334,9 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
         }
 
         case SkillTarget::AROUND:
+        case SkillTarget::AROUND_ALLY:
         case SkillTarget::TARGET:
-            // 반경(around) · 사거리(target) — 같은 칸 · 같은 상한. 상한 뜻은 MAX_AROUND_RADIUS
+            // 반경(around · around_ally) · 사거리(target) — 같은 칸 · 같은 상한. 상한 뜻은 MAX_AROUND_RADIUS
             if (!ParseInt(areaText, aroundRadius) || aroundRadius < 1 || aroundRadius > MAX_AROUND_RADIUS)
             {
                 SLOG_ERROR("[SkillTable] {}줄: target {} 의 area 칸은 반경·사거리 1~{} 이어야 합니다 — \"{}\" (스킬 {})", dl.fileLine, cell[2], MAX_AROUND_RADIUS, areaText, skillId);

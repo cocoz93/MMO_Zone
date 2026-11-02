@@ -140,6 +140,18 @@ namespace PacketBuild
         return buf;
     }
 
+    // 속도 바뀜 — 본인 + 주변(BroadcastAroundSector, excludeSelf=false — Protocol.h MSG_S2C_ACTOR_SPEED). 운영 명령 /gm · 속도 버프
+    inline CSerialBuffer* MakeActorSpeed(int32_t actorId, int32_t speed)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_ACTOR_SPEED::TYPE);
+        *buf << static_cast<int>(actorId);
+        *buf << static_cast<int>(speed);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_ACTOR_SPEED));
+        return buf;
+    }
+
     // 체력 바뀜 — 전투 · 처치 보상 · 가방(물약) · 운영 명령이 주변에 방송한다
     inline CSerialBuffer* MakeActorStats(int32_t actorId, int32_t hp, int32_t maxHp)
     {

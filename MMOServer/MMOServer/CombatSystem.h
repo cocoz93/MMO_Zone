@@ -80,6 +80,9 @@ public:
     //   (x, y) 둘레 range 가 걸치는 섹터의, which 가 고른 목록에서 살아 있는 것만. exclude(시전자 본인)와 그 파티원(USE_PARTY)은 뺀다.
     //   out 은 비우지 않고 뒤에 붙인다. 한 캐릭터는 한 섹터 목록에만 있어 같은 후보가 두 번 들지 않는다.
     //   ★ 모으기만 한다 — 맞히기(ApplyHit)는 다 모은 뒤에(죽은 몬스터가 섹터 목록에서 빠진다).
+    // 시전자 + 반경 안의 같은 파티원(살아 있는 사람) — 파티가 없으면 시전자만. 반경 재기는 부르는 쪽 몫(CollectCandidates 와 같다)
+    void CollectAllies(CZone* zone, float x, float y, float range, CCharacter* caster, std::vector<CCharacter*>& out) const;
+
     void CollectCandidates(CZone* zone, float x, float y, float range, CandidateList which, const CCharacter* exclude,
                            std::vector<CCharacter*>& out) const;
 

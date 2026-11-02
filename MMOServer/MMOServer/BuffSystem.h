@@ -47,6 +47,10 @@ class IBuffEvents
 public:
     virtual ~IBuffEvents() = default;
     virtual void OnBuffChanged(CCharacter* target, int32_t buffId) = 0;
+    // 버프로 지금 속도가 바뀌었다 → 주변에 S2C_ACTOR_SPEED
+    virtual void OnSpeedChanged(CCharacter* target) = 0;
+    // 방금 묶였다 → 걷던 중이면 그 자리에 세운다(다음 이동 결정까지 기다리면 0.4초를 더 걷는다)
+    virtual void OnRooted(CCharacter* target) = 0;
 };
 
 class CBuffSystem
@@ -84,6 +88,8 @@ public:
 
 private:
     void RemoveFromList(CCharacter* c);
+    // 스탯을 다시 세우고 속도·묶임이 바뀌었으면 알린다 — 버프가 바뀌는 세 자리(걸기 · 만료 · 죽음)가 같이 쓴다. 알림 전에 부른다(스탯 먼저)
+    void RecalcAndNotifyMotion(CCharacter* target);
     // 걸린 버프를 전부 비우고 「끝남(LEAVE)」으로 센다 — Forget · ForgetZone 이 같이 쓴다(끝나는 자리를 한 곳에서 세야 등식이 안 어긋난다)
     void EndAllAsLeave(CCharacter* c);
 

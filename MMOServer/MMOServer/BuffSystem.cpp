@@ -64,8 +64,19 @@ void CBuffSystem::Apply(CCharacter* target, int32_t buffId, uint64_t frame)
         buffs._activeBuffs.push_back(ActiveBuff{ buffId, expireFrame });
     }
 
-    _statSystem.RecalcStats(target, false);   // 바탕 + 장비 뒤에 수정 항목 — 체력·마력은 최대치만 맞춘다
+    RecalcAndNotifyMotion(target);   // 바탕 + 장비 뒤에 수정 항목 — 체력·마력은 최대치만 맞춘다
     _events.OnBuffChanged(target, buffId);
+}
+
+void CBuffSystem::RecalcAndNotifyMotion(CCharacter* target)
+{
+    const int32_t speedBefore  = target->_speed;
+    const bool    rootedBefore = target->_rooted;
+    _statSystem.RecalcStats(target, false);
+    if (target->_speed != speedBefore)
+        _events.OnSpeedChanged(target);
+    if (target->_rooted && !rootedBefore)
+        _events.OnRooted(target);
 }
 
 void CBuffSystem::Tick(uint64_t frame)
@@ -104,7 +115,7 @@ void CBuffSystem::Tick(uint64_t frame)
         }
 
         // 스탯을 먼저 다시 세운 뒤 알린다 — 받는 쪽이 보내는 S2C_MY_STATS 가 풀린 값이어야 한다
-        _statSystem.RecalcStats(c, false);
+        RecalcAndNotifyMotion(c);
         for (int k = 0; k < nExpired; ++k)
             _events.OnBuffChanged(c, expired[k]);
 
@@ -140,7 +151,7 @@ void CBuffSystem::ClearAll(CCharacter* target)
     if (nCleared == 0)
         return;
 
-    _statSystem.RecalcStats(target, false);
+    RecalcAndNotifyMotion(target);
     for (int k = 0; k < nCleared; ++k)
         _events.OnBuffChanged(target, cleared[k]);
 }

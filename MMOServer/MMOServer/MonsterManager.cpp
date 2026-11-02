@@ -124,10 +124,13 @@ void CMonsterManager::Think(const MonsterContext& ctx, CMonster* monster, uint64
         if (rules[i].reviveMonsterId != 0)
             vacancy[i] = CountVacant(rules[i].reviveMonsterId);
     }
-    const MonsterAI::Decision d = MonsterAI::Think(*monster, target, frame, rules, vacancy);
+    MonsterAI::Decision d = MonsterAI::Think(*monster, target, frame, rules, vacancy);
 #else
-    const MonsterAI::Decision d = MonsterAI::Think(*monster, target, frame);
+    MonsterAI::Decision d = MonsterAI::Think(*monster, target, frame);
 #endif
+    // 묶임 — 판단은 그대로 하되 걷지만 않는다(옆에 온 상대는 문다). AI 는 버프를 모른다(순수 함수 — 입력은 표와 상태뿐)
+    if (monster->_rooted)
+        d.moveState = MoveState::IDLE;
 
     // 상태·대상·다음 판단 시점은 그대로 적는다 (와이어에 안 나가는 서버 내부 값)
     if (d.nextState != monster->_aiState)
