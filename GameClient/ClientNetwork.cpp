@@ -452,6 +452,10 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
     case MsgType::S2C_MY_JOB:
         break;
 
+    // 기술 효과 대상 — 곁에서 회복·남에게 거는 버프를 쓰면 온다. 콘솔 클라는 기술을 안 그린다 — 모르는 타입 로그만 막는다.
+    case MsgType::S2C_SKILL_EFFECT:
+        break;
+
     default:
         LOG_ERROR_STREAM("Unknown message type: " << static_cast<int>(header->type));
         break;

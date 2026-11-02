@@ -202,7 +202,12 @@ enum class MsgType : uint16_t
     // 직업 (토글 없음 — 처음 입장 때 한 번 고른다. 0 = 아직 안 고름)
     //--------------------------------------------------
     C2S_CHOOSE_JOB,             // 클라이언트 → 서버: 이 직업으로 정한다 (한 번뿐)
-    S2C_MY_JOB                  // 서버 → 클라이언트: 내 직업 (본인에게만 — 입장 때 · 고르기 답)
+    S2C_MY_JOB,                 // 서버 → 클라이언트: 내 직업 (본인에게만 — 입장 때 · 고르기 답)
+
+    //--------------------------------------------------
+    // 기술 효과 대상 (USE_SKILL — 피해가 없는 기술은 DAMAGE 가 안 와서 누가 받았는지 따로 알린다)
+    //--------------------------------------------------
+    S2C_SKILL_EFFECT            // 서버 → 클라이언트: 이 기술의 효과가 이 대상에게 났다 (대상 주변 — 회복 · 남에게 건 버프)
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -1706,5 +1711,25 @@ struct MSG_S2C_MY_JOB
 static_assert(sizeof(MSG_C2S_CHOOSE_JOB) == 6, "C2S_CHOOSE_JOB 은 6B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_S2C_MY_JOB)     == 6, "MY_JOB 은 6B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_MY_JOB) == 1078, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+
+//==================================================
+// 기술 효과 대상 (USE_SKILL)
+//==================================================
+// 대상마다 한 장 — 대상 주변에(본인 포함). 와이어 순서 = S2C_SKILL_CAST → 이 장들 → (틱 끝) 체력·마력.
+//   왜 — 피해 기술은 DAMAGE 의 때린 쪽으로 대상을 안다. 회복·속박·수호는 DAMAGE 가 없어 웹이 그림을 어디에 띄울지 모른다.
+//   자기에게만 거는 버프(target self)는 안 보낸다 — SKILL_CAST 가 곧 대상을 말한다.
+//   ★ 사람이 곁에서 쓰면 더미도 받는다 — 등록이 빠지면 근처 더미가 전부 떨어진다(SKILL_CAST 와 같은 함정).
+struct MSG_S2C_SKILL_EFFECT
+{
+    static constexpr MsgType TYPE = MsgType::S2C_SKILL_EFFECT;
+    MsgHeader header;
+    int32_t   casterId;
+    int32_t   targetId;
+    uint16_t  skillId;
+
+    MSG_S2C_SKILL_EFFECT() : header{ sizeof(*this), TYPE }, casterId(0), targetId(0), skillId(0) {}
+};
+static_assert(sizeof(MSG_S2C_SKILL_EFFECT) == 14, "SKILL_EFFECT 는 14B (proto.js 와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::S2C_SKILL_EFFECT) == 1079, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 #pragma pack(pop)

@@ -295,6 +295,8 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     case MsgType::S2C_ACTOR_LOOK:         return sizeof(MSG_S2C_ACTOR_LOOK);
     // 내 직업 — ★ 입장 때 본인에게 반드시 한 장 간다. 빠뜨리면 더미 전원이 접속하자마자 떨어진다(MY_STATS 와 같은 함정). 더미는 안 고른다(0 그대로)
     case MsgType::S2C_MY_JOB:             return sizeof(MSG_S2C_MY_JOB);
+    // 기술 효과 대상 — 사람이 곁에서 회복·남에게 거는 버프를 쓰면 온다. ★ 빠뜨리면 근처 더미가 전부 떨어진다(SKILL_CAST 와 같은 함정)
+    case MsgType::S2C_SKILL_EFFECT:       return sizeof(MSG_S2C_SKILL_EFFECT);
     default: return 0;
     }
 }

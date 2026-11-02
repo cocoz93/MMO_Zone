@@ -52,7 +52,9 @@
     // 겉모습 (USE_EQUIP) — 남이 화면에 나타날 때 CREATE 바로 뒤(겉모습이 있을 때만) · 끼우기·빼기 뒤 주변. 모르는 번호면 버린다
     S2C_ACTOR_LOOK:1076,
     // 직업 (토글 없음) — 처음 입장 때 한 번 고른다. MY_JOB 은 본인에게만(입장 때 · 고르기 답), 0 = 아직 안 고름
-    C2S_CHOOSE_JOB:1077, S2C_MY_JOB:1078
+    C2S_CHOOSE_JOB:1077, S2C_MY_JOB:1078,
+    // 기술 효과 대상 (USE_SKILL) — 피해 없는 기술(회복 · 남에게 건 버프)의 대상. 대상 주변에 대상마다 한 장
+    S2C_SKILL_EFFECT:1079
   };
   // 파티 — Protocol.h PartyAskKind · PartyNotice 순서 그대로(값이 와이어에 실린다). 한글 문구는 live.html 이 이름으로 고른다
   const PARTY_ASK_KIND = ['INVITE','APPLY','SUGGEST'];
@@ -278,6 +280,9 @@
       //   SKILL_COOLDOWN_REMAIN 14B = actorId i32 · skillId u16 · remainMs u32 — 본인에게만(입장·존 이동). remainMs 는 늘 1 이상
       case MSG.S2C_SKILL_COOLDOWN_REMAIN:
         p.actorId=dv.getInt32(o,true); p.skillId=dv.getUint16(o+4,true); p.remainMs=dv.getUint32(o+6,true); break;
+      //   SKILL_EFFECT 14B = casterId i32 · targetId i32 · skillId u16 — 대상 주변
+      case MSG.S2C_SKILL_EFFECT:
+        p.casterId=dv.getInt32(o,true); p.targetId=dv.getInt32(o+4,true); p.skillId=dv.getUint16(o+8,true); break;
       //   MY_JOB 6B = jobId u16 — 본인에게만(입장 때 · 고르기 답). 0 = 아직 안 고름
       case MSG.S2C_MY_JOB:
         p.jobId=dv.getUint16(o,true); break;
