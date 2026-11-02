@@ -176,6 +176,12 @@ const playerSkillIds = () => [...SKILLS.keys()].filter(id=>!isMonsterSkill(id)).
 // 내 스킬 쿨타임 — 자기 SKILL_CAST 를 받은 순간부터 표의 cooldownMs 를 센다. skillId -> 끝나는 시각(ms)
 //   입장·존 이동 때는 서버가 아직 돌고 있는 쿨타임을 S2C_SKILL_COOLDOWN_REMAIN 으로 준다(다시 접속하면 DB 에서 되살린 값) — 그걸로 덮는다.
 const skillReadyAt = new Map();
+// 스킬 이펙트 표 — 웹만 읽는다(Run/bin/SkillFxTable.csv, 서버는 모른다). 표에 줄이 없는 기술은 지금 도형 그대로라 몬스터 기술은 예외 코드 없이 유지된다.
+//   SKILL_CAST 는 시전자만, DAMAGE 는 맞은 쪽만 알려서 at 칸으로 재생 자리를 고른다(caster = 시전 순간 · target = 맞은 대상마다).
+const SKILL_FX = new Map();                                             // skillId -> {at, sizeTiles, liftTiles, frameMs, rotate, under:{img,frames}|null, over:{img,frames}|null}
+const fxPlaying = [];                                                   // 재생 중 {fx, actor, dir, t0, endAt} — 대상이 사라져도 객체는 남으니 마지막 자리에서 끝까지 돈다
+const fxState = { played:{} };                                          // 헤드리스 검증용 — 기술 번호별 재생 횟수
+function fxChanged(){ document.documentElement.setAttribute('data-fx', JSON.stringify({ rows:SKILL_FX.size, played:fxState.played, playing:fxPlaying.length })); }
 const skillState = { casts:0, lastFail:null };                          // 헤드리스 검증용 계산
 // buffs = 내 지속 효과 [버프 번호, 남은 ms] — S2C_ACTOR_BUFF 가 바꾼다(self.buffs). remainMs 를 받은 시각부터 깎는다
 function skillChanged(){ document.documentElement.setAttribute('data-skill', JSON.stringify({ skills:playerSkillIds().length, monsterSkills:SKILLS.size-playerSkillIds().length, casts:skillState.casts, lastFail:skillState.lastFail,
@@ -658,7 +664,11 @@ function onPacket(p){
       if(a){ a.hp=p.remainHp; a.hitT=HIT_LIFE; a.hitDmg=p.damage; }
       // 때린 쪽이 방금 스킬을 썼으면 스킬에 맞은 것 — 발밑에 표시한다(아래 S2C_SKILL_CAST)
       const by=actorOf(p.attackerId);
-      if(a && by && by.castSkill) a.skillHitT=SKILL_HIT_LIFE;
+      if(a && by && by.castSkill){
+        const fx=SKILL_FX.get(by.castSkill);
+        if(fx && fx.at==='target') playFx(by.castSkill,a,by.dir);   // 그림이 맞은 표시를 대신한다
+        else a.skillHitT=SKILL_HIT_LIFE;                            // 그림이 시전자 쪽이면(진천) 누가 맞았는지 보여 줄 것이 이 고리뿐이다
+      }
       break; }
     case P.MSG.S2C_DEATH: {
       const a=actorOf(p.targetId);
@@ -685,9 +695,11 @@ function onPacket(p){
         a.dir=p.direction; a.castSkill=selfCast ? 0 : p.skillId;
         a.castCells=null; a.castSelf=false; a.castAround=0;
         if(!selfCast) a.atkT=slashLen();   // 앞·범위 스킬은 베는 동작 · 자기 시전(이중공격 · 몬스터 격노·되살리기)은 안 벤다
-        if(s && s.target==='shape' && s.shape.length){ a.castT=CAST_LIFE; a.castCells=s.shape; }
+        const fx=SKILL_FX.get(p.skillId);                                 // 표에 줄이 있으면 그림이 칸·고리를 대신한다 — 주변 기술의 반경 원만 남는다(그림에 반경을 안 담아서 범위는 원이 보여 준다)
+        if(s && s.target==='shape' && s.shape.length){ if(!fx){ a.castT=CAST_LIFE; a.castCells=s.shape; } }
         else if(s && s.target==='around'){ a.castT=CAST_LIFE; a.castAround=s.radius; }
-        else if(selfCast){ a.castT=CAST_LIFE; a.castSelf=true; }
+        else if(selfCast){ if(!fx){ a.castT=CAST_LIFE; a.castSelf=true; } }
+        if(fx && fx.at==='caster') playFx(p.skillId,a,p.direction);
         const m=monMeta(a); if(m && m.cast) a.castAnimT=CAST_ANIM_LIFE;   // 주문 동작 그림이 있는 몬스터(뱀왕) — 걷던 중이어도 잠깐 손을 든다
       }
       if(self && p.casterId===self.id){
@@ -1243,15 +1255,15 @@ function drawSelfCast(o){
   ctx.strokeStyle='rgba(140,200,255,'+k+')'; ctx.lineWidth=2.5; ctx.stroke();
   ctx.restore();
 }
-// 주변(target=around) 시전 — 시전자 둘레에 반경 원을 잠깐 붉게 깐다(임시 도형). 서버 판정(IsInAround)은 두 몸의 가장자리 사이로 재므로
+// 주변(target=around) 시전 — 시전자 둘레에 반경 원을 잠깐 금색으로 깐다. 범위 표시는 이 원이 맡는다(이펙트 그림에 반경을 안 담음). 서버 판정(IsInAround)은 두 몸의 가장자리 사이로 재므로
 //   이 원은 시전자 몸 가장자리부터 반경까지다. 맞는 몬스터의 몸이 원에 걸치면 중심이 원 밖이어도 맞는다.
 function drawAroundCast(o){
   const k=o.castT/CAST_LIFE;                       // 1 → 0
   const r=(castRadius(o)+o.castAround)*ZOOM;
   ctx.save();
   ctx.beginPath(); ctx.arc(sx(o.rx),sy(o.ry),r,0,Math.PI*2);
-  ctx.fillStyle='rgba(255,90,40,'+(0.3*k)+')'; ctx.fill();
-  ctx.strokeStyle='rgba(255,150,80,'+k+')'; ctx.lineWidth=2.5; ctx.stroke();
+  ctx.fillStyle='rgba(255,200,70,'+(0.22*k)+')'; ctx.fill();
+  ctx.strokeStyle='rgba(255,220,120,'+k+')'; ctx.lineWidth=2.5; ctx.stroke();
   ctx.restore();
 }
 function drawSkillCastAny(o){ if(o.castCells) drawSkillCast(o); else if(o.castAround) drawAroundCast(o); else if(o.castSelf) drawSelfCast(o); }
@@ -1278,6 +1290,35 @@ function drawSkillHits(near){
   others.forEach(o=>{ if(o.skillHitT>0 && near(o)) drawSkillHit(o); });
   fading.forEach(o=>{ if(o.skillHitT>0 && near(o)) drawSkillHit(o); });   // 막타 — 맞고 죽어 지워지는 중인 상대
   if(self && self.skillHitT>0) drawSkillHit(self);
+}
+// 스킬 이펙트 재생 — 재생 목록에 넣는다. 끝나는 시각은 층 둘 중 긴 쪽(장 수가 같게 구웠어도 믿지 않는다)
+function playFx(skillId,actor,dir){
+  const fx=SKILL_FX.get(skillId); if(!fx || !actor) return;
+  const frames=Math.max(fx.under?fx.under.frames:0, fx.over?fx.over.frames:0), t0=performance.now();
+  fxPlaying.push({ fx, actor, dir, t0, endAt:t0+frames*fx.frameMs });
+  fxState.played[skillId]=(fxState.played[skillId]||0)+1; fxChanged();
+}
+// 한 층 그리기 — 'under'(몹 뒤) · 'over'(몹 앞). 칸 크기는 표의 sizeTiles × ZOOM 이라 화면을 확대해도 몹과의 비율이 안 변한다.
+//   시트는 오른쪽 기준 한 벌 — rotate 면 바라보는 쪽으로 돌린다.
+function drawFxLayer(layer,near){
+  const now=performance.now();
+  for(const e of fxPlaying){
+    const sheet=e.fx[layer]; if(!sheet || !near(e.actor)) continue;
+    const f=Math.floor((now-e.t0)/e.fx.frameMs); if(f>=sheet.frames) continue;
+    const cell=sheet.img.naturalHeight, size=e.fx.sizeTiles*ZOOM;
+    ctx.save();
+    ctx.translate(sx(e.actor.rx), sy(e.actor.ry)-e.fx.liftTiles*ZOOM);
+    if(e.fx.rotate){ const v=dvec(e.dir); if(v.x||v.y) ctx.rotate(Math.atan2(v.y,v.x)); }
+    ctx.imageSmoothingEnabled=false;
+    ctx.drawImage(sheet.img, f*cell,0,cell,cell, -size/2,-size/2,size,size);
+    ctx.restore();
+  }
+}
+// 끝난 그림 빼기 — 한 프레임에 한 번(render)
+function pruneFx(){
+  const now=performance.now(); let n=0;
+  for(const e of fxPlaying) if(now<e.endAt) fxPlaying[n++]=e;
+  if(n!==fxPlaying.length){ fxPlaying.length=n; fxChanged(); }
 }
 function drawSpawnRing(o,px,py){
   const k=1-o.spawnT/SPAWN_LIFE;                   // 0 → 1 로 퍼진다
@@ -2233,6 +2274,8 @@ function render(t){
   const near=o=>Math.abs(o.rx-cam.x)<=hw && Math.abs(o.ry-cam.y)<=hh;
   drawSkillCasts(near);   // 범위 스킬 시전 칸 — 땅에 깔린다(땅의 아이템 위, 고리·나무·캐릭터 아래)
   drawSkillHits(near);    // 스킬에 맞은 상대 발밑 고리 — 땅에 깔린다(땅의 아이템 위, 나무·캐릭터 아래)
+  pruneFx();
+  drawFxLayer('under',near);   // 이펙트 뒤 층 — 땅 갈라짐·그림자처럼 몹 뒤에 깔리는 것
   const view=[];
   propsInView().forEach(pr=>view.push({y:pr.y,kind:'prop',pr}));
   others.forEach((o,id)=>{ if(near(o)) view.push({y:o.ry,kind:'char',o:Object.assign(o,{id}),isMe:false,fade:1}); });
@@ -2240,6 +2283,7 @@ function render(t){
   if(self) view.push({y:self.ry,kind:'char',o:self,isMe:true,fade:1});
   view.sort((a,b)=>a.y-b.y);
   for(const it of view){ if(it.kind==='prop') drawProp(it.pr); else drawChar(it.o,it.isMe,t,it.fade); }
+  drawFxLayer('over',near);    // 이펙트 앞 층 — 번쩍임·불꽃처럼 몹을 덮는 것
   drawPortalLabels();   // 포털 이름·안내 — 캐릭터 뒤(몸에 안 가리게), 말풍선 앞
   others.forEach(o=>{ if(o.chat && near(o)) drawBubble(o); });
   if(self && self.chat) drawBubble(self);
@@ -2260,7 +2304,7 @@ function setConn(ok,txt){ stat.connected=ok; connEl.textContent=txt; connEl.clas
 // 존에 딸린 것 비우기 — 남(사람·몬스터)·흐려지던 것·땅의 아이템. 존 정보(S2C_ZONE_INFO)가 올 때마다와 재접속 때 부른다.
 //   새 존의 것은 입장 직후 CREATE(사람·몬스터 · 땅은 SEEN)로 다시 온다. 내 캐릭터·가방은 존에 딸린 게 아니라 여기서 안 비운다
 function clearZoneWorld(){
-  others.clear(); fading.clear();
+  others.clear(); fading.clear(); fxPlaying.length=0;
   ground.clear(); groundChanged();
   if(party.menu){ party.menu=null; partyChanged(); }   // 누른 사람이 옛 존에 남았다 — 파티 자체는 존을 넘으므로 안 비운다
   closeShop();                                          // 메뉴를 연 NPC 도 옛 존에 남았다
@@ -2339,6 +2383,31 @@ function loadSkills(){
     .then(r=>r.ok ? r.text() : Promise.reject('HTTP '+r.status)).then(parseSkillTable)
     .catch(e=>console.warn('[skill] 스킬 표를 못 받았다 — 스킬 막대를 안 그린다:', e))
     .then(skillChanged);
+}
+// 스킬 이펙트 표(serve.js 의 /data/SkillFxTable.csv) — 못 받아도 멈추지 않는다(그 기술은 지금 도형으로 그린다).
+//   칸 = skillId,under,over,at,sizeTiles,liftTiles,frameMs,rotate. 시트를 못 받은 줄은 빼서 도형으로 돌아가게 한다(빈 자리에 아무것도 안 그려지면 맞았는지도 안 보인다).
+function loadSkillFx(){
+  return fetch('/data/SkillFxTable.csv', {cache:'no-store'})
+    .then(r=>r.ok ? r.text() : Promise.reject('HTTP '+r.status)).then(parseSkillFxTable)
+    .catch(e=>console.warn('[fx] 이펙트 표를 못 받았다 — 기술을 도형으로 그린다:', e))
+    .then(fxChanged);
+}
+function loadFxSheet(name){
+  return new Promise((res,rej)=>{ const img=new Image();
+    img.onload=()=>res({ img, frames:Math.floor(img.naturalWidth/img.naturalHeight) });   // 시트 = 정사각 칸 가로 띠 — 장 수는 표에 안 적는다
+    img.onerror=()=>rej(name);
+    img.src='assets/fx/'+name+'.png'; });
+}
+function parseSkillFxTable(text){
+  const jobs=[];
+  for(const c of csvRows(text)){
+    if(c.length<8) continue;
+    const id=Number(c[0]);
+    jobs.push(Promise.all([c[1]?loadFxSheet(c[1]):null, c[2]?loadFxSheet(c[2]):null])
+      .then(([under,over])=>{ if(under||over) SKILL_FX.set(id, { at:c[3], sizeTiles:Number(c[4]), liftTiles:Number(c[5]), frameMs:Number(c[6]), rotate:c[7]==='yes', under, over }); })
+      .catch(name=>console.warn('[fx] 시트를 못 받았다 — 기술 '+id+' 은 도형으로 그린다:', name)));
+  }
+  return Promise.all(jobs);
 }
 // 버프 표(serve.js 의 /data/BuffTable.csv) — 못 받아도 멈추지 않는다(막대 띠의 분모·글자만 빠진다). 칸 = buffId,name,durationMs,mods (서버 BuffTable.cpp 와 같은 순서).
 //   mods = 「스탯:방식:값」 을 ';' 로 이은 것. 걸러내는 규칙은 스킬 표와 같다. 값 검사는 서버가 기동 때 이미 했다.
@@ -2432,7 +2501,7 @@ function parsePortalTable(text){
     PORTALS.push({ id:Number(c[0]), mapId:Number(c[1]), x:Number(c[2]), y:Number(c[3]), radius:Number(c[4]), targetMapId:Number(c[5]), name:c[8] });
 }
 async function boot(){
-  resize(); await loadFonts(); await loadAssets(); await loadTown(); checkLayers(); await loadItems(); await loadBuffs(); await loadSkills(); await loadWorldTables();
+  resize(); await loadFonts(); await loadAssets(); await loadTown(); checkLayers(); await loadItems(); await loadBuffs(); await loadSkills(); await loadSkillFx(); await loadWorldTables();
   if(SNAP){
     // headless verification: load a real snapshot, render one frame, expose PNG
     // 전투 확인용 스냅샷을 따로 두려고 파일명을 열어 둔다 (?snap&file=snapshot-combat.json)
