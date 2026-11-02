@@ -134,7 +134,7 @@ const BUBBLE_LIFE = 7;                       // 말풍선 표시 시간(초) —
 const HIT_LIFE = 0.5;                        // 피격 점멸 + 데미지 숫자
 const SWING_LIFE = 0.18;                     // 휘두르는 호
 const SKILL_HIT_LIFE = 0.5;                  // 스킬에 맞은 상대 발밑 표시(피격 점멸과 같은 길이)
-const CAST_LIFE = 0.3;                       // 범위 스킬(target=shape) 칸 깔기 — 맞는 칸을 잠깐 붉게 · 자신(target=self) 시전은 발밑 푸른 고리
+const CAST_LIFE = 0.3;                       // 범위 스킬(target=shape) 칸 깔기 — 맞는 칸을 잠깐 붉게 · 자신(target=self) 시전은 발밑 푸른 고리 · 주변(target=around)은 반경 원
 const CAST_ANIM_LIFE = 0.7;                  // 주문 동작 그림(MON_META.cast — 뱀왕 7열)을 한 번 도는 시간 — 몬스터가 스킬을 쓸 때(되살리기·격노)
 const SPAWN_LIFE = 0.6;                      // 부활 섬광
 const FADE_LIFE = 0.5;                       // 죽은 채로 지워진 상대가 흐려지며 사라지는 시간(초)
@@ -165,8 +165,8 @@ const INV_TAB_FILE  = new Map([['equip',0],['use',1],['etc',2]]);       // 아�
 const ITEMS = new Map();                                                // itemId -> {name, tab, maxStack, healHp, icon, attack, healMp}
 let ITEM_SHEET = null;                                                  // assets/items.js 의 그림 시트 — 없으면 null(번호로 그린다)
 // 스킬 표 (USE_SKILL) — 서버와 같은 파일(Run/bin/SkillTable.csv)을 serve.js 의 /data/SkillTable.csv 로 받는다(아이템 표와 같은 꼴).
-//   못 받으면 SKILLS 가 비고 스킬 막대가 안 그려진다 — 숫자 키는 그래도 보낸다(판정은 서버).
-const SKILLS = new Map();                                               // skillId -> {name, target, effect, costHpPct, power, cooldownMs, costMp, shape:[[앞,옆],…], user}
+//   못 받으면 SKILLS 가 비고 스킬 막대가 안 그려진다 — 숫자 키도 고를 칸이 없어 안 보낸다(키 = 막대 칸).
+const SKILLS = new Map();                                               // skillId -> {name, target, effect, costHpPct, power, cooldownMs, costMp, shape:[[앞,옆],…], radius, user}
 // 버프 표 (USE_COMBAT) — 서버와 같은 파일(Run/bin/BuffTable.csv)을 serve.js 의 /data/BuffTable.csv 로 받는다. 못 받으면 막대 띠의 분모·글자만 빠진다(띠는 그린다).
 const BUFFS = new Map();                                                // buffId -> {name, durationMs, mods:[{stat, how, value},…]}
 // 표에는 사람이 쓰는 줄(user=player)과 몬스터(보스)가 쓰는 줄(user=monster)이 같이 있다. 몬스터 줄은 **몬스터 시전의 칸·고리 그림**(S2C_SKILL_CAST)을 그리는 데만 쓰고
@@ -421,10 +421,11 @@ const PICKUP_FAIL_TEXT = {
 // 전투 필드 기본값 — CREATE 와 부활 양쪽에서 같은 모양으로 만들려고 한 곳에 둔다
 //   mp·maxMp(USE_SKILL) — S2C_ACTOR_MP 가 채운다. 본인 것만 오므로 남의 액터는 null 그대로다(남의 마력은 안 그린다). null = 아직 한 장도 못 받음
 //   buffs(USE_COMBAT) — S2C_ACTOR_BUFF 가 채우는 Map(버프 번호 → 끝나는 시각). 본인 것만 오므로 남의 액터는 null 그대로다(남의 효과는 안 그린다)
-//   castSelf — 자신(target=self) 시전 표시(발밑 고리 · castT 동안). castCells(칸 깔기)와 둘 중 하나만 켜진다
+//   castSelf — 자신(target=self) 시전 표시(발밑 고리 · castT 동안). castCells(칸 깔기)·castAround 와 셋 중 하나만 켜진다
+//   castAround — 주변(target=around) 시전의 반경(칸) · castT 동안 원을 깐다. 0 = 없음
 //   atkT — 베는 동작의 남은 시간(초). 공격·앞/범위 스킬 시전 때 slashLen() 으로 채운다(그리기는 charPose)
 //   dieT — 쓰러지는 동작 + 옅어짐의 남은 시간(초). DEATH 때 dieLen() 으로 채운다 · 0 인 시체(이미 쓰러졌음)는 엎어진 마지막 장
-const COMBAT_INIT = () => ({ hp:null, maxHp:null, mp:null, maxMp:null, hitT:0, hitDmg:0, swingT:0, atkT:0, dieT:0, spawnT:0, castSkill:0, skillHitT:0, castT:0, castCells:null, castSelf:false, buffs:null, dead:false });
+const COMBAT_INIT = () => ({ hp:null, maxHp:null, mp:null, maxMp:null, hitT:0, hitDmg:0, swingT:0, atkT:0, dieT:0, spawnT:0, castSkill:0, skillHitT:0, castT:0, castCells:null, castSelf:false, castAround:0, buffs:null, dead:false });
 // 죽은 채로 지워진 상대 — 그리기만 한다. id -> others 에 있던 그 객체 + fadeT.
 //   서버는 몬스터가 죽는 순간 지우고 DEATH 바로 뒤에 DELETE 를 보낸다(10-09) — 시체는 이 연출뿐이다.
 //   DELETE 에 사유 칸이 없어 「죽어 있었나(dead)」로 가른다. 살아 있던 사람(시야 밖으로 나감·퇴장)은 바로 지운다.
@@ -682,9 +683,10 @@ function onPacket(p){
       if(a){
         const selfCast = !!(s && s.target==='self');
         a.dir=p.direction; a.castSkill=selfCast ? 0 : p.skillId;
-        a.castCells=null; a.castSelf=false;
+        a.castCells=null; a.castSelf=false; a.castAround=0;
         if(!selfCast) a.atkT=slashLen();   // 앞·범위 스킬은 베는 동작 · 자기 시전(이중공격 · 몬스터 격노·되살리기)은 안 벤다
         if(s && s.target==='shape' && s.shape.length){ a.castT=CAST_LIFE; a.castCells=s.shape; }
+        else if(s && s.target==='around'){ a.castT=CAST_LIFE; a.castAround=s.radius; }
         else if(selfCast){ a.castT=CAST_LIFE; a.castSelf=true; }
         const m=monMeta(a); if(m && m.cast) a.castAnimT=CAST_ANIM_LIFE;   // 주문 동작 그림이 있는 몬스터(뱀왕) — 걷던 중이어도 잠깐 손을 든다
       }
@@ -695,7 +697,9 @@ function onPacket(p){
       break; }
     case P.MSG.S2C_SKILL_FAIL: {
       const s=SKILLS.get(p.skillId);
-      sysMsg((s?s.name+': ':'')+(SKILL_FAIL_TEXT[p.reasonName] || ('쓰지 못했습니다 ('+p.reasonName+')')));
+      // 주변 기술은 앞을 안 본다 — NO_TARGET 문구만 「주변」으로
+      const failText = (s && s.target==='around' && p.reasonName==='NO_TARGET') ? '주변에 맞을 몬스터가 없습니다' : SKILL_FAIL_TEXT[p.reasonName];
+      sysMsg((s?s.name+': ':'')+(failText || ('쓰지 못했습니다 ('+p.reasonName+')')));
       skillState.lastFail=p.reasonName; skillChanged();
       break; }
 
@@ -826,7 +830,7 @@ function sendAttack(){
   if(self.dead) return;                       // 시체는 못 때린다 (서버도 dead_self 로 막지만 헛 요청을 줄인다)
   ws.send(P.enc.attack());
 }
-// 숫자 키 = 스킬(키 번호 = 스킬 번호). 쿨타임·대상·체력은 서버가 본다 — 클라는 누른 만큼 보낸다(일반 공격과 같다).
+// 숫자 키 = 스킬 막대의 N번째 칸(그 칸의 스킬 번호를 보낸다). 쿨타임·대상·체력은 서버가 본다 — 클라는 누른 만큼 보낸다(일반 공격과 같다).
 //   쓰러져 있어도 보낸다 — 막힌 까닭은 서버가 SKILL_FAIL 로 답해 [System] 한 줄로 뜬다(줍기와 같은 꼴)
 function sendSkill(id){
   if(!self || !ws || ws.readyState!==1) return;
@@ -898,9 +902,9 @@ if(!SNAP){
     if(e.code==='KeyZ'){ if(!e.repeat) sendPickup(); e.preventDefault(); return; }
     // F = 상호작용 — 손이 닿는 가장 가까운 포털·NPC 하나(interact). I·C 와 같은 까닭으로 e.code — 누르고 있어도 한 번
     if(e.code==='KeyF'){ if(!e.repeat) interact(); e.preventDefault(); return; }
-    // 1~8 = 스킬(키 번호 = 스킬 번호). I·C 와 같은 까닭으로 e.code — 누르고 있어도 한 번
+    // 1~8 = 스킬 막대의 N번째 칸. I·C 와 같은 까닭으로 e.code — 누르고 있어도 한 번. 칸이 없는 키는 아무것도 안 보낸다(막대엔 사람 기술만 있다)
     const dg=/^Digit([1-8])$/.exec(e.code);
-    if(dg){ if(!e.repeat && !isMonsterSkill(Number(dg[1]))) sendSkill(Number(dg[1])); e.preventDefault(); return; }   // 몬스터 몫 번호는 안 보낸다(보내면 서버가 BAD_SKILL 로 거절)
+    if(dg){ const id=playerSkillIds()[Number(dg[1])-1]; if(!e.repeat && id!==undefined) sendSkill(id); e.preventDefault(); return; }
     // ` = 서버 관측 표시(서버 정보 창 · 섹터 격자) 켜고 끄기 (I·C 와 같은 까닭으로 e.code)
     if(e.code==='Backquote' && !e.repeat){ SHOW_SERVER=!SHOW_SERVER; e.preventDefault(); return; }
     // P = 파티 창(관리) 열고 닫기 (I·C 와 같은 까닭으로 e.code) — 파티가 없어도 열린다(맺는 법을 안내한다)
@@ -1239,10 +1243,21 @@ function drawSelfCast(o){
   ctx.strokeStyle='rgba(140,200,255,'+k+')'; ctx.lineWidth=2.5; ctx.stroke();
   ctx.restore();
 }
-function drawSkillCastAny(o){ if(o.castCells) drawSkillCast(o); else if(o.castSelf) drawSelfCast(o); }
+// 주변(target=around) 시전 — 시전자 둘레에 반경 원을 잠깐 붉게 깐다(임시 도형). 서버 판정(IsInAround)은 두 몸의 가장자리 사이로 재므로
+//   이 원은 시전자 몸 가장자리부터 반경까지다. 맞는 몬스터의 몸이 원에 걸치면 중심이 원 밖이어도 맞는다.
+function drawAroundCast(o){
+  const k=o.castT/CAST_LIFE;                       // 1 → 0
+  const r=(castRadius(o)+o.castAround)*ZOOM;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(sx(o.rx),sy(o.ry),r,0,Math.PI*2);
+  ctx.fillStyle='rgba(255,90,40,'+(0.3*k)+')'; ctx.fill();
+  ctx.strokeStyle='rgba(255,150,80,'+k+')'; ctx.lineWidth=2.5; ctx.stroke();
+  ctx.restore();
+}
+function drawSkillCastAny(o){ if(o.castCells) drawSkillCast(o); else if(o.castAround) drawAroundCast(o); else if(o.castSelf) drawSelfCast(o); }
 function drawSkillCasts(near){
-  others.forEach(o=>{ if(o.castT>0 && (o.castCells||o.castSelf) && near(o)) drawSkillCastAny(o); });
-  if(self && self.castT>0 && (self.castCells||self.castSelf)) drawSkillCastAny(self);
+  others.forEach(o=>{ if(o.castT>0 && (o.castCells||o.castSelf||o.castAround) && near(o)) drawSkillCastAny(o); });
+  if(self && self.castT>0 && (self.castCells||self.castSelf||self.castAround)) drawSkillCastAny(self);
 }
 // 스킬에 맞은 상대 — 발밑에 붉은 고리를 깐다(땅에 깔려 나무·캐릭터 아래). 맞는 순간부터 조금씩 퍼지며 흐려진다.
 //   맞은 상대는 서버 결과(DAMAGE)로만 안다 — 예전에는 시전자 앞 한 칸을 칠했는데, 서버는 1.5칸 안 앞쪽 반원에서
@@ -1539,7 +1554,7 @@ function skillBarLayout(){
   const cellsW=ids.length ? ids.length*SKILL_CELL_W+(ids.length-1)*SKILL_GAP : 0;
   const w=cellsW;
   const x0=Math.round(VX+VW/2-w/2), y0=Math.round(VY+VH-SKILL_CELL_H-12);
-  return { cells: ids.map((id,i)=>({id, x:x0+i*(SKILL_CELL_W+SKILL_GAP), y:y0})) };
+  return { cells: ids.map((id,i)=>({id, key:i+1, x:x0+i*(SKILL_CELL_W+SKILL_GAP), y:y0})) };   // key = 칸 순서 = 숫자 키
 }
 // 띠 글자 앞머리 — 버프 표의 첫 수정 항목(×2 · +30% · +5). 표를 못 받았으면 숫자 없이 남은 초만
 function buffTag(d){
@@ -1558,7 +1573,7 @@ function drawSkillBar(){
   L.cells.forEach(c=>{
     const id=c.id, s=SKILLS.get(id), x=c.x, y0=c.y;
     panel(x,y0,SKILL_CELL_W,SKILL_CELL_H);
-    ctx.textAlign='left'; ctx.fillStyle='#ffd84d'; ctx.font=uiFont(12,700,true); ctx.fillText(String(id), x+8, y0+17);   // 키 번호 = 스킬 번호
+    ctx.textAlign='left'; ctx.fillStyle='#ffd84d'; ctx.font=uiFont(12,700,true); ctx.fillText(String(c.key), x+8, y0+17);   // 키 번호 = 칸 순서
     ctx.textAlign='center'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(13,600); ctx.fillText(fitText(s.name, SKILL_CELL_W-12), x+SKILL_CELL_W/2, y0+38);
     const left=(skillReadyAt.get(id)||0)-now;
     if(left>0 && s.cooldownMs>0){
@@ -2342,9 +2357,9 @@ function parseBuffTable(text){
     BUFFS.set(Number(c[0]), { name:c[1], durationMs:Number(c[2]), mods });
   }
 }
-// 칸 위치로 읽는다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp,shape,user (서버 SkillTable.cpp 와 같은 순서).
+// 칸 위치로 읽는다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp,area,user (서버 SkillTable.cpp 와 같은 순서).
 //   걸러내는 규칙은 아이템 표와 같다(빈 줄 · '#' 주석 · 첫 칸이 숫자가 아닌 헤더). 값 검사는 서버가 기동 때 이미 했다.
-//   shape(아홉째)는 「앞:옆」 을 ';' 로 이은 칸 목록 — front·self 줄은 비어 있거나 칸 자체가 없다(빈 목록).
+//   area(아홉째)는 대상 종류마다 뜻이 다르다 — shape = 「앞:옆」 을 ';' 로 이은 칸 목록 · around = 반경(칸) · front·self 는 비어 있거나 칸 자체가 없다.
 //   user(열째)는 player | monster — 비거나 칸이 없으면 player. monster 줄은 표에 남겨 몬스터 시전의 칸 그림에 쓰되 막대·숫자 키에서는 뺀다(playerSkillIds).
 function parseSkillTable(text){
   for(const raw of text.split(/\r?\n/)){
@@ -2352,8 +2367,9 @@ function parseSkillTable(text){
     if(!line || line[0]==='#' || !/^\d/.test(line)) continue;
     const c=line.split(',').map(s=>s.trim());
     if(c.length<7) continue;
-    const shape=(c[8]||'').split(';').filter(Boolean).map(cell=>cell.split(':').map(Number));
-    SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]), costMp:Number(c[7]||0), shape, user:(c[9]||'player').toLowerCase() });
+    const around=c[2]==='around';
+    const shape=around ? [] : (c[8]||'').split(';').filter(Boolean).map(cell=>cell.split(':').map(Number));
+    SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]), costMp:Number(c[7]||0), shape, radius:around ? Number(c[8]) : 0, user:(c[9]||'player').toLowerCase() });
   }
 }
 // 맵 표·포털 표·몬스터 표(serve.js 의 /data/MapTable.csv · PortalTable.csv · MonsterTable.csv) — 못 받아도 멈추지 않는다(땅은 풀 · 포털이 안 보인다 · 몬스터를 사람 모양으로).
