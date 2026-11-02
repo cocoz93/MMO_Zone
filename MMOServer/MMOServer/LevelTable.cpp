@@ -13,9 +13,10 @@ using GameDataCsv::ReadDataLines;
 using GameDataCsv::SplitCsv;
 using GameDataCsv::ParseInt;
 
-bool CLevelTable::Load(const std::string& path)
+bool CLevelTable::Load(const std::string& path, const CJobTable& jobs)
 {
-    _rows.clear();
+    for (std::vector<Row>& rows : _rowsByJob)
+        rows.clear();
 
     std::vector<DataLine> lines;
     if (!ReadDataLines(path, lines))
@@ -28,8 +29,6 @@ bool CLevelTable::Load(const std::string& path)
         SLOG_ERROR("[LevelTable] 값 줄이 하나도 없습니다: {}", path);
         return false;
     }
-
-    _rows.resize(1);   // [0] 은 안 쓰는 자리
 
     std::vector<std::string> cell;
     for (const DataLine& dl : lines)
@@ -51,8 +50,22 @@ bool CLevelTable::Load(const std::string& path)
             return false;
         }
 
+        // ⓪ 직업 — 일곱째 칸. 비면 기본 직업(칸이 없는 옛 꼴 그대로 읽힌다). 표에 없는 번호는 거부
+        int64_t job = CJobTable::BASE_JOB;
+        if (cell.size() > 6 && !cell[6].empty())
+        {
+            if (!ParseInt(cell[6], job) || !jobs.Has(static_cast<int32_t>(job)))
+            {
+                SLOG_ERROR("[LevelTable] {}줄: job \"{}\" 가 직업 표(JobTable.csv)에 없습니다", dl.fileLine, cell[6]);
+                return false;
+            }
+        }
+        std::vector<Row>& rows = _rowsByJob[static_cast<size_t>(job)];
+        if (rows.empty())
+            rows.resize(1);   // [0] 은 안 쓰는 자리
+
         // ⑴ 레벨은 1부터 빈칸 없이 이어져야 한다 — 색인이 곧 레벨이라 구멍이 배열 구멍이 된다
-        const int64_t expected = static_cast<int64_t>(_rows.size());
+        const int64_t expected = static_cast<int64_t>(rows.size());
         if (level != expected)
         {
             SLOG_ERROR("[LevelTable] {}줄: 레벨이 {} 여야 하는데 {} 입니다 — 1부터 빠짐없이 이어져야 합니다",
@@ -78,10 +91,10 @@ bool CLevelTable::Load(const std::string& path)
 
         // ⑷ 필요 경험치는 단조 증가여야 한다 — 레벨업이 while 루프라, 줄어들면 한 칸에서 멈추거나
         //    여러 칸을 건너뛴다. 같은 값도 막는다(경험치 0 으로 레벨이 두 칸 오르는 꼴이 된다)
-        if (level > 1 && requiredExp <= _rows.back().requiredExp)
+        if (level > 1 && requiredExp <= rows.back().requiredExp)
         {
             SLOG_ERROR("[LevelTable] {}줄: requiredExp 가 안 늘어납니다 — 앞 레벨 {} · 이 레벨 {}",
-                       dl.fileLine, _rows.back().requiredExp, requiredExp);
+                       dl.fileLine, rows.back().requiredExp, requiredExp);
             return false;
         }
 
@@ -91,11 +104,39 @@ bool CLevelTable::Load(const std::string& path)
         row.attackPower = static_cast<int32_t>(attackPower);
         row.defense     = static_cast<int32_t>(defense);
         row.maxMp       = static_cast<int32_t>(maxMp);
-        _rows.push_back(row);
+        rows.push_back(row);
     }
 
-    SLOG_INFO("[LevelTable] {} — 레벨 1~{} · 만렙 필요 경험치 {} · 만렙 체력 {} · 만렙 마력 {}",
-              path, MaxLevel(), _rows.back().requiredExp, _rows.back().maxHp, _rows.back().maxMp);
+    // ⑸ 기본 직업 줄은 꼭 있어야 한다 — 고르기 전 캐릭터와 줄 없는 직업이 쓴다
+    if (BaseRows().empty())
+    {
+        SLOG_ERROR("[LevelTable] 직업 {} 줄이 없습니다: {}", CJobTable::BASE_JOB, path);
+        return false;
+    }
+    // ⑹ 경험치는 직업과 무관하다 — 만렙과 레벨마다의 필요 경험치가 기본 직업과 같아야 한다(레벨업 판정이 한 벌뿐이다)
+    for (size_t job = 1; job < _rowsByJob.size(); ++job)
+    {
+        const std::vector<Row>& rows = _rowsByJob[job];
+        if (rows.empty())
+            continue;
+        if (rows.size() != BaseRows().size())
+        {
+            SLOG_ERROR("[LevelTable] 직업 {} 의 만렙이 {} 입니다 — 기본 직업은 {}", job, rows.size() - 1, MaxLevel());
+            return false;
+        }
+        for (size_t level = 1; level < rows.size(); ++level)
+        {
+            if (rows[level].requiredExp != BaseRows()[level].requiredExp)
+            {
+                SLOG_ERROR("[LevelTable] 직업 {} 레벨 {} 의 requiredExp {} 가 기본 직업 값 {} 과 다릅니다",
+                           job, level, rows[level].requiredExp, BaseRows()[level].requiredExp);
+                return false;
+            }
+        }
+    }
+
+    SLOG_INFO("[LevelTable] {} — 레벨 1~{} · 만렙 필요 경험치 {} · 기본 직업 만렙 체력 {} · 만렙 마력 {}",
+              path, MaxLevel(), BaseRows().back().requiredExp, BaseRows().back().maxHp, BaseRows().back().maxMp);
     return true;
 }
 
@@ -105,31 +146,42 @@ bool CLevelTable::Load(const std::string& path)
 int64_t CLevelTable::RequiredExp(int32_t level) const
 {
     assert(InRange(level));
-    return _rows[static_cast<size_t>(level)].requiredExp;
+    return BaseRows()[static_cast<size_t>(level)].requiredExp;
 }
 
-int32_t CLevelTable::MaxHp(int32_t level) const
+int32_t CLevelTable::MaxHp(int32_t job, int32_t level) const
 {
     assert(InRange(level));
-    return _rows[static_cast<size_t>(level)].maxHp;
+    return RowsOf(job)[static_cast<size_t>(level)].maxHp;
 }
 
-int32_t CLevelTable::AttackPower(int32_t level) const
+int32_t CLevelTable::AttackPower(int32_t job, int32_t level) const
 {
     assert(InRange(level));
-    return _rows[static_cast<size_t>(level)].attackPower;
+    return RowsOf(job)[static_cast<size_t>(level)].attackPower;
 }
 
-int32_t CLevelTable::Defense(int32_t level) const
+int32_t CLevelTable::Defense(int32_t job, int32_t level) const
 {
     assert(InRange(level));
-    return _rows[static_cast<size_t>(level)].defense;
+    return RowsOf(job)[static_cast<size_t>(level)].defense;
 }
 
-int32_t CLevelTable::MaxMp(int32_t level) const
+int32_t CLevelTable::MaxMp(int32_t job, int32_t level) const
 {
     assert(InRange(level));
-    return _rows[static_cast<size_t>(level)].maxMp;
+    return RowsOf(job)[static_cast<size_t>(level)].maxMp;
+}
+
+int32_t CLevelTable::HighestMaxMp() const
+{
+    int32_t highest = 0;
+    for (const std::vector<Row>& rows : _rowsByJob)
+    {
+        for (const Row& row : rows)
+            highest = (row.maxMp > highest) ? row.maxMp : highest;   // std::max 는 윈도 헤더의 max 매크로에 먹힌다
+    }
+    return highest;
 }
 
 #endif // USE_COMBAT

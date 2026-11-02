@@ -234,6 +234,10 @@ void CPlayerPlacement::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind k
 
     if (rule.firstEntry)
     {
+        // 3-0c) 내 직업 — 접속 때만(정해지면 안 바뀌어 존 이동 때 다시 보낼 것이 없다). 0 이면 웹이 고르는 창을 띄운다.
+        //   ★ 부하 더미도 이 한 장을 반드시 받는다 — 가방 전체와 같은 함정(더미 크기 표에서 빠지면 전원 떨어진다).
+        _selfNotifier.SendMyJob(player);
+
 #if USE_INVENTORY
         // 3-1) 가방 전체 — 빈 가방이어도 한 장. 존 이동 때는 안 보낸다(가방이 안 바뀐다).
         //   ★ 부하 더미가 이 패킷을 받는 유일한 길이 여기다(더미는 아이템을 안 받는다). 그래서 더미 시험과

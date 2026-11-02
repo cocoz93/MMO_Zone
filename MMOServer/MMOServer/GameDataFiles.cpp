@@ -15,8 +15,11 @@ bool CGameDataFiles::LoadAll(const std::string& dir)
     // 막힌 칸 표도 토글이 없다 — 맵 표만 대조한다. 배치 위치 대조는 뒤에서 표가 다 선 다음(BlockTable.h [자리 대조])
     if (!_block.Load(dir + "BlockTable.csv", _map))
         return false;
+    // 직업 표도 토글이 없다 — ★ 레벨 표·스킬 표 "앞"(둘의 job 칸을 이 표와 대조한다)
+    if (!_job.Load(dir + "JobTable.csv"))
+        return false;
 #if USE_COMBAT   // 레벨 표는 전투를 따른다(바탕 스탯) — 경험치만 끈 빌드도 읽는다
-    if (!_level.Load(dir + "LevelTable.csv"))
+    if (!_level.Load(dir + "LevelTable.csv", _job))
         return false;
 #endif
 #if USE_INVENTORY
@@ -63,7 +66,8 @@ bool CGameDataFiles::LoadAll(const std::string& dir)
 #if USE_SKILL
     // ★ 레벨 표 "뒤" — 마력 비용(costMp)을 닿을 수 있는 최대 마력과 대조한다(USE_SKILL 은 USE_COMBAT 을 요구해 레벨 표가 늘 있다)
     // ★ 버프 표 "뒤" — 효과 buff 줄의 power(버프 번호)가 표에 있나 본다
-    if (!_skill.Load(dir + "SkillTable.csv", _level, _buff))
+    // ★ 직업 표 "뒤" — job 칸의 번호가 표에 있나 본다
+    if (!_skill.Load(dir + "SkillTable.csv", _level, _buff, _job))
         return false;
 #endif
 #if USE_MONSTER && USE_SKILL

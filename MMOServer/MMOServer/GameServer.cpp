@@ -529,6 +529,8 @@ bool CGameServer::RegisterRoutes()
     ok &= _chatHandler.RegisterRoutes(_routes);
     // 존 이동 · 포털 · 입장 요청(USE_LOGIN — 끄면 크기만) — CEntryHandler 가 자기 줄을 등록한다(CEntryHandler::RegisterRoutes · 게임 서버 나누기 12 단계)
     ok &= _entryHandler.RegisterRoutes(_routes);
+    // 직업 고르기 — CJobHandler 가 자기 줄을 등록한다
+    ok &= _jobHandler.RegisterRoutes(_routes);
     ok &= _routes.Size(MsgType::C2S_HEARTBEAT, sizeof(MSG_C2S_HEARTBEAT));   // 처리기 없음 — 타임아웃 갱신은 IOCPServer 수신 시점
 #if USE_COMBAT
     // 공격 · 스킬(USE_SKILL) — CCombatHandler 가 자기 줄을 등록한다(CCombatHandler::RegisterRoutes · 게임 서버 나누기 9 단계)

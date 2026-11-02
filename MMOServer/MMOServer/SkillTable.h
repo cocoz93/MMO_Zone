@@ -12,6 +12,7 @@
 #if USE_SKILL
 
 class CLevelTable;
+class CJobTable;
 class CBuffTable;
 
 // 스킬 번호 상한 — 와이어(u16)와 DB 쿨타임 묶음(2바이트)에 실리는 크기다. 배열 색인이 아니다(11-01 기술 목록).
@@ -133,7 +134,7 @@ enum class SkillEffect : uint8_t
 };
 
 // 누가 쓰는 스킬인가 — 이 표는 사람과 몬스터가 한 장을 같이 쓴다(번호 한 줄·와이어 의미 하나).
-//   사람은 PLAYER 줄만, 몬스터는 MONSTER 줄만 쓴다 — 이 칸이 기술 목록에 들어갈 자격이다(사람 = 입장 때 PLAYER 줄 전부 ·
+//   사람은 PLAYER 줄만, 몬스터는 MONSTER 줄만 쓴다 — 이 칸이 기술 목록에 들어갈 자격이다(사람 = 입장 때 자기 직업의 PLAYER 줄 ·
 //   몬스터 = 자기 규칙의 줄, 몬스터 스킬 표 읽기가 MONSTER 인지 본다). 목록에 없는 번호는 CSkillSystem::CheckCaster 가 NOT_FOR_CASTER 로 막는다.
 //   칸이 비면 PLAYER 다(옛 줄이 그대로 사람 스킬). 새 종류 = 여기 한 줄 + 표 이름 한 줄(SkillTable.cpp USER_NAMES).
 enum class SkillUser : uint8_t
@@ -164,6 +165,7 @@ struct SkillDef
     SkillTarget target         = SkillTarget::COUNT;
     SkillEffect effect         = SkillEffect::COUNT;
     SkillUser   user           = SkillUser::PLAYER;   // 누가 쓰나 — 표의 10번째 칸(빈 칸 = PLAYER)
+    int32_t     job            = 0;   // 어느 직업의 기술인가 — 표의 11번째 칸(0 = 빈 칸 = 모든 직업, 고르기 전 포함)
     int32_t     costHpPct      = 0;   // 시전 때 떼는 현재 체력의 % (0 = 소모 없음)
     int32_t     costMp         = 0;   // 시전 때 떼는 마력 — 고정값(0 = 소모 없음). 모자라면 LOW_MP
     int32_t     power          = 0;   // DAMAGE = 시전 전 체력의 % · DAMAGE_ATK = 시전자 공격력의 % · BUFF = 버프 번호(버프 표 — 표 읽기가 대조한다)
@@ -184,7 +186,8 @@ public:
     // 파일을 읽어 표를 세운다. 실패하면 false 이고 까닭을 로그로 남긴다 — main 이 서버를 안 띄운다.
     //   levels = 먼저 읽은 레벨 표 — costMp 가 닿을 수 있는 최대 마력을 넘는지 대조한다(드랍 표가 아이템 표를 받는 꼴).
     //   buffs  = 먼저 읽은 버프 표 — 효과 buff 줄의 power(버프 번호)가 표에 있나 본다.
-    bool Load(const std::string& path, const CLevelTable& levels, const CBuffTable& buffs);
+    //   jobs   = 먼저 읽은 직업 표 — job 칸의 번호가 표에 있나 본다.
+    bool Load(const std::string& path, const CLevelTable& levels, const CBuffTable& buffs, const CJobTable& jobs);
 
     // 없는 번호면 nullptr — 와이어로 온 번호(아무 값이나 올 수 있다)를 그대로 넣어도 된다.
     const SkillDef* Find(int32_t skillId) const
@@ -198,8 +201,12 @@ public:
     // 안쪽 순번으로 — 0~Count()−1. 지표 이름표(스킬 번호)를 적어 둘 때 훑는다(CGameServer::LoadGameDataFiles)
     const SkillDef& Row(int32_t index) const { return _rows[static_cast<size_t>(index)]; }
 
-    // 사람 기술 번호 — 파일 순서. 입장 때 기술 목록을 채운다(CEntryHandler::SpawnPlayer — 「사람은 사람 기술 전부를 가진다」)
+    // 사람 기술 번호 — 파일 순서.
     const std::vector<int32_t>& PlayerSkillIds() const { return _playerSkillIds; }
+
+    // 이 직업이 가진 사람 기술 번호 — 파일 순서. 공용(job 칸이 빈 줄) 포함. job 0(아직 안 고름)은 공용만.
+    //   입장과 직업 고르기 때 기술 목록을 채운다(CEntryHandler::SpawnPlayer · CJobHandler)
+    std::vector<int32_t> PlayerSkillIdsOf(int32_t job) const;
 
 private:
     std::vector<SkillDef> _rows;                        // 파일 순서 — 색인 = SkillDef::index. 읽은 뒤로 안 늘어 Find 의 포인터가 안 흔들린다

@@ -72,6 +72,7 @@
 #include "TradeHandler.h"     // 거래(거래 요청 여섯 · 거래 알림 · 짝 저장 — USE_TRADE) — trade-plan.md
 #include "MoveHandler.h"      // 이동(이동 시작·멈춤 요청 · 좌표 수용 예산 — 토글 없음) — 게임 서버 나누기 11 단계(C2)
 #include "EntryHandler.h"     // 입장·존 이동 요청(접속 · 대기표 · 불러온 캐릭터 세우기 · 중복 접속 · 포털) — 게임 서버 나누기 12 단계(C1)
+#include "JobHandler.h"       // 직업 고르기 — 토글 없음
 #include "CommandHandler.h"   // 채팅 명령(명령 표 · 운영자 권한 · /item · /gm · /die — 명령 줄만 토글) — 10-26 CChatHandler 에서 떼어 냄
 #include "ChatHandler.h"      // 채팅·운영(채팅 · 운영자 로그인 · '/' 채팅 넘기기) — 게임 서버 나누기 13 단계(C8)
 
@@ -353,6 +354,16 @@ private:
     // 입장·존 이동 요청 — 접속 · 대기표 · 불러오기 결과(ICharacterLoadEvents) · 스폰 · 같은 계정 걷어내기 · 존 이동 · 포털(EntryHandler.h).
     //   ★ _sessionHub · _placement · _characterStore · _partyHandler · _statSystem · _mapManager · _gameMonitor · _gameDataFiles
     //     보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다). 저장소(_characterStore)는 거꾸로 이것의 참조를 받는다 — 묶기만 한다.
+    // 직업 고르기(JobHandler.h) — ★ _selfNotifier · _statSystem · _characterStore · _gameMonitor · _gameDataFiles 보다 뒤에 선언
+    CJobHandler _jobHandler{ _selfNotifier,
+#if USE_COMBAT
+                             _statSystem,
+#endif
+#if USE_DB_WORKER
+                             _characterStore,
+#endif
+                             _gameMonitor, _gameDataFiles };
+
     CEntryHandler _entryHandler{ _sessionHub, _placement,
 #if USE_DB_WORKER
                                  _characterStore,

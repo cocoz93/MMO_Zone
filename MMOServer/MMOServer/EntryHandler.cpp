@@ -220,6 +220,11 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
         //   ★ 표 범위 검사와 레벨 정산은 여기가 아니라 SpawnPlayer 가 한다 — 새 캐릭터·못 읽음 분기도 거기를 지난다.
         place.level = result.level;
         place.exp   = result.exp;
+        // 직업 — 표에서 지운 번호가 든 행은 다시 고르게 한다(다음 저장이 0 으로 덮는다). 0 은 정상 값이라 로그 없음
+        if (result.job == 0 || _gameDataFiles.Jobs().Has(result.job))
+            place.job = result.job;
+        else
+            SLOG_WARN("[JOB] 표에 없는 직업 -> 다시 고름 (account={}, job={})", result.accountId, result.job);
         place.hp    = result.hp;   // 최대치로 깎기는 SpawnPlayer 가 한다(최대치가 장비·레벨 정산 뒤에 선다)
         place.mp    = result.mp;
 #if USE_INVENTORY
@@ -320,10 +325,10 @@ CPlayer* CEntryHandler::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t 
     if (_playerSpeed > 0)
         player->_speed = _playerSpeed;   // 게임용 속도 — 0 이면 생성자의 25~50 무작위(부하 시험 기준) 그대로
 #if USE_SKILL
-    // 기술 목록 — 표의 사람 기술 전부(배우기가 생기기 전 규칙 · SkillTable.csv 머리글 「Every player has every player skill」).
+    // 기술 목록 — 표에서 내 직업의 사람 기술(job 칸 · 아직 안 고른 사람은 공용 줄만 — 고르는 순간 CJobHandler 가 채운다).
     //   ★ 아래 쿨타임 되살리기(RestoreCooldownsAndBuffs)보다 앞이다 — 되살리기는 목록에 있는 기술에만 쿨타임을 건다.
     //   배운 기술 저장은 배우기가 생길 때(지금은 들어올 때마다 표에서 다시 채운다).
-    for (int32_t skillId : _gameDataFiles.Skill().PlayerSkillIds())
+    for (int32_t skillId : _gameDataFiles.Skill().PlayerSkillIdsOf(place.job))
         player->_attack.AddSkill(skillId);
 #endif
 
@@ -344,6 +349,7 @@ CPlayer* CEntryHandler::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t 
     //   값이 서 있어야 하기 때문이다(그 빌드에선 늘 기본값 1·0 이고 메모리에서만 돈다).
     player->_level = place.level;
     player->_exp   = place.exp;
+    player->_job   = place.job;
 
 #if USE_DB_WORKER
     // 계정 번호 — USE_LOGIN=1 이면 입장 요청(C2S_ENTER_GAME)에서 받은 값(0 이면 actorId 로 자동 발급),
@@ -352,6 +358,7 @@ CPlayer* CEntryHandler::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t 
     // 새 캐릭터·시작 위치면 true(첫 주기에 저장 → 신규 행 INSERT 유도), DB 에서 불러온 자리 그대로면 false
     player->_dbDirty   = place.dbDirty;
     // DB 가 들고 있는 값 — 아래 레벨 정산·체력 깎기가 바꾼 몫은 다음 주기 판정(ShouldSave)이 이 값과 견주어 싣는다.
+    player->_dbSaved.job   = place.job;
     player->_dbSaved.level = place.level;
     player->_dbSaved.exp   = place.exp;
     player->_dbSaved.hp    = place.hp;

@@ -48,6 +48,8 @@ public:
     // 본인에게 최종 공격력·방어력(S2C_MY_STATS) — 입장(NotifyArrival) · 그 밖에 바뀐 틱 끝(CStatSync — 레벨업·끼우기·빼기·GM·지속 효과). 세는 곳도 여기 한 곳.
     //   존 이동 때는 안 보낸다 — 값이 안 바뀌고, 웹은 판을 안 비우며, 콘솔은 이 값을 안 그린다.
     void SendMyStats(CPlayer* player);
+    // 내 직업 — 입장 때 한 장(NotifyArrival) · 고르기 요청의 답(CJobHandler). 토글 없음
+    void SendMyJob(CPlayer* player);
 
     // 본인에게 버프 하나(S2C_ACTOR_BUFF) — 안 걸려 있으면 remainMs 0(풀림). 세는 곳도 여기 한 곳.
     //   ★ 본인 전용이다 — BroadcastAroundSector 로 보내지 말 것(Protocol.h MSG_S2C_ACTOR_BUFF).

@@ -171,6 +171,12 @@ private:
             ss << "mmo_portal_rejected_total{reason=\"" << PortalRejectName(static_cast<PortalReject>(i)) << "\"} "
                << _gameMonitor._portal._rejected[i] << "\n";
         ss << "\n";
+        // 직업 고르기 — 토글 없음. 결과 표를 돈다(늘린 결과가 자동으로 나온다)
+        ss << "# HELP mmo_job_choose_total C2S_CHOOSE_JOB received, split by result (one job per character, once)\n";
+        ss << "# TYPE mmo_job_choose_total counter\n";
+        for (int i = 0; i < static_cast<int>(JobChoose::COUNT); ++i)
+            ss << "mmo_job_choose_total{result=\"" << JobChooseName(static_cast<JobChoose>(i)) << "\"} " << _gameMonitor._job._choose[i] << "\n";
+        ss << "\n";
         // 채팅 명령 — 토글 없음(명령 틀은 늘 있고 명령 줄만 토글을 본다 — GameMonitor.h _chat). 사유 표를 돈다(늘어도 안 빠진다)
         ss << "# HELP mmo_chat_command_rejected_total Chat commands ('/'-prefixed) refused, split by reason\n";
         ss << "# TYPE mmo_chat_command_rejected_total counter\n";

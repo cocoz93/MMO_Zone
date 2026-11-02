@@ -71,6 +71,7 @@ public:
         int32_t hp    = 0;
         int32_t mp    = 0;
         int64_t money = 0;   // 가진 돈 — 가방을 끈 빌드는 늘 0 끼리 견준다(CCharacterStore::MakeCharRow)
+        int32_t job   = 0;
 #if USE_SKILL
         uint64_t skillReadyFrame[MAX_SKILL_BOOK] = {};      // _attack._skillBook 의 readyFrame 사본 — 칸 = 목록 자리(목록은 입장 때 한 번 채우고 순서가 안 바뀐다)
 #endif
@@ -102,6 +103,10 @@ public:
     //   그래서 레벨업 판정이 한 줄이고, 한 번에 여러 레벨이 올라도 넘친 경험치가 안 사라진다.
     int32_t _level = 1;
     int64_t _exp   = 0;
+
+    // ── 직업 ── JobTable.csv 번호. 0 = 아직 안 고름(입장은 된다 — 공용 기술만, 스탯은 기본 직업 줄). 정해지면 안 바뀐다(CJobHandler).
+    //   CCharacter 에 안 올리는 이유는 레벨과 같다. 직업이 가르는 값은 표에 있고 이 칸은 번호뿐이다(JobTable.h [클래스 없음]).
+    int32_t _job = 0;
 
 #if USE_PARTY
     // ── 파티 ── 0 = 파티 없음. 쓰는 곳은 CPartySystem 뿐이다(가입·빠짐·해산). 저장하지 않는다(접속마다 0 — 끊기면 파티에서 빠진다).

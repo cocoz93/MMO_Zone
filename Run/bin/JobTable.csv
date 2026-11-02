@@ -1,0 +1,16 @@
+# Job table - design data, read once at startup (CJobTable). The web client reads the same file.
+#   UTF-8 without BOM (names are Korean). No commas inside a cell.
+#   One row = one job the player can pick once, on first entering the game. It can't be changed afterwards.
+#   There are no job classes in the code - what a job changes lives in two other tables:
+#     LevelTable.csv job cell = its stats per level. SkillTable.csv job cell = its skills.
+#   Adding a job = one row here + rows in those two tables. No code change.
+#   jobId : 1..64. A name tag, not an array index - gaps are fine. 0 means "not picked yet" and can't be a row.
+#           Job 1 must exist: a character who has not picked yet has job 1's stats (and no job skills),
+#           and a job with no rows in LevelTable.csv uses job 1's rows.
+#   name  : shown in the choosing window.
+#   Names are working names. Values in LevelTable.csv for jobs 2-4 are placeholders (2026-11-02).
+jobId,name
+1,전사
+2,도적
+3,마법사
+4,도사

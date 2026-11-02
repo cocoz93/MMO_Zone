@@ -155,6 +155,16 @@ namespace
 #endif // USE_SKILL
 }
 
+void CSelfNotifier::SendMyJob(CPlayer* player)
+{
+    CSerialBuffer* buf = CSerialBuffer::Alloc();
+    BeginPacket(buf, MSG_S2C_MY_JOB::TYPE);
+    *buf << static_cast<uint16_t>(player->_job);
+    FinalizePacket(buf);
+    assert(buf->GetDataSize() == sizeof(MSG_S2C_MY_JOB));
+    _sessionHub.SendPacket(player, buf);
+}
+
 // ==========================================================================
 // 스탯·경험치 보내기 — 세우는 규칙은 CStatSystem(StatSystem.cpp), 여기는 결과를 패킷으로만
 // ==========================================================================

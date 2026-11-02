@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS characters (
     skill_cooldowns VARBINARY(255) NOT NULL DEFAULT '',
     buffs           VARBINARY(255) NOT NULL DEFAULT '',
     money      BIGINT      NOT NULL DEFAULT 0,
+    job        INT         NOT NULL DEFAULT 0,
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
                            ON UPDATE CURRENT_TIMESTAMP(3)
 ) ENGINE=InnoDB;
@@ -53,6 +54,10 @@ CREATE TABLE IF NOT EXISTS characters (
 --   Saved with the row (a buy or sell changes slots and money in ONE transaction - the save bundle).
 --   A value out of range is not loaded (the character starts with 0 and the server logs the account and the
 --   old value) - the server never writes one, so it only appears after a hand edit or a broken row.
+
+-- job = the character's job (JobTable.csv jobId). 0 = not chosen yet -> the server sends 0 on enter and the web
+--   shows the choosing window. Set once by C2S_CHOOSE_JOB and saved at that moment; it never changes after that.
+--   Rows from before this column: once_job_20261102.sql gives each one a random job.
 
 -- ==========================================================================
 -- Upgrades for a database created before the column existed.
@@ -114,6 +119,14 @@ SET @add_money := (SELECT IF(COUNT(*) = 0,
     WHERE TABLE_SCHEMA = 'gamedb' AND TABLE_NAME = 'characters' AND COLUMN_NAME = 'money');
 PREPARE s FROM @add_money; EXECUTE s; DEALLOCATE PREPARE s;
 
+-- job default 0 (= not chosen) - see the note under the table.
+SET @add_job := (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE characters ADD COLUMN job INT NOT NULL DEFAULT 0 AFTER money',
+    'DO 0')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = 'gamedb' AND TABLE_NAME = 'characters' AND COLUMN_NAME = 'job');
+PREPARE s FROM @add_job; EXECUTE s; DEALLOCATE PREPARE s;
+
 -- ==========================================================================
 -- Inventory (USE_INVENTORY) - one row per bag slot.
 --   slot = slot number from Protocol.h INV_TAB_RANGES (equip 0.., use 100.., etc 200..).
@@ -140,13 +153,13 @@ CREATE TABLE IF NOT EXISTS inventory (
 --     + one slot UPSERT per changed slot.
 --     Two or more statements are wrapped in START TRANSACTION ... COMMIT (ROLLBACK on error);
 --     a single statement (row only, or one slot only) runs alone (autocommit).
---     INSERT INTO characters (account_id,x,y,map_id,level,exp,hp,mp,skill_cooldowns,buffs,money)
---       VALUES (?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE x=?,y=?,map_id=?,level=?,exp=?,hp=?,mp=?,skill_cooldowns=?,buffs=?,money=?
+--     INSERT INTO characters (account_id,x,y,map_id,level,exp,hp,mp,skill_cooldowns,buffs,job,money)
+--       VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE x=?,y=?,map_id=?,level=?,exp=?,hp=?,mp=?,skill_cooldowns=?,buffs=?,job=?,money=?
 --       (money only in a build with the bag - USE_INVENTORY)
 --     INSERT INTO inventory (account_id,slot,item_id,count) VALUES (?,?,?,?)
 --       ON DUPLICATE KEY UPDATE item_id=?, count=?
 --   Load:
---     SELECT x,y,map_id,level,exp,hp,mp,skill_cooldowns,buffs,money FROM characters WHERE account_id=?
+--     SELECT x,y,map_id,level,exp,hp,mp,skill_cooldowns,buffs,job,money FROM characters WHERE account_id=?
 --   Inventory load (second statement of the same load job, run even when the
 --   character row is missing - see DBWorker.cpp RunLoadOnce):
 --     SELECT slot,item_id,count FROM inventory WHERE account_id=? AND item_id<>0 ORDER BY slot

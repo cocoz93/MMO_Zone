@@ -103,6 +103,7 @@ bool CCharacterStore::CharRowChanged(const CPlayer* player) const
     const DBCharRow now = MakeCharRow(player);
     const CPlayer::DbSavedValues& saved = player->_dbSaved;
     return now.level != saved.level || now.exp != saved.exp || now.hp != saved.hp || now.mp != saved.mp
+        || now.job != saved.job        // 직업 — 고를 때 틱 끝 저장(SaveReason::JOB)이 먼저 실어 보통 여기 안 걸린다. 그 저장이 실패했을 때 다음 주기가 잡는다
         || now.money != saved.money;   // 돈 — 바뀌는 자리가 여럿(줍기·보상·명령·사고팔기)이라 체력·경험치처럼 값으로 본다(Inventory.h [돈])
 }
 
@@ -115,6 +116,7 @@ DBCharRow CCharacterStore::MakeCharRow(const CPlayer* player) const
     row.mapId     = CMapManager::GetMapIdFromZoneId(player->_zoneId);
     row.level     = player->_level;
     row.exp       = player->_exp;
+    row.job       = player->_job;
     // 체력·마력 — 값을 세우는 코드가 없는 빌드에선 「모름」을 싣는다. 0 을 실으면 다음 입장이 죽은 채 저장된 행으로 읽는다.
 #if USE_COMBAT
     row.hp        = player->_health.Hp();
@@ -143,6 +145,7 @@ void CCharacterStore::RecordSaved(CPlayer* player, const DBCharRow& row)
     player->_dbSaved.hp      = row.hp;
     player->_dbSaved.mp      = row.mp;
     player->_dbSaved.money   = row.money;
+    player->_dbSaved.job     = row.job;
     // 쿨타임은 잡의 바이트가 아니라 칸(틱)을 사본으로 남긴다 — 같은 틱에 만든 잡이라 내용은 같다(까닭은 CooldownsAndBuffsChanged)
     RecordSavedCooldowns(player);
 }

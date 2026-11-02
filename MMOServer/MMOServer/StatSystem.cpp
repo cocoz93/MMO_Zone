@@ -122,9 +122,9 @@ void CStatSystem::BuildStats(CCharacter* character, bool refill)
         const CLevelTable& table = _tables.Level();
         CHealthComponent& health = player->_health;
         CAttackComponent& attack = player->_attack;
-        health.SetMaxHp(table.MaxHp(player->_level));
-        attack._attackPower = table.AttackPower(player->_level);
-        health.SetDefense(table.Defense(player->_level));
+        health.SetMaxHp(table.MaxHp(player->_job, player->_level));
+        attack._attackPower = table.AttackPower(player->_job, player->_level);
+        health.SetDefense(table.Defense(player->_job, player->_level));
         // GM 모드(운영자 /gm) — 최대 체력·공격력의 바탕만 GM 값으로 바꾼다. 방어력·마력은 레벨 표 그대로,
         //   장비 몫·지속 효과는 아래에서 그 위에 그대로 얹는다(끼우거나 효과가 걸려도 GM 이 안 풀린다).
         if (player->_gmMode)
@@ -133,7 +133,7 @@ void CStatSystem::BuildStats(CCharacter* character, bool refill)
             attack._attackPower = CPlayer::GM_ATTACK;
         }
 #if USE_SKILL
-        attack.SetMaxMp(table.MaxMp(player->_level));   // 장비 몫은 없다 — 마력을 올리는 아이템이 아직 없다
+        attack.SetMaxMp(table.MaxMp(player->_job, player->_level));   // 장비 몫은 없다 — 마력을 올리는 아이템이 아직 없다
 #endif
 
 #if USE_EQUIP

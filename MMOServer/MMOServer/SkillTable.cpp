@@ -7,6 +7,7 @@
 #include <Common/ErrorLog.h>
 
 #include "GameDataCsv.h"
+#include "JobTable.h"     // job 칸 대조
 #include "LevelTable.h"   // costMp 상한 — 닿을 수 있는 최대 마력(USE_SKILL 은 USE_COMBAT 을 요구하므로 레벨 표가 늘 있다)
 #include "BuffTable.h"    // 효과 buff 줄의 버프 번호 대조 — 같은 까닭으로 늘 있다
 
@@ -85,7 +86,7 @@ namespace
     }
 }
 
-bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const CBuffTable& buffs)
+bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const CBuffTable& buffs, const CJobTable& jobs)
 {
     _rows.clear();
     _rowById.clear();
@@ -93,12 +94,7 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
 
     // 사람이 닿을 수 있는 가장 큰 최대 마력 — costMp 가 이보다 크면 어느 레벨에서도 못 쓴다(아래 ⑺).
     //   만렙 값이 아니라 전 레벨의 최댓값이다 — 표가 레벨마다 늘지 않아도 맞게.
-    int32_t highestMaxMp = 0;
-    for (int32_t level = 1; level <= levels.MaxLevel(); ++level)
-    {
-        const int32_t mp = levels.MaxMp(level);
-        highestMaxMp = (mp > highestMaxMp) ? mp : highestMaxMp;   // std::max 는 윈도 헤더의 max 매크로에 먹힌다
-    }
+    const int32_t highestMaxMp = levels.HighestMaxMp();
 
     std::vector<DataLine> lines;
     if (!ReadDataLines(path, lines))
@@ -126,6 +122,7 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
         //   front·self 사람 줄은 여덟, 어검술·광역기 줄은 아홉, 몬스터 스킬 줄은 열 칸으로 온다(여덟만 요구하고 나머지는 비면 빈 것으로 본다)
         const std::string areaText     = (cell.size() > 8) ? cell[8] : std::string();
         const std::string userText     = (cell.size() > 9) ? cell[9] : std::string();
+        const std::string jobText      = (cell.size() > 10) ? cell[10] : std::string();   // 열한째 — 빈 칸 = 모든 직업(공용 기술)
 
         int64_t skillId = 0, costHpPct = 0, power = 0, cooldownMs = 0, costMp = 0;
         if (!ParseInt(cell[0], skillId) || !ParseInt(cell[4], costHpPct) || !ParseInt(cell[5], power) || !ParseInt(cell[6], cooldownMs) ||
@@ -181,6 +178,22 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
             if (user == SkillUser::COUNT)
             {
                 SLOG_ERROR("[SkillTable] {}줄: 모르는 user \"{}\" — player · monster 중 하나이거나 비워야 합니다 (스킬 {})", dl.fileLine, userText, skillId);
+                return false;
+            }
+        }
+
+        // ⑶-3 직업 — 빈 칸은 모든 직업. 표에 없는 번호는 거부(아무도 못 쓰는 기술이 조용히 생긴다) · 몬스터 줄은 비운다
+        int64_t job = 0;
+        if (!jobText.empty())
+        {
+            if (!ParseInt(jobText, job) || !jobs.Has(static_cast<int32_t>(job)))
+            {
+                SLOG_ERROR("[SkillTable] {}줄: job \"{}\" 가 직업 표(JobTable.csv)에 없습니다 (스킬 {})", dl.fileLine, jobText, skillId);
+                return false;
+            }
+            if (user == SkillUser::MONSTER)
+            {
+                SLOG_ERROR("[SkillTable] {}줄: user monster 줄은 job 을 비워야 합니다 (스킬 {})", dl.fileLine, skillId);
                 return false;
             }
         }
@@ -324,7 +337,7 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
             return false;   // 위 ⑶ 이 이미 걸렀다 — 여기 오지 않는다
         }
 
-        // ⑼ 사람 기술 수 — 사람은 사람 기술 전부를 기술 목록에 든다(입장 때). 목록이 DB 쿨타임 묶음에 들어가야 한다(MAX_SKILL_BOOK)
+        // ⑼ 사람 기술 수 — 사람은 자기 직업의 사람 기술을 기술 목록에 든다(입장 때). 줄 수 전체로 막으면 한 사람 목록이 DB 쿨타임 묶음을 넘는 일이 없다(MAX_SKILL_BOOK)
         if (user == SkillUser::PLAYER && static_cast<int32_t>(_playerSkillIds.size()) >= MAX_SKILL_BOOK)
         {
             SLOG_ERROR("[SkillTable] {}줄: 사람 기술이 {} 개를 넘습니다 — 한 캐릭터의 기술 목록 상한(MAX_SKILL_BOOK · DB 묶음 크기) (스킬 {})",
@@ -344,6 +357,7 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
         d.target         = target;
         d.effect         = effect;
         d.user           = user;
+        d.job            = static_cast<int32_t>(job);
         d.costHpPct      = static_cast<int32_t>(costHpPct);
         d.costMp         = static_cast<int32_t>(costMp);
         d.power          = static_cast<int32_t>(power);
@@ -357,6 +371,17 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
 
     SLOG_INFO("[SkillTable] {} — 스킬 {}개 (사람 {}개)", path, _rows.size(), _playerSkillIds.size());
     return true;
+}
+
+std::vector<int32_t> CSkillTable::PlayerSkillIdsOf(int32_t job) const
+{
+    std::vector<int32_t> ids;
+    for (const SkillDef& d : _rows)
+    {
+        if (d.user == SkillUser::PLAYER && (d.job == 0 || d.job == job))
+            ids.push_back(d.skillId);
+    }
+    return ids;
 }
 
 #endif // USE_SKILL

@@ -304,21 +304,47 @@ inline const char* SaveTriggerName(SaveTrigger t)
 }
 
 // 틱 끝 요청의 사유 — 같은 틱에 한 사람이 여럿 올라와도 목록엔 한 번(그 중복은 안 센다).
+// 직업 고르기 결과 — 칸마다 지표 라벨 하나
+enum class JobChoose : uint8_t
+{
+    OK,        // 정해졌다
+    ALREADY,   // 이미 고른 캐릭터
+    BAD_JOB,   // 표에 없는 번호
+    DEAD,      // 쓰러진 채
+    COUNT
+};
+
+inline const char* JobChooseName(JobChoose r)
+{
+    static_assert(static_cast<int>(JobChoose::COUNT) == 4, "JobChoose 를 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case JobChoose::OK:      return "ok";
+    case JobChoose::ALREADY: return "already";
+    case JobChoose::BAD_JOB: return "bad_job";
+    case JobChoose::DEAD:    return "dead";
+    case JobChoose::COUNT:   break;
+    }
+    return "unknown";
+}
+
 enum class SaveReason : uint8_t
 {
     BAG,       // 가방이 바뀌었다(FlushInventory)
     LEVELUP,   // 레벨이 올랐다(GrantMonsterExp)
+    JOB,       // 직업을 골랐다(CJobHandler)
     AGAIN,     // 비행 중에 계기가 와서 다시 필요가 섰다 — 성공 회신 때
     COUNT
 };
 
 inline const char* SaveReasonName(SaveReason r)
 {
-    static_assert(static_cast<int>(SaveReason::COUNT) == 3, "SaveReason 을 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(SaveReason::COUNT) == 4, "SaveReason 을 늘렸으면 이름도 붙일 것");
     switch (r)
     {
     case SaveReason::BAG:     return "bag";
     case SaveReason::LEVELUP: return "levelup";
+    case SaveReason::JOB:     return "job";
     case SaveReason::AGAIN:   return "again";
     case SaveReason::COUNT:   break;
     }
@@ -886,6 +912,14 @@ public:
         Counter _used;                              // 포털로 옮겨 감
         Counter _rejected[PORTAL_REJECT_COUNT];     // 거절, 사유별(PortalReject)
     } _portal;
+
+    // ═════════════════════════════════════════
+    // 직업 고르기 — 세는 곳은 CJobHandler::RecvChooseJob 한 곳. 칸의 합 = 받은 C2S_CHOOSE_JOB 수. 토글 없음(직업 칸이 늘 있다)
+    // ═════════════════════════════════════════
+    struct alignas(64) JobCounters
+    {
+        Counter _choose[static_cast<int>(JobChoose::COUNT)];
+    } _job;
 
     // ══════════════════════════════════════════════════════════════
     // 채팅 명령 — 세는 곳은 CCommandHandler(명령 표 · /gm · /die · /item 의 인자 거절 · 10-26 CChatHandler 에서 떼어 냄).

@@ -154,6 +154,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/TradeHandler.cpp
     ${SRV_DIR}/MoveHandler.cpp
     ${SRV_DIR}/EntryHandler.cpp
+    ${SRV_DIR}/JobHandler.cpp
     ${SRV_DIR}/ChatHandler.cpp
     ${SRV_DIR}/CommandHandler.cpp
     ${SRV_DIR}/MapManager.cpp
@@ -194,6 +195,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/SpawnRegionTable.cpp
     ${SRV_DIR}/DropTable.cpp
     ${SRV_DIR}/BuffTable.cpp
+    ${SRV_DIR}/JobTable.cpp
     ${SRV_DIR}/SkillTable.cpp
     ${SRV_DIR}/MonsterSkillTable.cpp
     ${SRV_DIR}/DB/DBWorker.cpp

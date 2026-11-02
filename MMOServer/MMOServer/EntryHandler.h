@@ -121,6 +121,7 @@ private:
         float   y       = 0.0f;
         bool    dbDirty = true;    // 스폰 자리를 다음 주기에 저장할까 (DB 와 같은 값으로 들어왔으면 false)
         int32_t level   = 1;       // 불러온 값. 새 캐릭터·못 읽음이면 기본값 그대로
+        int32_t job     = 0;       // 불러온 직업(표에 있는 번호) — 0 = 아직 안 고름. 새 캐릭터·못 읽음·표에 없는 번호면 0
         int64_t exp     = 0;
         int32_t hp      = DB_HP_MP_UNSAVED;   // 불러온 체력 — 모름(-1)이면 가득. 죽은 채 저장된 0 은 판정하는 쪽이 부활 규칙대로 바꿔 넘긴다
         int32_t mp      = DB_HP_MP_UNSAVED;   // 불러온 마력 — 모름(-1)이면 가득

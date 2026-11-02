@@ -4,6 +4,7 @@
 
 #include "BuildConfig.h"
 #include "MapTable.h"
+#include "JobTable.h"
 #include "PortalTable.h"
 #include "LevelTable.h"
 #include "ItemTable.h"
@@ -54,6 +55,7 @@ public:
     bool LoadAll(const std::string& dir);
 
     const CMapTable& Maps() const { return _map; }
+    const CJobTable& Jobs() const { return _job; }   // 토글 없음 — 캐릭터의 직업 칸·DB 열이 늘 있다(JobTable.h)
     const CPortalTable& Portals() const { return _portal; }
     const CNpcTable& Npcs() const { return _npc; }   // 토글 없음 — 맵·포털과 같은 세계 데이터(NpcTable.h [토글 없음])
     const CBlockTable& Blocks() const { return _block; }   // 토글 없음 — 막힌 칸. 존이 자기 맵의 CWalkGrid 를 꺼낸다(CZone::Init)
@@ -85,6 +87,7 @@ public:
 #endif
 
 private:
+    CJobTable _job;   // 토글 없음 — 레벨 표·스킬 표의 job 칸이 대조한다
     CMapTable _map;   // 맨 먼저 읽는다 — 스폰 표가 맵 번호·크기를 이 표와 대조한다(LoadAll 순서)
     CPortalTable _portal;   // 맵 표 바로 다음 — 맵 표만 대조한다. 토글 없음(PortalTable.h [토글 없음])
 #if USE_COMBAT

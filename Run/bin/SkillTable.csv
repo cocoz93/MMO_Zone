@@ -1,8 +1,8 @@
 # Skill table - design data, read once at startup (CSkillTable). The web client reads the same file.
 #   UTF-8 without BOM (names are Korean). No commas inside a cell.
-#   One row = one skill. Every player has every player skill (no classes yet). A row whose user cell is monster is for monsters only (see user below).
+#   One row = one skill. A player has the player rows of their job (job cell below). A row whose user cell is monster is for monsters only (see user below).
 #   skillId    : 1..65535 (MAX_SKILL_ID - u16 on the wire). A name tag, not an array index - gaps are fine. At most 64 rows (MAX_SKILL_ROWS)
-#                and at most 24 player rows (MAX_SKILL_BOOK - every player carries all of them and the DB cooldown blob must hold them).
+#                and at most 24 player rows (MAX_SKILL_BOOK - the DB cooldown blob must be able to hold one player's skills).
 #   target     : front = the nearest monster in front, same range and facing as a normal attack. Players are never hit.
 #                shape = every monster standing on a cell listed in the area column - several can be hit, and two on one cell are both hit.
 #                self  = the caster (no target search, so never NO_TARGET) - what buffs use.
@@ -31,17 +31,18 @@
 #                refused as NOT_FOR_CASTER and shows to the player as BAD_SKILL). Which monster casts what is in MonsterSkill.csv.
 #                A monster row needs costHpPct 0 and costMp 0 (monsters have no mana and must not pay hp) - MonsterSkill.csv checks it.
 #                The web must not show monster rows in the skill bar. A monster row without an area cell ends with ",,monster" (empty area cell, then user).
+#   job        : 11th cell - the job that has this skill (JobTable.csv), or empty = every job, even before picking one. Monster rows leave it empty.
 #   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
 #   5 Rage = first the boss Guryungi's (monster 2, 2026-10-15), now also the Snake King's (monster 3, 2026-10-18): attack x2 for 10s, cooldown 30s.
 #     ROUGH value carried over from the stage-1 test. When it is cast: MonsterSkill.csv.
 #     Guryungi is a beginner boss and has no damage skill (Strike removed 2026-10-15). An unused id is fine (the loader allows holes).
 #   6 Revive = the Snake King's (monster 3, 2026-10-18): brings back the dead fake snake kings (monster 4), as many as are dead. Cooldown 20s.
 #   4 and 7 names are working names (2026-10-31) - to be decided with the skill rename. costMp 10 is a placeholder, same as the other skills.
-skillId,name,target,effect,costHpPct,power,cooldownMs,costMp,area,user
-1,백호참,front,damage,50,100,480,10
-2,어검술,shape,damage,50,50,20000,10,1:0;2:-1;2:0;2:1
-3,이중공격,self,buff,0,1,60000,10
-4,광역기,around,damage,50,100,180000,10,15
+skillId,name,target,effect,costHpPct,power,cooldownMs,costMp,area,user,job
+1,백호참,front,damage,50,100,480,10,,player,1
+2,어검술,shape,damage,50,50,20000,10,1:0;2:-1;2:0;2:1,player,1
+3,이중공격,self,buff,0,1,60000,10,,player,1
+4,광역기,around,damage,50,100,180000,10,15,player,1
 5,격노,self,buff,0,2,30000,0,,monster
 6,되살리기,self,revive,0,4,20000,0,,monster
-7,체력·마나 버프,self,buff,0,3,180000,10
+7,체력·마나 버프,self,buff,0,3,180000,10,,player,1

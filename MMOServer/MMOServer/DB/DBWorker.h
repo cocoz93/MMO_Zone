@@ -90,6 +90,7 @@ struct DBCharRow
     int32_t mp;      // 현재 마력 — 같은 규칙
     DBBytes<DB_SKILL_COOLDOWNS_BYTES> skillCooldowns;   // 돌고 있는 스킬 쿨타임 묶음 — 빈 값 = 없음(스킬을 끈 빌드도 빈 값)
     DBBytes<DB_BUFFS_BYTES>           buffs;            // 걸려 있는 버프 묶음 — 같은 규칙(전투를 끈 빌드도 빈 값)
+    int32_t job;     // 직업(JobTable.csv) — 0 = 아직 안 고름
     int64_t money;   // 가진 돈(전) — 열은 가방을 켠 빌드만 쓴다(DBWorker.cpp kCharColumns). 칸은 늘 있어 열 표의 offsetof 가 빌드마다 같다
 };
 
@@ -231,6 +232,7 @@ struct DBResult
     int32_t      mp;
     DBBytes<DB_SKILL_COOLDOWNS_BYTES> skillCooldowns;   // 바이트 그대로 — 검사·풀기는 게임 스레드(SpawnPlayer). len > 버퍼 = 잘림(불량)
     DBBytes<DB_BUFFS_BYTES>           buffs;
+    int32_t      job;         // DB 값 그대로 — 표에 있는 번호인지는 게임 스레드(OnCharacterLoaded)가 본다
     int64_t      money;       // DB 값 그대로 — 범위(0~MONEY_MAX) 검사는 게임 스레드(CCharacterStore::LoadInventoryRows — 망가진 값은 안 넣는다)
 #if USE_INVENTORY
     // ↓ FOUND·NOT_FOUND 둘 다 유효 — 캐릭터 행이 없어도 가방은 읽는다(칸만 쓰는 묶음은 행이 이미 써진 뒤에만 나오지만 —
