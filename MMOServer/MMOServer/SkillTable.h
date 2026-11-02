@@ -39,6 +39,9 @@ struct ShapeCell
 //   이 값을 넘기면 시전자 클라가 모르는 적이 맞을 수 있다.
 constexpr int32_t MAX_AROUND_RADIUS = 20;
 
+// 대상 지정 기술이 대상을 찾아 훑는 반경 — 클라가 받는 시야(60칸)다. 사거리가 아니다 — 이 안에서 찾은 뒤 사거리를 따로 본다(사거리 밖과 없음을 가른다)
+constexpr float TARGET_SEEK_RADIUS = 60.0f;
+
 constexpr int32_t MAX_SHAPE_REACH = 5;    // 칸 하나가 닿는 거리 상한(앞·옆 각각) — 오타를 거르는 값
 constexpr int32_t MAX_SHAPE_CELLS = 16;   // 한 스킬의 칸 수 상한
 
@@ -118,6 +121,7 @@ enum class SkillTarget : uint8_t
     SHAPE,   // 칸 목록 — 표의 area 칸(시전자 기준 앞:옆)에 선 상대 전부(IsInShape). 한 칸에 여럿이면 다 맞는다. 상대 종류는 FRONT 와 같다
     SELF,    // 자기 자신 — 후보를 안 찾는다(비는 일이 없어 NO_TARGET 이 안 난다). 지속 효과(버프)가 쓴다. 남에게 거는 버프는 대지의기원 때 늘린다
     AROUND,  // 시전자 둘레 반경 안의 상대 전부(IsInAround) — 반경은 표의 area 칸. 방향을 안 본다. 상대 종류는 FRONT 와 같다. 사람 스킬만(표 읽기가 막는다)
+    TARGET,  // 화면에서 고른 상대 하나(C2S_USE_SKILL 의 번호) — 사거리는 표의 area 칸, 재는 법은 AROUND 와 같다. 방향을 안 본다. 사람 스킬만(표 읽기가 막는다)
     COUNT
 };
 
@@ -174,7 +178,7 @@ struct SkillDef
     uint64_t    cooldownFrames = 0;   // 쿨타임(틱) — ms 를 올림해서 담는다(짧아지지 않게)
     std::vector<ShapeCell> shape;     // SHAPE 의 칸 목록(다른 대상 종류는 빈 목록)
     float       shapeReach     = 0.0f;   // ShapeReach(shape) — 대상 찾기가 훑을 반경(몸 크기는 ShapeScanRadius 가 더한다). 표 읽기가 한 번 센다
-    int32_t     aroundRadius   = 0;      // AROUND 의 반경(칸) — 1~MAX_AROUND_RADIUS. 다른 대상 종류는 0
+    int32_t     aroundRadius   = 0;      // AROUND 의 반경 · TARGET 의 사거리(칸) — 1~MAX_AROUND_RADIUS. 다른 대상 종류는 0
 };
 
 class CSkillTable

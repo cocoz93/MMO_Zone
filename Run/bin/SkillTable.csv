@@ -7,8 +7,10 @@
 #                shape = every monster standing on a cell listed in the area column - several can be hit, and two on one cell are both hit.
 #                self  = the caster (no target search, so never NO_TARGET) - what buffs use.
 #                around = every monster within the radius in the area column, any direction (player rows only).
-#   effect     : damage = hit the targets (target front, shape or around). buff = apply buff number "power" from BuffTable.csv (target must be self).
-#                damage_attack = hit the targets with the CASTER's attack x power % (hp does not enter the formula - monsters use it; target front, shape or around).
+#                target = the one monster the player picked on screen, any direction (player rows only). The client sends its number; the server checks it
+#                         is alive, a monster, in this zone and within the range in the area column. Too far is refused as OUT_OF_RANGE, gone as NO_TARGET.
+#   effect     : damage = hit the targets (target front, shape, around or target). buff = apply buff number "power" from BuffTable.csv (target must be self).
+#                damage_attack = hit the targets with the CASTER's attack x power % (hp does not enter the formula - monsters use it; target front, shape, around or target).
 #                revive = bring back the dead monsters of kind "power" in the caster's zone - one per empty spawn spot of that kind, born at the
 #                         server tick after the cast (target self, user monster only). A monster casts it only while at least one is dead (MonsterSkill.csv).
 #   costHpPct  : % of the CURRENT hp paid on cast, rounded down, at least 1 when above 0. 0..99.
@@ -25,6 +27,7 @@
 #                Measured from the caster's exact position, not snapped to tiles - cell k covers [k-0.5, k+0.5). Up to 16 cells, no repeats.
 #                target=around - the radius in tiles, 1..20 (the sector size - beyond it a monster off the caster's screen could be hit).
 #                Measured between the two bodies: centre distance - caster radius - target radius <= radius.
+#                target=target - the range in tiles, 1..20, measured like around.
 #                Must be empty for target=front or self - the cell may be left out (8 cells), since a trailing empty cell is dropped anyway.
 #   Eogeomsul (Lv1, full hp 800): pay 400, hit 400 on every monster in its 4 cells - 1 ahead, then 3 across the row after (inverted triangle).
 #   user       : 10th cell - player (or empty) | monster. Players may cast only player rows; monsters only monster rows (a wrong caster is

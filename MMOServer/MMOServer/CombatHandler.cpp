@@ -85,6 +85,7 @@ namespace
         case SkillReject::LOW_HP:    return SkillFail::LOW_HP;
         case SkillReject::LOW_MP:    return SkillFail::LOW_MP;
         case SkillReject::NO_TARGET: return SkillFail::NO_TARGET;
+        case SkillReject::OUT_OF_RANGE: return SkillFail::OUT_OF_RANGE;
         case SkillReject::COUNT:     break;
         }
         assert(false && "거절이 아닌 결과를 실패 패킷으로 바꾸려 했다");
@@ -259,7 +260,7 @@ void CCombatHandler::RecvUseSkill(CPlayer* player, CSerialBuffer* pMsg)
         return;
 
     // 거절이면 아무것도 안 바뀌었다(비용은 모든 검사 뒤에만 뗀다) — 사유만 본인에게
-    const SkillReject reject = _skillSystem.UseSkill(zone, player, recvMsg.skillId, _frameCount);
+    const SkillReject reject = _skillSystem.UseSkill(zone, player, recvMsg.skillId, _frameCount, recvMsg.targetActorId);
     if (reject != SkillReject::COUNT)
         _sessionHub.SendPacket(player, MakeSkillFail(recvMsg.skillId, ToSkillFail(reject)));
 }

@@ -54,6 +54,7 @@ enum class SkillReject : uint8_t
     COOLDOWN,    // 아직 쿨타임이다
     LOW_HP,      // 체력을 떼고 나면 1 미만이 된다 — 자기 스킬로는 안 죽는다
     LOW_MP,      // 마력이 비용보다 적다(몬스터는 마력이 0 이라 마력 드는 스킬이면 늘 여기 — 그래서 몬스터 스킬 표 읽기가 costMp 0 만 받는다)
+    OUT_OF_RANGE,// 대상 지정 기술의 대상이 사거리 밖이다(11-03)
     NO_TARGET,   // 맞을 상대가 없다(사람이 쓰면 몬스터만, 몬스터가 쓰면 사람만 맞는다)
     COUNT
 };
@@ -85,7 +86,8 @@ public:
 
     // 스킬 한 번 — 통과면 COUNT(비용을 떼고 효과까지 냈다), 아니면 거절 사유(아무것도 안 바뀌었다).
     //   skillId 는 와이어에서 온 값 그대로 넣어도 된다(표에 없으면 BAD_SKILL). frame = CGameServer::_frameCount.
-    SkillReject UseSkill(CZone* zone, CCharacter* caster, int32_t skillId, uint64_t frame);
+    //   targetActorId = 대상 지정 기술(SkillTarget::TARGET)의 대상 — 와이어 값 그대로 넣어도 된다(SelectTargets 가 다시 본다). 다른 기술은 안 본다.
+    SkillReject UseSkill(CZone* zone, CCharacter* caster, int32_t skillId, uint64_t frame, int32_t targetActorId = 0);
 
 private:
     // 1) 시전자 — 번호·가진 기술인가·생사·쿨타임·체력·마력. 통과면 COUNT 이고 outDef 에 스킬, outEntry 에 시전자 기술 목록의 그 항목
@@ -97,7 +99,7 @@ private:
                             CAttackComponent::SkillBookEntry*& outEntry, int32_t& outHpCost) const;
 
     // 2) 대상 축 — _targets 를 채운다. 하나도 없으면 NO_TARGET, 있으면 COUNT.
-    SkillReject SelectTargets(CZone* zone, CCharacter* caster, const SkillDef& def);
+    SkillReject SelectTargets(CZone* zone, CCharacter* caster, const SkillDef& def, int32_t targetActorId);
 
     // 6) 효과 축 — _targets 에 효과를 내고 버퍼를 비운다. hpBefore = 비용을 떼기 전 체력(피해 식의 바탕).
     void ApplyEffect(CZone* zone, CCharacter* caster, const SkillDef& def, int32_t hpBefore, uint64_t frame);

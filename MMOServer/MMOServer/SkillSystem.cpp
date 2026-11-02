@@ -37,7 +37,7 @@ CSkillSystem::CSkillSystem(const CGameDataFiles& tables, CGameMonitor& gameMonit
 {
 }
 
-SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skillId, uint64_t frame)
+SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skillId, uint64_t frame, int32_t targetActorId)
 {
     // 지표는 시전자 종류로 갈라 센다 — 사람 몫(_cast·_rejected·_hits)과 몬스터 몫(_monster*)이 따로다(일반 공격이 종류로 갈라 세는 것과 같은 꼴).
     //   안 가르면 몬스터(보스)의 시전이 사람 시전 수에 섞인다. 몬스터가 스킬을 부르는 곳은 CMonsterManager::Think 다.
@@ -57,7 +57,7 @@ SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skil
 
     // ── 2) 대상 고르기 — 없으면 NO_TARGET. 아직 아무것도 안 뗐다 ──
     if (reject == SkillReject::COUNT)
-        reject = SelectTargets(zone, caster, *def);
+        reject = SelectTargets(zone, caster, *def, targetActorId);
 
     if (reject != SkillReject::COUNT)
     {
@@ -124,7 +124,7 @@ SkillReject CSkillSystem::CheckCaster(const CHealthComponent& health, CAttackCom
     return SkillReject::COUNT;   // 통과
 }
 
-SkillReject CSkillSystem::SelectTargets(CZone* zone, CCharacter* caster, const SkillDef& def)
+SkillReject CSkillSystem::SelectTargets(CZone* zone, CCharacter* caster, const SkillDef& def, int32_t targetActorId)
 {
     _targets.clear();
 
@@ -180,6 +180,30 @@ SkillReject CSkillSystem::SelectTargets(CZone* zone, CCharacter* caster, const S
         {
             return !IsInAround(t->_x - casterX, t->_y - casterY, def.aroundRadius, casterRadius, t->_bodyRadius);
         }), _targets.end());
+        break;
+    }
+
+    case SkillTarget::TARGET:
+    {
+        // 화면에서 고른 대상 하나 — 번호는 클라가 보냈으니 믿지 않는다. 후보 목록(살아 있고 맞을 수 있는 상대)에 그 번호가 있어야 한다.
+        //   사거리 밖을 「대상 없음」과 가르려고 사거리보다 넓게(클라 시야) 훑는다 — 사람이 스킬을 쓸 때 한 번이라 값이 크지 않다.
+        //   못 찾으면 NO_TARGET(없는 번호 · 쓰러짐 · 시야 밖 · 다른 존 · 사람·NPC) · 찾았는데 멀면 OUT_OF_RANGE. 거리는 AROUND 와 같이 몸 가장자리 사이로 잰다.
+        _combat.CollectCandidates(zone, caster->_x, caster->_y, TARGET_SEEK_RADIUS, which, caster, _targets);
+        CCharacter* chosen = nullptr;
+        for (CCharacter* t : _targets)
+        {
+            if (t->_actorId == targetActorId)
+            {
+                chosen = t;
+                break;
+            }
+        }
+        _targets.clear();
+        if (chosen == nullptr)
+            return SkillReject::NO_TARGET;
+        if (!IsInAround(chosen->_x - caster->_x, chosen->_y - caster->_y, def.aroundRadius, caster->_bodyRadius, chosen->_bodyRadius))
+            return SkillReject::OUT_OF_RANGE;
+        _targets.push_back(chosen);
         break;
     }
 

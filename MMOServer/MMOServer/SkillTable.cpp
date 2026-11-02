@@ -19,7 +19,7 @@ using GameDataCsv::ParseInt;
 namespace
 {
     // 파일 글자 — SkillTarget · SkillEffect 순서 그대로. 줄 수가 모자라면 아래 단언이 컴파일을 막는다.
-    constexpr const char* TARGET_NAMES[] = { "front", "shape", "self", "around" };
+    constexpr const char* TARGET_NAMES[] = { "front", "shape", "self", "around", "target" };
     constexpr const char* EFFECT_NAMES[] = { "damage", "buff", "damage_attack", "revive" };
     constexpr const char* USER_NAMES[]   = { "player", "monster" };
     static_assert(sizeof(TARGET_NAMES) / sizeof(TARGET_NAMES[0]) == static_cast<size_t>(SkillTarget::COUNT),
@@ -160,7 +160,7 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
         const SkillTarget target = ParseName<SkillTarget>(cell[2], TARGET_NAMES);
         if (target == SkillTarget::COUNT)
         {
-            SLOG_ERROR("[SkillTable] {}줄: 모르는 target \"{}\" — front · shape · self · around 중 하나여야 합니다 (스킬 {})", dl.fileLine, cell[2], skillId);
+            SLOG_ERROR("[SkillTable] {}줄: 모르는 target \"{}\" — front · shape · self · around · target 중 하나여야 합니다 (스킬 {})", dl.fileLine, cell[2], skillId);
             return false;
         }
         const SkillEffect effect = ParseName<SkillEffect>(cell[3], EFFECT_NAMES);
@@ -320,15 +320,17 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
         }
 
         case SkillTarget::AROUND:
+        case SkillTarget::TARGET:
+            // 반경(around) · 사거리(target) — 같은 칸 · 같은 상한. 상한 뜻은 MAX_AROUND_RADIUS
             if (!ParseInt(areaText, aroundRadius) || aroundRadius < 1 || aroundRadius > MAX_AROUND_RADIUS)
             {
-                SLOG_ERROR("[SkillTable] {}줄: target around 의 area 칸은 반경 1~{} 이어야 합니다 — \"{}\" (스킬 {})", dl.fileLine, MAX_AROUND_RADIUS, areaText, skillId);
+                SLOG_ERROR("[SkillTable] {}줄: target {} 의 area 칸은 반경·사거리 1~{} 이어야 합니다 — \"{}\" (스킬 {})", dl.fileLine, cell[2], MAX_AROUND_RADIUS, areaText, skillId);
                 return false;
             }
             // 몬스터 쓰임은 막는다 — 몬스터 규칙의 maxDist 검사(MonsterSkillTable.cpp)가 칸 거리로만 짜여 있다. 쓰는 곳이 생기면 그때 연다
             if (user == SkillUser::MONSTER)
             {
-                SLOG_ERROR("[SkillTable] {}줄: target around 는 user monster 와 짝지을 수 없습니다 (스킬 {})", dl.fileLine, skillId);
+                SLOG_ERROR("[SkillTable] {}줄: target {} 는 user monster 와 짝지을 수 없습니다 (스킬 {})", dl.fileLine, cell[2], skillId);
                 return false;
             }
             break;
