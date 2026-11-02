@@ -708,9 +708,10 @@ function onPacket(p){
       const s=SKILLS.get(p.skillId);
       if(a){
         const selfCast = !!(s && s.target==='self');
-        a.dir=p.direction; a.castSkill=selfCast ? 0 : p.skillId;
+        const harmless = !!(s && (s.effect==='heal' || s.effect==='buff'));   // 회복·버프 — 베는 동작이 없다 · DAMAGE 도 안 온다(대상은 S2C_SKILL_EFFECT)
+        a.dir=p.direction; a.castSkill=(selfCast || harmless) ? 0 : p.skillId;
         a.castCells=null; a.castSelf=false; a.castAround=0;
-        if(!selfCast) a.atkT=slashLen();   // 앞·범위 스킬은 베는 동작 · 자기 시전(이중공격 · 몬스터 격노·되살리기)은 안 벤다
+        if(!selfCast && !harmless) a.atkT=slashLen();   // 앞·범위 스킬은 베는 동작 · 자기 시전(이중공격 · 몬스터 격노·되살리기)은 안 벤다
         const fx=SKILL_FX.get(p.skillId);                                 // 표에 줄이 있으면 그림이 칸·고리를 대신한다 — 주변 기술의 반경 원만 남는다(그림에 반경을 안 담아서 범위는 원이 보여 준다)
         if(s && s.target==='shape' && s.shape.length){ if(!fx){ a.castT=CAST_LIFE; a.castCells=s.shape; } }
         else if(s && s.target==='around'){ a.castT=CAST_LIFE; a.castAround=s.radius; }
@@ -722,6 +723,11 @@ function onPacket(p){
         skillReadyAt.set(p.skillId, performance.now()+(s?s.cooldownMs:0));
         skillState.casts++; skillChanged();
       }
+      break; }
+    case P.MSG.S2C_SKILL_EFFECT: {
+      // 피해가 없는 효과의 대상(회복 · 남에게 건 버프) — 맞은 대상 그림과 같은 자리. 표에 줄이 없으면 그릴 것이 없다(체력·버프는 따로 온다)
+      const fx=SKILL_FX.get(p.skillId), tg=actorOf(p.targetId), by=actorOf(p.casterId);
+      if(fx && fx.at==='target' && tg) playFx(p.skillId,tg,by?by.dir:tg.dir);
       break; }
     case P.MSG.S2C_SKILL_FAIL: {
       const s=SKILLS.get(p.skillId);
@@ -2550,9 +2556,9 @@ function parseSkillTable(text){
     if(!line || line[0]==='#' || !/^\d/.test(line)) continue;
     const c=line.split(',').map(s=>s.trim());
     if(c.length<7) continue;
-    const around=c[2]==='around';                 // target 의 사거리는 화면에 안 그린다(판정은 서버) — 값만 range 로 둔다
-    const shape=(around || c[2]==='target') ? [] : (c[8]||'').split(';').filter(Boolean).map(cell=>cell.split(':').map(Number));
-    SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]), costMp:Number(c[7]||0), shape, radius:around ? Number(c[8]) : 0, range:c[2]==='target' ? Number(c[8]) : 0, user:(c[9]||'player').toLowerCase(), job:Number(c[10]||0) });
+    const around=c[2]==='around';                 // target 의 사거리 · around_ally 의 반경은 화면에 안 그린다(판정은 서버) — 값만 range 로 둔다
+    const shape=(around || c[2]==='target' || c[2]==='around_ally') ? [] : (c[8]||'').split(';').filter(Boolean).map(cell=>cell.split(':').map(Number));
+    SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]), costMp:Number(c[7]||0), shape, radius:around ? Number(c[8]) : 0, range:(c[2]==='target' || c[2]==='around_ally') ? Number(c[8]) : 0, user:(c[9]||'player').toLowerCase(), job:Number(c[10]||0) });
   }
 }
 // 맵 표·포털 표·몬스터 표(serve.js 의 /data/MapTable.csv · PortalTable.csv · MonsterTable.csv) — 못 받아도 멈추지 않는다(땅은 풀 · 포털이 안 보인다 · 몬스터를 사람 모양으로).
