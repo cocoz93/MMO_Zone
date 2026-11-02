@@ -196,7 +196,13 @@ enum class MsgType : uint16_t
     //--------------------------------------------------
     // 겉모습 (USE_EQUIP — 남의 화면에 그릴 것: 지금은 끼운 무기 · attack-motion-plan.md 3판)
     //--------------------------------------------------
-    S2C_ACTOR_LOOK              // 서버 → 클라이언트: 이 캐릭터의 겉모습 전체 — 남이 화면에 나타날 때 CREATE 바로 뒤(겉모습이 있을 때만) · 끼우기·빼기 뒤 주변
+    S2C_ACTOR_LOOK,             // 서버 → 클라이언트: 이 캐릭터의 겉모습 전체 — 남이 화면에 나타날 때 CREATE 바로 뒤(겉모습이 있을 때만) · 끼우기·빼기 뒤 주변
+
+    //--------------------------------------------------
+    // 직업 (토글 없음 — 처음 입장 때 한 번 고른다. 0 = 아직 안 고름)
+    //--------------------------------------------------
+    C2S_CHOOSE_JOB,             // 클라이언트 → 서버: 이 직업으로 정한다 (한 번뿐)
+    S2C_MY_JOB                  // 서버 → 클라이언트: 내 직업 (본인에게만 — 입장 때 · 고르기 답)
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -1667,5 +1673,34 @@ struct MSG_S2C_ACTOR_LOOK
 };
 static_assert(sizeof(MSG_S2C_ACTOR_LOOK) == 10, "ACTOR_LOOK 은 10B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_ACTOR_LOOK) == 1076, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+
+//==================================================
+// 직업 (토글 없음 — 직업 표·캐릭터 칸도 토글이 없다 · job-fx-master-plan.md)
+//==================================================
+// 직업 번호 = Run/bin/JobTable.csv 의 jobId. 0 = 아직 안 고름 — 웹이 고르는 창을 띄운다.
+// 고르기는 한 번뿐이다. 거절 패킷을 따로 두지 않는다 — 서버가 언제나 MY_JOB 으로 지금 값을 돌려주므로(이미 고른 계정 · 없는 번호 · 쓰러진 채)
+//   클라는 받은 값으로 화면을 맞추면 된다. 거절 사유는 지표(mmo_job_choose_total)에 남는다.
+struct MSG_C2S_CHOOSE_JOB
+{
+    static constexpr MsgType TYPE = MsgType::C2S_CHOOSE_JOB;
+    MsgHeader header;
+    uint16_t  jobId;
+
+    MSG_C2S_CHOOSE_JOB() : header{ sizeof(*this), TYPE }, jobId(0) {}
+};
+
+// 내 직업 — 본인에게만. 입장 때 한 장 + 고르기 요청의 답으로 한 장. 기술 막대는 웹이 이 값과 스킬 표의 job 칸으로 고른다.
+//   ★ 입장 때 반드시 오므로 부하 더미에 등록이 빠지면 전원이 접속하자마자 떨어진다(MY_STATS 와 같은 함정).
+struct MSG_S2C_MY_JOB
+{
+    static constexpr MsgType TYPE = MsgType::S2C_MY_JOB;
+    MsgHeader header;
+    uint16_t  jobId;
+
+    MSG_S2C_MY_JOB() : header{ sizeof(*this), TYPE }, jobId(0) {}
+};
+static_assert(sizeof(MSG_C2S_CHOOSE_JOB) == 6, "C2S_CHOOSE_JOB 은 6B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_MY_JOB)     == 6, "MY_JOB 은 6B (proto.js 와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::S2C_MY_JOB) == 1078, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 #pragma pack(pop)

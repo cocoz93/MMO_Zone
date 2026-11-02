@@ -293,6 +293,8 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     // USE_EQUIP: 겉모습 — 더미는 무기를 안 끼지만, 무기를 든 사람이 곁에 나타나거나 곁에서 끼우고 벗으면 받는다(주변 방송).
     //   ★ 빠뜨리면 그 순간 근처 더미가 전부 떨어진다(ACTOR_SPEED 와 같은 함정). 읽고 버린다(아래 default)
     case MsgType::S2C_ACTOR_LOOK:         return sizeof(MSG_S2C_ACTOR_LOOK);
+    // 내 직업 — ★ 입장 때 본인에게 반드시 한 장 간다. 빠뜨리면 더미 전원이 접속하자마자 떨어진다(MY_STATS 와 같은 함정). 더미는 안 고른다(0 그대로)
+    case MsgType::S2C_MY_JOB:             return sizeof(MSG_S2C_MY_JOB);
     default: return 0;
     }
 }

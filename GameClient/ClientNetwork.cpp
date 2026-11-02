@@ -448,6 +448,10 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
     case MsgType::S2C_ACTOR_LOOK:
         break;
 
+    // 내 직업 — 입장 때 반드시 한 장 온다. 콘솔 클라는 기술을 안 쓰고 고르는 창도 없다(0 그대로) — 모르는 타입 로그만 막는다.
+    case MsgType::S2C_MY_JOB:
+        break;
+
     default:
         LOG_ERROR_STREAM("Unknown message type: " << static_cast<int>(header->type));
         break;

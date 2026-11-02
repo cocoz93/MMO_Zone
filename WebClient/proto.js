@@ -50,7 +50,9 @@
     C2S_TRADE_REQUEST:1065, C2S_TRADE_ANSWER:1066, C2S_TRADE_OFFER:1067, C2S_TRADE_MONEY:1068, C2S_TRADE_COMMIT:1069, C2S_TRADE_CANCEL:1070,
     S2C_TRADE_ASK:1071, S2C_TRADE_ASK_END:1072, S2C_TRADE_STATE:1073, S2C_TRADE_END:1074, S2C_TRADE_FAIL:1075,
     // 겉모습 (USE_EQUIP) — 남이 화면에 나타날 때 CREATE 바로 뒤(겉모습이 있을 때만) · 끼우기·빼기 뒤 주변. 모르는 번호면 버린다
-    S2C_ACTOR_LOOK:1076
+    S2C_ACTOR_LOOK:1076,
+    // 직업 (토글 없음) — 처음 입장 때 한 번 고른다. MY_JOB 은 본인에게만(입장 때 · 고르기 답), 0 = 아직 안 고름
+    C2S_CHOOSE_JOB:1077, S2C_MY_JOB:1078
   };
   // 파티 — Protocol.h PartyAskKind · PartyNotice 순서 그대로(값이 와이어에 실린다). 한글 문구는 live.html 이 이름으로 고른다
   const PARTY_ASK_KIND = ['INVITE','APPLY','SUGGEST'];
@@ -276,6 +278,9 @@
       //   SKILL_COOLDOWN_REMAIN 14B = actorId i32 · skillId u16 · remainMs u32 — 본인에게만(입장·존 이동). remainMs 는 늘 1 이상
       case MSG.S2C_SKILL_COOLDOWN_REMAIN:
         p.actorId=dv.getInt32(o,true); p.skillId=dv.getUint16(o+4,true); p.remainMs=dv.getUint32(o+6,true); break;
+      //   MY_JOB 6B = jobId u16 — 본인에게만(입장 때 · 고르기 답). 0 = 아직 안 고름
+      case MSG.S2C_MY_JOB:
+        p.jobId=dv.getUint16(o,true); break;
       //   ACTOR_SPEED 12B = actorId i32 · speed i32(칸/초 — CREATE 의 speed 와 같은 단위) — 본인 + 주변
       case MSG.S2C_ACTOR_SPEED:
         p.actorId=dv.getInt32(o,true); p.speed=dv.getInt32(o+4,true); break;
@@ -375,6 +380,8 @@
     // C2S_UNEQUIP: header(4) + slot u16 = 6B — 착용 칸(EQUIP_SLOT)
     unequip(slot){ const {b,d}=hdr(6,MSG.C2S_UNEQUIP); d.setUint16(4, slot, true); return b; },
     // C2S_USE_SKILL: header(4) + skillId u16 = 6B — 방향·대상은 서버가 정한다(지금 바라보는 쪽)
+    // C2S_CHOOSE_JOB: header(4) + jobId u16 = 6B — 답은 언제나 S2C_MY_JOB(거절이면 지금 값 그대로)
+    chooseJob(jobId){ const {b,d}=hdr(6,MSG.C2S_CHOOSE_JOB); d.setUint16(4, jobId, true); return b; },
     useSkill(skillId){ const {b,d}=hdr(6,MSG.C2S_USE_SKILL); d.setUint16(4, skillId, true); return b; },
     // C2S_PORTAL_USE: header(4) + portalId i32 = 8B — 어디로 가는지는 서버 포털 표가 정한다(클라는 번호만)
     portalUse(portalId){ const {b,d}=hdr(8,MSG.C2S_PORTAL_USE); d.setInt32(4, portalId, true); return b; },
