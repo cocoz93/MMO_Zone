@@ -166,13 +166,14 @@ const ITEMS = new Map();                                                // itemI
 let ITEM_SHEET = null;                                                  // assets/items.js 의 그림 시트 — 없으면 null(번호로 그린다)
 // 스킬 표 (USE_SKILL) — 서버와 같은 파일(Run/bin/SkillTable.csv)을 serve.js 의 /data/SkillTable.csv 로 받는다(아이템 표와 같은 꼴).
 //   못 받으면 SKILLS 가 비고 스킬 막대가 안 그려진다 — 숫자 키도 고를 칸이 없어 안 보낸다(키 = 막대 칸).
-const SKILLS = new Map();                                               // skillId -> {name, target, effect, costHpPct, power, cooldownMs, costMp, shape:[[앞,옆],…], radius, user}
+const SKILLS = new Map();                                               // skillId -> {name, target, effect, costHpPct, power, cooldownMs, costMp, shape:[[앞,옆],…], radius, user, job}
 // 버프 표 (USE_COMBAT) — 서버와 같은 파일(Run/bin/BuffTable.csv)을 serve.js 의 /data/BuffTable.csv 로 받는다. 못 받으면 막대 띠의 분모·글자만 빠진다(띠는 그린다).
 const BUFFS = new Map();                                                // buffId -> {name, durationMs, mods:[{stat, how, value},…]}
 // 표에는 사람이 쓰는 줄(user=player)과 몬스터(보스)가 쓰는 줄(user=monster)이 같이 있다. 몬스터 줄은 **몬스터 시전의 칸·고리 그림**(S2C_SKILL_CAST)을 그리는 데만 쓰고
 //   스킬 막대·숫자 키에는 안 낸다 — 사람이 부르면 서버가 BAD_SKILL 로 거절한다(NOT_FOR_CASTER). user 칸이 없는 옛 줄은 player.
 const isMonsterSkill = id => { const s=SKILLS.get(id); return !!s && s.user==='monster'; };
-const playerSkillIds = () => [...SKILLS.keys()].filter(id=>!isMonsterSkill(id)).sort((a,b)=>a-b);
+// 내 막대 = 사람 줄 중 내 직업 것(job 칸 — 빈 칸 0 = 모든 직업). 직업을 아직 모르면(입장 전) 공용 줄만. 막는 것은 서버다(목록 밖 기술은 BAD_SKILL)
+const playerSkillIds = () => [...SKILLS.keys()].filter(id=>!isMonsterSkill(id) && (SKILLS.get(id).job===0 || SKILLS.get(id).job===myJob)).sort((a,b)=>a-b);
 // 내 스킬 쿨타임 — 자기 SKILL_CAST 를 받은 순간부터 표의 cooldownMs 를 센다. skillId -> 끝나는 시각(ms)
 //   입장·존 이동 때는 서버가 아직 돌고 있는 쿨타임을 S2C_SKILL_COOLDOWN_REMAIN 으로 준다(다시 접속하면 DB 에서 되살린 값) — 그걸로 덮는다.
 const skillReadyAt = new Map();
@@ -182,9 +183,14 @@ const SKILL_FX = new Map();                                             // skill
 const fxPlaying = [];                                                   // 재생 중 {fx, actor, dir, t0, endAt} — 대상이 사라져도 객체는 남으니 마지막 자리에서 끝까지 돈다
 const fxState = { played:{} };                                          // 헤드리스 검증용 — 기술 번호별 재생 횟수
 function fxChanged(){ document.documentElement.setAttribute('data-fx', JSON.stringify({ rows:SKILL_FX.size, played:fxState.played, playing:fxPlaying.length })); }
+// 직업 — 번호 → 이름(Run/bin/JobTable.csv). 내 직업은 S2C_MY_JOB 으로 받는다. null = 아직 모름 · 0 = 안 고름(고르는 창을 띄운다)
+const JOBS = new Map();
+let myJob = null;
+let jobHover = null;                                                    // 고르는 창에서 마우스가 올라간 직업 번호
+function jobChanged(){ document.documentElement.setAttribute('data-job', JSON.stringify({ job:myJob, picking:myJob===0 && JOBS.size>0, jobs:JOBS.size })); }
 const skillState = { casts:0, lastFail:null };                          // 헤드리스 검증용 계산
 // buffs = 내 지속 효과 [버프 번호, 남은 ms] — S2C_ACTOR_BUFF 가 바꾼다(self.buffs). remainMs 를 받은 시각부터 깎는다
-function skillChanged(){ document.documentElement.setAttribute('data-skill', JSON.stringify({ skills:playerSkillIds().length, monsterSkills:SKILLS.size-playerSkillIds().length, casts:skillState.casts, lastFail:skillState.lastFail,
+function skillChanged(){ document.documentElement.setAttribute('data-skill', JSON.stringify({ skills:playerSkillIds().length, monsterSkills:[...SKILLS.keys()].filter(isMonsterSkill).length, casts:skillState.casts, lastFail:skillState.lastFail,
   buffs: self && self.buffs ? [...self.buffs].map(([id,until])=>[id, Math.max(0, Math.round(until-performance.now()))]) : [],
   cooldowns: [...skillReadyAt].map(([id,t])=>[id, Math.max(0, Math.round(t-performance.now()))]).filter(c=>c[1]>0) })); }   // [스킬 번호, 남은 ms]
 // 스킬 거절 사유(P.SKILL_FAIL 이름) → 채팅 칸 [System] 문구. 거절이면 체력·마력·쿨타임이 그대로다(서버는 모든 검사 뒤에만 뗀다)
@@ -644,6 +650,10 @@ function onPacket(p){
         if(a===self) skillChanged();
       }
       break; }
+    case P.MSG.S2C_MY_JOB:
+      // 입장 때 한 장 · 고르기 답 한 장. 막대가 이 값으로 다시 그려진다(playerSkillIds)
+      myJob=p.jobId; jobHover=null; jobChanged(); skillChanged();
+      break;
     case P.MSG.S2C_SKILL_COOLDOWN_REMAIN: {
       // 아직 돌고 있는 쿨타임(입장·존 이동) — 본인 것만 온다. 다시 접속하면 서버가 DB 에서 되살린 쿨타임이 여기로 처음 온다.
       //   시전 순간의 쿨타임은 지금처럼 SKILL_CAST 로 센다 — 이 장은 그 계산을 서버 값으로 맞출 뿐이다(remainMs 는 늘 1 이상).
@@ -947,12 +957,14 @@ if(!SNAP){
     const tu=tradeUiHit(e.offsetX,e.offsetY);   // 거래 창 단추도
     trade.hover = tu && tu.btn ? tu : null;
     foldHover = foldHit(e.offsetX,e.offsetY);   // 접기 단추도
-    cv.style.cursor = (h || s || pu || su || tu) ? 'default' : ''; });
+    jobHover = jobPicking() ? jobHit(e.offsetX,e.offsetY) : null;   // 직업 고르는 창 단추도
+    cv.style.cursor = (h || s || pu || su || tu || jobHover) ? 'default' : ''; });
   cv.addEventListener('mouseleave',()=>{ bag.hover=null; stw.hover=false; party.hover=null; shop.hover=null; trade.hover=null; foldHover=null; });
   // 누르기 — 위에 그려진 것부터: 받은 파티 요청 창 > 상점 창 > 캐릭터 메뉴·파티 창 > 가방(팔기 모드면 그 칸을 판다)·상태창 > 게임 화면.
   //   게임 화면을 누르면 그 자리의 NPC(말 걸기) 또는 사람 캐릭터(나·몬스터 빼고 — 파티 메뉴)를 고른다 — 10-17 전엔 창 밖 클릭이 아무 일도 안 했다(위 가방 주석).
   cv.addEventListener('mousedown',e=>{ if(e.button!==0) return;
     const x=e.offsetX, y=e.offsetY;
+    if(jobPicking() && inRect(x,y,jobLayout())){ const j=jobHit(x,y); if(j && ws && ws.readyState===1) ws.send(P.enc.chooseJob(j)); return; }   // 직업을 고르는 창 — 맨 위
     const pu=partyUiHit(x,y);
     if(pu && pu.where==='ask'){ partyClick(pu); return; }   // 답을 기다리는 창이 맨 위
     const tu=tradeUiHit(x,y);
@@ -1580,6 +1592,7 @@ function drawHUD(){
   drawTrade();              // 거래 창 — 상점 창과 같은 자리(거래창이 열리면 상점을 닫는다)
   drawPartyMenu();          // 캐릭터를 눌러 연 메뉴와 받은 요청 창은 모든 창 위에 — 답을 기다리는 것이라 가리면 안 된다
   drawPartyAsk();
+  drawJobPick();            // 직업 고르는 창 — 처음 입장 때만
   drawTradeAsk();           // 받은 거래 신청 — 파티 요청 창 아래 줄(둘이 같이 떠도 안 겹친다)
 }
 
@@ -2069,6 +2082,30 @@ function drawPartyAsk(){
   smallBtn(L.decline,'거절 (N)',isHover('ask','decline'),true);
 }
 
+// ---- 직업 고르기 — 처음 입장 때 한 번. 그리기와 마우스 판정이 같은 자리 계산(jobLayout)을 쓴다. 고르면 안 바뀐다(서버가 막는다) ----
+//   막지 않는 창이다 — 안 고른 채로 걸어 다닐 수 있고(기술만 없다) 입장 흐름은 그대로다.
+const JOB_BTN_W=112, JOB_BTN_H=48, JOB_BTN_GAP=10;
+const jobPicking = () => myJob===0 && JOBS.size>0;
+function jobLayout(){
+  const ids=[...JOBS.keys()].sort((a,b)=>a-b);
+  const w=ids.length*JOB_BTN_W+(ids.length-1)*JOB_BTN_GAP+32, h=142, x=Math.round(VX+VW/2-w/2), y=Math.round(VY+VH/2-h/2);
+  return { x, y, w, h, btns:ids.map((id,i)=>({ id, x:x+16+i*(JOB_BTN_W+JOB_BTN_GAP), y:y+74, w:JOB_BTN_W, h:JOB_BTN_H })) };
+}
+function jobHit(x,y){ const b=jobLayout().btns.find(r=>inRect(x,y,r)); return b ? b.id : null; }
+function drawJobPick(){
+  if(!jobPicking()) return;
+  const L=jobLayout();
+  ctx.fillStyle='rgba(8,12,10,.97)'; rr(L.x,L.y,L.w,L.h,10); ctx.fill(); ctx.strokeStyle='rgba(255,233,138,.45)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.textAlign='center'; ctx.fillStyle='#ffe98a'; ctx.font=uiFont(16,600); ctx.fillText('직업을 고르세요', L.x+L.w/2, L.y+30);
+  ctx.fillStyle='rgba(220,230,215,.8)'; ctx.font=uiFont(12); ctx.fillText('한 번 고르면 바꿀 수 없습니다', L.x+L.w/2, L.y+54);
+  for(const b of L.btns){
+    const on=jobHover===b.id;
+    ctx.fillStyle=on ? 'rgba(255,233,138,.22)' : 'rgba(255,255,255,.06)'; rr(b.x,b.y,b.w,b.h,7); ctx.fill();
+    ctx.strokeStyle=on ? 'rgba(255,233,138,.9)' : 'rgba(255,255,255,.22)'; ctx.lineWidth=1; ctx.stroke();
+    ctx.fillStyle=on ? '#ffe98a' : '#eaf3e0'; ctx.font=uiFont(15,600); ctx.fillText(JOBS.get(b.id), b.x+b.w/2, b.y+b.h/2+5);
+  }
+}
+
 // ---- 거래 (USE_TRADE) — 그리기와 마우스 판정이 같은 자리 계산(tradeLayout · tradeAskLayout)을 쓴다(상점·파티와 같은 꼴) ----
 //   거래 창 = 게임 화면 위 가운데(상점 창 자리). 왼쪽 「내가 줄 것」 · 오른쪽 「받을 것」 — 칸 20(5×4 · 가방 한 탭과 같은 칸 배치) · 돈 · 교환하기 누름 표시
 //   아래 = 돈 더 올리기 셋(+100 · +1,000 · +10,000 — 깎는 길이 없다) · 교환하기 · 취소. 올리기는 가방 칸을 누른다(가방 창이 같이 열린다)
@@ -2313,6 +2350,7 @@ function clearZoneWorld(){
 function connect(){
   clearZoneWorld(); self=null;   // 재접속 시 유령 엔티티 제거
   bag.slots.clear(); adminSent=false; me.money=null; me.moneyT=0; bagChanged();   // 가방·돈은 입장 때 전체가 다시 온다 · 운영자 로그인도 새 접속마다
+  myJob=null; jobHover=null; jobChanged();   // 끊기면 새 접속의 MY_JOB 을 기다린다(그때까지 공용 기술만)
   party.info=null; party.ask=null; party.menu=null; partyChanged();   // 끊기면 서버가 파티에서 뺐다(저장 안 함) — 새 접속은 파티 없이 시작
   trade.ask=null; trade.win=null; tradeChanged();                       // 거래도 끊기면 서버가 끝냈다
   const re=new P.Reassembler(onPacket);
@@ -2384,6 +2422,14 @@ function loadSkills(){
     .catch(e=>console.warn('[skill] 스킬 표를 못 받았다 — 스킬 막대를 안 그린다:', e))
     .then(skillChanged);
 }
+// 직업 표(serve.js 의 /data/JobTable.csv) — 못 받으면 고르는 창이 안 뜬다(서버는 그대로 돈다). 칸 = jobId,name
+function loadJobs(){
+  return fetch('/data/JobTable.csv', {cache:'no-store'})
+    .then(r=>r.ok ? r.text() : Promise.reject('HTTP '+r.status))
+    .then(text=>{ for(const c of csvRows(text)) if(c.length>=2) JOBS.set(Number(c[0]), c[1]); })
+    .catch(e=>console.warn('[job] 직업 표를 못 받았다 — 고르는 창을 안 띄운다:', e))
+    .then(jobChanged);
+}
 // 스킬 이펙트 표(serve.js 의 /data/SkillFxTable.csv) — 못 받아도 멈추지 않는다(그 기술은 지금 도형으로 그린다).
 //   칸 = skillId,under,over,at,sizeTiles,liftTiles,frameMs,rotate. 시트를 못 받은 줄은 빼서 도형으로 돌아가게 한다(빈 자리에 아무것도 안 그려지면 맞았는지도 안 보인다).
 function loadSkillFx(){
@@ -2426,7 +2472,7 @@ function parseBuffTable(text){
     BUFFS.set(Number(c[0]), { name:c[1], durationMs:Number(c[2]), mods });
   }
 }
-// 칸 위치로 읽는다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp,area,user (서버 SkillTable.cpp 와 같은 순서).
+// 칸 위치로 읽는다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp,area,user,job (서버 SkillTable.cpp 와 같은 순서).
 //   걸러내는 규칙은 아이템 표와 같다(빈 줄 · '#' 주석 · 첫 칸이 숫자가 아닌 헤더). 값 검사는 서버가 기동 때 이미 했다.
 //   area(아홉째)는 대상 종류마다 뜻이 다르다 — shape = 「앞:옆」 을 ';' 로 이은 칸 목록 · around = 반경(칸) · front·self 는 비어 있거나 칸 자체가 없다.
 //   user(열째)는 player | monster — 비거나 칸이 없으면 player. monster 줄은 표에 남겨 몬스터 시전의 칸 그림에 쓰되 막대·숫자 키에서는 뺀다(playerSkillIds).
@@ -2438,7 +2484,7 @@ function parseSkillTable(text){
     if(c.length<7) continue;
     const around=c[2]==='around';
     const shape=around ? [] : (c[8]||'').split(';').filter(Boolean).map(cell=>cell.split(':').map(Number));
-    SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]), costMp:Number(c[7]||0), shape, radius:around ? Number(c[8]) : 0, user:(c[9]||'player').toLowerCase() });
+    SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]), costMp:Number(c[7]||0), shape, radius:around ? Number(c[8]) : 0, user:(c[9]||'player').toLowerCase(), job:Number(c[10]||0) });
   }
 }
 // 맵 표·포털 표·몬스터 표(serve.js 의 /data/MapTable.csv · PortalTable.csv · MonsterTable.csv) — 못 받아도 멈추지 않는다(땅은 풀 · 포털이 안 보인다 · 몬스터를 사람 모양으로).
@@ -2501,7 +2547,7 @@ function parsePortalTable(text){
     PORTALS.push({ id:Number(c[0]), mapId:Number(c[1]), x:Number(c[2]), y:Number(c[3]), radius:Number(c[4]), targetMapId:Number(c[5]), name:c[8] });
 }
 async function boot(){
-  resize(); await loadFonts(); await loadAssets(); await loadTown(); checkLayers(); await loadItems(); await loadBuffs(); await loadSkills(); await loadSkillFx(); await loadWorldTables();
+  resize(); await loadFonts(); await loadAssets(); await loadTown(); checkLayers(); await loadItems(); await loadBuffs(); await loadSkills(); await loadSkillFx(); await loadJobs(); await loadWorldTables();
   if(SNAP){
     // headless verification: load a real snapshot, render one frame, expose PNG
     // 전투 확인용 스냅샷을 따로 두려고 파일명을 열어 둔다 (?snap&file=snapshot-combat.json)

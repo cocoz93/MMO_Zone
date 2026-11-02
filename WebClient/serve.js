@@ -24,6 +24,7 @@ const DATA = new Map([
   ['/data/ItemTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'ItemTable.csv')],
   ['/data/SkillTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'SkillTable.csv')],
   ['/data/BuffTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'BuffTable.csv')],       // 버프 번호 → 지속·수정 항목(스킬 막대 띠)
+  ['/data/JobTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'JobTable.csv')],         // 직업 번호 → 이름(고르는 창)
   ['/data/SkillFxTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'SkillFxTable.csv')], // 스킬 번호 → 이펙트 시트(웹만 읽음)
   ['/data/MapTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'MapTable.csv')],         // 땅 모양(마을 = 흙)
   ['/data/PortalTable.csv', path.join(ROOT, '..', 'Run', 'bin', 'PortalTable.csv')],   // 포털 그리기·안내·F 키 번호
