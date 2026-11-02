@@ -130,7 +130,7 @@ enum class MsgType : uint16_t
     //--------------------------------------------------
     // 스킬 (USE_SKILL)
     //--------------------------------------------------
-    C2S_USE_SKILL,          // 클라이언트 → 서버: 이 스킬을 쓴다 (방향·대상은 서버가 정한다 — 지금 바라보는 쪽)
+    C2S_USE_SKILL,          // 클라이언트 → 서버: 이 스킬을 쓴다 (방향은 지금 바라보는 쪽 · 대상 지정 기술만 고른 대상 번호를 싣는다 — 판정은 서버)
     S2C_SKILL_CAST,         // 서버 → 클라이언트: 시전 방송 (시전자 주변, 본인 포함 — 남의 화면에 시전 모양이 그려진다)
     S2C_SKILL_FAIL,         // 서버 → 클라이언트: 스킬 거절 + 사유 (본인 — 거절이면 체력·마력·쿨타임이 그대로다)
     S2C_ACTOR_MP,           // 서버 → 클라이언트: 마력 통보 (본인에게만 — 마력은 스킬 토글 소유)
@@ -1050,16 +1050,20 @@ enum class SkillFail : uint8_t
     DEAD,        // 죽어 있다
     COOLDOWN,    // 아직 쿨타임이다
     LOW_HP,      // 체력을 떼고 나면 1 미만이 된다 — 자기 스킬로는 안 죽는다
-    NO_TARGET,   // 맞을 몬스터가 없다(사람은 스킬에 안 맞는다)
+    NO_TARGET,   // 맞을 몬스터가 없다(사람은 스킬에 안 맞는다) — 대상 지정 기술이면 그 대상이 없거나 쓰러졌다
     LOW_MP,      // 마력이 비용보다 적다 — 판정은 LOW_HP 다음, NO_TARGET 앞이다(와이어 값만 끝에 붙였다)
+    OUT_OF_RANGE, // 대상 지정 기술의 대상이 사거리 밖이다(11-03)
     COUNT
 };
 
-// C2S: 이 스킬을 쓴다 — 방향·대상은 서버가 정한다(지금 바라보는 쪽 앞)
+// C2S: 이 스킬을 쓴다 — 방향은 지금 바라보는 쪽. 대상 고르기는 표의 target 칸을 따른다.
+//   targetActorId = 대상 지정 기술(target)만 쓰는 값 — 화면에서 고른 몬스터 번호. 다른 기술은 0 이고 서버가 안 본다.
+//     클라가 보낸 번호는 믿지 않는다 — 같은 존 · 살아 있음 · 몬스터 · 사거리를 서버가 다시 본다(CSkillSystem::SelectTargets)
 struct MSG_C2S_USE_SKILL
 {
     static constexpr MsgType TYPE = MsgType::C2S_USE_SKILL;
     MsgHeader header;
+    int32_t   targetActorId;   // 대상 지정 기술의 대상(11-03 추가) · 나머지 기술은 0
     uint16_t  skillId;   // 스킬 표 번호(1~) — 11-01 u8 → u16(번호를 배열 칸에서 뗐다 · 표 번호 상한 MAX_SKILL_ID)
 };
 
@@ -1088,7 +1092,7 @@ struct MSG_S2C_SKILL_FAIL
     MSG_S2C_SKILL_FAIL() : header{ sizeof(*this), TYPE }, skillId(0), reason(0) {}
 };
 
-static_assert(sizeof(MSG_C2S_USE_SKILL)  == 6,  "C2S_USE_SKILL 은 6B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_USE_SKILL)  == 10, "C2S_USE_SKILL 은 10B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_S2C_SKILL_CAST) == 11, "SKILL_CAST 는 11B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_S2C_SKILL_FAIL) == 7,  "SKILL_FAIL 은 7B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_SKILL_FAIL) == 1044, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");

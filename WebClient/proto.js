@@ -84,7 +84,7 @@
   // 끼우기·빼기 거절 사유 — Protocol.h EquipFail 순서 그대로(값이 와이어에 실린다)
   const EQUIP_FAIL = ['BAD_SLOT','EMPTY','NOT_EQUIPPABLE','DEAD','COOLDOWN','TAB_FULL','IN_TRADE'];
   // 스킬 거절 사유 — Protocol.h SkillFail 순서 그대로(값이 와이어에 실린다). 거절이면 체력·마력·쿨타임이 그대로다
-  const SKILL_FAIL = ['BAD_SKILL','DEAD','COOLDOWN','LOW_HP','NO_TARGET','LOW_MP'];
+  const SKILL_FAIL = ['BAD_SKILL','DEAD','COOLDOWN','LOW_HP','NO_TARGET','LOW_MP','OUT_OF_RANGE'];
   // 맵 이동 실패 사유 — Protocol.h MSG_S2C_ZONE_CHANGE_FAIL 의 reason 주석 순서 그대로(존 이동 요청 · 포털 공통)
   const ZONE_FAIL = ['NOT_FOUND','FULL','SAME_ZONE','NOT_ALLOWED','TOO_FAR','NO_PORTAL'];
   // 표시 문자의 부류 값 — Protocol.h DISPLAY_MONSTER · DISPLAY_NPC 사본. 0x20 미만이면 사람이 아니고, 어느 몬스터·NPC 인지는 등장 엔트리의 defId
@@ -379,10 +379,10 @@
     equip(slot){ const {b,d}=hdr(6,MSG.C2S_EQUIP); d.setUint16(4, slot, true); return b; },
     // C2S_UNEQUIP: header(4) + slot u16 = 6B — 착용 칸(EQUIP_SLOT)
     unequip(slot){ const {b,d}=hdr(6,MSG.C2S_UNEQUIP); d.setUint16(4, slot, true); return b; },
-    // C2S_USE_SKILL: header(4) + skillId u16 = 6B — 방향·대상은 서버가 정한다(지금 바라보는 쪽)
+    // C2S_USE_SKILL: header(4) + targetActorId i32 + skillId u16 = 10B — 대상 지정 기술만 고른 몬스터 번호, 나머지는 0(서버가 안 본다). 판정은 서버
     // C2S_CHOOSE_JOB: header(4) + jobId u16 = 6B — 답은 언제나 S2C_MY_JOB(거절이면 지금 값 그대로)
     chooseJob(jobId){ const {b,d}=hdr(6,MSG.C2S_CHOOSE_JOB); d.setUint16(4, jobId, true); return b; },
-    useSkill(skillId){ const {b,d}=hdr(6,MSG.C2S_USE_SKILL); d.setUint16(4, skillId, true); return b; },
+    useSkill(skillId, targetActorId=0){ const {b,d}=hdr(10,MSG.C2S_USE_SKILL); d.setInt32(4, targetActorId, true); d.setUint16(8, skillId, true); return b; },
     // C2S_PORTAL_USE: header(4) + portalId i32 = 8B — 어디로 가는지는 서버 포털 표가 정한다(클라는 번호만)
     portalUse(portalId){ const {b,d}=hdr(8,MSG.C2S_PORTAL_USE); d.setInt32(4, portalId, true); return b; },
     // ---- 파티 (USE_PARTY) ----
