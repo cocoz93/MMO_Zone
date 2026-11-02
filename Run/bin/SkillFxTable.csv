@@ -1,0 +1,22 @@
+# Skill effect table - design data for the WEB CLIENT ONLY (the server never reads this file). Read once when the page opens.
+#   UTF-8 without BOM. No commas inside a cell.
+#   One row = the picture played for one skill. A skill with no row here keeps the plain shapes (cell highlight, rings) - that is how
+#   monster skills stay as they are, and why a missing table or picture never stops the game.
+#   Adding a skill's picture = put the sheets in WebClient/assets/fx/ and add one row. No code change.
+#   skillId   : same number as SkillTable.csv.
+#   under     : sheet drawn BEHIND characters and trees (ground, shadows). File name in assets/fx/ without .png. Empty = none.
+#   over      : sheet drawn IN FRONT of characters (flash, sparks). Empty = none. A row needs at least one of under / over.
+#               A sheet is one horizontal strip of square frames, so the frame count is width / height. Frames may be any size (warrior 128, rogue 96).
+#   at        : target = play on every actor the skill hit. caster = play on the caster, once, at the moment of the cast.
+#               The picture follows the actor while it moves. If the actor disappears (killed by that hit) it finishes on the spot.
+#   sizeTiles : on-screen size of one frame in map tiles, not pixels, so it keeps its proportion when the view zooms.
+#   liftTiles : how far above the actor's feet the middle of the frame sits, in tiles. 0 = on the feet. A character is about 3 tiles tall.
+#   frameMs   : time per frame in ms. Use the value the sheet was made for (make_job_fx.py SKILLS).
+#   rotate    : yes = turn the picture to the caster's facing (sheets are drawn facing right). no = always as drawn - for round pictures.
+#   Names are the working picture names, not the skill names shown in the game.
+skillId,under,over,at,sizeTiles,liftTiles,frameMs,rotate
+1,,1_warrior_1_balgeom,target,5,1,40,yes
+2,1_warrior_2_geomgi_under,1_warrior_2_geomgi_over,target,5,1,40,yes
+3,1_warrior_5_chukgi_under,1_warrior_5_chukgi_over,caster,5,1,40,no
+4,1_warrior_4_jincheon_under,1_warrior_4_jincheon_over,caster,5,1,40,no
+7,4_taoist_5_suho_under,4_taoist_5_suho_over,caster,5,1,50,no
