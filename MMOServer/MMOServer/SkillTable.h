@@ -26,13 +26,17 @@ constexpr int32_t MAX_SKILL_ID = 0xFFFF;
 constexpr int32_t MAX_SKILL_ROWS = 64;
 constexpr int32_t MAX_SKILL_BOOK = 24;
 
-// 범위 스킬의 칸 하나 — 시전자 기준 (앞, 옆). 옆은 바라보는 쪽 기준 오른쪽이 +. 표의 shape 칸이 「앞:옆」 으로 적는다.
+// 범위 스킬의 칸 하나 — 시전자 기준 (앞, 옆). 옆은 바라보는 쪽 기준 오른쪽이 +. 표의 area 칸이 「앞:옆」 으로 적는다.
 //   칸 크기는 1타일 — 대상 좌표(float)를 반올림해 어느 칸인지 정한다(IsInShape).
 struct ShapeCell
 {
     int8_t forward = 0;   // 1~MAX_SHAPE_REACH — 앞쪽만(0 이하는 표 읽기가 거부한다: 시전자 자리·뒤는 칸이 아니다)
     int8_t side    = 0;   // −MAX_SHAPE_REACH~MAX_SHAPE_REACH
 };
+
+// 주변 스킬의 반경 상한(칸) — 섹터 크기 20(MMOServerConfig.ini SectorSize)이다. 시전자 둘레 20칸까지는 서버가 늘 알려 주므로
+//   이 값을 넘기면 시전자 클라가 모르는 적이 맞을 수 있다.
+constexpr int32_t MAX_AROUND_RADIUS = 20;
 
 constexpr int32_t MAX_SHAPE_REACH = 5;    // 칸 하나가 닿는 거리 상한(앞·옆 각각) — 오타를 거르는 값
 constexpr int32_t MAX_SHAPE_CELLS = 16;   // 한 스킬의 칸 수 상한
@@ -97,12 +101,22 @@ inline float ShapeScanRadius(float shapeReach, float casterRadius, float targetR
     return shapeReach + std::sqrt(forwardExtra * forwardExtra + targetRadiusMax * targetRadiusMax);
 }
 
+// 주변 판정 — 대상이 시전자 둘레 반경 안에 있나. IsInShape 와 같이 순수 함수라 이 헤더만 넣고 시험한다.
+//   칸 목록으로 안 그리는 까닭 — 칸은 앞쪽만 받고(forward ≥ 1) 16개가 상한이라 둘레 원을 못 그린다. 몸 반지름도 앞쪽 기준으로만 뺀다.
+//   거리는 두 몸의 가장자리 사이다 = 중심 거리 − 시전자 반지름 − 대상 반지름. 이 값이 반경 이하면 맞는다. 방향은 안 본다.
+inline bool IsInAround(float dx, float dy, int32_t radius, float casterRadius = 0.0f, float targetRadius = 0.0f)
+{
+    const float reach = static_cast<float>(radius) + casterRadius + targetRadius;
+    return dx * dx + dy * dy <= reach * reach;
+}
+
 // 대상 종류 — 「누가 맞나」를 고르는 축. 새 종류 = 여기 한 줄 + 표 이름 한 줄 + CSkillSystem::SelectTargets 의 case 하나.
 enum class SkillTarget : uint8_t
 {
     FRONT,   // 앞의 한 명 — 일반 공격과 같은 사거리·정면 판정(CCombatSystem::FindFrontTarget), 단 사람이 쓰면 몬스터만·몬스터가 쓰면 사람만
-    SHAPE,   // 칸 목록 — 표의 shape 칸(시전자 기준 앞:옆)에 선 상대 전부(IsInShape). 한 칸에 여럿이면 다 맞는다. 상대 종류는 FRONT 와 같다
+    SHAPE,   // 칸 목록 — 표의 area 칸(시전자 기준 앞:옆)에 선 상대 전부(IsInShape). 한 칸에 여럿이면 다 맞는다. 상대 종류는 FRONT 와 같다
     SELF,    // 자기 자신 — 후보를 안 찾는다(비는 일이 없어 NO_TARGET 이 안 난다). 지속 효과(버프)가 쓴다. 남에게 거는 버프는 대지의기원 때 늘린다
+    AROUND,  // 시전자 둘레 반경 안의 상대 전부(IsInAround) — 반경은 표의 area 칸. 방향을 안 본다. 상대 종류는 FRONT 와 같다. 사람 스킬만(표 읽기가 막는다)
     COUNT
 };
 
@@ -158,6 +172,7 @@ struct SkillDef
     uint64_t    cooldownFrames = 0;   // 쿨타임(틱) — ms 를 올림해서 담는다(짧아지지 않게)
     std::vector<ShapeCell> shape;     // SHAPE 의 칸 목록(다른 대상 종류는 빈 목록)
     float       shapeReach     = 0.0f;   // ShapeReach(shape) — 대상 찾기가 훑을 반경(몸 크기는 ShapeScanRadius 가 더한다). 표 읽기가 한 번 센다
+    int32_t     aroundRadius   = 0;      // AROUND 의 반경(칸) — 1~MAX_AROUND_RADIUS. 다른 대상 종류는 0
 };
 
 class CSkillTable

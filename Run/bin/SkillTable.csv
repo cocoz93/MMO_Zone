@@ -4,10 +4,11 @@
 #   skillId    : 1..65535 (MAX_SKILL_ID - u16 on the wire). A name tag, not an array index - gaps are fine. At most 64 rows (MAX_SKILL_ROWS)
 #                and at most 24 player rows (MAX_SKILL_BOOK - every player carries all of them and the DB cooldown blob must hold them).
 #   target     : front = the nearest monster in front, same range and facing as a normal attack. Players are never hit.
-#                shape = every monster standing on a cell listed in the shape column - several can be hit, and two on one cell are both hit.
+#                shape = every monster standing on a cell listed in the area column - several can be hit, and two on one cell are both hit.
 #                self  = the caster (no target search, so never NO_TARGET) - what buffs use.
-#   effect     : damage = hit the targets (target front or shape). buff = apply buff number "power" from BuffTable.csv (target must be self).
-#                damage_attack = hit the targets with the CASTER's attack x power % (hp does not enter the formula - monsters use it; target front or shape).
+#                around = every monster within the radius in the area column, any direction (player rows only).
+#   effect     : damage = hit the targets (target front, shape or around). buff = apply buff number "power" from BuffTable.csv (target must be self).
+#                damage_attack = hit the targets with the CASTER's attack x power % (hp does not enter the formula - monsters use it; target front, shape or around).
 #                revive = bring back the dead monsters of kind "power" in the caster's zone - one per empty spawn spot of that kind, born at the
 #                         server tick after the cast (target self, user monster only). A monster casts it only while at least one is dead (MonsterSkill.csv).
 #   costHpPct  : % of the CURRENT hp paid on cast, rounded down, at least 1 when above 0. 0..99.
@@ -20,22 +21,27 @@
 #   The cost (hp, mana, cooldown) is paid only after every check passes, target included - a refused cast changes nothing.
 #   costMp     : mana paid on cast, a fixed amount (not %). 0..the largest maxMp in LevelTable.csv - above it no level could ever cast.
 #                Refused (LOW_MP) when mp is below it. Baekhocham 10 (2026-10-01).
-#   shape      : cells for target=shape, "forward:side" joined by ';'. forward 1..5 (in front only), side -5..5 (+ = the caster's right).
+#   area       : target=shape - cells, "forward:side" joined by ';'. forward 1..5 (in front only), side -5..5 (+ = the caster's right).
 #                Measured from the caster's exact position, not snapped to tiles - cell k covers [k-0.5, k+0.5). Up to 16 cells, no repeats.
-#                Must be empty for target=front - the cell may be left out (8 cells), since a trailing empty cell is dropped anyway.
+#                target=around - the radius in tiles, 1..20 (the sector size - beyond it a monster off the caster's screen could be hit).
+#                Measured between the two bodies: centre distance - caster radius - target radius <= radius.
+#                Must be empty for target=front or self - the cell may be left out (8 cells), since a trailing empty cell is dropped anyway.
 #   Eogeomsul (Lv1, full hp 800): pay 400, hit 400 on every monster in its 4 cells - 1 ahead, then 3 across the row after (inverted triangle).
 #   user       : 10th cell - player (or empty) | monster. Players may cast only player rows; monsters only monster rows (a wrong caster is
 #                refused as NOT_FOR_CASTER and shows to the player as BAD_SKILL). Which monster casts what is in MonsterSkill.csv.
 #                A monster row needs costHpPct 0 and costMp 0 (monsters have no mana and must not pay hp) - MonsterSkill.csv checks it.
-#                The web must not show monster rows in the skill bar. A monster row without shape cells ends with ",,monster" (empty shape cell, then user).
+#                The web must not show monster rows in the skill bar. A monster row without an area cell ends with ",,monster" (empty area cell, then user).
 #   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
 #   5 Rage = first the boss Guryungi's (monster 2, 2026-10-15), now also the Snake King's (monster 3, 2026-10-18): attack x2 for 10s, cooldown 30s.
 #     ROUGH value carried over from the stage-1 test. When it is cast: MonsterSkill.csv.
-#     No 4 - Guryungi is a beginner boss and has no damage skill (Strike removed 2026-10-15). An unused id is fine (the loader allows holes).
+#     Guryungi is a beginner boss and has no damage skill (Strike removed 2026-10-15). An unused id is fine (the loader allows holes).
 #   6 Revive = the Snake King's (monster 3, 2026-10-18): brings back the dead fake snake kings (monster 4), as many as are dead. Cooldown 20s.
-skillId,name,target,effect,costHpPct,power,cooldownMs,costMp,shape,user
+#   4 and 7 names are working names (2026-10-31) - to be decided with the skill rename. costMp 10 is a placeholder, same as the other skills.
+skillId,name,target,effect,costHpPct,power,cooldownMs,costMp,area,user
 1,백호참,front,damage,50,100,480,10
 2,어검술,shape,damage,50,50,20000,10,1:0;2:-1;2:0;2:1
 3,이중공격,self,buff,0,1,60000,10
+4,광역기,around,damage,50,100,180000,10,15
 5,격노,self,buff,0,2,30000,0,,monster
 6,되살리기,self,revive,0,4,20000,0,,monster
+7,체력·마나 버프,self,buff,0,3,180000,10

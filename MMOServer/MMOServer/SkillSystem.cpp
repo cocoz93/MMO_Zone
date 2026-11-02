@@ -167,6 +167,22 @@ SkillReject CSkillSystem::SelectTargets(CZone* zone, CCharacter* caster, const S
         break;
     }
 
+    case SkillTarget::AROUND:
+    {
+        // 둘레 원 안의 후보 전부 — SHAPE 와 같이 넉넉한 반경으로 모은 뒤 밖을 버린다. 맞히기는 ApplyEffect(다 고른 뒤)다.
+        //   훑는 반경 = 반경 + 시전자 반지름 + 맞는 쪽 반지름 상한. 시전자는 사람뿐이라(표 읽기가 막는다) 후보는 HITTABLES 다.
+        const float scanRadius = static_cast<float>(def.aroundRadius) + caster->_bodyRadius + Combat::MAX_BODY_RADIUS;
+        _combat.CollectCandidates(zone, caster->_x, caster->_y, scanRadius, which, caster, _targets);
+        const float casterX = caster->_x;
+        const float casterY = caster->_y;
+        const float casterRadius = caster->_bodyRadius;
+        _targets.erase(std::remove_if(_targets.begin(), _targets.end(), [&](const CCharacter* t)
+        {
+            return !IsInAround(t->_x - casterX, t->_y - casterY, def.aroundRadius, casterRadius, t->_bodyRadius);
+        }), _targets.end());
+        break;
+    }
+
     case SkillTarget::SELF:
         // 자기 자신 — 후보 목록(which)을 안 본다. 살아 있음은 1) 의 DEAD 검사가 봤다. 늘 하나라 NO_TARGET 이 안 난다
         _targets.push_back(caster);

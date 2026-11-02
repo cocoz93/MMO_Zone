@@ -18,7 +18,7 @@ using GameDataCsv::ParseInt;
 namespace
 {
     // 파일 글자 — SkillTarget · SkillEffect 순서 그대로. 줄 수가 모자라면 아래 단언이 컴파일을 막는다.
-    constexpr const char* TARGET_NAMES[] = { "front", "shape", "self" };
+    constexpr const char* TARGET_NAMES[] = { "front", "shape", "self", "around" };
     constexpr const char* EFFECT_NAMES[] = { "damage", "buff", "damage_attack", "revive" };
     constexpr const char* USER_NAMES[]   = { "player", "monster" };
     static_assert(sizeof(TARGET_NAMES) / sizeof(TARGET_NAMES[0]) == static_cast<size_t>(SkillTarget::COUNT),
@@ -40,7 +40,7 @@ namespace
         return E::COUNT;
     }
 
-    // shape 칸 글자 → 칸 목록. 「앞:옆」 을 ';' 로 이은 것(예: 1:0;2:-1;2:0;2:1). 틀리면 false 와 까닭.
+    // area 칸 글자(shape 대상) → 칸 목록. 「앞:옆」 을 ';' 로 이은 것(예: 1:0;2:-1;2:0;2:1). 틀리면 false 와 까닭.
     //   앞 1~MAX_SHAPE_REACH(앞쪽만 — 시전자 자리·뒤는 칸이 아니다) · 옆 ±MAX_SHAPE_REACH · 겹침 금지 · 1~MAX_SHAPE_CELLS 칸.
     bool ParseShape(const std::string& text, std::vector<ShapeCell>& out, std::string& why)
     {
@@ -118,13 +118,13 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
         SplitCsv(dl.text, cell);
         if (cell.size() < 8)
         {
-            SLOG_ERROR("[SkillTable] {}줄: 칸이 {}개입니다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp 여덟(+ shape, user)이 필요합니다",
+            SLOG_ERROR("[SkillTable] {}줄: 칸이 {}개입니다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp 여덟(+ area, user)이 필요합니다",
                        dl.fileLine, cell.size());
             return false;
         }
-        // 아홉째 shape 칸은 shape 대상만, 열째 user 칸은 몬스터 스킬만 쓴다. 끝의 빈 칸은 SplitCsv 가 안 담으므로
-        //   front·self 사람 줄은 여덟, 어검술 줄은 아홉, 몬스터 스킬 줄은 열 칸으로 온다(여덟만 요구하고 나머지는 비면 빈 것으로 본다)
-        const std::string shapeText    = (cell.size() > 8) ? cell[8] : std::string();
+        // 아홉째 area 칸은 shape 대상(칸 목록)·around 대상(반경)만, 열째 user 칸은 몬스터 스킬만 쓴다. 끝의 빈 칸은 SplitCsv 가 안 담으므로
+        //   front·self 사람 줄은 여덟, 어검술·광역기 줄은 아홉, 몬스터 스킬 줄은 열 칸으로 온다(여덟만 요구하고 나머지는 비면 빈 것으로 본다)
+        const std::string areaText     = (cell.size() > 8) ? cell[8] : std::string();
         const std::string userText     = (cell.size() > 9) ? cell[9] : std::string();
 
         int64_t skillId = 0, costHpPct = 0, power = 0, cooldownMs = 0, costMp = 0;
@@ -163,7 +163,7 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
         const SkillTarget target = ParseName<SkillTarget>(cell[2], TARGET_NAMES);
         if (target == SkillTarget::COUNT)
         {
-            SLOG_ERROR("[SkillTable] {}줄: 모르는 target \"{}\" — front · shape · self 중 하나여야 합니다 (스킬 {})", dl.fileLine, cell[2], skillId);
+            SLOG_ERROR("[SkillTable] {}줄: 모르는 target \"{}\" — front · shape · self · around 중 하나여야 합니다 (스킬 {})", dl.fileLine, cell[2], skillId);
             return false;
         }
         const SkillEffect effect = ParseName<SkillEffect>(cell[3], EFFECT_NAMES);
@@ -279,15 +279,16 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
             return false;
         }
 
-        // ⑻ 칸 목록 — shape 대상은 반드시 있고, 다른 대상은 비어 있어야 한다(안 쓰이는 값이 뜻을 가진 척하지 않게)
+        // ⑻ 범위 칸(area) — shape 대상은 칸 목록, around 대상은 반경이 반드시 있고, 다른 대상은 비어 있어야 한다(안 쓰이는 값이 뜻을 가진 척하지 않게)
         std::vector<ShapeCell> shape;
+        int64_t aroundRadius = 0;
         switch (target)
         {
         case SkillTarget::FRONT:
         case SkillTarget::SELF:
-            if (!shapeText.empty())
+            if (!areaText.empty())
             {
-                SLOG_ERROR("[SkillTable] {}줄: target {} 는 shape 칸을 비워야 합니다 — \"{}\" (스킬 {})", dl.fileLine, cell[2], shapeText, skillId);
+                SLOG_ERROR("[SkillTable] {}줄: target {} 는 area 칸을 비워야 합니다 — \"{}\" (스킬 {})", dl.fileLine, cell[2], areaText, skillId);
                 return false;
             }
             break;
@@ -295,15 +296,29 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
         case SkillTarget::SHAPE:
         {
             std::string why;
-            if (shapeText.empty())
+            if (areaText.empty())
                 why = "칸이 비어 있습니다";
-            if (!why.empty() || !ParseShape(shapeText, shape, why))
+            if (!why.empty() || !ParseShape(areaText, shape, why))
             {
                 SLOG_ERROR("[SkillTable] {}줄: shape {} (스킬 {})", dl.fileLine, why, skillId);
                 return false;
             }
             break;
         }
+
+        case SkillTarget::AROUND:
+            if (!ParseInt(areaText, aroundRadius) || aroundRadius < 1 || aroundRadius > MAX_AROUND_RADIUS)
+            {
+                SLOG_ERROR("[SkillTable] {}줄: target around 의 area 칸은 반경 1~{} 이어야 합니다 — \"{}\" (스킬 {})", dl.fileLine, MAX_AROUND_RADIUS, areaText, skillId);
+                return false;
+            }
+            // 몬스터 쓰임은 막는다 — 몬스터 규칙의 maxDist 검사(MonsterSkillTable.cpp)가 칸 거리로만 짜여 있다. 쓰는 곳이 생기면 그때 연다
+            if (user == SkillUser::MONSTER)
+            {
+                SLOG_ERROR("[SkillTable] {}줄: target around 는 user monster 와 짝지을 수 없습니다 (스킬 {})", dl.fileLine, skillId);
+                return false;
+            }
+            break;
 
         case SkillTarget::COUNT:
             return false;   // 위 ⑶ 이 이미 걸렀다 — 여기 오지 않는다
@@ -337,6 +352,7 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
         d.cooldownFrames = static_cast<uint64_t>((cooldownMs + FRAME_INTERVAL_MS - 1) / FRAME_INTERVAL_MS);
         d.shapeReach     = ShapeReach(shape);
         d.shape          = std::move(shape);
+        d.aroundRadius   = static_cast<int32_t>(aroundRadius);
     }
 
     SLOG_INFO("[SkillTable] {} — 스킬 {}개 (사람 {}개)", path, _rows.size(), _playerSkillIds.size());

@@ -12,6 +12,8 @@
 #                Order is fixed: level table + gear -> sum of add -> sum of pct -> product of mul. Changing gear keeps the buff.
 #   The first cell must be a number - GameDataCsv treats a line whose first cell is not a number as the header.
 #   1 Dual Attack (Lv1 attack 10): attack 20 for 30s. 2 Rage = the bosses' (cast rules in MonsterSkill.csv): attack x2 for 10s.
+#   3 = max hp and mana +30% for 3 minutes (working name, skill 7). The current values stay - when it ends, anything above the maximum is cut.
 buffId,name,durationMs,mods
 1,이중공격,30000,attack:mul:2
 2,격노,10000,attack:mul:2
+3,체력·마나 버프,180000,max_hp:pct:30;max_mp:pct:30
