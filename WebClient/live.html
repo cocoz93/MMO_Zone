@@ -197,8 +197,14 @@ function skillChanged(){ document.documentElement.setAttribute('data-skill', JSO
 const SKILL_FAIL_TEXT = {
   BAD_SKILL:'없는 스킬입니다', DEAD:'쓰러진 동안에는 쓸 수 없습니다', COOLDOWN:'아직 쓸 수 없습니다 — 잠시 뒤에 다시',
   LOW_HP:'체력이 모자랍니다 — 스킬로는 쓰러지지 않습니다', NO_TARGET:'앞에 맞을 몬스터가 없습니다',
-  LOW_MP:'마력이 부족합니다',
+  LOW_MP:'마력이 부족합니다', OUT_OF_RANGE:'대상이 너무 멉니다',
 };
+// 대상 지정 — 원거리 기술이 칠 몬스터. 네모로 보인다. 정하는 길 = 몬스터 클릭(한 번) · Tab(다음 대상). 두 번 클릭 = 그 대상에게 시전.
+//   화면 쪽 선택일 뿐이다 — 번호를 실어 보내면 서버가 살아 있나·사거리를 다시 본다(C2S_USE_SKILL).
+let targetId = 0;                                                       // 고른 몬스터 번호 · 0 = 없음
+let lastTargetSkill = 0;                                                // 마지막으로 쓴 대상 지정 기술 — 두 번 클릭이 쓴다
+function targetChanged(){ document.documentElement.setAttribute('data-target', JSON.stringify({ id:targetId, lastSkill:lastTargetSkill })); }
+const isTargetSkill = id => { const s=SKILLS.get(id); return !!s && s.target==='target'; };
 // 맵 표·포털 표 — 서버와 같은 파일(Run/bin/MapTable.csv · PortalTable.csv)을 serve.js 의 /data 로 받는다(아이템·스킬 표와 같은 꼴).
 //   맵 표는 땅 모양(마을 = 흙)만, 포털 표는 그리기·안내·F 키의 번호 고르기에 쓴다. 어디로 가는지는 서버 표가 정한다(클라는 번호만 보낸다).
 //   못 받으면 땅은 풀 · 포털이 안 보이고 F 키도 안 보낸다(번호를 모른다). 없다는 사실은 콘솔 경고와 data-portal 에 남는다.
@@ -720,7 +726,8 @@ function onPacket(p){
     case P.MSG.S2C_SKILL_FAIL: {
       const s=SKILLS.get(p.skillId);
       // 주변 기술은 앞을 안 본다 — NO_TARGET 문구만 「주변」으로
-      const failText = (s && s.target==='around' && p.reasonName==='NO_TARGET') ? '주변에 맞을 몬스터가 없습니다' : SKILL_FAIL_TEXT[p.reasonName];
+      const failText = (s && s.target==='around' && p.reasonName==='NO_TARGET') ? '주변에 맞을 몬스터가 없습니다'
+                     : (s && s.target==='target' && p.reasonName==='NO_TARGET') ? '대상이 없습니다' : SKILL_FAIL_TEXT[p.reasonName];
       sysMsg((s?s.name+': ':'')+(failText || ('쓰지 못했습니다 ('+p.reasonName+')')));
       skillState.lastFail=p.reasonName; skillChanged();
       break; }
@@ -856,7 +863,29 @@ function sendAttack(){
 //   쓰러져 있어도 보낸다 — 막힌 까닭은 서버가 SKILL_FAIL 로 답해 [System] 한 줄로 뜬다(줍기와 같은 꼴)
 function sendSkill(id){
   if(!self || !ws || ws.readyState!==1) return;
+  if(isTargetSkill(id)){
+    lastTargetSkill=id; targetChanged();
+    if(!targetId){ sysMsg((SKILLS.get(id).name)+': 대상을 먼저 고르세요 (몬스터 클릭 · Tab)'); return; }   // 보내 봐야 거절이다 — 무엇을 하면 되는지 바로 말한다
+    ws.send(P.enc.useSkill(id, targetId));
+    return;
+  }
   ws.send(P.enc.useSkill(id));
+}
+// 두 번 클릭이 쓰는 기술 — 마지막으로 쓴 대상 지정 기술(아직 막대에 있으면), 없으면 막대의 첫 대상 지정 기술. 없으면 0(전사·도적은 아무 일 없음)
+function dblClickSkill(){
+  const bar=playerSkillIds();
+  if(lastTargetSkill && bar.includes(lastTargetSkill)) return lastTargetSkill;
+  return bar.find(isTargetSkill) || 0;
+}
+// Tab — 다음 대상. 화면 안 살아 있는 몬스터를 가까운 순으로 돈다(플레이어가 움직이면 순서도 바뀐다 — 가까운 것부터 잡히는 것이 쓸모가 크다)
+function cycleTarget(){
+  if(!self) return;
+  const hw=VW/2/ZOOM, hh=VH/2/ZOOM, list=[];
+  others.forEach((o,id)=>{ if(monMeta(o) && !o.dead && Math.abs(o.rx-cam.x)<=hw && Math.abs(o.ry-cam.y)<=hh) list.push({ id, d:Math.hypot(o.rx-self.rx,o.ry-self.ry) }); });
+  list.sort((a,b)=>a.d-b.d);
+  if(!list.length){ targetId=0; targetChanged(); return; }
+  const i=list.findIndex(e=>e.id===targetId);
+  targetId=list[(i+1)%list.length].id; targetChanged();
 }
 // 포털 — 손이 닿는 지금 맵 포털 하나(가장 가까운 것)의 번호를 보낸다. 맞는지(같은 맵·반경)는 서버가 다시 본다 —
 //   어긋나면 FAIL 4·5 가 [System] 한 줄로 온다. 닿는 포털이 없으면 안 보낸다(고를 번호가 없다 — 안내가 안 뜬 자리다).
@@ -927,6 +956,8 @@ if(!SNAP){
     // 1~8 = 스킬 막대의 N번째 칸. I·C 와 같은 까닭으로 e.code — 누르고 있어도 한 번. 칸이 없는 키는 아무것도 안 보낸다(막대엔 사람 기술만 있다)
     const dg=/^Digit([1-8])$/.exec(e.code);
     if(dg){ const id=playerSkillIds()[Number(dg[1])-1]; if(!e.repeat && id!==undefined) sendSkill(id); e.preventDefault(); return; }
+    // Tab = 다음 대상(cycleTarget). 브라우저 초점 이동을 막는다
+    if(e.code==='Tab'){ if(!e.repeat) cycleTarget(); e.preventDefault(); return; }
     // ` = 서버 관측 표시(서버 정보 창 · 섹터 격자) 켜고 끄기 (I·C 와 같은 까닭으로 e.code)
     if(e.code==='Backquote' && !e.repeat){ SHOW_SERVER=!SHOW_SERVER; e.preventDefault(); return; }
     // P = 파티 창(관리) 열고 닫기 (I·C 와 같은 까닭으로 e.code) — 파티가 없어도 열린다(맺는 법을 안내한다)
@@ -982,13 +1013,17 @@ if(!SNAP){
     const nid=npcAt(x,y);
     if(nid){ if(party.menu){ party.menu=null; partyChanged(); } clickNpc(nid); return; }
     const id=charAt(x,y);
-    party.menu = id ? { id, x, y } : null; partyChanged(); });
+    party.menu = id ? { id, x, y } : null; partyChanged();
+    if(!id){ const mid=monsterAt(x,y); if(mid){ targetId=mid; targetChanged(); } } });   // 몬스터 한 번 클릭 = 네모 옮기기 · 빈 땅 클릭은 네모를 안 건드린다
   cv.addEventListener('mousedown',e=>{ if(e.button!==0 || !bag.open) return;
     const h=bagHit(e.offsetX,e.offsetY); if(h && h.tab!==undefined){ bag.tab=h.tab; bag.hover=null; bagChanged(); } });
   // 두 번 누르기 = 가방 칸이면 쓰기·끼우기, 상태창 무기 칸이면 벗기. 되는지(물약·체력·대기시간·죽음·빈 칸)는 서버가 가르고,
   //   안 되면 사유가 [System] 으로 온다. 클라가 미리 거르지 않는 이유 — 판정을 두 곳에 두면 어긋난다(서버가 권위).
   //   ★ 무엇을 보낼지는 칸 번호의 구간으로만 가른다(장비 탭 칸 → C2S_EQUIP, 그 밖 → C2S_USE_ITEM) — 아이템 표를 안 본다.
   cv.addEventListener('dblclick',e=>{ if(!ws || ws.readyState!==1) return;
+    // 몬스터 두 번 클릭 = 그 대상에게 시전(한 번째 클릭이 네모를 옮겨 놨다). 창 위면 창이 먼저다(아래 가방·상태창)
+    if(!overWindow(e.offsetX,e.offsetY)){ const mid=monsterAt(e.offsetX,e.offsetY);
+      if(mid){ targetId=mid; targetChanged(); const sid=dblClickSkill(); if(sid) sendSkill(sid); return; } }
     if(stw.open && statusHit(e.offsetX,e.offsetY)==='weapon'){
       if(bag.slots.has(P.EQUIP_SLOT.WEAPON)) ws.send(P.enc.unequip(P.EQUIP_SLOT.WEAPON));
       return; }
@@ -1863,6 +1898,37 @@ function charAt(x,y){
     const b=charBox(o); if(x>=b.x && x<=b.x+b.w && y>=b.y && y<=b.y+b.h && o.ry>bestY){ best=id; bestY=o.ry; } });
   return best;
 }
+// 대상 네모·클릭이 쓰는 몬스터 자리 — 몸 반지름으로 키운다(보스는 그림이 크다). 발 기준이라 위로 길다
+function monsterBox(o){ const m=monMeta(o), r=m && m.radius>0 ? m.radius : 0, w=Math.max(1.4,2*r+0.6)*ZOOM, h=Math.max(1.9,2.4*r+0.9)*ZOOM, px=sx(o.rx), py=sy(o.ry);
+  return { x:px-w/2, y:py-h+0.35*ZOOM, w, h }; }
+// 그 자리의 살아 있는 몬스터 — 겹치면 앞에 그려진 것(charAt 과 같은 규칙). 없으면 0
+function monsterAt(x,y){
+  let best=0, bestY=-1e9;
+  others.forEach((o,id)=>{ if(!monMeta(o) || o.dead) return;
+    const b=monsterBox(o); if(x>=b.x && x<=b.x+b.w && y>=b.y && y<=b.y+b.h && o.ry>bestY){ best=id; bestY=o.ry; } });
+  return best;
+}
+// 창 위인가 — 게임 화면 클릭의 판단과 같은 순서(mousedown). 두 번 클릭이 창을 뚫고 몬스터를 치지 않게
+function overWindow(x,y){
+  if(jobPicking() && inRect(x,y,jobLayout())) return true;
+  if(partyUiHit(x,y) || tradeUiHit(x,y) || shopUiHit(x,y) || foldHit(x,y)) return true;
+  if(bag.open && bagHit(x,y)) return true;
+  if(stw.open && statusHit(x,y)) return true;
+  return x<VX || x>VX+VW || y<VY || y>VY+VH;
+}
+// 고른 대상 네모 — 모서리 넷만 그린다(몸을 안 가린다). 대상이 쓰러지거나 시야에서 나가면 푼다(CREATE 목록에서 빠진다)
+function drawTargetBox(){
+  if(!targetId) return;
+  const o=others.get(targetId);
+  if(!o || o.dead){ targetId=0; targetChanged(); return; }
+  const b=monsterBox(o), c=Math.min(b.w,b.h)*0.28;
+  ctx.save();
+  ctx.lineWidth=2.5; ctx.strokeStyle='rgba(255,226,110,.95)'; ctx.shadowColor='rgba(0,0,0,.7)'; ctx.shadowBlur=3;
+  for(const [x,y,dx,dy] of [[b.x,b.y,1,1],[b.x+b.w,b.y,-1,1],[b.x,b.y+b.h,1,-1],[b.x+b.w,b.y+b.h,-1,-1]]){
+    ctx.beginPath(); ctx.moveTo(x+dx*c,y); ctx.lineTo(x,y); ctx.lineTo(x,y+dy*c); ctx.stroke();
+  }
+  ctx.restore();
+}
 // 그 자리의 NPC(표에 줄이 있는 것) — 누르면 말 걸기(clickNpc). 겹치면 앞에 그려진 것(charAt 과 같은 규칙). 없으면 0
 function npcAt(x,y){
   let best=0, bestY=-1e9;
@@ -2321,6 +2387,7 @@ function render(t){
   view.sort((a,b)=>a.y-b.y);
   for(const it of view){ if(it.kind==='prop') drawProp(it.pr); else drawChar(it.o,it.isMe,t,it.fade); }
   drawFxLayer('over',near);    // 이펙트 앞 층 — 번쩍임·불꽃처럼 몹을 덮는 것
+  drawTargetBox();             // 고른 대상 네모 — 이펙트 위(시전 중에도 누가 대상인지 보인다)
   drawPortalLabels();   // 포털 이름·안내 — 캐릭터 뒤(몸에 안 가리게), 말풍선 앞
   others.forEach(o=>{ if(o.chat && near(o)) drawBubble(o); });
   if(self && self.chat) drawBubble(self);
@@ -2342,6 +2409,7 @@ function setConn(ok,txt){ stat.connected=ok; connEl.textContent=txt; connEl.clas
 //   새 존의 것은 입장 직후 CREATE(사람·몬스터 · 땅은 SEEN)로 다시 온다. 내 캐릭터·가방은 존에 딸린 게 아니라 여기서 안 비운다
 function clearZoneWorld(){
   others.clear(); fading.clear(); fxPlaying.length=0;
+  targetId=0; targetChanged();   // 존이 바뀌면 그 존의 몬스터 번호는 뜻이 없다
   ground.clear(); groundChanged();
   if(party.menu){ party.menu=null; partyChanged(); }   // 누른 사람이 옛 존에 남았다 — 파티 자체는 존을 넘으므로 안 비운다
   closeShop();                                          // 메뉴를 연 NPC 도 옛 존에 남았다
@@ -2474,7 +2542,7 @@ function parseBuffTable(text){
 }
 // 칸 위치로 읽는다 — skillId,name,target,effect,costHpPct,power,cooldownMs,costMp,area,user,job (서버 SkillTable.cpp 와 같은 순서).
 //   걸러내는 규칙은 아이템 표와 같다(빈 줄 · '#' 주석 · 첫 칸이 숫자가 아닌 헤더). 값 검사는 서버가 기동 때 이미 했다.
-//   area(아홉째)는 대상 종류마다 뜻이 다르다 — shape = 「앞:옆」 을 ';' 로 이은 칸 목록 · around = 반경(칸) · front·self 는 비어 있거나 칸 자체가 없다.
+//   area(아홉째)는 대상 종류마다 뜻이 다르다 — shape = 「앞:옆」 을 ';' 로 이은 칸 목록 · around = 반경(칸) · target = 사거리(칸) · front·self 는 비어 있거나 칸 자체가 없다.
 //   user(열째)는 player | monster — 비거나 칸이 없으면 player. monster 줄은 표에 남겨 몬스터 시전의 칸 그림에 쓰되 막대·숫자 키에서는 뺀다(playerSkillIds).
 function parseSkillTable(text){
   for(const raw of text.split(/\r?\n/)){
@@ -2482,9 +2550,9 @@ function parseSkillTable(text){
     if(!line || line[0]==='#' || !/^\d/.test(line)) continue;
     const c=line.split(',').map(s=>s.trim());
     if(c.length<7) continue;
-    const around=c[2]==='around';
-    const shape=around ? [] : (c[8]||'').split(';').filter(Boolean).map(cell=>cell.split(':').map(Number));
-    SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]), costMp:Number(c[7]||0), shape, radius:around ? Number(c[8]) : 0, user:(c[9]||'player').toLowerCase(), job:Number(c[10]||0) });
+    const around=c[2]==='around';                 // target 의 사거리는 화면에 안 그린다(판정은 서버) — 값만 range 로 둔다
+    const shape=(around || c[2]==='target') ? [] : (c[8]||'').split(';').filter(Boolean).map(cell=>cell.split(':').map(Number));
+    SKILLS.set(Number(c[0]), { name:c[1], target:c[2], effect:c[3], costHpPct:Number(c[4]), power:Number(c[5]), cooldownMs:Number(c[6]), costMp:Number(c[7]||0), shape, radius:around ? Number(c[8]) : 0, range:c[2]==='target' ? Number(c[8]) : 0, user:(c[9]||'player').toLowerCase(), job:Number(c[10]||0) });
   }
 }
 // 맵 표·포털 표·몬스터 표(serve.js 의 /data/MapTable.csv · PortalTable.csv · MonsterTable.csv) — 못 받아도 멈추지 않는다(땅은 풀 · 포털이 안 보인다 · 몬스터를 사람 모양으로).
