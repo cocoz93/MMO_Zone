@@ -45,6 +45,8 @@
 #     Guryungi is a beginner boss and has no damage skill (Strike removed 2026-10-15). An unused id is fine (the loader allows holes).
 #   6 Revive = the Snake King's (monster 3, 2026-10-18): brings back the dead fake snake kings (monster 4), as many as are dead. Cooldown 20s.
 #   4 and 7 names are working names (2026-10-31) - to be decided with the skill rename. costMp 10 is a placeholder, same as the other skills.
+#   8 and 11-34 (2026-11-03): names and every number are PLACEHOLDERS - balance comes later. Warrior skills pay hp and scale with it (damage), the other jobs scale with attack (damage_attack).
+#   7 moved from warrior to taoist on 2026-11-03 and now also covers party members in range.
 skillId,name,target,effect,costHpPct,power,cooldownMs,costMp,area,user,job
 1,백호참,front,damage,50,100,480,10,,player,1
 2,어검술,shape,damage,50,50,20000,10,1:0;2:-1;2:0;2:1,player,1
@@ -52,4 +54,19 @@ skillId,name,target,effect,costHpPct,power,cooldownMs,costMp,area,user,job
 4,광역기,around,damage,50,100,180000,10,15,player,1
 5,격노,self,buff,0,2,30000,0,,monster
 6,되살리기,self,revive,0,4,20000,0,,monster
-7,체력·마나 버프,self,buff,0,3,180000,10,,player,1
+8,붕격,shape,damage,50,60,8000,10,1:-1;1:0;1:1;2:-1;2:0;2:1,player,1
+11,쌍인,front,damage_attack,0,150,480,5,,player,2
+12,삼연,front,damage_attack,0,220,3000,10,,player,2
+13,섬영,shape,damage_attack,0,180,6000,10,1:0;2:0,player,2
+14,검무,around,damage_attack,0,250,60000,30,6,player,2
+15,경신,self,buff,0,4,45000,10,,player,2
+21,뇌전,target,damage_attack,0,150,480,5,6,player,3
+22,빙창,target,damage_attack,0,220,3000,10,7,player,3
+23,뇌폭,around,damage_attack,0,180,8000,20,3,player,3
+24,낙뢰,around,damage_attack,0,300,60000,40,8,player,3
+25,증폭,self,buff,0,5,60000,20,,player,3
+31,파사,target,damage_attack,0,100,480,5,5,player,4
+32,치유,around_ally,heal,0,30,1500,15,8,player,4
+33,속박,target,buff,0,6,10000,15,7,player,4
+34,대치유,around_ally,heal,0,70,60000,40,12,player,4
+7,체력·마나 버프,around_ally,buff,0,3,180000,10,8,player,4
