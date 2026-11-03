@@ -164,7 +164,7 @@ void CCharacterStore::PackCooldownsAndBuffs(const CPlayer* player, DBCharRow& ro
 
 #if USE_SKILL
     // 다시 쓸 수 있는 틱이 지금보다 뒤인 항목만 — 0(한 번도 안 씀)·지난 항목은 돌고 있지 않다(CSkillSystem 의 판정 frame < ready 와 같은 경계)
-    //   [불변식] 목록 길이 ≤ MAX_SKILL_BOOK — 사람 목록은 표의 사람 기술 전부이고 표 읽기가 그 수를 막았다(SkillTable.cpp ⑼)
+    //   [불변식] 목록 길이 ≤ MAX_SKILL_BOOK — 사람 목록은 표의 사람 기술 중 내 직업 몫이고, 표 읽기가 사람 기술 전체 수를 막았다(SkillTable.cpp ⑼)
     assert(player->_attack._skillBook.size() <= static_cast<size_t>(MAX_SKILL_BOOK));
     CooldownBuffBlob::Cooldown cooldowns[MAX_SKILL_BOOK];
     int nCooldown = 0;

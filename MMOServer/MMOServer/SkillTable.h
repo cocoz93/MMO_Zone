@@ -23,7 +23,7 @@ constexpr int32_t MAX_SKILL_ID = 0xFFFF;
 // 남는 상한은 번호 크기가 아니라 개수다.
 //   MAX_SKILL_ROWS  = 표 줄 수(사람·몬스터 합) — 지표 칸 수(GameMonitor.h SkillCounters)
 //   MAX_SKILL_BOOK  = 한 캐릭터가 가진 기술 수 — DB 쿨타임 묶음(2 + 24 × 10 = 242바이트 ≤ VARBINARY(255), DBWorker.h)이 묶는다.
-//                     사람은 표의 사람 기술 전부를 가지므로 표 읽기가 사람 기술 수를 이 값과 견준다. 몬스터는 규칙 수 상한(8)이 그 안이다
+//                     사람은 표의 사람 기술 중 내 직업 몫을 가진다. 표 읽기는 직업과 상관없이 사람 기술 전체 수를 이 값과 견준다. 몬스터는 규칙 수 상한(8)이 그 안이다
 constexpr int32_t MAX_SKILL_ROWS = 64;
 constexpr int32_t MAX_SKILL_BOOK = 24;
 

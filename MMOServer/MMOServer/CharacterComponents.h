@@ -76,7 +76,7 @@ public:
 
     // 기술 목록 — 이 캐릭터가 가진 기술과 각자의 쿨타임(11-01 — 기술 번호를 배열 칸에서 뗐다. 전에는 번호가 곧 쿨타임 배열 칸이었다).
     //   쿨타임은 가진 기술의 상태라 항목이 든다. 직업·배우기·기술 레벨이 오면 같은 항목에 붙는다.
-    //   채우기: 사람 = 입장 때 표의 사람 기술 전부(CEntryHandler::SpawnPlayer) · 몬스터 = 자기 규칙의 기술(CMonsterManager::Spawn).
+    //   채우기: 사람 = 입장 때 표에서 내 직업의 기술(job 칸이 빈 공용 포함 — CEntryHandler::SpawnPlayer) · 직업을 고를 때(CJobHandler) · 몬스터 = 자기 규칙의 기술(CMonsterManager::Spawn).
     //   목록에 없는 기술은 못 쓴다(CSkillSystem::CheckCaster NOT_FOR_CASTER). 한 캐릭터 ≤ MAX_SKILL_BOOK(SkillTable.h).
     //   쿨타임은 성공했을 때만 앞으로 민다(CSkillSystem::UseSkill — 거절은 쿨타임을 안 건다).
     //   사람 것은 DB 에 저장한다(characters.skill_cooldowns — 접속을 끊어도 실제 시각으로 계속 돈다 · CCharacterStore::PackCooldownsAndBuffs).

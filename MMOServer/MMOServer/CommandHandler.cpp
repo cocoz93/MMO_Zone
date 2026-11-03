@@ -149,7 +149,7 @@ void CCommandHandler::RunGmCommand(CPlayer* player, const std::vector<std::strin
     _statSystem.RecalcStats(player, player->_gmMode);
     counters._gmToggled[player->_gmMode ? 1 : 0].Inc();
 
-    // 속도는 스탯이 아니다(레벨 표 값이 아니라 입장 때 정해진 값) — 여기서 바로 주변에
+    // 속도 — 위 스탯 세우기가 값을 세웠지만 틱 끝 스탯 알림(CStatSync)은 속도를 안 싣는다 — 여기서 바로 주변에
     if (CZone* zone = _mapManager.GetZone(player->_zoneId))
         _sightBroadcaster.BroadcastAroundSector(zone, player, MakeActorSpeed(player->_actorId, player->_speed), false);
 

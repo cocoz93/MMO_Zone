@@ -93,7 +93,7 @@ SkillReject CSkillSystem::CheckCaster(const CHealthComponent& health, CAttackCom
         return SkillReject::BAD_SKILL;
 
     // 이 시전자가 가진 기술인가 — 기술 목록(CAttackComponent::_skillBook)에 있어야 한다.
-    //   목록을 채울 때 표의 user 칸으로 갈랐다(사람 = PLAYER 줄 전부 · 몬스터 = 자기 규칙의 MONSTER 줄) — 그래서 사람이 몬스터 스킬을,
+    //   목록을 채울 때 표의 user 칸으로 갈랐다(사람 = 내 직업의 PLAYER 줄 · 몬스터 = 자기 규칙의 MONSTER 줄) — 그래서 사람이 몬스터 스킬을,
     //   몬스터가 사람 스킬을 쓰려 하면 여기서 막힌다(전에는 user 칸을 직접 견줬다 — 11-01 기술 목록).
     outEntry = attack.FindSkill(outDef->skillId);
     if (outEntry == nullptr)

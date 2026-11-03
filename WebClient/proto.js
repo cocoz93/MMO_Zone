@@ -29,7 +29,7 @@
     C2S_PICKUP:1036, S2C_PICKUP_FAIL:1037,
     // 스탯·장착 (USE_COMBAT · USE_EQUIP) — 내 스탯은 본인 전용. 끼우기·빼기 성공은 칸 갱신 둘 + MY_STATS 가 곧 결과다
     S2C_MY_STATS:1038, C2S_EQUIP:1039, C2S_UNEQUIP:1040, S2C_EQUIP_FAIL:1041,
-    // 스킬 (USE_SKILL) — 방향·대상은 서버가 정한다. 시전은 주변 방송, 거절은 본인에게만
+    // 스킬 (USE_SKILL) — 방향은 서버가 정한다 · 대상 지정 기술만 고른 번호를 싣는다(판정은 서버). 시전은 주변 방송, 거절은 본인에게만
     C2S_USE_SKILL:1042, S2C_SKILL_CAST:1043, S2C_SKILL_FAIL:1044,
     // 마력 (USE_SKILL) — 본인에게만 온다. 대상 번호를 싣는다(ACTOR_STATS 와 같은 꼴)
     S2C_ACTOR_MP:1045,
@@ -39,7 +39,7 @@
     C2S_PORTAL_USE:1047,
     // 스킬 쿨타임 상태 (USE_SKILL) — 본인에게만 온다. 입장·존 이동 때 아직 돌고 있는 칸마다 한 장(남은 ms). 시전 순간의 쿨타임은 지금처럼 SKILL_CAST 로 센다
     S2C_SKILL_COOLDOWN_REMAIN:1048,
-    // 이동 속도 (토글 없음) — 본인 + 주변. 등장 순간의 속도는 CREATE 가 싣고, 이 장은 그 뒤에 바뀐 값(지금은 운영자 /gm 켬·끔뿐)
+    // 이동 속도 (토글 없음) — 본인 + 주변. 등장 순간의 속도는 CREATE 가 싣고, 이 장은 그 뒤에 바뀐 값(운영자 /gm 켬·끔 · 속도 버프 걸림·풀림)
     S2C_ACTOR_SPEED:1049,
     // 파티 (USE_PARTY) — 고르기는 화면에서 캐릭터를 눌러서(캐릭터에 이름이 없다). 무엇이 갈지(초대·신청·추천)는 서버가 가린다
     C2S_PARTY_REQUEST:1050, C2S_PARTY_ANSWER:1051, C2S_PARTY_LEAVE:1052, C2S_PARTY_KICK:1053, C2S_PARTY_LEADER:1054, C2S_PARTY_DISBAND:1055,
