@@ -90,7 +90,6 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
 {
     _rows.clear();
     _rowById.clear();
-    _playerSkillIds.clear();
 
     // 사람이 닿을 수 있는 가장 큰 최대 마력 — costMp 가 이보다 크면 어느 레벨에서도 못 쓴다(아래 ⑺).
     //   만렙 값이 아니라 전 레벨의 최댓값이다 — 표가 레벨마다 늘지 않아도 맞게.
@@ -354,17 +353,7 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
             return false;   // 위 ⑶ 이 이미 걸렀다 — 여기 오지 않는다
         }
 
-        // ⑼ 사람 기술 수 — 사람은 자기 직업의 사람 기술을 기술 목록에 든다(입장 때). 줄 수 전체로 막으면 한 사람 목록이 DB 쿨타임 묶음을 넘는 일이 없다(MAX_SKILL_BOOK)
-        if (user == SkillUser::PLAYER && static_cast<int32_t>(_playerSkillIds.size()) >= MAX_SKILL_BOOK)
-        {
-            SLOG_ERROR("[SkillTable] {}줄: 사람 기술이 {} 개를 넘습니다 — 한 캐릭터의 기술 목록 상한(MAX_SKILL_BOOK · DB 묶음 크기) (스킬 {})",
-                       dl.fileLine, MAX_SKILL_BOOK, skillId);
-            return false;
-        }
-
         _rowById[static_cast<int32_t>(skillId)] = _rows.size();
-        if (user == SkillUser::PLAYER)
-            _playerSkillIds.push_back(static_cast<int32_t>(skillId));
 
         _rows.emplace_back();
         SkillDef& d = _rows.back();
@@ -386,7 +375,37 @@ bool CSkillTable::Load(const std::string& path, const CLevelTable& levels, const
         d.aroundRadius   = static_cast<int32_t>(aroundRadius);
     }
 
-    SLOG_INFO("[SkillTable] {} — 스킬 {}개 (사람 {}개)", path, _rows.size(), _playerSkillIds.size());
+    // ⑼ 한 캐릭터의 기술 수 — 사람은 공용 줄(job 칸이 빔) + 자기 직업 줄을 기술 목록에 든다(입장 때). 그 수가 DB 쿨타임 묶음에 들어가야 한다(MAX_SKILL_BOOK).
+    //   넘는 표는 여기서 서버를 안 띄운다 — 그래서 저장에서 빠지는 쿨타임이 없다(빠지면 다시 접속만으로 쿨타임이 풀린다).
+    //   표 전체가 아니라 직업마다 센다 — 직업이 늘어도 한 사람이 가진 수는 그대로다. 줄을 다 읽은 뒤에 세는 까닭은 공용 줄이 직업 줄 뒤에 올 수 있어서다.
+    int32_t playerRows = 0, commonRows = 0;
+    std::unordered_map<int32_t, int32_t> rowsByJob;
+    for (const SkillDef& d : _rows)
+    {
+        if (d.user != SkillUser::PLAYER)
+            continue;
+        ++playerRows;
+        if (d.job == 0)
+            ++commonRows;
+        else
+            ++rowsByJob[d.job];
+    }
+    if (commonRows > MAX_SKILL_BOOK)
+    {
+        SLOG_ERROR("[SkillTable] 공용 기술이 {}개입니다 — 한 캐릭터의 기술 목록 상한 {}(MAX_SKILL_BOOK · DB 묶음 크기)", commonRows, MAX_SKILL_BOOK);
+        return false;
+    }
+    for (const auto& jobRows : rowsByJob)
+    {
+        if (commonRows + jobRows.second > MAX_SKILL_BOOK)
+        {
+            SLOG_ERROR("[SkillTable] 직업 {} 의 기술이 {}개입니다(공용 {} + 직업 {}) — 한 캐릭터의 기술 목록 상한 {}(MAX_SKILL_BOOK · DB 묶음 크기)",
+                       jobRows.first, commonRows + jobRows.second, commonRows, jobRows.second, MAX_SKILL_BOOK);
+            return false;
+        }
+    }
+
+    SLOG_INFO("[SkillTable] {} — 스킬 {}개 (사람 {}개)", path, _rows.size(), playerRows);
     return true;
 }
 

@@ -23,7 +23,7 @@ constexpr int32_t MAX_SKILL_ID = 0xFFFF;
 // 남는 상한은 번호 크기가 아니라 개수다.
 //   MAX_SKILL_ROWS  = 표 줄 수(사람·몬스터 합) — 지표 칸 수(GameMonitor.h SkillCounters)
 //   MAX_SKILL_BOOK  = 한 캐릭터가 가진 기술 수 — DB 쿨타임 묶음(2 + 24 × 10 = 242바이트 ≤ VARBINARY(255), DBWorker.h)이 묶는다.
-//                     사람은 표의 사람 기술 중 내 직업 몫을 가진다. 표 읽기는 직업과 상관없이 사람 기술 전체 수를 이 값과 견준다. 몬스터는 규칙 수 상한(8)이 그 안이다
+//                     사람은 공용 줄 + 내 직업 줄을 가진다. 표 읽기가 직업마다 그 수를 이 값과 견준다(표 전체 수가 아니다). 몬스터는 규칙 수 상한(8)이 그 안이다
 constexpr int32_t MAX_SKILL_ROWS = 64;
 constexpr int32_t MAX_SKILL_BOOK = 24;
 
@@ -207,9 +207,6 @@ public:
     // 안쪽 순번으로 — 0~Count()−1. 지표 이름표(스킬 번호)를 적어 둘 때 훑는다(CGameServer::LoadGameDataFiles)
     const SkillDef& Row(int32_t index) const { return _rows[static_cast<size_t>(index)]; }
 
-    // 사람 기술 번호 — 파일 순서.
-    const std::vector<int32_t>& PlayerSkillIds() const { return _playerSkillIds; }
-
     // 이 직업이 가진 사람 기술 번호 — 파일 순서. 공용(job 칸이 빈 줄) 포함. job 0(아직 안 고름)은 공용만.
     //   입장과 직업 고르기 때 기술 목록을 채운다(CEntryHandler::SpawnPlayer · CJobHandler)
     std::vector<int32_t> PlayerSkillIdsOf(int32_t job) const;
@@ -217,7 +214,6 @@ public:
 private:
     std::vector<SkillDef> _rows;                        // 파일 순서 — 색인 = SkillDef::index. 읽은 뒤로 안 늘어 Find 의 포인터가 안 흔들린다
     std::unordered_map<int32_t, size_t> _rowById;       // 스킬 번호 → _rows 색인
-    std::vector<int32_t> _playerSkillIds;               // user=player 줄의 번호 — 파일 순서
 };
 
 #endif // USE_SKILL

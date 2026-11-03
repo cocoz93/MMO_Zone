@@ -2,7 +2,8 @@
 #   UTF-8 without BOM (names are Korean). No commas inside a cell.
 #   One row = one skill. A player has the player rows of their job (job cell below). A row whose user cell is monster is for monsters only (see user below).
 #   skillId    : 1..65535 (MAX_SKILL_ID - u16 on the wire). A name tag, not an array index - gaps are fine. At most 64 rows (MAX_SKILL_ROWS)
-#                and at most 24 player rows (MAX_SKILL_BOOK - the DB cooldown blob must be able to hold one player's skills).
+#                One character may have at most 24 skills (MAX_SKILL_BOOK): rows with an empty job cell + the rows of their job, counted per job.
+#                The DB cooldown blob holds that many, so a table over it stops the server at startup. Adding jobs does not add to anyone's count.
 #   target     : front = the nearest monster in front, same range and facing as a normal attack. Players are never hit.
 #                shape = every monster standing on a cell listed in the area column - several can be hit, and two on one cell are both hit.
 #                self  = the caster (no target search, so never NO_TARGET) - what buffs use.
