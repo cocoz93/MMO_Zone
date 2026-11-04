@@ -370,6 +370,51 @@ set_target_properties(${ACCOUNT_TARGET} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_DEBUG   ${CMAKE_CURRENT_SOURCE_DIR}/Run/bin
 )
 
+# ═══════════════════════════════════════════════════════════
+#  CharacterServer / character_server — 캐릭터 서버 실행 파일 (계정 서버와 같은 꼴)
+# ═══════════════════════════════════════════════════════════
+set(CHAR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/CharacterServer)
+
+# 네트워크 없는 부품 — 단위 시험이 같이 빌드한다
+set(CHAR_LOGIC_SOURCES
+    ${CHAR_DIR}/CharacterRules.cpp
+    ${CHAR_DIR}/CharSessionTable.cpp
+    ${CHAR_DIR}/ZoneDirectory.cpp
+    ${CHAR_DIR}/LookTable.cpp
+    ${CHAR_DIR}/CharacterDb.cpp
+)
+
+set(CHAR_SOURCES
+    ${CHAR_LOGIC_SOURCES}
+    ${CHAR_DIR}/main.cpp
+    ${CHAR_DIR}/CharacterServer.cpp
+    ${CHAR_DIR}/CharacterServerConfig.cpp
+    ${CHAR_DIR}/CharLoginFlow.cpp
+    ${CHAR_DIR}/RosterFlow.cpp
+    ${CHAR_DIR}/SelectFlow.cpp
+    ${CHAR_DIR}/ZoneLinkFlow.cpp
+    ${CHAR_DIR}/CharacterMetrics.cpp
+)
+
+if(WIN32)
+    set(CHAR_TARGET CharacterServer)
+else()
+    set(CHAR_TARGET character_server)
+endif()
+
+add_executable(${CHAR_TARGET} ${CHAR_SOURCES})
+target_link_libraries(${CHAR_TARGET} PRIVATE ServerCommonLib)
+target_include_directories(${CHAR_TARGET} PRIVATE ${CHAR_DIR})
+if(MSVC)
+    target_link_options(${CHAR_TARGET} PRIVATE /SUBSYSTEM:CONSOLE /DEBUG
+                        $<$<CONFIG:Release>:/LTCG:incremental>)
+endif()
+set_target_properties(${CHAR_TARGET} PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY         ${CMAKE_CURRENT_SOURCE_DIR}/Run/bin
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_CURRENT_SOURCE_DIR}/Run/bin
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG   ${CMAKE_CURRENT_SOURCE_DIR}/Run/bin
+)
+
 # ─────────────────────────────────────────────────────────────
 #  시험 — 외부 라이브러리 없음, 실패하면 종료 값 1. 빌드 폴더에 남기고 Run/bin에 안 넣는다
 # ─────────────────────────────────────────────────────────────
@@ -391,3 +436,8 @@ target_link_libraries(enter_gate_test PRIVATE ServerCommonLib)
 add_executable(account_unit_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/AccountUnitTest.cpp ${ACCOUNT_LOGIC_SOURCES})
 target_include_directories(account_unit_test PRIVATE ${ACCOUNT_DIR})
 target_link_libraries(account_unit_test PRIVATE ServerCommonLib)
+
+# 캐릭터 서버의 규칙 · 장부 · 외형 표 · DB 문장 — 서버를 안 띄운다. 인자 <ini> <db> 를 주면 시험 DB 경쟁까지 본다
+add_executable(character_unit_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/CharacterUnitTest.cpp ${CHAR_LOGIC_SOURCES})
+target_include_directories(character_unit_test PRIVATE ${CHAR_DIR})
+target_link_libraries(character_unit_test PRIVATE ServerCommonLib)

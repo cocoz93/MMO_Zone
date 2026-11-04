@@ -3,7 +3,7 @@ REM ============================================
 REM   MMO Build - Release x64 (vswhere 자동 탐색)
 REM   사용법: .build.bat [target]
 REM     (없음)     : 전체 (server + gameclient + echo + mmo)
-REM     server     : MMOServer + AccountServer
+REM     server     : MMOServer + AccountServer + CharacterServer
 REM     gameclient : GameClient
 REM     echo       : EchoStressClient
 REM     mmo        : MMOStressClient
@@ -115,7 +115,7 @@ REM === 서버 빌드 서브루틴: CMake 정본 (vcxproj/sln 은 생성물) ===
 REM  주의: 괄호 블록 안에서 %ERRORLEVEL% 은 블록 진입 시점 값으로 고정된다.
 REM        반드시 `if errorlevel N` 키워드 형식을 쓸 것 (그쪽은 실시간 평가)
 :BUILD_SERVER
-echo   - Building servers (MMOServer, AccountServer) ...
+echo   - Building servers (MMOServer, AccountServer, CharacterServer) ...
 if exist "%BUILD_SERVER%\MMO.sln" goto :BUILD_SERVER_COMPILE
 echo     ^(configure^) %BUILD_SERVER%
 "%CMK%" -S "%~dp0.." -B "%BUILD_SERVER%" -G "Visual Studio 17 2022" -A x64

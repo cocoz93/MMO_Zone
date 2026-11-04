@@ -1,0 +1,48 @@
+# Look table — character appearance choices. Server reads it to reject unknown ids (BAD_LOOK); the web client turns ids into sprites.
+# gender: 1 = male, 2 = female. part: skin, hair, top, bottom.
+# id: value stored in character_roster.look — NEVER renumber; add new rows with a new id.
+# sprite: part sprite name in the web client's atlas. head: skin rows only — the matching head sprite.
+# Not selectable on purpose: skeleton, zombie, green skins.
+# gender,part,id,sprite,head
+1,skin,1,b_light,hd_light
+1,skin,2,b_olive,hd_olive
+1,skin,3,b_amber,hd_amber
+1,skin,4,b_bronze,hd_bronze
+1,skin,5,b_brown,hd_brown
+1,hair,1,h_plain,
+1,hair,2,h_spiked,
+1,hair,3,h_afro,
+1,hair,4,h_bedhead,
+1,hair,5,h_long,
+1,hair,6,h_messy1,
+1,hair,7,h_mop,
+1,hair,8,h_parted,
+1,top,1,t_red,
+1,top,2,t_forest,
+1,top,3,t_purple,
+1,top,4,t_yellow,
+1,top,5,t_teal,
+1,top,6,t_slate,
+1,bottom,1,l_blue,
+1,bottom,2,l_brown,
+1,bottom,3,l_charcoal,
+1,bottom,4,l_teal,
+1,bottom,5,l_navy,
+1,bottom,6,l_leather,
+2,skin,1,b_fem,hd_f_light
+2,skin,2,bf_olive,hd_f_olive
+2,skin,3,bf_amber,hd_f_amber
+2,skin,4,bf_bronze,hd_f_bronze
+2,hair,1,hf_ponytail,
+2,hair,2,hf_long,
+2,hair,3,hf_braid,
+2,hair,4,hf_bangslong,
+2,hair,5,hf_pixie,
+2,top,1,tf_teal,
+2,top,2,tf_rose,
+2,top,3,tf_purple,
+2,top,4,tf_navy,
+2,bottom,1,lf_navy,
+2,bottom,2,lf_rose,
+2,bottom,3,lf_brown,
+2,bottom,4,lf_teal,

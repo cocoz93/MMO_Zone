@@ -163,3 +163,24 @@ CREATE TABLE IF NOT EXISTS inventory (
 --   Inventory load (second statement of the same load job, run even when the
 --   character row is missing - see DBWorker.cpp RunLoadOnce):
 --     SELECT slot,item_id,count FROM inventory WHERE character_id=? AND item_id<>0 ORDER BY slot
+
+-- Character ownership: who owns which character, name, look, delete state.
+-- The character server writes it; the zone server only reads name and look.
+--   slot:         0-3. NULL once the delete grace period is over (the seat is given back).
+--   name:         2-6 letters. Case-insensitive unique by collation (Shared/Identity/CharacterName.h).
+--   look:         versioned blob (Shared/Identity/CharacterLookBlob.h).
+--   deleted_at:   delete is a mark, rows are never removed - the character server has no DELETE grant.
+-- AUTO_INCREMENT starts at 1e12: load-test dummies use small ids (sessions count up from 1)
+-- and the two ranges must never meet.
+CREATE TABLE IF NOT EXISTS character_roster (
+    character_id BIGINT        NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    account_id   BIGINT        NOT NULL,
+    slot         TINYINT       NULL,
+    name         VARCHAR(6)    NOT NULL,
+    look         VARBINARY(32) NOT NULL,
+    created_at   DATETIME(3)   NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    deleted_at   DATETIME(3)   NULL,
+    UNIQUE KEY uq_roster_name (name),
+    UNIQUE KEY uq_roster_slot (account_id, slot),
+    KEY ix_roster_account (account_id)
+) ENGINE=InnoDB AUTO_INCREMENT=1000000000000;
