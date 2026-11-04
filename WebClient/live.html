@@ -333,7 +333,7 @@ const SHOP_FAIL_TEXT = {
 function portalChanged(){ const r=portalInReach(); document.documentElement.setAttribute('data-portal', JSON.stringify({ map:ZONE.mapId, ch:ZONE.channel,
   kind:(MAPS.get(ZONE.mapId)||{}).kind||null, maps:MAPS.size, portals:PORTALS.length, here:PORTALS.filter(p=>p.mapId===ZONE.mapId).length,
   inReach:r?r.id:null, sent:portalState.sent, lastFail:portalState.lastFail })); }
-// ?admin=키 — 입장 뒤 운영자 로그인을 한 번 보낸다(드랍이 생기기 전까지 가방을 채우는 /item 명령용).
+// ?admin=아무값 — 입장 뒤 /test 를 한 번 보낸다(드랍이 생기기 전까지 가방을 채우는 /item 명령용). 서버가 AllowDevAdmin 일 때만 켜진다.
 const ADMIN_KEY = q.get('admin') || '';
 let adminSent = false;
 // 헤드리스 검증용 — 가방 요약을 속성 하나로 내놓는다(data-err·data-ready 와 같은 자리). 바뀔 때만 쓴다.
@@ -607,9 +607,9 @@ function onPacket(p){
       sysMsg(ZONE_FAIL_TEXT[p.reasonName] || ('이동하지 못했습니다 ('+p.reasonName+')')); portalChanged(); break;
     case P.MSG.S2C_CREATE_MY_PLAYER:
       self={id:p.playerId,x:p.x,y:p.y,dir:p.direction,moveState:0,disp:p.displayChar,color:p.colorIndex,speed:p.speed,rx:p.x,ry:p.y,...COMBAT_INIT(),hp:p.hp,maxHp:p.maxHp};
-      // 운영자 로그인은 내 캐릭터가 생긴 "뒤"에 — 서버는 플레이어가 없는 세션의 패킷을 버린다.
+      // 운영자 켜기(/test)는 내 캐릭터가 생긴 "뒤"에 — 서버는 플레이어가 없는 세션의 패킷을 버린다.
       //   존을 넘을 때도 이 패킷이 다시 오지만 한 접속에 한 번만 보낸다(운영자 표시는 서버 플레이어에 남는다).
-      if(ADMIN_KEY && !adminSent && ws && ws.readyState===1){ ws.send(P.enc.adminLogin(ADMIN_KEY)); adminSent=true; }
+      if(ADMIN_KEY && !adminSent && ws && ws.readyState===1){ ws.send(P.enc.chat('/test')); adminSent=true; }
       break;
     // spawnReason 3(SPAWN) = 월드에 새로 생김 — 뱀이 깔릴 때. 부활 섬광을 같이 그린다
     case P.MSG.S2C_CREATE_OTHER_PLAYER: bump('ENTER'); fading.delete(p.playerId);   // 흐려지던 같은 번호가 다시 보이면 흐림을 버린다
@@ -756,7 +756,6 @@ function onPacket(p){
     // 서버 알림 — 지금은 채팅 명령의 답뿐이다(이름은 ERROR 지만 거절 사유 안내가 대부분)
     case P.MSG.S2C_ERROR: sysMsg(p.message||''); break;
     case P.MSG.S2C_ADMIN_LOGIN_OK:   sysMsg('운영자로 로그인했습니다'); break;
-    case P.MSG.S2C_ADMIN_LOGIN_FAIL: sysMsg('운영자 로그인 실패 — 주소의 ?admin= 키를 확인하세요'); break;
     // 쓰기 거절 — 성공은 따로 안 온다(칸 갱신과 S2C_ACTOR_STATS — 마력 물약이면 S2C_ACTOR_MP — 가 곧 결과다)
     case P.MSG.S2C_USE_ITEM_FAIL: sysMsg(USE_FAIL_TEXT[p.reasonName] || ('쓰지 못했습니다 ('+p.reasonName+')')); break;
     // 가진 돈 — 최종값(두 번 와도 같다). 입장 때 가방 전체 바로 뒤 한 장 · 줍기·사고팔기·방 보상·/item 으로 바뀔 때마다.
@@ -2423,7 +2422,7 @@ function clearZoneWorld(){
 }
 function connect(){
   clearZoneWorld(); self=null;   // 재접속 시 유령 엔티티 제거
-  bag.slots.clear(); adminSent=false; me.money=null; me.moneyT=0; bagChanged();   // 가방·돈은 입장 때 전체가 다시 온다 · 운영자 로그인도 새 접속마다
+  bag.slots.clear(); adminSent=false; me.money=null; me.moneyT=0; bagChanged();   // 가방·돈은 입장 때 전체가 다시 온다 · 운영자 켜기도 새 접속마다
   myJob=null; jobHover=null; jobChanged();   // 끊기면 새 접속의 MY_JOB 을 기다린다(그때까지 공용 기술만)
   party.info=null; party.ask=null; party.menu=null; partyChanged();   // 끊기면 서버가 파티에서 뺐다(저장 안 함) — 새 접속은 파티 없이 시작
   trade.ask=null; trade.win=null; tradeChanged();                       // 거래도 끊기면 서버가 끝냈다

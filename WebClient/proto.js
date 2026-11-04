@@ -373,9 +373,6 @@
     enterGame(devCharacterId){ const {b,d}=hdr(76,MSG.C2S_ENTER_GAME); d.setBigInt64(4, BigInt(devCharacterId||0), true); return b; },
     // 바디 없음 — 방향은 서버가 들고 있고, 대상도 서버가 "앞 한 칸"으로 고른다
     attack(){ return hdr(4, MSG.C2S_ATTACK).b; },
-    // C2S_ADMIN_LOGIN: header(4) + char key[64] = 68B. 키는 ASCII — 마지막 한 바이트는 NUL 자리로 남긴다
-    adminLogin(key){ const {b,d}=hdr(68,MSG.C2S_ADMIN_LOGIN); const s=String(key||'').slice(0,63);
-      for(let i=0;i<s.length;i++) d.setUint8(4+i, s.charCodeAt(i) & 0x7F); return b; },
     // C2S_USE_ITEM: header(4) + slot u16 = 6B
     useItem(slot){ const {b,d}=hdr(6,MSG.C2S_USE_ITEM); d.setUint16(4, slot, true); return b; },
     // C2S_PICKUP: 바디 없음 — 서버가 2칸 안에서 주울 수 있는 가장 가까운 것 하나를 고른다

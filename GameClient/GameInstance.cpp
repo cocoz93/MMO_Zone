@@ -315,7 +315,7 @@ void CGameInstance::ProcessNetworkEvents()
             case 0:  reason = L"Not found";            break;
             case 1:  reason = L"All channels full";    break;
             case 2:  reason = L"Already in this channel"; break;
-            case 3:  reason = L"Admin only (other map)"; break;   // 다른 맵 지정은 운영자만 — /admin 뒤에 다시
+            case 3:  reason = L"Admin only (other map)"; break;   // 다른 맵 지정은 운영자만 — /test 뒤에 다시
             case 4:  reason = L"Too far from portal";  break;     // 포털 사용(웹)과 같은 실패 패킷 — 콘솔은 포털 키가 없다
             case 5:  reason = L"No such portal";       break;
             default: reason = L"Unknown";              break;
@@ -342,7 +342,7 @@ void CGameInstance::ProcessNetworkEvents()
             break;
 
         case ClientNetworkEvent::Type::ADMIN_LOGIN_FAIL:
-            AddChatMessage(L"[System] Admin login failed. Invalid key.");
+            AddChatMessage(L"[System] Admin login failed.");
             break;
 
         case ClientNetworkEvent::Type::EXP:
@@ -914,21 +914,14 @@ void CGameInstance::HandleChatCommand(const std::wstring& command)
         return;
     }
 
-    // ── 운영자 인증 ──
+    // ── 운영자 켜기 ── 서버가 AllowDevAdmin 일 때만 받는다(고정 열쇠는 없앴다)
 
-    if (command.size() > 7 && command.substr(0, 7) == L"/admin ")
+    if (command == L"/test")
     {
-        std::wstring arg = command.substr(7);
-
-        // wchar_t → char 변환 (ASCII key)
-        char key[ADMIN_KEY_MAX_LEN]{};
-        for (size_t i = 0; i < arg.size() && i < ADMIN_KEY_MAX_LEN - 1; ++i)
-            key[i] = static_cast<char>(arg[i]);
-
-        _network.SendAdminLogin(key);
-        AddChatMessage(L"[System] Requesting admin login...");
+        _network.SendChat(L"/test");
+        AddChatMessage(L"[System] Requesting admin mode...");
         return;
     }
 
-    AddChatMessage(L"[System] Unknown command. Available: /map, /ch, /admin");
+    AddChatMessage(L"[System] Unknown command. Available: /map, /ch, /test");
 }
