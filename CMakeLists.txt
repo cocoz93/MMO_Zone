@@ -287,3 +287,9 @@ set_target_properties(lockfree_headers_check PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/Run/bin)
 
 endif()  # UNIX
+
+# ─────────────────────────────────────────────────────────────
+#  시험 — 외부 라이브러리 없음, 실패하면 종료 값 1. 빌드 폴더에 남기고 Run/bin에 안 넣는다
+# ─────────────────────────────────────────────────────────────
+add_executable(core_link_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/CoreLinkTest.cpp)
+target_link_libraries(core_link_test PRIVATE ServerNetworkLib)
