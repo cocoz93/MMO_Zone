@@ -22,6 +22,7 @@ enum class ZoneServerId : int32_t {};   // 존 서버 프로세스 번호(등록
 // 「없음」 값 — 전용 타입으로 옮기기 전 코드가 쓰던 값에 이름만 붙였다
 //   액터 0 = 패킷의 「관련 사람 없음」(번호는 1부터 나간다) · 캐릭터 0 = 아직 안 정해짐 · 땅 아이템 주인 없음
 inline constexpr SessionId   NO_SESSION{ -1 };
+inline constexpr AccountId   NO_ACCOUNT{ 0 };     // 계정 없음 — 시험 입장 길(계정 번호는 1부터 나간다)
 inline constexpr CharacterId NO_CHARACTER{ 0 };
 inline constexpr ActorId     NO_ACTOR{ 0 };
 inline constexpr ZoneId      NO_ZONE{ -1 };

@@ -75,7 +75,7 @@
 #include "EntryHandler.h"     // 입장·존 이동 요청(접속 · 대기표 · 불러온 캐릭터 세우기 · 중복 접속 · 포털) — 게임 서버 나누기 12 단계(C1)
 #include "JobHandler.h"       // 직업 고르기 — 토글 없음
 #include "CommandHandler.h"   // 채팅 명령(명령 표 · 운영자 권한 · /item · /gm · /die — 명령 줄만 토글) — 10-26 CChatHandler 에서 떼어 냄
-#include "ChatHandler.h"      // 채팅·운영(채팅 · 운영자 로그인 · '/' 채팅 넘기기) — 게임 서버 나누기 13 단계(C8)
+#include "ChatHandler.h"      // 채팅·운영(채팅 · '/' 채팅 넘기기) — 게임 서버 나누기 13 단계(C8)
 
 class CSerialBuffer;
 
@@ -105,6 +105,14 @@ public:
     {
         if (_network)
             _network->SetEventQueueAcceptLimit(limit);
+    }
+
+    // 입장 규칙 — ServerConfig [Zone]. Start() 전에 호출.
+    void SetEnterRules(int enterCodeTtlSec, bool allowDevEnter, bool allowDevAdmin)
+    {
+        _enterGate.SetTtlSec(enterCodeTtlSec);
+        _entryHandler.SetAllowDevEnter(allowDevEnter);
+        _commandHandler.SetAllowDevAdmin(allowDevAdmin);
     }
 
     // 플레이어 이동 속도(칸/초) — 0 이면 지금까지의 동작(25~50 무작위). ServerConfig [Game] 참조.
@@ -365,6 +373,9 @@ private:
 #endif
                              _gameMonitor, _gameDataFiles };
 
+    // 입장 대기 명단 — 예고를 적는 쪽과 확인하는 쪽이 같이 본다(EnterGate.h). 게임 스레드 단독.
+    CEnterGate _enterGate;
+
     CEntryHandler _entryHandler{ _sessionHub, _placement,
 #if USE_DB_WORKER
                                  _characterStore,
@@ -375,7 +386,7 @@ private:
 #if USE_COMBAT
                                  _statSystem,
 #endif
-                                 _mapManager, _gameMonitor, _gameDataFiles };
+                                 _mapManager, _gameMonitor, _gameDataFiles, _enterGate };
 
     // 채팅 명령 — '/' 채팅의 명령 표 · 운영자 권한 · /item(USE_INVENTORY) · /gm · /die(USE_COMBAT)(CommandHandler.h · 10-26 CChatHandler 에서 떼어 냄).
     //   ★ _sightBroadcaster · _selfNotifier · _gameMonitor · _mapManager 와 명령이 쓰는 _statSystem · _combatSystem · _frameCount · _itemHandler · _gameDataFiles
@@ -389,7 +400,7 @@ private:
 #endif
                                      _mapManager };
 
-    // 채팅·운영 — 채팅 · 운영자 로그인 · '/' 채팅을 CCommandHandler 로 넘기기(ChatHandler.h).
-    //   ★ _sessionHub · _sightBroadcaster · _commandHandler · _mapManager 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
-    CChatHandler _chatHandler{ _sessionHub, _sightBroadcaster, _commandHandler, _mapManager };
+    // 채팅·운영 — 채팅 · '/' 채팅을 CCommandHandler 로 넘기기(ChatHandler.h).
+    //   ★ _sightBroadcaster · _commandHandler · _mapManager 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
+    CChatHandler _chatHandler{ _sightBroadcaster, _commandHandler, _mapManager };
 };

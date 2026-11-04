@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "EnterGate.h"       // 입장 번호 칸 크기(CODE_BYTES) · 명단
 #include "BuildConfig.h"     // USE_DB_WORKER · USE_LOGIN · USE_INVENTORY · USE_COMBAT · USE_EXP · USE_PARTY — 안 읽으면 아래 #if 가 조용히 0 이 된다
 #include "DB/DBWorker.h"     // DBResult · DB_HP_MP_UNSAVED(입장 배치 구조체의 기본값 — 토글을 끈 빌드도 쓴다)
 #include "CharacterStore.h"  // USE_DB_WORKER — ICharacterLoadEvents (헤더 안에서 스스로 토글을 본다)
@@ -65,7 +66,8 @@ public:
 #if USE_COMBAT
                   CStatSystem& statSystem,
 #endif
-                  CMapManager& mapManager, CGameMonitor& gameMonitor, const CGameDataFiles& gameDataFiles)
+                  CMapManager& mapManager, CGameMonitor& gameMonitor, const CGameDataFiles& gameDataFiles,
+                  CEnterGate& enterGate)
         : _sessionHub(sessionHub), _placement(placement)
 #if USE_DB_WORKER
         , _characterStore(characterStore)
@@ -76,13 +78,16 @@ public:
 #if USE_COMBAT
         , _statSystem(statSystem)
 #endif
-        , _mapManager(mapManager), _gameMonitor(gameMonitor), _gameDataFiles(gameDataFiles) {}
+        , _mapManager(mapManager), _gameMonitor(gameMonitor), _gameDataFiles(gameDataFiles), _enterGate(enterGate) {}
 
     // 대기표 잡기 — 게임 서버 모드의 Init 이 세션 허브의 칸을 잡은 뒤 부른다(같은 크기·같은 색인). DB 를 끈 빌드는 할 일이 없다.
     void Init(int maxClients);
 
     // 플레이어 이동 속도(칸/초) — 게임 서버의 SetPlayerSpeed(main 이 Start 전에 부른다)가 넘긴다. 새로 만드는 캐릭터부터 적용된다.
     void SetPlayerSpeed(int playerSpeed) { _playerSpeed = playerSpeed; }
+
+    // 입장 번호 없는 접속을 받을까 — ServerConfig [Zone] AllowDevEnter. 끄면 빈 입장 번호는 끊긴다(bad_size 로 센다).
+    void SetAllowDevEnter(bool allow) { _allowDevEnter = allow; }
 
     // 받은 패킷 등록 — 존 이동 · 포털 · 입장 요청. 게임 서버의 등록(RegisterRoutes)이 부른다. false = 등록 실패(기동 거절).
     bool RegisterRoutes(CPacketRoutes& routes);
@@ -142,7 +147,7 @@ private:
     // 플레이어를 만들어 존에 넣고 본인·주변에 알린다 (OnConnected 의 몸이 옮겨 온 것).
     //   존은 호출부가 구해서 준다 — 좌표 검사에 그 존의 크기가 필요해서 판정하는 쪽이 이미 들고 있다.
     //   반환 nullptr = zone 이 nullptr(채널을 못 만듦) → 호출부가 세션을 끊는다. 존 입장 자체는 실패가 없다(CZone::EnterZone).
-    CPlayer* SpawnPlayer(SessionId sessionId, ActorId actorId, CharacterId characterId,
+    CPlayer* SpawnPlayer(SessionId sessionId, ActorId actorId, CharacterId characterId, AccountId accountId,
                          CZone* zone, const EnterPlacement& place);
 
 #if USE_DB_WORKER
@@ -164,12 +169,13 @@ private:
         SessionId   sessionId   = NO_SESSION;
         CharacterId characterId = NO_CHARACTER;   // [입장 대기] 구간에서는 아직 0 이다 — 입장 요청이 와야 정해진다
         ActorId     actorId     = NO_ACTOR;   // 같음. 액터 번호도 입장 요청 때 뽑는다
+        AccountId   accountId   = NO_ACCOUNT; // 같음. 입장 번호로 들어온 사람만 값이 있다(같은 계정 걷어내기가 불러오는 중인 자리도 본다)
         EnterState  state       = EnterState::WAITING_ENTER;
     };
     // 대기표를 바꾸는 자리는 이 셋뿐이다 — 게이지 둘(mmo_enter_waiting·mmo_enter_pending)도 여기서만 움직인다.
     //   접속·입장요청·결과·끊김 네 곳이 제각기 올리고 내리면 한 곳만 빠져도 게이지가 영영 안 맞는다.
     void SetPendingEnter(SessionId sessionId, CharacterId characterId, ActorId actorId, EnterState state);
-    bool PromotePendingEnter(SessionId sessionId, CharacterId characterId, ActorId actorId);  // [입장 대기] → [불러오는 중]
+    bool PromotePendingEnter(SessionId sessionId, CharacterId characterId, AccountId accountId, ActorId actorId);  // [입장 대기] → [불러오는 중]
     bool TakePendingEnter(SessionId sessionId, PendingEnter& out);                      // 세션 번호 전체가 같으면 꺼내고 비운다
     void AdjustPendingCount(EnterState state, int delta);                             // 상태별 수 + 게이지를 한 자리에서 움직인다
 #endif
@@ -180,15 +186,35 @@ private:
     //   플레이어가 없어서, 문턱 뒤에 두면 영영 여기까지 못 온다.
     void RecvEnterGame(SessionId sessionId, CSerialBuffer* pMsg);
 
-    // 같은 캐릭터으로 이미 들어와 있는 세션을 걷어낸다 (게임 중 / 불러오는 중 양쪽).
+    // 입장 요청이 누구인가 — 입장 번호 길이면 계정 번호까지, 시험 입장 길이면 든 번호만(0 = 자동).
+    struct EnterIdentity
+    {
+        CharacterId characterId = NO_CHARACTER;
+        AccountId   accountId   = NO_ACCOUNT;
+    };
+    // 판정 — false 면 부르는 쪽이 끊는다(갈래 지표·로그는 안에서 남긴다). 입장 번호가 비었고 시험 입장 길이 켜져 있을 때만 시험 입장 길이다.
+    bool ResolveEnterCode(const char (&ticket)[CEnterGate::CODE_BYTES], SessionId sessionId, EnterIdentity& out);
+    bool ResolveDevEnter(int64_t devCharacterId, SessionId sessionId, EnterIdentity& out);
+
+    // 같은 사람으로 이미 들어와 있는 세션을 걷어낸다 (게임 중 / 불러오는 중 양쪽).
+    //   입장 번호 길 = 같은 계정(다른 캐릭터로 갈아타도 앞 캐릭터가 나간다) · 시험 입장 길 = 같은 캐릭터.
     //   새 조회를 던지기 "전"에 불러야 한다 — 정리가 넣는 최종 저장이 그 조회보다 큐에서 앞서야
     //   새 접속이 방금 저장한 자리를 읽는다(같은 캐릭터은 같은 워커를 탄다).
-    void KickDuplicateAccount(CharacterId characterId, SessionId exceptSessionId);
+    void KickDuplicateAccount(AccountId accountId, SessionId exceptSessionId);
+    void KickDuplicateCharacter(CharacterId characterId, SessionId exceptSessionId);
+    template <typename PlayerMatch, typename SlotMatch>
+    void KickDuplicateWhere(SessionId exceptSessionId, PlayerMatch matchPlayer, SlotMatch matchSlot);
 
     // 지정 캐릭터 번호의 하한 = 2^31. 입장 요청의 캐릭터 번호는 0(미지정) 아니면 이 값 이상이어야 한다.
     //   자동 번호는 int32 카운터(CSessionHub::AllocActorId)라 2^31 위로 못 올라오므로, 이 아래로 내려온 지정 번호는
     //   0 으로 들어온 남의 접속과 같은 행을 쓰게 된다. 노션의 "100억 이상"은 운용 권장이고 서버가 강제하는 값이 아니다.
     static constexpr int64_t DEV_CHARACTER_ID_MIN = int64_t{ 1 } << 31;
+
+    // 소유 표(character_roster)가 발급하는 구간 = 1조 ~ 1000조 — 시험 입장 길은 이 구간을 거절한다.
+    //   진짜 캐릭터에 입장 번호 없이 들어가는 길을 막는다. 월드 N = N × 1조 라서 1000조면 월드 999 까지다.
+    //   구간은 번호가 안 겹치게 하는 수단이다 — 번호로 월드를 판정하는 코드를 만들지 말 것(플랜 3절).
+    static constexpr int64_t ROSTER_CHARACTER_ID_FIRST = 1000000000000;
+    static constexpr int64_t ROSTER_CHARACTER_ID_END   = 1000000000000000;
 #endif
 
     // 시험 입장 길 — 액터 번호를 저장 열쇠로 쓴다. 번호 사이의 이 변환은 이 함수 한 곳에만 둔다
@@ -217,6 +243,8 @@ private:
     CMapManager&          _mapManager;       // 채널 찾기·만들기 · 존 이동 목적지 · 방 맵 판별 · 기본 맵 번호(GetDefaultMapId)
     CGameMonitor&         _gameMonitor;      // 입장 · 존 이동 · 포털 지표
     const CGameDataFiles& _gameDataFiles;    // 포털 표
+    CEnterGate&           _enterGate;        // 입장 번호 확인 · 예고는 CZoneLink 가 적는다
+    bool                  _allowDevEnter = false;   // 입장 번호 없는 접속을 받을까(SetAllowDevEnter)
 
     // 플레이어 이동 속도 덮어쓰기(칸/초) — 0 이면 생성자의 기본값을 그대로 쓴다(SetPlayerSpeed)
     int _playerSpeed = 0;

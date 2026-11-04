@@ -29,6 +29,7 @@
 
 #include <Config/IniFile.h>       // 플랫폼 독립 INI 리더 (GetPrivateProfile* 대체)
 #include "Platform/Platform.h"    // Platform::GetExecutableDir
+#include "EnterGate.h"            // CEnterGate::TTL_SEC_DEFAULT
 #include "Common.h"
 #include <Common/ErrorLog.h>
 
@@ -93,6 +94,12 @@ struct ServerConfig
     int         dbQueueMax          = 0;    // 백프레셔: 워커당 큐 상한(초과분 드롭)
 
     MapOps      mapDefault = DEFAULT_MAP_OPS;   // [MapDefault] — [MapN] 이 없는 맵의 운영 값
+
+    // [Zone] 입장 규칙 — 시험 길 둘의 코드 기본은 「닫힘」이다. INI 가 없으면 입장 번호 없는 접속도 /test 도 안 받는다.
+    //   유효 시간 2분은 사용자 결정(11-04) — mmo_enter_code_total{result="expired"} 가 쌓이면 5분으로 올린다.
+    int         enterCodeTtlSec = CEnterGate::TTL_SEC_DEFAULT;
+    bool        allowDevEnter   = false;   // 입장 번호 없이 들어오는 길(부하 더미 · 콘솔 · 시험 대본)
+    bool        allowDevAdmin   = false;   // 채팅 /test 로 운영자 켜기 — 로그인 서버가 붙으면 계정 권한으로 옮긴다
 
     // 실행 파일 경로 기준으로 MMOServerConfig.ini 로드
     bool Load()
@@ -176,6 +183,16 @@ struct ServerConfig
         dbConnectTimeoutSec = ini.GetInt("DB", "ConnectTimeoutSec", dbConnectTimeoutSec);
         dbRwTimeoutSec      = ini.GetInt("DB", "RwTimeoutSec", dbRwTimeoutSec);
         dbQueueMax          = ini.GetInt("DB", "QueueMax", dbQueueMax);
+
+        // [Zone] 섹션 — 입장 규칙
+        enterCodeTtlSec = ini.GetInt("Zone", "EnterCodeTtlSec", enterCodeTtlSec);
+        if (enterCodeTtlSec <= 0)
+        {
+            SLOG_ERROR("[ServerConfig] EnterCodeTtlSec({}) out of range. Using default {}.", enterCodeTtlSec, CEnterGate::TTL_SEC_DEFAULT);
+            enterCodeTtlSec = CEnterGate::TTL_SEC_DEFAULT;
+        }
+        allowDevEnter = (ini.GetInt("Zone", "AllowDevEnter", allowDevEnter ? 1 : 0) != 0);
+        allowDevAdmin = (ini.GetInt("Zone", "AllowDevAdmin", allowDevAdmin ? 1 : 0) != 0);
 
         // [MapDefault] 섹션 로드 — 맵 목록·크기는 맵 표(MapTable.csv)라 여기 없다
         mapDefault.sectorSize           = ini.GetInt("MapDefault", "SectorSize", mapDefault.sectorSize);
@@ -308,5 +325,7 @@ private:
         SLOG_INFO("  MapDefault  : sector {} · channel cap {} (맵 목록·크기는 MapTable.csv)",
                   mapDefault.sectorSize, mapDefault.maxPlayersPerChannel);
         SLOG_INFO("  Speed       : player {} (칸/초, 0=기본 — 25~50 무작위)", playerSpeed);
+        SLOG_INFO("  Zone        : enter code ttl {}s · dev enter {} · dev admin {}",
+                  enterCodeTtlSec, allowDevEnter ? "on" : "off", allowDevAdmin ? "on" : "off");
     }
 };

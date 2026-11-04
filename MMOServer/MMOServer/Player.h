@@ -55,6 +55,9 @@ public:
 
     // USE_DB_WORKER: 캐릭터 식별자 (1단계는 스폰 시 서버가 임시 부여, 2단계는 접속 핸드셰이크로 수신)
     CharacterId _characterId = NO_CHARACTER;
+    // 진짜 계정 번호 — 입장 번호로 들어온 사람만 값이 있다(입장 대기 명단에서 얻는다). 시험 입장 길은 NO_ACCOUNT.
+    //   저장 열쇠가 아니다(저장은 위 캐릭터 번호) — 한 계정 한 캐릭터 판정(CEntryHandler)에 쓴다.
+    AccountId _accountId = NO_ACCOUNT;
     // USE_DB_WORKER: 마지막 저장 이후 위치가 바뀌었는지 (주기 저장 대상 선별, 저장 후 리셋)
     //   정지·접속·존 변경·경계 클램프 때 켠다. 레벨·경험치·체력·마력은 여기가 아니라 아래 _dbSaved 비교로 본다.
     bool _dbDirty = false;

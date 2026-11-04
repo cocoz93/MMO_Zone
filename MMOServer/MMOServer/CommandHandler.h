@@ -7,8 +7,8 @@
 //  - /item(가방에 바로 넣기 — USE_INVENTORY) · /gm(GM 모드 켜고 끄기 — USE_COMBAT) · /die(그 자리에서 쓰러지기 — USE_COMBAT)
 //
 // [경계]
-//  '/' 가로채기(방송 안 함)는 CChatHandler::RecvChat 이 하고 여기로 넘긴다. 운영자 로그인(_isAdmin 을 세우는 것)도 CChatHandler 다 —
-//  여기는 읽기만 한다. 가방 넣기 판정은 가방(CInventory::TryAdd), 바뀐 칸 내보내기는 CItemHandler, 스탯 다시 세우기는 스탯 규칙,
+//  '/' 가로채기(방송 안 함)는 CChatHandler::RecvChat 이 하고 여기로 넘긴다. 운영자 표시(_isAdmin)를 세우는 곳은 /test 한 곳이다 — 나머지 명령은
+//  읽기만 한다. 가방 넣기 판정은 가방(CInventory::TryAdd), 바뀐 칸 내보내기는 CItemHandler, 스탯 다시 세우기는 스탯 규칙,
 //  쓰러뜨리기는 공격 흐름(CCombatSystem::Kill — 죽음 처리를 맞아 죽을 때와 같은 길로), 알림 한 줄·내 스탯은 CSelfNotifier, 주변에 보내기는 CSightBroadcaster.
 //
 // [모르는 것]
@@ -67,6 +67,9 @@ public:
     //   msg 는 NUL 로 끝맺은 채팅 글자(len = 글자 수 — CChatHandler 가 받은 크기로 역산한 값).
     void Handle(CPlayer* player, const ChatChar* msg, uint16_t len);
 
+    // 채팅 /test 로 운영자를 켤 수 있나 — ServerConfig [Zone] AllowDevAdmin. 끄면 /test 는 「모르는 명령」이다.
+    void SetAllowDevAdmin(bool allow) { _allowDevAdmin = allow; }
+
 private:
 #if USE_INVENTORY
     void RunItemCommand(CPlayer* player, const std::vector<std::string>& words);   // /item <아이템번호> [개수] — 가방에 바로 넣기
@@ -89,4 +92,5 @@ private:
     const CGameDataFiles&  _gameDataFiles;      // 아이템 표(/item 번호 찾기)
 #endif
     CMapManager&           _mapManager;         // 존 찾기(/gm · /die)
+    bool                   _allowDevAdmin = false;   // SetAllowDevAdmin
 };

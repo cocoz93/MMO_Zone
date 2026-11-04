@@ -76,6 +76,9 @@ public:
     //   토글 밖 — 부르는 곳이 채팅 명령 답(USE_INVENTORY)과 방 보상(USE_PARTY && USE_MONSTER) 둘이다(SelfNotifier.cpp MakeError 주석).
     void SendSystemMessage(CPlayer* player, const std::string& utf8);
 
+    // 운영자가 켜졌다(S2C_ADMIN_LOGIN_OK) — /test 의 답. 콘솔·웹이 이미 받는 패킷이다.
+    void SendAdminOn(CPlayer* player);
+
 #if USE_SKILL
     // 본인에게 마력(S2C_ACTOR_MP) — 입장·존 이동(NotifyArrival) · 그 밖에 바뀐 틱 끝(CStatSync — 레벨업·스킬 마력 소모·마력 물약). 세는 곳도 여기 한 곳.
     //   ★ 본인 전용이다 — BroadcastAroundSector 로 보내지 말 것(Protocol.h MSG_S2C_ACTOR_MP).

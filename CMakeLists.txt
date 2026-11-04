@@ -191,6 +191,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/ShopHandler.cpp
     ${SRV_DIR}/TradeHandler.cpp
     ${SRV_DIR}/MoveHandler.cpp
+    ${SRV_DIR}/EnterGate.cpp
     ${SRV_DIR}/EntryHandler.cpp
     ${SRV_DIR}/JobHandler.cpp
     ${SRV_DIR}/ChatHandler.cpp
@@ -335,3 +336,8 @@ target_link_libraries(server_common_test PRIVATE ServerCommonLib)
 
 add_executable(server_link_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/ServerLinkTest.cpp)
 target_link_libraries(server_link_test PRIVATE ServerCommonLib)
+
+# 존의 입장 대기 명단은 게임 코드지만 표만 든다 — 게임을 안 띄우고 그 파일만 같이 빌드한다
+add_executable(enter_gate_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/EnterGateTest.cpp ${SRV_DIR}/EnterGate.cpp)
+target_include_directories(enter_gate_test PRIVATE ${SRV_DIR})
+target_link_libraries(enter_gate_test PRIVATE ServerCommonLib)

@@ -525,7 +525,7 @@ bool CGameServer::RegisterRoutes()
     bool ok = true;
     // 이동 시작 · 멈춤 — CMoveHandler 가 자기 줄을 등록한다(CMoveHandler::RegisterRoutes · 게임 서버 나누기 11 단계)
     ok &= _moveHandler.RegisterRoutes(_routes);
-    // 채팅 · 운영자 로그인 — CChatHandler 가 자기 줄을 등록한다(CChatHandler::RegisterRoutes · 게임 서버 나누기 13 단계)
+    // 채팅 — CChatHandler 가 자기 줄을 등록한다(CChatHandler::RegisterRoutes · 게임 서버 나누기 13 단계)
     ok &= _chatHandler.RegisterRoutes(_routes);
     // 존 이동 · 포털 · 입장 요청(USE_LOGIN — 끄면 크기만) — CEntryHandler 가 자기 줄을 등록한다(CEntryHandler::RegisterRoutes · 게임 서버 나누기 12 단계)
     ok &= _entryHandler.RegisterRoutes(_routes);

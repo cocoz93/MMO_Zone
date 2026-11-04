@@ -675,6 +675,20 @@ private:
                      "Old sessions kicked because the same account entered again",
                      e._duplicate);
 
+        // 입장 번호 — 갈래마다 한 줄. 시작부터 0 으로 나간다(줄이 처음 생기는 순간의 증가는 rate() 가 못 본다).
+        //   게이지 이름을 mmo_enter_pending 으로 못 쓴다 — 그 이름은 이미 「불러오는 중」이다(아래). 그래서 _code_ 를 넣었다.
+        ss << "# HELP mmo_enter_code_total Enter codes presented at C2S_ENTER_GAME, split by result\n";
+        ss << "# TYPE mmo_enter_code_total counter\n";
+        for (int i = 0; i < static_cast<int>(EnterCodeResult::COUNT); ++i)
+        {
+            ss << "mmo_enter_code_total{result=\"" << EnterCodeResultName(static_cast<EnterCodeResult>(i))
+               << "\"} " << e._codeResult[i] << "\n";
+        }
+        ss << "\n";
+        ss << "# HELP mmo_enter_code_pending Enter codes noticed but not used yet (not expired)\n";
+        ss << "# TYPE mmo_enter_code_pending gauge\n";
+        ss << "mmo_enter_code_pending " << e._codePending << "\n\n";
+
         // 쿨타임·버프 되살리기 — 칸 단위(위 등식 밖). 버프를 되살린 수는 mmo_buff_restored_total(버프 등식 쪽)
         WriteCounter(ss, "mmo_enter_cooldown_restored_total",
                      "Skill cooldown slots restored on enter from characters.skill_cooldowns",

@@ -70,6 +70,16 @@ void CCommandHandler::Handle(CPlayer* player, const ChatChar* msg, uint16_t len)
     SplitCommandWords(msg, len, words);
     const std::string cmd = words.empty() ? std::string("/") : words[0];   // 첫 글자가 '/' 라 비지 않는다
 
+    // /test — 운영자 켜기(사용자 결정 11-04). 표 밖인 까닭: 표의 명령은 전부 아래 운영자 검사를 지나는데, 이것은 그 검사를 통과하게 만드는 쪽이다.
+    //   꺼져 있으면(AllowDevAdmin=0) 표에 없는 이름이라 아래에서 「모르는 명령」으로 거절된다. 로그인 서버가 붙으면 계정 권한으로 옮긴다.
+    if (_allowDevAdmin && cmd == "/test" && words.size() == 1)
+    {
+        player->_isAdmin = true;
+        _selfNotifier.SendAdminOn(player);
+        SLOG_INFO("[CMD] /test -> admin on (actor={}, character={})", player->_actorId, player->_characterId);
+        return;
+    }
+
     // 명령 표 — 이름 → 처리 함수(if 사슬 금지 — 명령이 늘면 한 줄 더한다).
     //   지금 명령은 전부 운영자 전용이라 권한은 표에서 찾은 뒤 한 번 본다. 누구나 쓰는 명령이 생기면 칸을 더한다.
     using Runner = void (CCommandHandler::*)(CPlayer*, const std::vector<std::string>&);

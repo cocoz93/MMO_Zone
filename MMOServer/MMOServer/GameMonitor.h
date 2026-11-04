@@ -24,6 +24,7 @@
 #include "SkillSystem.h"      // USE_SKILL — 스킬 거절 사유(SkillReject) 수만큼 칸을 잡는다
 #include "Buff.h"             // USE_COMBAT — 버프 표 상한(MAX_BUFF_ROWS)·끝난 사유(BuffEnd) 수만큼 칸을 잡는다
 #include "SkillTable.h"       // USE_SKILL — 스킬 표 줄 수 상한(MAX_SKILL_ROWS)만큼 시전 칸을 잡는다
+#include "EnterGate.h"        // 입장 번호 판정(EnterCodeResult) 수만큼 칸을 잡는다
 #include "MapManager.h"       // 존 이동 요청 결과(ZoneChangeReject — 맵 관리자의 어휘) 수만큼 칸을 잡는다
 #include "PartySystem.h"      // USE_PARTY — 빠진 까닭(PartyLeave)·요청이 끝난 까닭(PartyRequestEnd) 수만큼 칸을 잡는다
 #include "Room.h"             // USE_PARTY — 방 들어가기 결과(RoomEntryReject) 수만큼 칸을 잡는다
@@ -820,6 +821,10 @@ public:
                                  //   세션은 없는데 플레이어만 남은 것(나간 세션의 결과로 스폰된 유령)은 이 등식으로만 보인다.
         Counter _zones;          // [게이지] 지금 있는 존(채널·방) 수 — 위 _inGame 과 같은 순회·같은 주기
         Counter _zonesIdle;      // [게이지] 그중 쉬는 존(사람 0 — CZone::IsIdle · 걷기·몬스터 판단 건너뜀). 사람이 다 나가면 _zones 와 같아야 한다
+
+        // [입장 번호] 판정 갈래별 수 — 위 등식 밖이다(입장 요청 단위라 불러오기 결과와 단위가 다르다).
+        Counter _codeResult[static_cast<int>(EnterCodeResult::COUNT)];
+        Counter _codePending;    // [게이지] 입장 대기 명단 — 예고를 받고 아직 안 들어온 번호 수(만료 전). 정원에 들어가는 값
 
         // [쿨타임·버프 되살리기] 칸 단위 — 위 등식과 무관하다(행 하나에 칸이 여럿). 세는 곳은 CCharacterStore::RestoreCooldownsAndBuffs 한 곳.
         //   버프를 되살린 수는 여기가 아니라 _buff._restored 다 — 버프 등식(켜짐 = 끝남 + 지금)의 한 항이라 거기서 센다.

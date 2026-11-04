@@ -247,6 +247,15 @@ void CSelfNotifier::SendSystemMessage(CPlayer* player, const std::string& utf8)
     _sessionHub.SendPacket(player, MakeError(utf8));
 }
 
+void CSelfNotifier::SendAdminOn(CPlayer* player)
+{
+    CSerialBuffer* buf = CSerialBuffer::Alloc();
+    BeginPacket(buf, MSG_S2C_ADMIN_LOGIN_OK::TYPE);    // 페이로드 없음 (헤더만)
+    FinalizePacket(buf);
+    assert(buf->GetDataSize() == sizeof(MSG_S2C_ADMIN_LOGIN_OK));
+    _sessionHub.SendPacket(player, buf);
+}
+
 #if USE_SKILL
 // 마력 알림 — 그 사람 자신의 마력을 그 사람에게만. 세는 곳도 여기 한 곳(SendMyStats 와 같은 꼴).
 void CSelfNotifier::SendActorMp(CPlayer* player)

@@ -106,6 +106,7 @@ int main()
 
     // 이벤트 큐 과부하 시 신규 accept 차단 임계 (네트워크 객체는 Init에서 생성된다)
     server.SetEventQueueAcceptLimit(config.eventQueueAcceptLimit);
+    server.SetEnterRules(config.enterCodeTtlSec, config.allowDevEnter, config.allowDevAdmin);
     server.SetPlayerSpeed(config.playerSpeed);   // 0 = 기본(부하 시험 기준) — ServerConfig [Game]. 몬스터 사양은 표에 있다
 
     // DB 저장 파이프라인 초기화 (USE_DB_WORKER=0이면 no-op)
