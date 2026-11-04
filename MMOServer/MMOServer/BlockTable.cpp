@@ -2,7 +2,7 @@
 
 #include <Common/ErrorLog.h>
 
-#include "GameDataCsv.h"
+#include <Data/GameDataCsv.h>
 #include "MapTable.h"      // 맵 번호·크기 대조 · 시작 구역
 #include "PortalTable.h"   // 자리 대조
 #include "NpcTable.h"

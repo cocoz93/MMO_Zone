@@ -7,7 +7,7 @@
 #include <Common/ErrorLog.h>
 
 #include "Combat.h"         // ATTACK_RANGE — FRONT 스킬이 닿는 거리(일반 공격과 같다)
-#include "GameDataCsv.h"
+#include <Data/GameDataCsv.h>
 #include "MapTable.h"       // 되살리기 줄 — 시전자가 깔리는 맵을 훑는다
 #include "MonsterAI.h"      // SIGHT_RANGE — MAX_DIST 가 시야와 같은지 아래 단언이 지킨다
 #include "MonsterTable.h"

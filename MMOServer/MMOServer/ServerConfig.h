@@ -27,7 +27,7 @@
 #include <iostream>
 #include <cstdlib>      // strtol (ServerCores 범위 파싱)
 
-#include "IniFile.h"              // 플랫폼 독립 INI 리더 (GetPrivateProfile* 대체)
+#include <Config/IniFile.h>       // 플랫폼 독립 INI 리더 (GetPrivateProfile* 대체)
 #include "Platform/Platform.h"    // Platform::GetExecutableDir
 #include "Common.h"
 #include <Common/ErrorLog.h>

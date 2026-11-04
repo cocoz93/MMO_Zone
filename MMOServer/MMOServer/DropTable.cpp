@@ -4,7 +4,7 @@
 
 #include <Common/ErrorLog.h>
 
-#include "GameDataCsv.h"
+#include <Data/GameDataCsv.h>
 #include "ItemTable.h"
 #include "MonsterTable.h"   // 몬스터 칸 대조 — 아이템 칸(items.Find)과 같은 꼴
 

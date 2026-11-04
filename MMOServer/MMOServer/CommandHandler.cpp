@@ -18,7 +18,7 @@
 #if USE_INVENTORY
 #include "ItemHandler.h"
 #include "GameDataFiles.h"
-#include "GameDataCsv.h"      // 채팅 명령 인자를 숫자로 읽는다(표 파서와 같은 규칙)
+#include <Data/GameDataCsv.h> // 채팅 명령 인자를 숫자로 읽는다(표 파서와 같은 규칙)
 #endif
 
 using namespace PacketBuild;   // 아래 조립 함수(MakeActorSpeed)가 머리 쓰기·닫기를 이름만으로 부른다

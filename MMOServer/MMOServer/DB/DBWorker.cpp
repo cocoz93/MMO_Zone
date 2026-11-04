@@ -6,7 +6,6 @@
 #include <winsock2.h>   // mysql.h 이전에 — 구버전 winsock 자동 include 충돌 차단
 #endif
 #include <mysql.h>
-#include <errmsg.h>     // CR_SERVER_GONE_ERROR / CR_SERVER_LOST (커넥션 유실 감지)
 #include <mysqld_error.h>   // ER_NO_SUCH_TABLE — 가방 테이블이 없을 때 안내를 정확히 걸려고
 #include <cassert>
 #include <cstdio>
@@ -100,32 +99,10 @@ bool CDBWorker::Connect(void*& outMysql)
         }
     }
 #endif
-    MYSQL* m = mysql_init(nullptr);
-    if (m == nullptr)
-    {
-        SLOG_ERROR("[DB] mysql_init failed");
+    void* opened = CDbConnection::OpenRaw(_config);
+    if (opened == nullptr)
         return false;
-    }
-
-    unsigned int connTimeout = static_cast<unsigned int>(_config.connectTimeoutSec);
-    mysql_options(m, MYSQL_OPT_CONNECT_TIMEOUT, &connTimeout);
-    // 읽기/쓰기 타임아웃 — DB가 응답 없이 멈추면 쿼리가 무한 대기하지 않고 실패 반환(재연결 판단 가능)
-    unsigned int rwTimeout = static_cast<unsigned int>(_config.rwTimeoutSec);
-    mysql_options(m, MYSQL_OPT_READ_TIMEOUT, &rwTimeout);
-    mysql_options(m, MYSQL_OPT_WRITE_TIMEOUT, &rwTimeout);
-    mysql_options(m, MYSQL_SET_CHARSET_NAME, "utf8mb4");
-
-    if (mysql_real_connect(m,
-            _config.host.c_str(), _config.user.c_str(), _config.password.c_str(),
-            _config.database.c_str(), static_cast<unsigned int>(_config.port),
-            nullptr, 0) == nullptr)
-    {
-        SLOG_ERROR("[DB] connect failed: {}", mysql_error(m));
-        mysql_close(m);
-        return false;
-    }
-
-    outMysql = m;
+    outMysql = opened;
     return true;
 }
 
@@ -727,7 +704,7 @@ CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJo
     auto classifyError = [&](const char* step) -> LoadOutcome
     {
         const unsigned int err = mysql_stmt_errno(st);
-        if (err == CR_SERVER_GONE_ERROR || err == CR_SERVER_LOST)
+        if (CDbConnection::IsConnectionLostErrno(err))
         {
             SLOG_WARN("[DB] connection lost during load {} (errno={}, character={})", step, err, job.characterId);
             return LoadOutcome::CONNECTION_LOST;
@@ -788,7 +765,7 @@ CDBWorker::LoadOutcome CDBWorker::ClassifyStmtError(void* stmt, const char* what
 {
     MYSQL_STMT* st = static_cast<MYSQL_STMT*>(stmt);
     const unsigned int err = mysql_stmt_errno(st);
-    if (err == CR_SERVER_GONE_ERROR || err == CR_SERVER_LOST)
+    if (CDbConnection::IsConnectionLostErrno(err))
     {
         SLOG_WARN("[DB] connection lost during {} (errno={}, character={})", what, err, characterId);
         return LoadOutcome::CONNECTION_LOST;
@@ -928,11 +905,6 @@ void CDBWorker::ExecLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out
 //   둘 이상이면 START TRANSACTION → (캐릭터 행 UPSERT) → 칸 UPSERT × N → COMMIT. 칸 줄은 최종값이라 두 번 써도 같다.
 //   워커는 주인을 모른다 — 성공·실패를 회신할 뿐, 다시 싣기는 저장소가 정한다.
 // ==========================================================================
-static bool IsConnectionLostErrno(unsigned int err)
-{
-    return err == CR_SERVER_GONE_ERROR || err == CR_SERVER_LOST;
-}
-
 #if USE_DB_FAULT_INJECT
 // 이 묶음에 걸린 주입(문장 뒤 오류·끊김)이 아직 안 쓰였나 — 워커 스레드마다 따로(묶음 처리 한 번 동안만 산다)
 static thread_local bool t_faultArmed = false;
@@ -952,7 +924,7 @@ CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSave
     //   그것도 안 되면 커넥션을 버린다 — 다음 START TRANSACTION 은 열린 트랜잭션을 말없이 커밋하므로 반쪽 묶음을 들고 다음 잡으로 가지 않는다.
     auto fail = [&](unsigned int err, const char* what, const char* msg) -> SaveOutcome
     {
-        if (IsConnectionLostErrno(err))
+        if (CDbConnection::IsConnectionLostErrno(err))
         {
             SLOG_WARN("[DB] connection lost during save bundle {} (errno={}, character={})", what, err, b.row.characterId);
             DropConnection(slot);

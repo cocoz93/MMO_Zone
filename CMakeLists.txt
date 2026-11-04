@@ -131,6 +131,35 @@ target_include_directories(ServerNetworkLib PUBLIC
 
 target_link_libraries(ServerNetworkLib PUBLIC ServerBaseLib)
 
+# ══════════════════════════════════════════════
+#  ServerCommonLib — 세 서버가 같이 쓰는 부품 (설정·표 읽기 · DB 연결)
+#    게임 규칙을 모른다. 코어 저장소로 안 올리는 까닭 — MySQL 을 알고, 이 게임 묶음만 쓴다.
+#    포함은 <Data/GameDataCsv.h> 처럼 ServerCommon 뿌리에서 쓴다.
+# ══════════════════════════════════════════════
+set(COMMON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/ServerCommon)
+
+add_library(ServerCommonLib STATIC
+    ${COMMON_DIR}/Data/GameDataCsv.cpp
+    ${COMMON_DIR}/Data/JobTable.cpp
+    ${COMMON_DIR}/Db/DbConnection.cpp
+)
+
+target_include_directories(ServerCommonLib PUBLIC
+    ${COMMON_DIR}                        # <Data/…> · <Config/…> · <Db/…>
+    ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Identity/…> · <Protocol/…>
+)
+
+target_link_libraries(ServerCommonLib PUBLIC ServerNetworkLib)
+
+if(WIN32)
+    target_include_directories(ServerCommonLib PUBLIC ${MYSQL_DIR}/include)
+    # libmysql.lib 는 소스의 #pragma comment(lib)로 자동 링크 → lib 디렉토리만 링크경로에
+    target_link_directories(ServerCommonLib PUBLIC ${MYSQL_DIR}/lib)
+else()
+    target_include_directories(ServerCommonLib PUBLIC /usr/include/mysql)
+    target_link_libraries(ServerCommonLib PUBLIC mysqlclient)
+endif()
+
 # ═════════════════════════════════════════════════════════════
 #  MMOServer / mmo_server — 게임 계층 실행 파일
 #    이름을 플랫폼별로 가른 채 유지한다. Run/bin 의 exe 이름과 위치에
@@ -183,7 +212,6 @@ set(GAME_SOURCES
     ${SRV_DIR}/Room.cpp
     ${SRV_DIR}/LevelTable.cpp
     ${SRV_DIR}/GameDataFiles.cpp
-    ${SRV_DIR}/GameDataCsv.cpp
     ${SRV_DIR}/MapTable.cpp
     ${SRV_DIR}/PortalTable.cpp
     ${SRV_DIR}/BlockTable.cpp
@@ -195,7 +223,6 @@ set(GAME_SOURCES
     ${SRV_DIR}/SpawnRegionTable.cpp
     ${SRV_DIR}/DropTable.cpp
     ${SRV_DIR}/BuffTable.cpp
-    ${SRV_DIR}/JobTable.cpp
     ${SRV_DIR}/SkillTable.cpp
     ${SRV_DIR}/MonsterSkillTable.cpp
     ${SRV_DIR}/DB/DBWorker.cpp
@@ -206,7 +233,7 @@ if(WIN32)
 
 add_executable(MMOServer ${GAME_SOURCES})
 
-target_link_libraries(MMOServer PRIVATE ServerNetworkLib)
+target_link_libraries(MMOServer PRIVATE ServerCommonLib)
 
 target_include_directories(MMOServer PRIVATE
     ${SRV_DIR}                           # "BuildConfig.h" 등 게임 헤더 (DB/ 하위에서도 이름만으로 열린다)
@@ -243,7 +270,7 @@ if(UNIX)
 
 add_executable(mmo_server ${GAME_SOURCES})
 
-target_link_libraries(mmo_server PRIVATE ServerNetworkLib mysqlclient)
+target_link_libraries(mmo_server PRIVATE ServerCommonLib mysqlclient)
 
 target_include_directories(mmo_server PRIVATE
     ${SRV_DIR}                           # "BuildConfig.h" 등 게임 헤더 (DB/ 하위에서도 이름만으로 열린다)

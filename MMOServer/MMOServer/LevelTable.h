@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "BuildConfig.h"
-#include "JobTable.h"
+#include <Data/JobTable.h>
 
 #if USE_COMBAT   // 경험치(USE_EXP)가 아니라 전투를 따른다 — 1레벨 줄이 캐릭터 바탕 스탯의 유일한 출처라서(코드 상수 없음, 10-06)
 

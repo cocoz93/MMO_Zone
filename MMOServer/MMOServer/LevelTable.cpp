@@ -6,7 +6,7 @@
 
 #include <Common/ErrorLog.h>
 
-#include "GameDataCsv.h"   // 줄·칸 쪼개기 — 아이템 표가 생기며 이 파일에서 공용 자리로 옮겼다
+#include <Data/GameDataCsv.h> // 줄·칸 쪼개기 — 아이템 표가 생기며 이 파일에서 공용 자리로 옮겼다
 
 using GameDataCsv::DataLine;
 using GameDataCsv::ReadDataLines;

@@ -4,7 +4,7 @@
 
 #include <Common/ErrorLog.h>
 
-#include "GameDataCsv.h"
+#include <Data/GameDataCsv.h>
 #include "ItemTable.h"   // 아이템 번호·담는 자리·값 대조
 #include "NpcTable.h"    // NPC 표의 상점 번호 상한과 맞추는 단언
 

@@ -4,7 +4,7 @@
 
 #include "BuildConfig.h"
 #include "MapTable.h"
-#include "JobTable.h"
+#include <Data/JobTable.h>
 #include "PortalTable.h"
 #include "LevelTable.h"
 #include "ItemTable.h"

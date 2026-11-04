@@ -2,7 +2,7 @@
 
 #include <Common/ErrorLog.h>
 
-#include "GameDataCsv.h"
+#include <Data/GameDataCsv.h>
 #include "MapTable.h"      // 맵 번호·크기 대조
 #include "PortalTable.h"   // 포털과 반경 겹침 경고
 #if USE_SHOP

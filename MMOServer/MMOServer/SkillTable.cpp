@@ -6,8 +6,8 @@
 
 #include <Common/ErrorLog.h>
 
-#include "GameDataCsv.h"
-#include "JobTable.h"     // job 칸 대조
+#include <Data/GameDataCsv.h>
+#include <Data/JobTable.h> // job 칸 대조
 #include "LevelTable.h"   // costMp 상한 — 닿을 수 있는 최대 마력(USE_SKILL 은 USE_COMBAT 을 요구하므로 레벨 표가 늘 있다)
 #include "BuffTable.h"    // 효과 buff 줄의 버프 번호 대조 — 같은 까닭으로 늘 있다
 

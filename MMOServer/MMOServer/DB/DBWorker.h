@@ -19,25 +19,11 @@
 // ==========================================================================
 
 #include <Identity/GameIds.h>
+#include <Db/DbConnection.h>   // DBConfig — 세 서버가 같이 쓴다
 #include "BuildConfig.h"
 
 #include <cstdint>
 #include <string>
-
-// DB 접속 설정 — ServerConfig가 INI [DB] 섹션에서 채워 넘긴다.
-// (USE_DB_WORKER 토글과 무관하게 정의 — GameServer::InitDB가 값으로 참조)
-//   ★ 기본값을 여기 두지 않는다 — 정본은 ServerConfig 의 db* 멤버이고 main 이 일곱 칸을 전부 채운다(10-08 2차 검사 5번).
-//     여기 숫자를 두면 아무도 안 읽는 셋째 벌이 된다. 0·빈 문자열 = 아직 안 채워짐.
-struct DBConfig
-{
-    std::string host;
-    int         port              = 0;
-    std::string user;
-    std::string password;
-    std::string database;
-    int         connectTimeoutSec = 0;
-    int         rwTimeoutSec      = 0;   // 읽기/쓰기 소켓 타임아웃(초) — DB 무응답 시 쿼리 무한대기 방지
-};
 
 // characters 의 hp·mp 열에서 「저장된 적 없음」 — 들어올 때 가득 채운다(CStatSystem::RestoreHpMp 는 음수를 이렇게 읽는다).
 //   열을 붙이기 전 행의 기본값이고(schema.sql), 새 캐릭터·전투나 스킬을 끈 빌드도 이 값을 싣는다.

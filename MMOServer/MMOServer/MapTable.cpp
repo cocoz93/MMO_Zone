@@ -2,7 +2,7 @@
 
 #include <Common/ErrorLog.h>
 
-#include "GameDataCsv.h"
+#include <Data/GameDataCsv.h>
 
 using GameDataCsv::DataLine;
 using GameDataCsv::ReadDataLines;

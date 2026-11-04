@@ -2,7 +2,7 @@
 
 #include <Common/ErrorLog.h>
 
-#include "GameDataCsv.h"
+#include <Data/GameDataCsv.h>
 #include "MapTable.h"   // 맵 번호·크기 대조
 
 using GameDataCsv::DataLine;

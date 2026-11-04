@@ -5,7 +5,7 @@
 #include <Common/ErrorLog.h>
 
 #include "Combat.h"          // MAX_BODY_RADIUS — 몸 반지름 상한 (USE_COMBAT 밖 상수)
-#include "GameDataCsv.h"
+#include <Data/GameDataCsv.h>
 
 using GameDataCsv::DataLine;
 using GameDataCsv::ReadDataLines;
