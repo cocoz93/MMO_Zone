@@ -2,7 +2,7 @@
 #if USE_DROP
 #include "Zone.h"             // 나를 든 존 — 섹터·벽 선 자르기
 #include "SectorManager.h"    // 좌표 → 칸 번호 (CalcSectorX/Y)
-#include "Player.h"           // 줍는 사람의 생사·좌표·계정
+#include "Player.h"           // 줍는 사람의 생사·좌표·캐릭터 번호
 #include "GameMonitor.h"      // 드랍 카운터 (사유 enum 은 GroundItem.h — 이 파일은 Protocol.h 를 모른다, 10-06)
 #include <cassert>
 
@@ -48,7 +48,7 @@ void CGroundItemManager::RemoveAt(int32_t sectorX, int32_t sectorY, size_t index
 }
 
 void CGroundItemManager::Drop(const GroundItemContext& ctx, const std::vector<Item>& loot,
-                              float x, float y, int64_t ownerAccountId, uint64_t frame)
+                              float x, float y, int64_t ownerCharacterId, uint64_t frame)
 {
     // 놓는 자리 — 첫 아이템은 죽은 자리, 다음부터 옆 칸. 한 점에 포개면 웹이 그림 하나만 그린다.
     static constexpr float OFFSETS[][2] = {
@@ -67,7 +67,7 @@ void CGroundItemManager::Drop(const GroundItemContext& ctx, const std::vector<It
         _zone.ClampToWallLine(fx, fy);
         g.x               = fx;
         g.y               = fy;
-        g.ownerAccountId  = ownerAccountId;
+        g.ownerCharacterId  = ownerCharacterId;
         g.ownerUntilFrame = frame + LOOT_LOCK_FRAMES;
         g.expireFrame     = frame + GROUND_ITEM_LIFE_FRAMES;
 
@@ -168,8 +168,8 @@ PickupReject CGroundItemManager::FindPickup(const CPlayer* player, uint64_t fram
                 continue;
             anyInRange = true;
 
-            // 내 것이거나(막타 친 계정) 우선 시간이 끝났으면 주울 수 있다
-            const bool mine = g.ownerAccountId == 0 || g.ownerAccountId == player->_accountId ||
+            // 내 것이거나(막타 친 캐릭터) 우선 시간이 끝났으면 주울 수 있다
+            const bool mine = g.ownerCharacterId == 0 || g.ownerCharacterId == player->_characterId ||
                               frame >= g.ownerUntilFrame;
             if (!mine)
                 continue;

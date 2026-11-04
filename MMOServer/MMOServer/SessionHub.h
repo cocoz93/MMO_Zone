@@ -1,5 +1,5 @@
 ﻿// ==========================================================================
-// CSessionHub — 세션 칸 · 플레이어 찾기 · 보내기 · 캐릭터 번호 발급 (게임 서버 나누기 1 단계 · B1)
+// CSessionHub — 세션 칸 · 플레이어 찾기 · 보내기 · 액터 번호 발급 (게임 서버 나누기 1 단계 · B1)
 //
 // [책임]
 //  - 세션 칸: 세션 번호 → 플레이어. 칸이 플레이어의 주인이다(unique_ptr) — 넣기(AddPlayer) · 비우기(RemovePlayer) ·
@@ -7,7 +7,7 @@
 //  - 플레이어 찾기(세션 번호로) · 전원 돌기 · 첫 일치 찾기
 //  - 한 사람에게 보내기(SendPacket) — 보낸 수·바이트를 코어 지표로 센다
 //  - 수신자 한 명에게 한 장 넣기(RequestSend · RequestSendRaw) — 방송(CSightBroadcaster)이 수신자마다 부른다. 소유권·지표는 부르는 쪽(3 단계)
-//  - 캐릭터 번호 발급 — 플레이어·몬스터·NPC 가 한 번호 공간을 쓴다(몬스터·NPC 관리자의 번호 부탁도 여기로 온다)
+//  - 액터 번호 발급 — 플레이어·몬스터·NPC 가 한 번호 공간을 쓴다(몬스터·NPC 관리자의 번호 부탁도 여기로 온다)
 //
 // [경계]
 //  네트워크는 빌려 쓴다 — 만들고 띄우고 내리는 것은 게임 서버(B0)이고, 여기는 Init 에서 받은 포인터로 보내기만 한다.
@@ -118,13 +118,13 @@ public:
         return _network->RequestSendRaw(target->_sessionId, data, size);
     }
 
-    // ── 캐릭터 번호 발급 ──
+    // ── 액터 번호 발급 ──
     //   플레이어·몬스터·NPC 가 같이 쓴다(몬스터는 CMonsterHandler::AllocActorId — IMonsterEvents · NPC 는 CNpcHandler::AllocActorId — INpcEvents 를 거쳐 온다).
-    //   단일 증가 카운터라 서로 충돌하지 않는다. int32 라 2^31 위로 못 올라온다(지정 계정 번호 하한 ACCOUNT_ID_MIN 이 여기에 기댄다).
+    //   단일 증가 카운터라 서로 충돌하지 않는다. int32 라 2^31 위로 못 올라온다(지정 캐릭터 번호 하한 DEV_CHARACTER_ID_MIN 이 여기에 기댄다).
     int32_t AllocActorId() { return _nextActorId++; }
 
     // ── 끊기 요청 ──
-    //   세션 단위 일이라 보내기와 같은 네트워크(Init 에서 받은 것)에 넘긴다 — CEntryHandler 가 쓴다(접속 거절 · 불러오기 실패 · 같은 계정 걷어내기 ·
+    //   세션 단위 일이라 보내기와 같은 네트워크(Init 에서 받은 것)에 넘긴다 — CEntryHandler 가 쓴다(접속 거절 · 불러오기 실패 · 같은 캐릭터 걷어내기 ·
     //   게임 서버 나누기 12 단계). 네트워크는 게임 서버의 Init 에서 생겨 모듈이 생성 때 받을 수 없어 여기를 거친다. 실제 끊김은 끊김 이벤트로 돌아온다.
     bool RequestDisconnect(int64_t sessionId) { return _network->RequestDisconnectSession(sessionId); }
 
@@ -140,5 +140,5 @@ private:
     //     입장 중 슬롯에 넣기 전까지는 CEntryHandler::SpawnPlayer 의 지역 unique_ptr 가 든다.
     std::vector<std::unique_ptr<CPlayer>> _slots;
 
-    int32_t _nextActorId = 1;  // 전역 캐릭터 번호 카운터 (싱글스레드 게임 루프)
+    int32_t _nextActorId = 1;  // 전역 액터 번호 카운터 (싱글스레드 게임 루프)
 };

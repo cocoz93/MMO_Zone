@@ -73,8 +73,8 @@ bool CGameInstance::ConnectToServer(const std::string& serverIp, int port)
         return false;
 
     // 입장 요청 — 접속 직후 한 번. 이 패킷이 가야 서버가 캐릭터를 불러온다(USE_LOGIN).
-    //   계정 번호는 ClientConfig.ini 의 [Account] Id. 0 이면 서버가 매번 새 번호를 붙인다.
-    _network.SendEnterGame(_config.accountId);
+    //   캐릭터 번호는 ClientConfig.ini 의 [DevEnter] CharacterId. 0 이면 서버가 매번 새 번호를 붙인다.
+    _network.SendEnterGame(_config.devCharacterId);
     return true;
 }
 

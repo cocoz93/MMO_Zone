@@ -131,7 +131,7 @@ bool CDBWorker::Connect(void*& outMysql)
 
 bool CDBWorker::EnqueueLoad(const DBLoadJob& job)
 {
-    DBWorkerSlot& slot = *_workers[SlotIndex(job.accountId)];   // 저장과 같은 슬롯 — 계정별 순서 보장
+    DBWorkerSlot& slot = *_workers[SlotIndex(job.characterId)];   // 저장과 같은 슬롯 — 캐릭터별 순서 보장
 
     {
         std::lock_guard<std::mutex> lk(slot.mutex);
@@ -168,7 +168,7 @@ bool CDBWorker::PushBundleLocked(DBWorkerSlot& slot, DBSaveBundle head, const DB
 
 bool CDBWorker::EnqueueSave(const DBSaveBundle& head, const DBInvRow* rows, int rowCount)
 {
-    DBWorkerSlot& slot = *_workers[SlotIndex(head.row.accountId)];   // 불러오기·저장과 같은 슬롯 — 계정별 순서 보장
+    DBWorkerSlot& slot = *_workers[SlotIndex(head.row.characterId)];   // 불러오기·저장과 같은 슬롯 — 캐릭터별 순서 보장
 
     bool taken;
     {
@@ -178,8 +178,8 @@ bool CDBWorker::EnqueueSave(const DBSaveBundle& head, const DBInvRow* rows, int 
     if (!taken)
     {
         _counters._droppedJobs.Inc();
-        SLOG_ERROR("[DB] backpressure drop — save bundle refused (worker={}, account={}, max={})",
-                   slot.index, head.row.accountId, _queueMax);
+        SLOG_ERROR("[DB] backpressure drop — save bundle refused (worker={}, character={}, max={})",
+                   slot.index, head.row.characterId, _queueMax);
         return false;
     }
     slot.cv.notify_one();
@@ -189,9 +189,9 @@ bool CDBWorker::EnqueueSave(const DBSaveBundle& head, const DBInvRow* rows, int 
 bool CDBWorker::EnqueueSavePair(const DBSaveBundle& a, const DBInvRow* aRows, int aCount,
                                 const DBSaveBundle& b, const DBInvRow* bRows, int bCount)
 {
-    assert(a.row.accountId != b.row.accountId && "짝은 두 캐릭터다");
-    // 작은 계정 번호의 슬롯 — 같은 짝은 늘 같은 큐(헤더 주석)
-    const int64_t route = (a.row.accountId < b.row.accountId) ? a.row.accountId : b.row.accountId;
+    assert(a.row.characterId != b.row.characterId && "짝은 두 캐릭터다");
+    // 작은 캐릭터 번호의 슬롯 — 같은 짝은 늘 같은 큐(헤더 주석)
+    const int64_t route = (a.row.characterId < b.row.characterId) ? a.row.characterId : b.row.characterId;
     DBWorkerSlot& slot = *_workers[SlotIndex(route)];
 
     bool taken = false;
@@ -209,8 +209,8 @@ bool CDBWorker::EnqueueSavePair(const DBSaveBundle& a, const DBInvRow* aRows, in
     if (!taken)
     {
         _counters._droppedJobs.Add(2);
-        SLOG_ERROR("[DB] backpressure drop — save pair refused (worker={}, accounts={}·{}, max={})",
-                   slot.index, a.row.accountId, b.row.accountId, _queueMax);
+        SLOG_ERROR("[DB] backpressure drop — save pair refused (worker={}, characters={}·{}, max={})",
+                   slot.index, a.row.characterId, b.row.characterId, _queueMax);
         return false;
     }
     slot.cv.notify_one();
@@ -225,7 +225,7 @@ void CDBWorker::EnqueueSaveBatch(const std::vector<DBSaveBundle>& heads, const s
     if (heads.empty())
         return;
 
-    // 슬롯마다 락 1회 — 묶음 순서는 heads 순서 그대로(같은 계정 묶음은 한 배치에 하나지만, 순서를 섞지 않는다)
+    // 슬롯마다 락 1회 — 묶음 순서는 heads 순서 그대로(같은 캐릭터 묶음은 한 배치에 하나지만, 순서를 섞지 않는다)
     for (int w = 0; w < _workerCount; ++w)
     {
         DBWorkerSlot& slot = *_workers[w];
@@ -235,7 +235,7 @@ void CDBWorker::EnqueueSaveBatch(const std::vector<DBSaveBundle>& heads, const s
             for (size_t i = 0; i < heads.size(); ++i)
             {
                 const DBSaveBundle& h = heads[i];
-                if (SlotIndex(h.row.accountId) != w)
+                if (SlotIndex(h.row.characterId) != w)
                     continue;
                 assert(static_cast<size_t>(h.slotBegin) + static_cast<size_t>(h.slotCount) <= allRows.size());
                 const DBInvRow* rows = (h.slotCount > 0) ? allRows.data() + h.slotBegin : nullptr;
@@ -347,7 +347,7 @@ void CDBWorker::WorkerThread(int idx)
 
             case DBJobKind::SAVE_BUNDLE:
             {
-                // 묶음 하나 = 트랜잭션 하나. 회신은 묶음마다 곧바로 — 같은 계정의 뒤 불러오기 결과보다 먼저 결과 상자에 들어간다
+                // 묶음 하나 = 트랜잭션 하나. 회신은 묶음마다 곧바로 — 같은 캐릭터의 뒤 불러오기 결과보다 먼저 결과 상자에 들어간다
                 //   (받는 쪽이 회신을 먼저 처리해 불러오기 차례를 지킨다 — SwapOutResults 주석).
                 //   짝 묶음(pairNext)이면 바로 뒤 머리까지 트랜잭션 하나로 — 둘은 한 락 안에 이어 넣었다(EnqueueSavePair).
                 //   회신은 머리마다 하나씩(같은 성패) · 지표도 머리마다 센다(Σtxn = saved + failed = Σreply 등식이 머리 단위라서).
@@ -379,7 +379,7 @@ void CDBWorker::WorkerThread(int idx)
                     }
                     else
                         _counters._failedJobs.Inc();
-                    PushSaveReply(DBSaveReply{ b.row.accountId, b.sessionId, b.bundleNo, ok });
+                    PushSaveReply(DBSaveReply{ b.row.characterId, b.sessionId, b.bundleNo, ok });
                 }
                 break;
             }
@@ -558,10 +558,10 @@ static void BindColumn(MYSQL_BIND& b, void* base, const DbColumn& col)
 
 // 저장 파라미터 — ? 는 account_id 1개 + VALUES 의 열 n개 + UPDATE 의 열(key 제외). UPDATE 쪽은 VALUES 쪽과 같은 버퍼를
 //   참조한다(값을 한 번만 복사하면 된다 — 바이트 열의 길이 자리도 같은 것을 가리킨다). saveBuf 는 저장 구조체 꼴의 슬롯 버퍼.
-static bool BindUpsertParams(MYSQL_STMT* st, void* saveBuf, int64_t* accountIdBuf, const DbColumn* cols, int n)
+static bool BindUpsertParams(MYSQL_STMT* st, void* saveBuf, int64_t* characterIdBuf, const DbColumn* cols, int n)
 {
     MYSQL_BIND b[1 + 2 * kMaxCols] = {};
-    b[0].buffer_type = MYSQL_TYPE_LONGLONG; b[0].buffer = accountIdBuf;
+    b[0].buffer_type = MYSQL_TYPE_LONGLONG; b[0].buffer = characterIdBuf;
     int k = 1 + n;   // UPDATE 쪽 ? 가 시작하는 자리
     for (int i = 0; i < n; ++i)
     {
@@ -576,10 +576,10 @@ static bool BindUpsertParams(MYSQL_STMT* st, void* saveBuf, int64_t* accountIdBu
 //   숫자 열은 NOT NULL 고정폭이고 열 타입과 버퍼 타입이 같아(FLOAT→float, INT→int32, BIGINT→int64) 변환·잘림이 없다.
 //   바이트 열만 길이가 바뀐다 — 길이는 len 에 오고, 버퍼보다 길면 잘린다(RunLoadOnce 가 가른다).
 //   is_null·error(와 숫자 열의 length)는 비워 두면 라이브러리가 내부 값으로 채운다.
-static bool BindSelect(MYSQL_STMT* st, void* loadBuf, int64_t* accountIdBuf, const DbColumn* cols, int n)
+static bool BindSelect(MYSQL_STMT* st, void* loadBuf, int64_t* characterIdBuf, const DbColumn* cols, int n)
 {
     MYSQL_BIND p[1] = {};
-    p[0].buffer_type = MYSQL_TYPE_LONGLONG; p[0].buffer = accountIdBuf;
+    p[0].buffer_type = MYSQL_TYPE_LONGLONG; p[0].buffer = characterIdBuf;
     if (mysql_stmt_bind_param(st, p) != 0)
         return false;
 
@@ -600,13 +600,13 @@ static void CopyColumns(void* dst, const void* loadBuf, const DbColumn* cols, in
 static bool BindPositionParams(MYSQL_STMT* st, DBWorkerSlot& slot)
 {
     // ? = account_id + 열 n개 + UPDATE 열 n개 (key 열이 없는 표 — 지금 아홉 열이라 19개)
-    return BindUpsertParams(st, &slot.bSave, &slot.bSave.accountId, kCharColumns, kCharColCount);
+    return BindUpsertParams(st, &slot.bSave, &slot.bSave.characterId, kCharColumns, kCharColCount);
 }
 
 // ── 캐릭터 불러오기 ───────────────────────────────────────────────────────
 static bool BindLoadCharacter(MYSQL_STMT* st, DBWorkerSlot& slot)
 {
-    return BindSelect(st, &slot.bLoad, &slot.bLoad.accountId, kCharColumns, kCharColCount);
+    return BindSelect(st, &slot.bLoad, &slot.bLoad.characterId, kCharColumns, kCharColCount);
 }
 
 #if USE_INVENTORY
@@ -614,14 +614,14 @@ static bool BindLoadCharacter(MYSQL_STMT* st, DBWorkerSlot& slot)
 static bool BindItemSlotParams(MYSQL_STMT* st, DBWorkerSlot& slot)
 {
     // ? 6개 = account_id + slot·item_id·count + UPDATE item_id·count (slot 은 key 라 UPDATE 에 없다)
-    return BindUpsertParams(st, &slot.bItem, &slot.bItem.accountId, kInvColumns, kInvColCount);
+    return BindUpsertParams(st, &slot.bItem, &slot.bItem.characterId, kInvColumns, kInvColCount);
 }
 
 // ── 가방 불러오기 (불러오기 잡의 둘째 문장 — 작업 종류가 아니다) ──────────
 //   문장은 열 표(kInvColumns)에서 조립한 kLoadInvSql — 빈 칸을 거르는 꼬리(item_id<>0 ORDER BY slot)는 거기 있다.
 static bool BindLoadInventory(MYSQL_STMT* st, DBWorkerSlot& slot)
 {
-    return BindSelect(st, &slot.bInvLoad, &slot.bInvLoad.accountId, kInvColumns, kInvColCount);
+    return BindSelect(st, &slot.bInvLoad, &slot.bInvLoad.characterId, kInvColumns, kInvColCount);
 }
 #endif
 
@@ -720,7 +720,7 @@ void CDBWorker::DropConnection(DBWorkerSlot& slot)
 CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out)
 {
     MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmt[kLoadIdx]);
-    slot.bLoad.accountId = job.accountId;
+    slot.bLoad.characterId = job.characterId;
 
     // 오류 분류 — 유실(재연결 후 다시 해 볼 값어치가 있다)과 그 밖(다시 해도 같다)을 가른다.
     //   errno·메시지는 free_result 가 지우기 전에 먼저 읽는다.
@@ -729,10 +729,10 @@ CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJo
         const unsigned int err = mysql_stmt_errno(st);
         if (err == CR_SERVER_GONE_ERROR || err == CR_SERVER_LOST)
         {
-            SLOG_WARN("[DB] connection lost during load {} (errno={}, account={})", step, err, job.accountId);
+            SLOG_WARN("[DB] connection lost during load {} (errno={}, character={})", step, err, job.characterId);
             return LoadOutcome::CONNECTION_LOST;
         }
-        SLOG_ERROR("[DB] load {} failed (account={}): {}", step, job.accountId, mysql_stmt_error(st));
+        SLOG_ERROR("[DB] load {} failed (character={}): {}", step, job.characterId, mysql_stmt_error(st));
         return LoadOutcome::QUERY_ERROR;
     };
 
@@ -749,7 +749,7 @@ CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJo
     case MYSQL_DATA_TRUNCATED:
         // 잘림은 바이트 열(쿨타임·버프)에서만 난다 — 숫자 열은 열 타입과 버퍼 타입이 같아 잘릴 수 없다(BindSelect 주석).
         //   바이트 열이 버퍼보다 길면 len 에 원래 길이가 남아 게임 스레드가 불량으로 버린다(SpawnPlayer) — 쿨타임·버프가 풀릴 뿐
-        //   입장까지 막을 일이 아니다. 실패로 돌리면 그 계정은 행을 고치기 전까지 영영 못 들어온다.
+        //   입장까지 막을 일이 아니다. 실패로 돌리면 그 캐릭터은 행을 고치기 전까지 영영 못 들어온다.
         CopyColumns(&out, &slot.bLoad, kCharColumns, kCharColCount);   // 표의 열을 slot.bLoad 에서 out 으로
         outcome = LoadOutcome::FOUND;
         break;
@@ -784,16 +784,16 @@ CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJo
 
 #if USE_INVENTORY
 // 새로 붙은 문장들의 오류 분류 — 유실(재연결 후 다시 해 볼 값어치가 있다)과 그 밖을 가른다(RunLoadOnce 와 같은 규칙).
-CDBWorker::LoadOutcome CDBWorker::ClassifyStmtError(void* stmt, const char* what, int64_t accountId)
+CDBWorker::LoadOutcome CDBWorker::ClassifyStmtError(void* stmt, const char* what, int64_t characterId)
 {
     MYSQL_STMT* st = static_cast<MYSQL_STMT*>(stmt);
     const unsigned int err = mysql_stmt_errno(st);
     if (err == CR_SERVER_GONE_ERROR || err == CR_SERVER_LOST)
     {
-        SLOG_WARN("[DB] connection lost during {} (errno={}, account={})", what, err, accountId);
+        SLOG_WARN("[DB] connection lost during {} (errno={}, character={})", what, err, characterId);
         return LoadOutcome::CONNECTION_LOST;
     }
-    SLOG_ERROR("[DB] {} failed (account={}): {}", what, accountId, mysql_stmt_error(st));
+    SLOG_ERROR("[DB] {} failed (character={}): {}", what, characterId, mysql_stmt_error(st));
     return LoadOutcome::QUERY_ERROR;
 }
 
@@ -806,10 +806,10 @@ CDBWorker::LoadOutcome CDBWorker::RunInventoryLoad(DBWorkerSlot& slot, const DBL
     MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmt[kInvLoadIdx]);
     if (st == nullptr)
         return LoadOutcome::QUERY_ERROR;   // PrepareStmt 가 캐릭터 문장과 함께 세우므로 닿지 않는다 — 닿으면 실패로
-    slot.bInvLoad.accountId = job.accountId;
+    slot.bInvLoad.characterId = job.characterId;
 
     if (mysql_stmt_execute(st) != 0)
-        return ClassifyStmtError(st, "load inventory execute", job.accountId);
+        return ClassifyStmtError(st, "load inventory execute", job.characterId);
 
     // 줄 여럿 — 끝(MYSQL_NO_DATA)까지 다 읽어야 다음 명령이 안 꼬인다. 넘치는 줄은 싣지 않고 수만 센다.
     for (;;)
@@ -819,7 +819,7 @@ CDBWorker::LoadOutcome CDBWorker::RunInventoryLoad(DBWorkerSlot& slot, const DBL
             break;
         if (rc != 0)   // 1(오류) · MYSQL_DATA_TRUNCATED — 버퍼 값을 믿을 수 없다
         {
-            const LoadOutcome e = ClassifyStmtError(st, "load inventory fetch", job.accountId);
+            const LoadOutcome e = ClassifyStmtError(st, "load inventory fetch", job.characterId);
             if (e != LoadOutcome::CONNECTION_LOST)
                 mysql_stmt_free_result(st);
             return e;
@@ -863,7 +863,7 @@ void CDBWorker::ExecLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out
     // 결과는 어떤 경로로 나가든 채워져 있어야 한다 — 기본값을 "실패"로 깔고 시작한다.
     out.kind      = DBJobKind::LOAD_CHARACTER;
     out.code      = DBResultCode::FAILED;
-    out.accountId = job.accountId;
+    out.characterId = job.characterId;
     out.sessionId = job.sessionId;
     out.requestNs = job.requestNs;
     out.x         = 0.0f;
@@ -942,11 +942,11 @@ CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSave
 {
     assert(n >= 1 && n <= MAX_BUNDLE_HEADS);
     MYSQL* m = static_cast<MYSQL*>(slot.mysql);
-    const DBSaveBundle& b = *heads[0];   // 로그의 머리 — 짝이면 둘째 계정도 같이 적는다(아래 fail)
+    const DBSaveBundle& b = *heads[0];   // 로그의 머리 — 짝이면 둘째 캐릭터도 같이 적는다(아래 fail)
     // 문장이 둘 이상이면 트랜잭션 — 자동 커밋이면 반쪽이 남는다. 짝은 늘(머리 둘)
     const int stmtCount = ((b.parts & SAVE_PART_CHAR_ROW) ? 1 : 0) + b.slotCount;
     const bool txn = (n > 1 || stmtCount > 1);
-    const int64_t pairAccount = (n > 1) ? heads[1]->row.accountId : 0;
+    const int64_t pairCharacter = (n > 1) ? heads[1]->row.characterId : 0;
 
     // 실패 가르기 — 끊김이면 커넥션을 버린다(열린 트랜잭션은 DB 가 되돌린다). 그 밖이면 ROLLBACK,
     //   그것도 안 되면 커넥션을 버린다 — 다음 START TRANSACTION 은 열린 트랜잭션을 말없이 커밋하므로 반쪽 묶음을 들고 다음 잡으로 가지 않는다.
@@ -954,14 +954,14 @@ CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSave
     {
         if (IsConnectionLostErrno(err))
         {
-            SLOG_WARN("[DB] connection lost during save bundle {} (errno={}, account={})", what, err, b.row.accountId);
+            SLOG_WARN("[DB] connection lost during save bundle {} (errno={}, character={})", what, err, b.row.characterId);
             DropConnection(slot);
             return SaveOutcome::CONNECTION_LOST;
         }
-        SLOG_ERROR("[DB] save bundle {} failed (account={}, pair={}, bundle={}): {}", what, b.row.accountId, pairAccount, b.bundleNo, msg);
+        SLOG_ERROR("[DB] save bundle {} failed (character={}, pair={}, bundle={}): {}", what, b.row.characterId, pairCharacter, b.bundleNo, msg);
         if (txn && mysql_rollback(m) != 0)
         {
-            SLOG_ERROR("[DB] rollback failed -> drop connection (account={}): {}", b.row.accountId, mysql_error(m));
+            SLOG_ERROR("[DB] rollback failed -> drop connection (character={}): {}", b.row.characterId, mysql_error(m));
             DropConnection(slot);
         }
         return SaveOutcome::QUERY_ERROR;
@@ -976,12 +976,12 @@ CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSave
         t_faultArmed = false;   // 한 묶음에 한 번 — 재연결 뒤 다시 하는 판에는 안 건다
         if (_faultKind == FaultKind::ERROR_AFTER)
         {
-            SLOG_WARN("[DB][fault] trigger error@{} (account={}, bundle={})", stmtNo, b.row.accountId, b.bundleNo);
+            SLOG_WARN("[DB][fault] trigger error@{} (character={}, bundle={})", stmtNo, b.row.characterId, b.bundleNo);
             out = fail(0, "fault", "injected error");
         }
         else
         {
-            SLOG_WARN("[DB][fault] trigger lost@{} (account={}, bundle={})", stmtNo, b.row.accountId, b.bundleNo);
+            SLOG_WARN("[DB][fault] trigger lost@{} (character={}, bundle={})", stmtNo, b.row.characterId, b.bundleNo);
             DropConnection(slot);
             out = SaveOutcome::CONNECTION_LOST;
         }
@@ -1018,7 +1018,7 @@ CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSave
         const DBInvRow* hr = rows[h];
         for (int i = 0; i < hb.slotCount; ++i)
         {
-            slot.bItem = DBInvRowBuf{ hb.row.accountId, hr[i].slot, hr[i].itemId, hr[i].count };
+            slot.bItem = DBInvRowBuf{ hb.row.characterId, hr[i].slot, hr[i].itemId, hr[i].count };
             if (mysql_stmt_execute(stItem) != 0)
                 return fail(mysql_stmt_errno(stItem), "slot row", mysql_stmt_error(stItem));
             ++stmtNo;
@@ -1040,19 +1040,19 @@ CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSave
 
 bool CDBWorker::ExecBundle(DBWorkerSlot& slot, const DBSaveBundle* const* heads, const DBInvRow* const* rows, int n, bool& reconnectFailedThisBatch)
 {
-    const DBSaveBundle& b = *heads[0];   // 로그·주입의 머리 — 짝이면 둘 중 하나라도 주입 계정이면 건다
+    const DBSaveBundle& b = *heads[0];   // 로그·주입의 머리 — 짝이면 둘 중 하나라도 주입 캐릭터이면 건다
 #if USE_DB_FAULT_INJECT
-    t_faultArmed = TakeFault(b.row.accountId) || (n > 1 && TakeFault(heads[1]->row.accountId));
+    t_faultArmed = TakeFault(b.row.characterId) || (n > 1 && TakeFault(heads[1]->row.characterId));
     if (t_faultArmed && _faultKind == FaultKind::DELAY)
     {
-        SLOG_WARN("[DB][fault] trigger delay {}ms (account={}, bundle={})", _faultArg, b.row.accountId, b.bundleNo);
+        SLOG_WARN("[DB][fault] trigger delay {}ms (character={}, bundle={})", _faultArg, b.row.characterId, b.bundleNo);
         t_faultArmed = false;
         std::this_thread::sleep_for(std::chrono::milliseconds(_faultArg));
     }
     else if (t_faultArmed && _faultKind == FaultKind::DOWN)
     {
         // DB 가 죽은 흉내 — 커넥션을 버리고 다음 재연결 n 번을 실패시킨다(Connect 가 깎는다)
-        SLOG_WARN("[DB][fault] trigger down x{} (account={}, bundle={})", _faultArg, b.row.accountId, b.bundleNo);
+        SLOG_WARN("[DB][fault] trigger down x{} (character={}, bundle={})", _faultArg, b.row.characterId, b.bundleNo);
         t_faultArmed = false;
         DropConnection(slot);
         _faultDownLeft.store(_faultArg);
@@ -1095,13 +1095,13 @@ bool CDBWorker::ExecBundle(DBWorkerSlot& slot, const DBSaveBundle* const* heads,
     if (retried)
         _counters._saveRetried.Inc();
     if (r != SaveOutcome::OK)
-        SLOG_ERROR("[DB] save bundle FAILED (account={}, session={}, bundle={}, rows={}, pair={}) — 저장소가 다음 계기에 다시 싣는다",
-                   b.row.accountId, b.sessionId, b.bundleNo, b.slotCount, (n > 1) ? heads[1]->row.accountId : 0);
+        SLOG_ERROR("[DB] save bundle FAILED (character={}, session={}, bundle={}, rows={}, pair={}) — 저장소가 다음 계기에 다시 싣는다",
+                   b.row.characterId, b.sessionId, b.bundleNo, b.slotCount, (n > 1) ? heads[1]->row.characterId : 0);
     return r == SaveOutcome::OK;
 }
 
 #if USE_DB_FAULT_INJECT
-// 실패 주입 계획 — 환경 변수 MMO_DB_FAULT 한 줄("<종류>:<값>,account=<계정>,times=<횟수>"). 없거나 못 읽으면 주입 없음.
+// 실패 주입 계획 — 환경 변수 MMO_DB_FAULT 한 줄("<종류>:<값>,character=<캐릭터>,times=<횟수>"). 없거나 못 읽으면 주입 없음.
 void CDBWorker::LoadFaultPlan()
 {
     std::string spec;
@@ -1120,7 +1120,7 @@ void CDBWorker::LoadFaultPlan()
 #endif
     try
     {
-        int64_t account = 0;
+        int64_t character = 0;
         int times = 1;
         FaultKind kind = FaultKind::NONE;
         int arg = 0;
@@ -1137,7 +1137,7 @@ void CDBWorker::LoadFaultPlan()
                 else if (key == "lost")    { kind = FaultKind::LOST_AFTER;  arg = std::stoi(val); }
                 else if (key == "down")    { kind = FaultKind::DOWN;        arg = std::stoi(val); }
                 else if (key == "delay")   { kind = FaultKind::DELAY;       arg = std::stoi(val); }
-                else if (key == "account") { account = std::stoll(val); }
+                else if (key == "character") { character = std::stoll(val); }
                 else if (key == "times")   { times = std::stoi(val); }
             }
             if (end == std::string::npos)
@@ -1146,10 +1146,10 @@ void CDBWorker::LoadFaultPlan()
         }
         _faultKind = kind;
         _faultArg = arg;
-        _faultAccount = account;
+        _faultCharacter = character;
         _faultTimesLeft.store(times);
-        SLOG_WARN("[DB][fault] plan loaded: {} (kind={}, arg={}, account={}, times={})",
-                  spec, static_cast<int>(kind), arg, account, times);
+        SLOG_WARN("[DB][fault] plan loaded: {} (kind={}, arg={}, character={}, times={})",
+                  spec, static_cast<int>(kind), arg, character, times);
     }
     catch (const std::exception& e)
     {
@@ -1158,9 +1158,9 @@ void CDBWorker::LoadFaultPlan()
     }
 }
 
-bool CDBWorker::TakeFault(int64_t accountId)
+bool CDBWorker::TakeFault(int64_t characterId)
 {
-    if (_faultKind == FaultKind::NONE || accountId != _faultAccount)
+    if (_faultKind == FaultKind::NONE || characterId != _faultCharacter)
         return false;
     int left = _faultTimesLeft.load();
     while (left > 0 && !_faultTimesLeft.compare_exchange_weak(left, left - 1)) {}

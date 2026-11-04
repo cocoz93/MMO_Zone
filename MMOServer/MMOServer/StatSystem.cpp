@@ -259,8 +259,8 @@ bool CStatSystem::ClampLevelToTable(CPlayer* player)
     if (player->_level >= 1 && player->_level <= maxLevel)
         return false;
 
-    SLOG_WARN("[EXP] level out of table -> clamp (account={}, level={}, table max={})",
-              player->_accountId, player->_level, maxLevel);
+    SLOG_WARN("[EXP] level out of table -> clamp (character={}, level={}, table max={})",
+              player->_characterId, player->_level, maxLevel);
     player->_level = (player->_level < 1) ? 1 : maxLevel;
     _gameMonitor._exp._levelClamped.Inc();
     return true;

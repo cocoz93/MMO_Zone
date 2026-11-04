@@ -13,7 +13,7 @@
 //
 // [왕복] 저장도 불러오기도 답이 돌아온다 — 저장은 회신(성공·실패), 불러오기는 결과.
 //        무엇을 다시 실을지·불러오기를 들여보낼지는 받는 쪽(캐릭터 저장소)이 정한다 — 워커는 주인을 모르고 실행·회신만 한다.
-//        가는 길은 「같은 큐」 — 같은 계정은 같은 워커를 타고 큐는 앞에서부터 실행되므로
+//        가는 길은 「같은 큐」 — 같은 캐릭터은 같은 워커를 타고 큐는 앞에서부터 실행되므로
 //        "옛 접속의 마지막 저장 → 새 접속의 불러오기" 차례가 지켜진다(그 저장이 실패했는지는 회신을 먼저 보는 받는 쪽이 가린다).
 //        오는 길은 회신 상자 하나(저장 회신 · 불러오기 결과) — 워커가 넣고, 게임 루프가 틱마다 통째로 꺼낸다.
 // ==========================================================================
@@ -80,7 +80,7 @@ constexpr size_t DB_BUFFS_BYTES           = 162;
 //     여기와 DBResult 에 같은 이름의 멤버를 넣고 표에 한 줄. SQL·바인딩·복사는 표에서 나온다.
 struct DBCharRow
 {
-    int64_t accountId;
+    int64_t characterId;
     float   x;
     float   y;
     int32_t mapId;
@@ -116,9 +116,9 @@ constexpr uint8_t SAVE_PART_ALL      = SAVE_PART_CHAR_ROW;   // 나갈 때·종�
 //   문장이 하나면(행만 · 칸 1줄만) 그 자체가 트랜잭션, 둘 이상이면 START TRANSACTION … COMMIT 으로 감싼다.
 struct DBSaveBundle
 {
-    DBCharRow row;         // 캐릭터 행 10열(돈 열은 가방을 켠 빌드만) + 계정(열 표 kCharColumns 가 이 꼴의 멤버를 가리킨다)
-                           //   행 비트가 꺼져 있어도 계정 번호는 늘 쓴다(큐 고르기 · 칸 문장 · 회신 · 로그)
-    int64_t   sessionId;   // 주인 — 살아 있는 사람의 세션 번호 · 0 = 저장소의 떠난 기록·종료(회신은 계정 번호로 찾는다)
+    DBCharRow row;         // 캐릭터 행 10열(돈 열은 가방을 켠 빌드만) + 캐릭터(열 표 kCharColumns 가 이 꼴의 멤버를 가리킨다)
+                           //   행 비트가 꺼져 있어도 캐릭터 번호는 늘 쓴다(큐 고르기 · 칸 문장 · 회신 · 로그)
+    int64_t   sessionId;   // 주인 — 살아 있는 사람의 세션 번호 · 0 = 저장소의 떠난 기록·종료(회신은 캐릭터 번호로 찾는다)
     uint32_t  bundleNo;    // 회신과 짝을 맞추는 번호(0 은 안 씀)
     uint32_t  slotBegin;   // 줄 벡터 안 시작 자리 — 넣는 함수가 매긴다(부르는 쪽 값은 무시)
     int32_t   slotCount;   // 칸 줄 수(0 ~ 가방 칸 수)
@@ -129,26 +129,26 @@ struct DBSaveBundle
 // 저장 회신 — 모든 묶음이 하나씩 받는다(성공 · 실패). 무엇을 다시 실을지는 받는 쪽(저장소)이 정한다 — 워커는 주인을 모른다.
 struct DBSaveReply
 {
-    int64_t  accountId;
+    int64_t  characterId;
     int64_t  sessionId;   // 묶음에 실어 보낸 값 그대로
     uint32_t bundleNo;
     bool     ok;
 };
 
-// 불러오기 잡 — 계정 번호로 캐릭터 행을 읽는다. 저장과 달리 결과가 회신 큐로 돌아온다.
+// 불러오기 잡 — 캐릭터 번호로 캐릭터 행을 읽는다. 저장과 달리 결과가 회신 큐로 돌아온다.
 struct DBLoadJob
 {
-    int64_t accountId;
+    int64_t characterId;
     int64_t sessionId;   // 결과의 주인. 게임 스레드가 세션 번호 "전체"로 대조한다(자리 재사용 방어)
     int64_t requestNs;   // 요청 시각(steady_clock, ns) — 요청→결과 수령 지연을 재는 기준
 };
 
 #if USE_INVENTORY
-// 가방 한 줄 문장의 버퍼 꼴(USE_INVENTORY) — 계정 + 칸 + 아이템 + 개수. 칸 UPSERT 의 파라미터 · 가방 SELECT 의 파라미터·결과 열.
-//   저장 묶음의 칸 줄(DBInvRow)을 실행 직전에 계정과 함께 여기로 옮긴다(RunBundleOnce). 칸 줄은 최종값이라 두 번 써도 같다.
+// 가방 한 줄 문장의 버퍼 꼴(USE_INVENTORY) — 캐릭터 + 칸 + 아이템 + 개수. 칸 UPSERT 의 파라미터 · 가방 SELECT 의 파라미터·결과 열.
+//   저장 묶음의 칸 줄(DBInvRow)을 실행 직전에 캐릭터과 함께 여기로 옮긴다(RunBundleOnce). 칸 줄은 최종값이라 두 번 써도 같다.
 struct DBInvRowBuf
 {
-    int64_t accountId;
+    int64_t characterId;
     int32_t slot;        // 칸 번호 (Protocol.h INV_TAB_RANGES)
     int32_t itemId;      // 0 = 빈 칸 — 행을 지우지 않고 0 으로 덮는다(DB 계정에 DELETE 권한이 없다)
     int32_t count;
@@ -220,7 +220,7 @@ struct DBResult
 {
     DBJobKind    kind;
     DBResultCode code;
-    int64_t      accountId;
+    int64_t      characterId;
     int64_t      sessionId;   // 요청 때 실어 보낸 값 그대로
     int64_t      requestNs;   // 요청 때 실어 보낸 값 그대로
     float        x;           // ↓ FOUND 일 때만 유효 — 멤버 이름이 DBCharRow 와 같아야 한다(열 표가 이름으로 잇는다)
@@ -236,7 +236,7 @@ struct DBResult
     int64_t      money;       // DB 값 그대로 — 범위(0~MONEY_MAX) 검사는 게임 스레드(CCharacterStore::LoadInventoryRows — 망가진 값은 안 넣는다)
 #if USE_INVENTORY
     // ↓ FOUND·NOT_FOUND 둘 다 유효 — 캐릭터 행이 없어도 가방은 읽는다(칸만 쓰는 묶음은 행이 이미 써진 뒤에만 나오지만 —
-    //   새 캐릭터는 첫 묶음에 _dbDirty 로 행이 실린다 —, 저장 묶음 전의 칸 즉시 저장 시절에 생긴 「가방 행만 있는 계정」이 DB 에 남아 있을 수 있다).
+    //   새 캐릭터는 첫 묶음에 _dbDirty 로 행이 실린다 —, 저장 묶음 전의 칸 즉시 저장 시절에 생긴 「가방 행만 있는 캐릭터」이 DB 에 남아 있을 수 있다).
     //   가방 조회가 실패하면 code 는 FAILED 다 — 빈 가방으로 들여보내면 첫 아이템이 진짜 행을 덮는다.
     int32_t      invCount;     // inv 에 실린 줄 수
     int32_t      invOverflow;  // DB_INV_MAX_ROWS 를 넘어 못 실은 줄 수 (정상이면 0)
@@ -258,16 +258,16 @@ struct DBWorkerSlot
     void*                    mysql = nullptr; // 실제 MYSQL* (헤더 오염 차단 위해 void*)
     void*                    stmt[DB_STMT_COUNT] = {};   // MYSQL_STMT* — 문장별 prepared 핸들 (커넥션 종속, DBStmt 순서)
     DBCharRow                bSave{};         // 캐릭터 행 UPSERT 파라미터 버퍼 — execute 직전 묶음 머리의 행을 통째로 복사. 열 표(kCharColumns)가 멤버 자리를 가리킨다
-    DBCharRow                bLoad{};         // 캐릭터 행 SELECT — accountId 가 WHERE 파라미터, 나머지 멤버가 결과 열(fetch 가 채운다)
+    DBCharRow                bLoad{};         // 캐릭터 행 SELECT — characterId 가 WHERE 파라미터, 나머지 멤버가 결과 열(fetch 가 채운다)
 #if USE_INVENTORY
-    DBInvRowBuf              bItem{};               // 칸 UPSERT 파라미터 버퍼 — 칸 줄을 계정과 함께 복사. 열 표(kInvColumns)가 멤버 자리를 가리킨다
-    DBInvRowBuf              bInvLoad{};            // 가방 SELECT — accountId 가 WHERE 파라미터, 나머지 멤버가 결과 열(fetch 가 줄마다 채운다)
+    DBInvRowBuf              bItem{};               // 칸 UPSERT 파라미터 버퍼 — 칸 줄을 캐릭터과 함께 복사. 열 표(kInvColumns)가 멤버 자리를 가리킨다
+    DBInvRowBuf              bInvLoad{};            // 가방 SELECT — characterId 가 WHERE 파라미터, 나머지 멤버가 결과 열(fetch 가 줄마다 채운다)
 #endif
     int                      index = 0;
 };
 
-// K개 워커 스레드 + 커넥션. accountId % K 고정 분배(같은 유저=같은 워커=UPSERT 순서 보장).
-//   ★ 예외 하나 — 짝 묶음(거래 · EnqueueSavePair)은 두 계정 중 작은 번호의 워커로 간다. 다른 쪽 사람의 순서는 큐가 아니라
+// K개 워커 스레드 + 커넥션. characterId % K 고정 분배(같은 유저=같은 워커=UPSERT 순서 보장).
+//   ★ 예외 하나 — 짝 묶음(거래 · EnqueueSavePair)은 두 캐릭터 중 작은 번호의 워커로 간다. 다른 쪽 사람의 순서는 큐가 아니라
 //     저장소가 지킨다 — 짝이 확정될 때까지 그 사람의 다른 쓰기(혼자 묶음 · 떠난 기록)를 붙잡는다(CCharacterStore 「짝 저장」).
 //   백프레셔: 저장 묶음끼리 센 수가 queueMax 에 닿으면 거절(카운터+ERROR) — 부르는 쪽이 표시를 되살리거나 떠난 기록을 남겨
 //   다음 계기에 다시 싣는다. 살아 있는 캐릭터는 비행 중 묶음이 하나라 정상 상태에선 안 닿는다.
@@ -280,14 +280,14 @@ public:
     // K 커넥션 + K 워커 스레드 시작. 하나라도 접속 실패 시 전체 롤백 후 false (fail-fast).
     bool Start(const DBConfig& config, int workerCount, int queueMax);
 
-    // 게임루프 전용 — 불러오기 1건. 저장과 같은 슬롯 큐(accountId%K)에 넣어 계정별 순서를 지킨다.
+    // 게임루프 전용 — 불러오기 1건. 저장과 같은 슬롯 큐(characterId%K)에 넣어 캐릭터별 순서를 지킨다.
     //   저장 상한(queueMax)은 건너뛴다 — 저장은 버려도 다음 주기가 덮지만, 불러오기는 버리면 그 사람이
     //   영영 못 들어온다. 대신 큐에 든 불러오기 수를 따로 세서 같은 상한을 넘으면 거절한다
     //   (끝없이 쌓이는 큐를 만들지 않는다. 정상 상태에선 안 닿는 값 — 닿았다면 DB 가 멈춘 것).
     //   반환 false = 거절됨. 결과가 오지 않으므로 호출부가 그 자리에서 처리해야 한다.
     bool EnqueueLoad(const DBLoadJob& job);
 
-    // 게임루프 전용 — 저장 묶음 1건(실을 덩어리 비트 + 칸 줄 n). 같은 계정 = 같은 슬롯 큐(accountId%K) — 불러오기와 차례가 맞물린다.
+    // 게임루프 전용 — 저장 묶음 1건(실을 덩어리 비트 + 칸 줄 n). 같은 캐릭터 = 같은 슬롯 큐(characterId%K) — 불러오기와 차례가 맞물린다.
     //   묶음끼리 센 수로 QueueMax 를 건다(불러오기 loadCount 와 같은 꼴 · 남의 원소까지 세지 않는다).
     //   반환 false = 거절(dropped 를 센다). 묶음은 버려지지만 부르는 쪽이 표시를 되살리거나 기록을 남겨 다음 계기에 다시 싣는다.
     bool EnqueueSave(const DBSaveBundle& head, const DBInvRow* rows, int rowCount);
@@ -298,7 +298,7 @@ public:
                           std::vector<size_t>* outRefused = nullptr);
 
     // 게임루프·종료 전용 — 짝 묶음 1건(두 캐릭터 = 트랜잭션 하나 · 거래 — trade-plan.md 「저장」).
-    //   ★ 큐는 두 계정 중 작은 번호의 슬롯이다(같은 짝은 늘 같은 큐 — 종료 때 다시 낸 짝 묶음이 떠 있던 짝 묶음 뒤에 줄 선다).
+    //   ★ 큐는 두 캐릭터 중 작은 번호의 슬롯이다(같은 짝은 늘 같은 큐 — 종료 때 다시 낸 짝 묶음이 떠 있던 짝 묶음 뒤에 줄 선다).
     //     다른 쪽 사람의 순서는 큐가 지켜 주지 않는다 — 부르는 쪽(CCharacterStore)이 짝이 확정될 때까지 두 사람의 다른 쓰기를 붙잡는다.
     //   두 머리를 한 락 안에 이어 넣어 워커가 한 번에 꺼낸다(a.pairNext = 1). 상한은 둘 다 들어갈 때만 — 반쪽만 넣지 않는다.
     //   회신은 머리마다 하나씩(같은 성패). 반환 false = 거절(둘 다 안 들어감 · dropped 를 2 센다).
@@ -308,8 +308,8 @@ public:
     // 게임루프 전용 — 쌓인 결과를 통째로 꺼낸다(락 1회). 두 벡터 다 비어 있어야 한다.
     //   벡터를 맞바꾸므로 양쪽 다 용량이 보존된다 → 틱마다 할당하지 않는다
     //   (SwapOutNetworkEvents 와 같은 방식). 처리 중에 도착한 결과는 다음 틱으로 넘어간다.
-    //   ★ 저장 회신과 불러오기 결과를 한 락에 같이 꺼낸다 — 같은 계정의 묶음 회신이 뒤 불러오기 결과보다 먼저 들어오므로
-    //     (같은 큐 차례 · 묶음마다 곧바로 회신) 받는 쪽이 회신을 먼저 처리하면 불러오기 결과를 볼 때 그 계정의 저장 결말을 이미 안다.
+    //   ★ 저장 회신과 불러오기 결과를 한 락에 같이 꺼낸다 — 같은 캐릭터의 묶음 회신이 뒤 불러오기 결과보다 먼저 들어오므로
+    //     (같은 큐 차례 · 묶음마다 곧바로 회신) 받는 쪽이 회신을 먼저 처리하면 불러오기 결과를 볼 때 그 캐릭터의 저장 결말을 이미 안다.
     void SwapOutResults(std::vector<DBResult>& loads, std::vector<DBSaveReply>& saves);
 
     // 모든 슬롯의 잔여 잡을 비우고 워커 종료 (멱등 — 소멸자에서도 호출).
@@ -332,7 +332,7 @@ private:
     // 불러오기의 둘째 문장 — 가방 줄을 out.inv 에 채운다. 결말은 LoadOutcome 로(FOUND = 성공, 줄이 0 이어도).
     LoadOutcome RunInventoryLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out);
     // 가방 문장의 오류 분류(유실 / 그 밖). stmt 는 MYSQL_STMT* — 헤더를 mysql.h 로 더럽히지 않으려고 void*
-    static LoadOutcome ClassifyStmtError(void* stmt, const char* what, int64_t accountId);
+    static LoadOutcome ClassifyStmtError(void* stmt, const char* what, int64_t characterId);
 #endif
     // 불러오기용 재연결 — 이 묶음에서 이미 실패했으면 시도하지 않는다(죽은 DB 에 불러오기마다 접속 제한 시간을 쓰지 않게).
     bool TryReconnectForLoad(DBWorkerSlot& slot, bool& reconnectFailedThisBatch);
@@ -351,20 +351,20 @@ private:
 
 #if USE_DB_FAULT_INJECT
     // 실패 주입(시험 빌드 전용 — BuildConfig.h). Start 가 환경 변수 MMO_DB_FAULT 를 읽어 채운다.
-    //   꼴: "<종류>:<값>,account=<계정>,times=<횟수>" — 종류 error:k · lost:k(묶음의 k 번째 문장 뒤) · down:n(재연결 n 번 실패) · delay:ms
+    //   꼴: "<종류>:<값>,character=<캐릭터>,times=<횟수>" — 종류 error:k · lost:k(묶음의 k 번째 문장 뒤) · down:n(재연결 n 번 실패) · delay:ms
     enum class FaultKind : uint8_t { NONE, ERROR_AFTER, LOST_AFTER, DOWN, DELAY };
     FaultKind            _faultKind = FaultKind::NONE;
     int                  _faultArg = 0;
-    int64_t              _faultAccount = 0;
+    int64_t              _faultCharacter = 0;
     std::atomic<int>     _faultTimesLeft{ 0 };
     std::atomic<int>     _faultDownLeft{ 0 };      // 남은 「재연결 실패」 수 — down 이 걸리면 채워지고 Connect 가 깎는다
     void LoadFaultPlan();
-    bool TakeFault(int64_t accountId);              // 이 계정 묶음에 주입이 걸리나(남은 횟수 하나 깎음)
+    bool TakeFault(int64_t characterId);              // 이 캐릭터 묶음에 주입이 걸리나(남은 횟수 하나 깎음)
 #endif
 
-    int SlotIndex(int64_t accountId) const    // accountId % K (음수 방어)
+    int SlotIndex(int64_t characterId) const    // characterId % K (음수 방어)
     {
-        return static_cast<int>(static_cast<uint64_t>(accountId) % static_cast<uint64_t>(_workerCount));
+        return static_cast<int>(static_cast<uint64_t>(characterId) % static_cast<uint64_t>(_workerCount));
     }
 
     DBSaveCounters&  _counters;   // 저장 성공·실패·드롭·큐 깊이·워커 수 — 게임 그릇(GameMonitor.h DBSaveCounters)

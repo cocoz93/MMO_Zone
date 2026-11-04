@@ -615,7 +615,7 @@ private:
             WriteCounter(ss, "mmo_room_rewards_total", "Players rewarded in a room (everyone in the room when its boss dies)", rm._rewards);
             WriteCounter(ss, "mmo_room_reward_items_bag_total", "Room reward items put straight into bags", rm._rewardItemsBag);
             WriteCounter(ss, "mmo_room_reward_items_ground_total", "Room reward items dropped at the player's feet because the bag was full", rm._rewardItemsGround);
-            ss << "# HELP mmo_room_locks Room re-entry locks held right now (account and room map)\n# TYPE mmo_room_locks gauge\nmmo_room_locks " << rm._locks << "\n\n";
+            ss << "# HELP mmo_room_locks Room re-entry locks held right now (character and room map)\n# TYPE mmo_room_locks gauge\nmmo_room_locks " << rm._locks << "\n\n";
             WriteCounter(ss, "mmo_room_cleared_total", "Rooms cleared = room bosses killed (MonsterTable.csv boss)", rm._cleared);
             WriteCounter(ss, "mmo_room_minions_cleared_total", "Monsters removed from a room because its boss died (no death, no reward)", rm._minionsCleared);
         }

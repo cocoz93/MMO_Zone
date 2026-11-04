@@ -63,9 +63,9 @@ public:
     //   등식: 들어감(_entries[NONE]) = 닫힘 + 열림(GameMonitor.h _room). 방 번호는 이 뒤 다시 쓸 수 있다(CRoomMap::CreateRoom).
     void OnErasingZone(CZone* zone);
 
-    // 방 다시 들어가기 잠금 넣기 — 방 보상이 사람마다 부른다(계정 · 방 맵 → 풀리는 틱). 같은 계정·맵이 있으면 덮는다(CRoomLocks::Lock).
+    // 방 다시 들어가기 잠금 넣기 — 방 보상이 사람마다 부른다(캐릭터 · 방 맵 → 풀리는 틱). 같은 캐릭터·맵이 있으면 덮는다(CRoomLocks::Lock).
     //   표 크기 게이지(_gameMonitor._room._locks)도 여기서 맞춘다 — 표를 바꾸는 두 길(넣기 · 빼기)이 다 이 클래스 안이라 게이지가 늘 표와 같다.
-    void LockRoomReentry(int64_t accountId, int32_t mapId, uint64_t untilFrame);
+    void LockRoomReentry(int64_t characterId, int32_t mapId, uint64_t untilFrame);
 
     // 틱 3-2c(파티 규칙의 틱 뒤) — 초마다 풀린 잠금 빼기 · 표 크기 게이지.
     void TickRoomLocks();
@@ -103,7 +103,7 @@ private:
     CGameMonitor&     _gameMonitor;   // 파티 보내기 · 포털 · 방 지표
     const uint64_t&   _frameCount;    // 게임 루프의 틱 번호 — 빌린 것, 읽기만(요청 시간 · 잠금 판정 · 쓸기 주기)
 
-    // 방 다시 들어가기 잠금(계정 · 방 맵 → 풀리는 틱) — 보상을 줄 때 넣고(OnDeath 방 분기의 방 보상 → LockRoomReentry) 들어가기 판정이 본다. 서버 메모리만(재시작하면 풀림).
+    // 방 다시 들어가기 잠금(캐릭터 · 방 맵 → 풀리는 틱) — 보상을 줄 때 넣고(OnDeath 방 분기의 방 보상 → LockRoomReentry) 들어가기 판정이 본다. 서버 메모리만(재시작하면 풀림).
     //   풀린 것은 파티 틱 옆에서 초마다 훑어 뺀다(TickRoomLocks — 게임 루프 3-2c)
     CRoomLocks _roomLocks;
 };

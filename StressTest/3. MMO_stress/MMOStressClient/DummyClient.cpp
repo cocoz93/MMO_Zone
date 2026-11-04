@@ -589,7 +589,7 @@ void DummyClient::SendEnterGame(StatsLocal& stats)
     MSG_C2S_ENTER_GAME msg{};   // 입장권 64바이트를 0 으로 채우려면 값 초기화가 필요하다
     msg.header.size = sizeof(msg);
     msg.header.type = MsgType::C2S_ENTER_GAME;
-    msg.accountId   = 0;
+    msg.devCharacterId = 0;
 
     if (_sendBuf.Enqueue(&msg, sizeof(msg)) == 0)
     {

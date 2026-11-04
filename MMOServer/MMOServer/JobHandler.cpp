@@ -57,6 +57,6 @@ JobChoose CJobHandler::Choose(CPlayer* player, int32_t jobId)
     // 고른 순간 저장 — 안 그러면 다음 주기 전에 서버가 죽었을 때 다시 고르는 창이 뜬다
     _characterStore.RequestSave(player, SaveReason::JOB);
 #endif
-    SLOG_INFO("[JOB] 고름 (account={}, job={})", player->_accountId, jobId);
+    SLOG_INFO("[JOB] 고름 (character={}, job={})", player->_characterId, jobId);
     return JobChoose::OK;
 }

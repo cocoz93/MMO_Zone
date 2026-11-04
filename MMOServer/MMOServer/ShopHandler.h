@@ -3,7 +3,7 @@
 //
 // [책임]
 //  - 받은 패킷 둘의 처리기와 그 등록(RegisterRoutes — 사기 · 팔기) — 컨텐츠 모듈이 자기 줄을 등록한다
-//  - 요청이 가리킨 NPC 를 주변에서 찾기(캐릭터 번호 → 그 캐릭터 · 섹터 범위 = NPC 반경 상한)
+//  - 요청이 가리킨 NPC 를 주변에서 찾기(액터 번호 → 그 캐릭터 · 섹터 범위 = NPC 반경 상한)
 //  - 결과 내보내기 — 성공이면 가방 내보내기(FlushInventory — 칸 패킷 + S2C_MONEY + 틱 끝 저장 요청) · 거절이면 S2C_SHOP_FAIL(사유)
 //
 // [경계]
@@ -47,7 +47,7 @@ private:
     void RecvShopBuy(CPlayer* player, CSerialBuffer* pMsg);
     void RecvShopSell(CPlayer* player, CSerialBuffer* pMsg);
 
-    // 요청이 가리킨 캐릭터 번호를 그 사람 주변에서 찾는다 — 섹터 범위 = NPC 반경 상한(CNpcTable::MAX_RADIUS). 못 찾으면 nullptr.
+    // 요청이 가리킨 액터 번호를 그 사람 주변에서 찾는다 — 섹터 범위 = NPC 반경 상한(CNpcTable::MAX_RADIUS). 못 찾으면 nullptr.
     //   세 목록(사람 · 맞을 수 있는 것 · 그 밖)을 다 본다 — 싸우는 NPC 가 생겨도 같은 찾기다. NPC 인지는 판정(말 걸기 칸)이 가른다.
     const CCharacter* FindAround(const CPlayer* player, int32_t actorId) const;
 

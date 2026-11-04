@@ -96,7 +96,7 @@ enum class MsgType : uint16_t
     // ※ 새 타입은 반드시 맨 끝에 붙인다 — 중간에 넣으면 뒤의 값이 전부 한 칸씩 밀려
     //   콘솔·부하·웹·언리얼 네 클라가 조용히 엉뚱한 패킷을 읽는다.
     //   WebClient/proto.js 의 번호표도 같은 값으로 같이 고칠 것.
-    C2S_ENTER_GAME,         // 클라이언트 → 서버: 입장 요청 (계정 번호 + 입장권 자리)
+    C2S_ENTER_GAME,         // 클라이언트 → 서버: 입장 요청 (캐릭터 번호 + 입장권 자리)
 
     //--------------------------------------------------
     // 경험치·레벨 (USE_EXP)
@@ -719,7 +719,7 @@ constexpr int32_t ENTER_TICKET_MAX_LEN = 64;
 struct MSG_C2S_ENTER_GAME
 {
     MsgHeader header;
-    int64_t   accountId;                      // 0 = "번호를 지정하지 않음"(서버가 붙인다). "새 캐릭터"라는 뜻은 아니다
+    int64_t   devCharacterId;                 // 0 = "번호를 지정하지 않음"(서버가 붙인다). "새 캐릭터"라는 뜻은 아니다
     char      ticket[ENTER_TICKET_MAX_LEN];   // 지금은 안 쓴다 — 전부 0
 };
 
@@ -752,7 +752,7 @@ struct MSG_S2C_EXP
 // 인벤토리 (USE_INVENTORY)
 //==================================================
 
-// 탭과 칸 번호 — 칸 번호가 곧 DB 열쇠(계정, 칸)다.
+// 탭과 칸 번호 — 칸 번호가 곧 DB 열쇠(캐릭터, 칸)다.
 //   탭마다 번호 구간을 띄워 둔다(장비 0~ · 소비 100~ · 기타 200~). 그래서 탭을 늘려도, 한 탭의
 //   칸 수를 늘려도 기존 칸 번호가 안 밀리고 DB 를 고칠 일이 없다.
 //   탭 하나 더 = 아래 enum 한 줄 + 구간 한 줄 + 클라 탭 하나.
@@ -799,7 +799,7 @@ constexpr bool InvTabRangesAreValid()
 }
 static_assert(InvTabRangesAreValid(), "탭 구간이 겹치거나 칸 수의 합이 INVENTORY_TOTAL_SLOTS 와 다르다");
 
-// 착용 칸 (USE_EQUIP) — 가방 탭과 따로 센다. 칸 번호 = EQUIP_SLOT_FIRST + EquipSlot 이고, 가방과 같은 DB 테이블에 같은 열쇠(계정, 칸)로 들어간다.
+// 착용 칸 (USE_EQUIP) — 가방 탭과 따로 센다. 칸 번호 = EQUIP_SLOT_FIRST + EquipSlot 이고, 가방과 같은 DB 테이블에 같은 열쇠(캐릭터, 칸)로 들어간다.
 //   ★ 탭(InvTab)으로 넣지 않는 이유 — InvTab 은 "아이템이 어느 가방 탭에 들어가나"라 아이템 표의 글자(equip·use·etc)와 묶여 있다.
 //     착용 칸을 탭으로 넣으면 아이템 표가 "착용" 탭을 받게 된다.
 //   부위는 지금 무기 하나 — 장비 아이템은 전부 무기 칸에 간다. 둘째 부위가 생기는 날 아이템 표의 부위 칸과 여기 enum 을 같이 늘린다.
@@ -890,7 +890,7 @@ struct MSG_S2C_USE_ITEM_FAIL
 // 땅의 아이템·줍기 (USE_DROP)
 //==================================================
 
-// 땅의 아이템 번호(groundId)는 캐릭터 번호(playerId·actorId)와 따로 센다 — 같은 값이 겹쳐도 된다.
+// 땅의 아이템 번호(groundId)는 액터 번호(playerId·actorId)와 따로 센다 — 같은 값이 겹쳐도 된다.
 //   ★ 아래 enum 셋은 값이 와이어에 실린다 — 중간에 끼우지 말고 끝(COUNT 앞)에만 붙인다.
 //     WebClient/proto.js 에 같은 순서로 옮겨 둔다.
 
@@ -922,7 +922,7 @@ enum class PickupFail : uint8_t
 };
 
 // S2C: 땅의 아이템 생성 — 떨어질 때 · 시야에 들어올 때.
-//   주인은 싣지 않는다 — 실으면 계정 번호가 새거나, "내 것" 표시가 받는 사람마다 달라져 한 장을 여럿에게 못 보낸다.
+//   주인은 싣지 않는다 — 실으면 캐릭터 번호가 새거나, "내 것" 표시가 받는 사람마다 달라져 한 장을 여럿에게 못 보낸다.
 //   남의 것은 주워 보면 NOT_OWNER 로 안다.
 //   ★ 같은 groundId 가 두 번 올 수 있다(같은 틱에 섹터를 넘은 사람) — 클라는 groundId 로 덮어쓴다.
 struct MSG_S2C_GROUND_ITEM_CREATE
@@ -947,7 +947,7 @@ struct MSG_S2C_GROUND_ITEM_DELETE
     MsgHeader header;
     int32_t groundId;
     uint8_t reason;     // GroundItemGone
-    int32_t pickerId;   // PICKED 면 주운 캐릭터 번호, 아니면 0
+    int32_t pickerId;   // PICKED 면 주운 액터 번호, 아니면 0
 
     MSG_S2C_GROUND_ITEM_DELETE() : header{ sizeof(*this), TYPE }, groundId(0), reason(0), pickerId(0) {}
 };
@@ -1277,7 +1277,7 @@ struct MSG_C2S_PARTY_REQUEST
 {
     static constexpr MsgType TYPE = MsgType::C2S_PARTY_REQUEST;
     MsgHeader header;
-    int32_t   targetId;   // 누른 캐릭터 번호
+    int32_t   targetId;   // 누른 액터 번호
 };
 
 // C2S: 받은 요청에 답한다
@@ -1422,12 +1422,12 @@ enum class ShopFail : uint8_t
     COUNT
 };
 
-// C2S: 사기 — 이 NPC(캐릭터 번호)의 상점에서 이 물건을 count 개
+// C2S: 사기 — 이 NPC(액터 번호)의 상점에서 이 물건을 count 개
 struct MSG_C2S_SHOP_BUY
 {
     static constexpr MsgType TYPE = MsgType::C2S_SHOP_BUY;
     MsgHeader header;
-    int32_t   npcActorId;   // 등장 엔트리의 playerId(NPC 의 캐릭터 번호) — NPC 표 번호(defId)가 아니다
+    int32_t   npcActorId;   // 등장 엔트리의 playerId(NPC 의 액터 번호) — NPC 표 번호(defId)가 아니다
     int32_t   itemId;       // Run/bin/ItemTable.csv
     int32_t   count;
 };
@@ -1537,7 +1537,7 @@ struct MSG_C2S_TRADE_REQUEST
 {
     static constexpr MsgType TYPE = MsgType::C2S_TRADE_REQUEST;
     MsgHeader header;
-    int32_t   targetId;   // 누른 캐릭터 번호
+    int32_t   targetId;   // 누른 액터 번호
 };
 
 // C2S: 받은 신청에 답한다
@@ -1663,7 +1663,7 @@ static_assert(static_cast<uint16_t>(MsgType::S2C_TRADE_FAIL)    == 1075, "새 �
 //   ★ 칸은 이 묶음에 늘린다 — 부위마다 패킷 종류를 새로 만들지 않는다(받는 쪽 등록이 이번 한 번으로 끝나게).
 // 언제 오나 — ① 남이 내 화면에 나타날 때 그 CREATE 바로 뒤(같은 송신 큐라 순서대로 닿는다) — 겉모습이 하나라도 있을 때만(맨몸이면 안 온다)
 //             ② 그 사람이 끼우거나 벗은 뒤 주변에(본인 빼고 — 본인은 가방 칸 패킷으로 안다). 벗어서 맨몸이 돼도 온다(0 으로)
-//   받는 쪽은 모르는 캐릭터 번호면 버린다 — 등장보다 먼저 닿아도 등장 뒤에 다시 오는 값(①)이 맞다.
+//   받는 쪽은 모르는 액터 번호면 버린다 — 등장보다 먼저 닿아도 등장 뒤에 다시 오는 값(①)이 맞다.
 //   맨몸 = 모든 칸 0. 본인 겉모습은 안 온다(가방 900 칸이 있다).
 struct ActorLook
 {
@@ -1687,7 +1687,7 @@ static_assert(static_cast<uint16_t>(MsgType::S2C_ACTOR_LOOK) == 1076, "새 타�
 // 직업 (토글 없음 — 직업 표·캐릭터 칸도 토글이 없다 · job-fx-master-plan.md)
 //==================================================
 // 직업 번호 = Run/bin/JobTable.csv 의 jobId. 0 = 아직 안 고름 — 웹이 고르는 창을 띄운다.
-// 고르기는 한 번뿐이다. 거절 패킷을 따로 두지 않는다 — 서버가 언제나 MY_JOB 으로 지금 값을 돌려주므로(이미 고른 계정 · 없는 번호 · 쓰러진 채)
+// 고르기는 한 번뿐이다. 거절 패킷을 따로 두지 않는다 — 서버가 언제나 MY_JOB 으로 지금 값을 돌려주므로(이미 고른 캐릭터 · 없는 번호 · 쓰러진 채)
 //   클라는 받은 값으로 화면을 맞추면 된다. 거절 사유는 지표(mmo_job_choose_total)에 남는다.
 struct MSG_C2S_CHOOSE_JOB
 {

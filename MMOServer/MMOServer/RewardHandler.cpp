@@ -127,10 +127,10 @@ void CRewardHandler::RewardRoom(CZone* zone, CMonster* monster)
         }
         _itemHandler.FlushInventory(p);   // 칸 패킷 + 그 틱 끝 저장 요청(줍기와 같은 길 · 레벨업과 같은 묶음) — 바뀐 칸이 없으면 아무것도 안 간다
         if (!_roomOverflow.empty())
-            zone->GetGroundItemManager().Drop(_itemHandler.MakeGroundItemContext(), _roomOverflow, p->_x, p->_y, p->_accountId, _frameCount);
+            zone->GetGroundItemManager().Drop(_itemHandler.MakeGroundItemContext(), _roomOverflow, p->_x, p->_y, p->_characterId, _frameCount);
 #endif
 
-        _partyHandler.LockRoomReentry(p->_accountId, zone->GetMapId(), lockUntil);   // 표 크기 게이지도 거기서(게임 서버 나누기 7 단계)
+        _partyHandler.LockRoomReentry(p->_characterId, zone->GetMapId(), lockUntil);   // 표 크기 게이지도 거기서(게임 서버 나누기 7 단계)
         _gameMonitor._room._rewards.Inc();
     }
 
@@ -153,7 +153,7 @@ void CRewardHandler::DropLoot(CZone* zone, CPlayer* killer, CMonster* monster)
 
     // 땅에 놓기는 존의 관리자가 — 아이템마다 OnGroundItemDrop 으로 돌아와 주변에 CREATE(DROP)
     zone->GetGroundItemManager().Drop(_itemHandler.MakeGroundItemContext(), _lootBuffer, monster->_x, monster->_y,
-                                      killer->_accountId, _frameCount);
+                                      killer->_characterId, _frameCount);
 }
 #endif // USE_DROP
 

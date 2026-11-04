@@ -181,9 +181,9 @@ void CPartyHandler::SendRoomReject(CPlayer* leader, const RoomEntryResult& resul
 }
 
 // 방 다시 들어가기 잠금 넣기(PartyHandler.h 선언 주석) — 방 보상(RewardRoom)이 사람마다 부르던 Lock 과 그 뒤 게이지 한 줄을 여기 한 곳으로(게임 서버 나누기 7 단계)
-void CPartyHandler::LockRoomReentry(int64_t accountId, int32_t mapId, uint64_t untilFrame)
+void CPartyHandler::LockRoomReentry(int64_t characterId, int32_t mapId, uint64_t untilFrame)
 {
-    _roomLocks.Lock(accountId, mapId, untilFrame);
+    _roomLocks.Lock(characterId, mapId, untilFrame);
     _gameMonitor._room._locks.Store(static_cast<int64_t>(_roomLocks.Size()));
 }
 

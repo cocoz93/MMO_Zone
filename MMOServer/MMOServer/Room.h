@@ -6,7 +6,7 @@
 //
 // [여기 있는 것 둘]
 //  - CheckRoomEntry — 들어가도 되나(순수 함수: 읽기만 하고 아무것도 안 바꾼다). 사유와 막는 사람을 돌려준다
-//  - CRoomLocks     — 다시 들어가기 잠금(계정 · 방 맵 → 풀리는 틱). 서버 메모리에만 — 재시작하면 풀린다(room-plan.md 「사람이 정할 것」 2)
+//  - CRoomLocks     — 다시 들어가기 잠금(캐릭터 · 방 맵 → 풀리는 틱). 서버 메모리에만 — 재시작하면 풀린다(room-plan.md 「사람이 정할 것」 2)
 //
 // [누가 시키나] CPartyHandler(게임 서버 나누기 7 단계)다 — CEntryHandler::RecvPortalUse(포털 요청)가 목적지가 방 맵이면
 //        넘기고(EnterRoom), CPartyHandler 가 판정하고, 통과하면 맵 관리자에게 방을 만들게 하고(CMapManager::CreateRoom) 전원을 옮긴다.
@@ -53,30 +53,30 @@ struct RoomEntryResult
 class CRoomLocks
 {
 public:
-    // 잠그기 — 같은 계정·맵이 이미 있으면 풀리는 틱을 새 값으로 덮는다(보상을 또 받은 것)
-    void Lock(int64_t accountId, int32_t mapId, uint64_t untilFrame);
+    // 잠그기 — 같은 캐릭터·맵이 이미 있으면 풀리는 틱을 새 값으로 덮는다(보상을 또 받은 것)
+    void Lock(int64_t characterId, int32_t mapId, uint64_t untilFrame);
 
     // 잠겨 있나 — 풀리는 틱이 지났으면 false(훑기 전이라 표에 남아 있어도)
-    bool IsLocked(int64_t accountId, int32_t mapId, uint64_t frame) const;
+    bool IsLocked(int64_t characterId, int32_t mapId, uint64_t frame) const;
 
-    // 풀린 것 빼기 — CPartyHandler 가 틱에서 가끔 부른다(CPartyHandler::TickRoomLocks — 초마다). 표는 「잠금 시간 동안 보상을 받은 계정 수」로 묶인다
+    // 풀린 것 빼기 — CPartyHandler 가 틱에서 가끔 부른다(CPartyHandler::TickRoomLocks — 초마다). 표는 「잠금 시간 동안 보상을 받은 캐릭터 수」로 묶인다
     void Sweep(uint64_t frame);
 
     size_t Size() const { return _untilFrame.size(); }
 
 private:
-    // 열쇠 = 계정 · 맵 — 맵 번호 상한이 1000(CMapTable::MAX_MAP_ID)이라 계정 번호에 곱해 합치지 않고 둘을 그대로 둔다
+    // 열쇠 = 캐릭터 · 맵 — 맵 번호 상한이 1000(CMapTable::MAX_MAP_ID)이라 캐릭터 번호에 곱해 합치지 않고 둘을 그대로 둔다
     struct Key
     {
-        int64_t accountId;
+        int64_t characterId;
         int32_t mapId;
-        bool operator==(const Key& o) const { return accountId == o.accountId && mapId == o.mapId; }
+        bool operator==(const Key& o) const { return characterId == o.characterId && mapId == o.mapId; }
     };
     struct KeyHash
     {
         size_t operator()(const Key& k) const
         {
-            return std::hash<int64_t>()(k.accountId) ^ (std::hash<int32_t>()(k.mapId) * 0x9E3779B97F4A7C15ull);
+            return std::hash<int64_t>()(k.characterId) ^ (std::hash<int32_t>()(k.mapId) * 0x9E3779B97F4A7C15ull);
         }
     };
     std::unordered_map<Key, uint64_t, KeyHash> _untilFrame;

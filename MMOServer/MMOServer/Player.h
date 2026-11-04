@@ -11,7 +11,7 @@
 
 // CPlayer — 사람이 조종하는 캐릭터.
 //   좌표·섹터·이동은 CActor 에, HP·표시는 CCharacter 에 있다.
-//   여기 남은 것은 조종 세션·계정·이동 예산·운영자처럼 "사람이 붙어 있어야" 말이 되는 것뿐이다.
+//   여기 남은 것은 조종 세션·캐릭터 번호·이동 예산·운영자처럼 "사람이 붙어 있어야" 말이 되는 것뿐이다.
 //
 // [세션] _sessionId 는 여기에만 있다 — 패킷을 받는 쪽은 플레이어뿐이라 보내는 함수
 //        (CSessionHub::SendPacket 과 게임 서버·그 모듈들의 SendXxx)가 전부 CPlayer* 만 받는다. 몬스터를 넘기면 컴파일이 안 된다.
@@ -19,7 +19,7 @@
 class CPlayer : public CCharacter
 {
     friend class CSessionHub;  // 세션 칸의 주인 — 칸에 넣을 때 세션을 붙이고, 찾기(재사용 가드)·보내기가 읽는다
-    friend class CEntryHandler; // 접속 세션 → 플레이어 관문 — 같은 계정 걷어내기가 옛 세션을 읽어 끊고, 존 이동 요청이 세션 없는 플레이어를 거른다(게임 서버 나누기 12 단계)
+    friend class CEntryHandler; // 접속 세션 → 플레이어 관문 — 같은 캐릭터 걷어내기가 옛 세션을 읽어 끊고, 존 이동 요청이 세션 없는 플레이어를 거른다(게임 서버 나누기 12 단계)
     friend class CCharacterStore; // 캐릭터 저장소 — 저장 묶음에 주인(세션)을 적고, 회신과 틱 끝 목록이 그 세션으로 주인을 찾는다(저장 플랜 C)
 
 public:
@@ -52,8 +52,8 @@ public:
     bool    _gmMode        = false;
     int32_t _baseSpeed     = 0;   // 버프·GM 없는 바탕 속도 — 입장 때 정해진다. 지금 속도 _speed 는 스탯 세우기가 이 값으로 세운다(CStatSystem::BuildStats)
 
-    // USE_DB_WORKER: 계정 식별자 (1단계는 스폰 시 서버가 임시 부여, 2단계는 접속 핸드셰이크로 수신)
-    int64_t _accountId = 0;
+    // USE_DB_WORKER: 캐릭터 식별자 (1단계는 스폰 시 서버가 임시 부여, 2단계는 접속 핸드셰이크로 수신)
+    int64_t _characterId = 0;
     // USE_DB_WORKER: 마지막 저장 이후 위치가 바뀌었는지 (주기 저장 대상 선별, 저장 후 리셋)
     //   정지·접속·존 변경·경계 클램프 때 켠다. 레벨·경험치·체력·마력은 여기가 아니라 아래 _dbSaved 비교로 본다.
     bool _dbDirty = false;

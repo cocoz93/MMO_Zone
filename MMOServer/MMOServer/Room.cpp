@@ -2,16 +2,16 @@
 
 #if USE_PARTY
 
-#include "Player.h"   // _zoneId · 체력 컴포넌트(생사) · _accountId
+#include "Player.h"   // _zoneId · 체력 컴포넌트(생사) · _characterId
 
-void CRoomLocks::Lock(int64_t accountId, int32_t mapId, uint64_t untilFrame)
+void CRoomLocks::Lock(int64_t characterId, int32_t mapId, uint64_t untilFrame)
 {
-    _untilFrame[Key{ accountId, mapId }] = untilFrame;
+    _untilFrame[Key{ characterId, mapId }] = untilFrame;
 }
 
-bool CRoomLocks::IsLocked(int64_t accountId, int32_t mapId, uint64_t frame) const
+bool CRoomLocks::IsLocked(int64_t characterId, int32_t mapId, uint64_t frame) const
 {
-    auto it = _untilFrame.find(Key{ accountId, mapId });
+    auto it = _untilFrame.find(Key{ characterId, mapId });
     return it != _untilFrame.end() && frame < it->second;
 }
 
@@ -45,10 +45,10 @@ RoomEntryResult CheckRoomEntry(const CPlayer* me, const Party* party, const CRoo
         if (m.player->_health.IsDead())
             return { RoomEntryReject::DEAD, m.player };
     }
-    // 잠금 — 계정마다(다시 접속해도 이어진다)
+    // 잠금 — 캐릭터마다(다시 접속해도 이어진다)
     for (const Party::Member& m : party->members)
     {
-        if (locks.IsLocked(m.player->_accountId, roomMapId, frame))
+        if (locks.IsLocked(m.player->_characterId, roomMapId, frame))
             return { RoomEntryReject::LOCKED, m.player };
     }
     return { RoomEntryReject::NONE, nullptr };

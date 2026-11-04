@@ -153,8 +153,8 @@ void CCommandHandler::RunGmCommand(CPlayer* player, const std::vector<std::strin
     if (CZone* zone = _mapManager.GetZone(player->_zoneId))
         _sightBroadcaster.BroadcastAroundSector(zone, player, MakeActorSpeed(player->_actorId, player->_speed), false);
 
-    SLOG_INFO("[GM] /gm (account={}, player={}) -> {} (speed {}, maxHp {}, attack {})",
-              player->_accountId, player->_actorId, player->_gmMode ? "on" : "off",
+    SLOG_INFO("[GM] /gm (character={}, player={}) -> {} (speed {}, maxHp {}, attack {})",
+              player->_characterId, player->_actorId, player->_gmMode ? "on" : "off",
               player->_speed, player->_health.MaxHp(), player->_attack._attackPower);
     // 웹 채팅창 한 줄(400px)에 값이 다 들어가는 길이로 — 길면 끝이 「…」로 잘려 공격력이 안 보인다(10-16 헤드리스 사진)
     _selfNotifier.SendSystemMessage(player, std::string(player->_gmMode ? "GM 켬" : "GM 끔")
@@ -190,7 +190,7 @@ void CCommandHandler::RunDieCommand(CPlayer* player, const std::vector<std::stri
 
     _combatSystem.Kill(zone, player, _frameCount);
 
-    SLOG_INFO("[GM] /die (account={}, player={})", player->_accountId, player->_actorId);
+    SLOG_INFO("[GM] /die (character={}, player={})", player->_characterId, player->_actorId);
     _selfNotifier.SendSystemMessage(player, "쓰러졌습니다 (/die)");
 }
 #endif // USE_COMBAT
@@ -233,8 +233,8 @@ void CCommandHandler::RunItemCommand(CPlayer* player, const std::vector<std::str
             counters._moneyIn[static_cast<int>(MoneySource::COMMAND)].Add(count);   // 개수 = 금액(전)
         else
             counters._itemsAdded.Add(count);
-        SLOG_INFO("[ITEM] /item (account={}, player={}) -> {} x{} (item {})",
-                  player->_accountId, player->_actorId, def->name, count, def->itemId);
+        SLOG_INFO("[ITEM] /item (character={}, player={}) -> {} x{} (item {})",
+                  player->_characterId, player->_actorId, def->name, count, def->itemId);
         _itemHandler.FlushInventory(player);
         return;
 

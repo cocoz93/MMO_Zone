@@ -7,7 +7,7 @@
 //  - 입장 대기표(_pendingEnter — 입장 대기 · 불러오는 중)와 그 게이지 둘 · 끊긴 세션의 자리 비우기(DropPendingEnter) ·
 //    동접 게이지(_enter._inGame — 존 정원 카운터의 합, 약 0.5초마다 · TickInGameGauge) · 같은 순회의 존 수 게이지 둘(_enter._zones · _zonesIdle)
 //  - 불러오기 결과 알림(ICharacterLoadEvents — 찾음 · 없음 · 실패 판정 → 자리·레벨·가방·쿨타임) → 스폰(SpawnPlayer — 표시 속성 · 스탯 세우기 · 도착 차례)
-//  - 같은 계정 걷어내기(USE_LOGIN) · 존 이동 요청(맵 관리자의 목적지 고르기 → 배치) · 포털 요청(판정 넷 → 방 맵이면 CPartyHandler)
+//  - 같은 캐릭터 걷어내기(USE_LOGIN) · 존 이동 요청(맵 관리자의 목적지 고르기 → 배치) · 포털 요청(판정 넷 → 방 맵이면 CPartyHandler)
 //
 // [경계]
 //  저장·불러오기 왕복은 캐릭터 저장소(CCharacterStore), 존에 넣기·옮기기·떠나보내기와 도착 차례는 배치(CPlayerPlacement), 세션 칸·번호 발급·끊기 요청은 세션 허브.
@@ -141,7 +141,7 @@ private:
     // 플레이어를 만들어 존에 넣고 본인·주변에 알린다 (OnConnected 의 몸이 옮겨 온 것).
     //   존은 호출부가 구해서 준다 — 좌표 검사에 그 존의 크기가 필요해서 판정하는 쪽이 이미 들고 있다.
     //   반환 nullptr = zone 이 nullptr(채널을 못 만듦) → 호출부가 세션을 끊는다. 존 입장 자체는 실패가 없다(CZone::EnterZone).
-    CPlayer* SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t accountId,
+    CPlayer* SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t characterId,
                          CZone* zone, const EnterPlacement& place);
 
 #if USE_DB_WORKER
@@ -161,14 +161,14 @@ private:
     struct PendingEnter
     {
         int64_t    sessionId = -1;
-        int64_t    accountId = 0;   // [입장 대기] 구간에서는 아직 0 이다 — 입장 요청이 와야 정해진다
-        int32_t    actorId   = 0;   // 같음. 캐릭터 번호도 입장 요청 때 뽑는다
+        int64_t    characterId = 0;   // [입장 대기] 구간에서는 아직 0 이다 — 입장 요청이 와야 정해진다
+        int32_t    actorId   = 0;   // 같음. 액터 번호도 입장 요청 때 뽑는다
         EnterState state     = EnterState::WAITING_ENTER;
     };
     // 대기표를 바꾸는 자리는 이 셋뿐이다 — 게이지 둘(mmo_enter_waiting·mmo_enter_pending)도 여기서만 움직인다.
     //   접속·입장요청·결과·끊김 네 곳이 제각기 올리고 내리면 한 곳만 빠져도 게이지가 영영 안 맞는다.
-    void SetPendingEnter(int64_t sessionId, int64_t accountId, int32_t actorId, EnterState state);
-    bool PromotePendingEnter(int64_t sessionId, int64_t accountId, int32_t actorId);  // [입장 대기] → [불러오는 중]
+    void SetPendingEnter(int64_t sessionId, int64_t characterId, int32_t actorId, EnterState state);
+    bool PromotePendingEnter(int64_t sessionId, int64_t characterId, int32_t actorId);  // [입장 대기] → [불러오는 중]
     bool TakePendingEnter(int64_t sessionId, PendingEnter& out);                      // 세션 번호 전체가 같으면 꺼내고 비운다
     void AdjustPendingCount(EnterState state, int delta);                             // 상태별 수 + 게이지를 한 자리에서 움직인다
 #endif
@@ -179,18 +179,18 @@ private:
     //   플레이어가 없어서, 문턱 뒤에 두면 영영 여기까지 못 온다.
     void RecvEnterGame(int64_t sessionId, CSerialBuffer* pMsg);
 
-    // 같은 계정으로 이미 들어와 있는 세션을 걷어낸다 (게임 중 / 불러오는 중 양쪽).
+    // 같은 캐릭터으로 이미 들어와 있는 세션을 걷어낸다 (게임 중 / 불러오는 중 양쪽).
     //   새 조회를 던지기 "전"에 불러야 한다 — 정리가 넣는 최종 저장이 그 조회보다 큐에서 앞서야
-    //   새 접속이 방금 저장한 자리를 읽는다(같은 계정은 같은 워커를 탄다).
-    void KickDuplicateAccount(int64_t accountId, int64_t exceptSessionId);
+    //   새 접속이 방금 저장한 자리를 읽는다(같은 캐릭터은 같은 워커를 탄다).
+    void KickDuplicateAccount(int64_t characterId, int64_t exceptSessionId);
 
-    // 지정 계정 번호의 하한 = 2^31. 입장 요청의 계정 번호는 0(미지정) 아니면 이 값 이상이어야 한다.
+    // 지정 캐릭터 번호의 하한 = 2^31. 입장 요청의 캐릭터 번호는 0(미지정) 아니면 이 값 이상이어야 한다.
     //   자동 번호는 int32 카운터(CSessionHub::AllocActorId)라 2^31 위로 못 올라오므로, 이 아래로 내려온 지정 번호는
     //   0 으로 들어온 남의 접속과 같은 행을 쓰게 된다. 노션의 "100억 이상"은 운용 권장이고 서버가 강제하는 값이 아니다.
-    static constexpr int64_t ACCOUNT_ID_MIN = int64_t{ 1 } << 31;
+    static constexpr int64_t DEV_CHARACTER_ID_MIN = int64_t{ 1 } << 31;
 #endif
 
-    // ── 표시 속성 ── (캐릭터 번호 발급은 세션 허브 — CSessionHub::AllocActorId)
+    // ── 표시 속성 ── (액터 번호 발급은 세션 허브 — CSessionHub::AllocActorId)
 
     static uint8_t CalcDisplayChar(int32_t playerId);
     static uint8_t CalcColorIndex(int32_t playerId);
@@ -200,7 +200,7 @@ private:
     void RecvPortalUse(CPlayer* player, CSerialBuffer* pMsg);   // 포털 — 판정 뒤 TransferPlayer 로 포털 표의 도착 자리에
 
     CSessionHub&          _sessionHub;       // 세션 칸 · 번호 발급 · 끊기 요청 · 찾기
-    CPlayerPlacement&     _placement;        // 도착 차례 · 존 옮기기 · 떠나보내기(같은 계정 걷어내기) · 존 이동 실패
+    CPlayerPlacement&     _placement;        // 도착 차례 · 존 옮기기 · 떠나보내기(같은 캐릭터 걷어내기) · 존 이동 실패
 #if USE_DB_WORKER
     CCharacterStore&      _characterStore;   // 불러오기 요청 · 가방 줄 넣기 · 쿨타임·버프 되살리기
 #endif

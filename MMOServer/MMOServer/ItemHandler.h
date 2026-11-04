@@ -130,7 +130,7 @@ private:
     const uint64_t&       _frameCount;         // 게임 루프의 틱 번호 — 빌린 것, 읽기만(대기시간 · 땅 수명 · 주인 시간)
 
 #if USE_DROP
-    int32_t _nextGroundId = 1;       // 땅의 아이템 번호 — 캐릭터 번호와 따로 센다(1초에 하나씩 떨어져도 68년)
+    int32_t _nextGroundId = 1;       // 땅의 아이템 번호 — 액터 번호와 따로 센다(1초에 하나씩 떨어져도 68년)
     int     _groundItemScanCounter = 0;   // TickGroundItems 의 25틱 세기
 #endif
 };

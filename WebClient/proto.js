@@ -24,7 +24,7 @@
     // 인벤토리 (USE_INVENTORY) — 본인 전용. 가방 전체는 입장 때 한 번, 칸 갱신은 바뀔 때마다
     S2C_INVENTORY:1030, S2C_INVENTORY_SLOT:1031,
     C2S_USE_ITEM:1032, S2C_USE_ITEM_FAIL:1033,
-    // 땅의 아이템·줍기 (USE_DROP) — 땅 번호(groundId)는 캐릭터 번호와 따로 센다
+    // 땅의 아이템·줍기 (USE_DROP) — 땅 번호(groundId)는 액터 번호와 따로 센다
     S2C_GROUND_ITEM_CREATE:1034, S2C_GROUND_ITEM_DELETE:1035,
     C2S_PICKUP:1036, S2C_PICKUP_FAIL:1037,
     // 스탯·장착 (USE_COMBAT · USE_EQUIP) — 내 스탯은 본인 전용. 끼우기·빼기 성공은 칸 갱신 둘 + MY_STATS 가 곧 결과다
@@ -367,10 +367,10 @@
   function hdr(size, type){ const b=new ArrayBuffer(size); const d=new DataView(b); d.setUint16(0,size,true); d.setUint16(2,type,true); return {b,d}; }
   const enc = {
     heartbeat(){ return hdr(4, MSG.C2S_HEARTBEAT).b; },
-    // C2S_ENTER_GAME: header(4) + int64 accountId + char ticket[64] = 76B.
+    // C2S_ENTER_GAME: header(4) + int64 devCharacterId + char ticket[64] = 76B.
     //   티켓은 아직 안 쓴다 — ArrayBuffer 가 0 으로 채워져 나오므로 그대로 둔다.
-    //   accountId 0 = "번호를 지정하지 않음" → 서버가 새 번호를 붙인다(새로고침마다 다른 캐릭터).
-    enterGame(accountId){ const {b,d}=hdr(76,MSG.C2S_ENTER_GAME); d.setBigInt64(4, BigInt(accountId||0), true); return b; },
+    //   devCharacterId 0 = "번호를 지정하지 않음" → 서버가 새 번호를 붙인다(새로고침마다 다른 캐릭터).
+    enterGame(devCharacterId){ const {b,d}=hdr(76,MSG.C2S_ENTER_GAME); d.setBigInt64(4, BigInt(devCharacterId||0), true); return b; },
     // 바디 없음 — 방향은 서버가 들고 있고, 대상도 서버가 "앞 한 칸"으로 고른다
     attack(){ return hdr(4, MSG.C2S_ATTACK).b; },
     // C2S_ADMIN_LOGIN: header(4) + char key[64] = 68B. 키는 ASCII — 마지막 한 바이트는 NUL 자리로 남긴다

@@ -270,7 +270,7 @@ function npcInReach(){
   return best;
 }
 // 상점 (USE_SHOP) — 화면 상태만 든다. 서버는 「상점을 열었다」를 안 든다(Protocol.h 상점 절) — 사고팔기 요청마다 처음부터 다시 본다.
-//   npc = 메뉴를 연 NPC 의 캐릭터 번호(등장 엔트리 playerId — 요청에 이 번호가 실린다 · NPC 표 번호가 아니다) · mode = null | 'menu' | 'buy' | 'sell'
+//   npc = 메뉴를 연 NPC 의 액터 번호(등장 엔트리 playerId — 요청에 이 번호가 실린다 · NPC 표 번호가 아니다) · mode = null | 'menu' | 'buy' | 'sell'
 const shop = { npc:0, mode:null, hover:null, lastFail:null, sent:0 };
 // 거래 (USE_TRADE) — 서버가 보낸 것만 담는다. 되는지(거리 · 바쁨 · 칸 · 돈 · 닫힘)는 서버가 정한다(trade-plan.md).
 //   ask = 받은 신청 {requestId, from, until} · win = S2C_TRADE_STATE 그대로 {tradeId, partner, mine, theirs}(mine/theirs = {money, closed, items:[{slot,itemId,count}]})

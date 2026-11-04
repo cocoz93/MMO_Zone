@@ -389,7 +389,7 @@ bool CTradeSystem::TryExecute(size_t i, uint64_t frame)
     {
         if (frame - t.readyFrame >= TRADE_SAVE_WAIT_FRAMES)
         {
-            SLOG_WARN("[TRADE] save wait over (trade={}, a={}, b={}) — 아무것도 안 바꾸고 끝낸다", t.id, a->_accountId, b->_accountId);
+            SLOG_WARN("[TRADE] save wait over (trade={}, a={}, b={}) — 아무것도 안 바꾸고 끝낸다", t.id, a->_characterId, b->_characterId);
             EndSession(i, TradeEnd::SAVE_DELAY, 0, nullptr);
             return true;
         }
@@ -417,7 +417,7 @@ bool CTradeSystem::TryExecute(size_t i, uint64_t frame)
         }
     }
     SLOG_INFO("[TRADE] done trade={} a={} b={} a_gives=[{}] money {} b_gives=[{}] money {}",
-              t.id, a->_accountId, b->_accountId, gives[0], t.side[0].money, gives[1], t.side[1].money);
+              t.id, a->_characterId, b->_characterId, gives[0], t.side[0].money, gives[1], t.side[1].money);
     _gameMonitor._trade._itemsMoved.Add(moved);
     _gameMonitor._trade._moneyMoved.Add(t.side[0].money + t.side[1].money);
 
@@ -444,7 +444,7 @@ TradeEnd CTradeSystem::Swap(TradeSession& t, int32_t& outWho)
         }
         if (!same)
         {
-            SLOG_ERROR("[TRADE] offer changed under lock (trade={}, account={}) — 잠근 칸·돈이 바뀌었다", t.id, p[s]->_accountId);
+            SLOG_ERROR("[TRADE] offer changed under lock (trade={}, character={}) — 잠근 칸·돈이 바뀌었다", t.id, p[s]->_characterId);
             outWho = p[s]->_actorId;
             return TradeEnd::CHANGED;
         }

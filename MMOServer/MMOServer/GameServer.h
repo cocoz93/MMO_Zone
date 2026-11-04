@@ -56,7 +56,7 @@
 #include "GameDataFiles.h"  // 기획 데이터 파일(맵·레벨·아이템·몬스터·스폰 구역·드랍 표)
 #include "DB/DBWorker.h"
 #include "PacketRoutes.h"  // 받은 패킷의 분기 표(번호 → 최소 크기 · 처리기) — 게임 서버 나누기 0-④
-#include "SessionHub.h"    // 세션 칸 · 플레이어 찾기 · 보내기 · 캐릭터 번호 발급 — 게임 서버 나누기 1 단계(B1)
+#include "SessionHub.h"    // 세션 칸 · 플레이어 찾기 · 보내기 · 액터 번호 발급 — 게임 서버 나누기 1 단계(B1)
 #include "SelfNotifier.h"  // 본인 알림(내 상태 패킷을 나에게만) — 게임 서버 나누기 2 단계(B5)
 #include "SightBroadcaster.h" // 시야 방송(섹터 바뀜 · 주변 방송 · 송신 묶음 · 존 알림) — 게임 서버 나누기 3 단계(B2)
 #include "StatSync.h"         // 스탯 알림(바뀐 사람 표시 → 틱 끝 한 번 — USE_COMBAT · IStatEvents 구현) — warrior-skills-plan 1단계
@@ -156,7 +156,7 @@ private:
     CGameMonitor&    _gameMonitor;   // 게임 컨텐츠 지표 (전투)
     std::unique_ptr<NetIoModel> _network;
 
-    // 세션 칸 · 플레이어 찾기 · 보내기 · 캐릭터 번호 발급 — 플레이어의 주인이 이 안의 칸이다(SessionHub.h).
+    // 세션 칸 · 플레이어 찾기 · 보내기 · 액터 번호 발급 — 플레이어의 주인이 이 안의 칸이다(SessionHub.h).
     //   ★ _monitor 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다). 네트워크는 Init 에서 포인터로 넘긴다.
     CSessionHub _sessionHub{ _monitor };
 
@@ -351,7 +351,7 @@ private:
     //   ★ _sightBroadcaster · _mapManager · _gameMonitor · _frameCount 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
     CMoveHandler _moveHandler{ _sightBroadcaster, _mapManager, _gameMonitor, _frameCount };
 
-    // 입장·존 이동 요청 — 접속 · 대기표 · 불러오기 결과(ICharacterLoadEvents) · 스폰 · 같은 계정 걷어내기 · 존 이동 · 포털(EntryHandler.h).
+    // 입장·존 이동 요청 — 접속 · 대기표 · 불러오기 결과(ICharacterLoadEvents) · 스폰 · 같은 캐릭터 걷어내기 · 존 이동 · 포털(EntryHandler.h).
     //   ★ _sessionHub · _placement · _characterStore · _partyHandler · _statSystem · _mapManager · _gameMonitor · _gameDataFiles
     //     보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다). 저장소(_characterStore)는 거꾸로 이것의 참조를 받는다 — 묶기만 한다.
     // 직업 고르기(JobHandler.h) — ★ _selfNotifier · _statSystem · _characterStore · _gameMonitor · _gameDataFiles 보다 뒤에 선언

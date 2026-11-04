@@ -8,7 +8,7 @@
 //    나간 사람의 묶음은 떠난 기록으로 들고 확정될 때까지 다시 싣는다(저장 플랜 C — save-unify-plan.md)
 //    저장 대상 판정과 「마지막으로 실은 값」 사본(_dbSaved)도 여기서 다룬다
 //  - 불러오기 요청 · 회신 꺼내기(ProcessDbResults) — 저장 회신을 먼저 처리하고, 불러오기 결과는 알림(ICharacterLoadEvents)으로 넘긴다
-//    (누가 어떻게 들여보낼지는 모른다 · 그 계정의 떠난 기록이 확정 전이면 실패로 넘긴다)
+//    (누가 어떻게 들여보낼지는 모른다 · 그 캐릭터의 떠난 기록이 확정 전이면 실패로 넘긴다)
 //  - 불러온 행을 캐릭터 칸으로 — 쿨타임·버프 묶음 풀기(실제 시각 → 틱) · 가방 줄 넣기(검사하고 안 맞는 줄은 세고 건너뜀)
 //
 // [경계]
@@ -87,7 +87,7 @@ public:
 
     // ── 짝 저장 (거래 · trade-plan.md 「저장 — 왜 붙잡나」) ──
     //   두 사람의 맞바꾼 가방은 짝 묶음 하나 = 트랜잭션 하나로 쓴다(따로 쓰다 그 사이 죽으면 복사·증발).
-    //   짝 묶음은 한 큐(두 계정 중 작은 번호의 워커)에만 들어가 다른 쪽 사람의 순서를 큐가 못 지킨다 — 그래서 「한 캐릭터의 DB 쓰기는
+    //   짝 묶음은 한 큐(두 캐릭터 중 작은 번호의 워커)에만 들어가 다른 쪽 사람의 순서를 큐가 못 지킨다 — 그래서 「한 캐릭터의 DB 쓰기는
     //   늘 하나만 떠 있다」를 짝에도 지킨다: 짝 고리가 걸린 동안 두 사람의 혼자 묶음(주기 · 틱 끝)도, 떠난 기록도 안 낸다(붙잡음).
     //   성공 회신 = 고리를 풀고 붙잡아 둔 것을 낸다 · 실패 회신 = 다음 주기에 짝째로 다시(혼자씩 따로 쓰는 길이 없다).
     //   종료 = 고리가 걸린 짝은 두 사람의 최종을 짝 묶음으로 같은 큐에(떠 있던 짝 묶음 뒤에 줄 선다).
@@ -108,7 +108,7 @@ public:
     void RestoreCooldownsAndBuffs(CPlayer* player, const DBResult* cooldownsAndBuffs, bool dropBuffs);
 
     // DB 왕복 — 캐릭터 불러오기 (요청은 워커 큐로, 결과는 회신 큐로 돌아와 다음 틱에 꺼낸다)
-    bool RequestCharacterLoad(int64_t sessionId, int64_t accountId);   // 조회 1건 투입 + 계수. false = 거절됨(결과가 안 온다)
+    bool RequestCharacterLoad(int64_t sessionId, int64_t characterId);   // 조회 1건 투입 + 계수. false = 거절됨(결과가 안 온다)
     void ProcessDbResults();                                           // 틱마다: 회신 큐를 통째로 꺼내 종류별로 넘긴다(불러오기 → _loadEvents)
 
 private:
@@ -129,8 +129,8 @@ private:
     void LeaveFinal(CPlayer* player, SaveTrigger trigger);                // 나갈 때·종료 — 마지막 묶음을 떠난 기록으로(짝이면 붙잡음)
     void SetInflight(int delta);                                          // 비행 중 게이지
 
-    // 떠난 기록 — 나간 사람의 마지막 묶음. 플레이어가 해제되므로 저장소가 계정 열쇠로 든다(계정당 하나).
-    //   비행(큐에 있음) / 실패(다음 주기 · 같은 계정 불러오기 앞에 다시 싣는다). 성공 회신에 지운다.
+    // 떠난 기록 — 나간 사람의 마지막 묶음. 플레이어가 해제되므로 저장소가 캐릭터 열쇠로 든다(캐릭터당 하나).
+    //   비행(큐에 있음) / 실패(다음 주기 · 같은 캐릭터 불러오기 앞에 다시 싣는다). 성공 회신에 지운다.
     struct LeaveRecord
     {
         DBSaveBundle          head{};
@@ -141,20 +141,20 @@ private:
     void PutLeaveRecord(DBSaveBundle head, std::vector<DBInvRow>&& rows, SaveTrigger trigger, bool hold = false);
     void SendLeaveRecord(LeaveRecord& rec, SaveTrigger trigger);
 
-    // 짝 고리 — 거래 한 건의 확정 안 된 저장. 쪽마다 살아 있는 사람(세션) 또는 떠난 기록(계정 열쇠)이다.
+    // 짝 고리 — 거래 한 건의 확정 안 된 저장. 쪽마다 살아 있는 사람(세션) 또는 떠난 기록(캐릭터 열쇠)이다.
     struct PairLink
     {
-        int64_t  account[2]  = {};
+        int64_t  character[2]  = {};
         int64_t  session[2]  = {};      // 살아 있으면 세션 번호 · 0 = 나갔다(그쪽 최종 = 붙잡힌 떠난 기록)
         uint32_t bundleNo[2] = {};      // 떠 있는 짝 묶음의 머리 번호 — 회신 짝 맞추기(inFlight 일 때만 뜻이 있다)
         bool     replied[2]  = {};
         bool     ok          = true;    // 받은 회신이 다 성공인가(트랜잭션 하나라 둘은 같다)
         bool     inFlight    = false;
     };
-    PairLink* FindPair(int64_t accountId, int* outSide = nullptr);
+    PairLink* FindPair(int64_t characterId, int* outSide = nullptr);
     bool SendPair(PairLink& link, SaveTrigger trigger);   // 짝 묶음 하나를 낸다 — 반환 = 큐가 받았나
     void OnPairReply(const DBSaveReply& reply);           // 회신이 떠 있는 짝 묶음의 머리면 고리에 적고, 둘 다 오면 푼다(ProcessDbResults — OnSaveReply 바로 뒤)
-    void ReleasePairSide(int64_t accountId, int64_t sessionId);   // 고리가 풀린 한쪽 — 혼자 묶음·붙잡힌 떠난 기록을 다시 흐르게
+    void ReleasePairSide(int64_t characterId, int64_t sessionId);   // 고리가 풀린 한쪽 — 혼자 묶음·붙잡힌 떠난 기록을 다시 흐르게
 
     // 쿨타임·버프 ↔ DB 묶음(characters.skill_cooldowns · buffs, 형식은 CooldownBuffBlob.h). 게임 안의 시간은 틱이고 DB 는 실제 시각이다.
     void PackCooldownsAndBuffs(const CPlayer* player, DBCharRow& row) const;      // 저장 — 돌고 있는 칸을 틱 → 실제 시각으로 묶는다(MakeCharRow)
@@ -182,7 +182,7 @@ private:
 
     // 저장 묶음 — 접근은 게임 스레드 단독(종료 때는 게임 스레드 join 뒤 메인 스레드 단독)
     std::vector<int64_t>                       _tickEndSessions;   // 이번 틱 끝 목록(세션 번호 — 같은 틱에 나간 사람은 틱 끝에 못 찾아 건너뜀)
-    std::unordered_map<int64_t, LeaveRecord>   _leaveRecords;      // 계정 → 떠난 기록
+    std::unordered_map<int64_t, LeaveRecord>   _leaveRecords;      // 캐릭터 → 떠난 기록
     uint32_t                                   _leaveSeq = 0;      // 떠난 기록 묶음 번호(실을 때마다 새로 — 늦게 온 옛 회신이 새 시도를 확정하지 않게)
     int64_t                                    _inflightCount = 0; // 비행 중 묶음이 있는 살아 있는 캐릭터 수(게이지의 원본)
     std::vector<DBSaveBundle>                  _batchHeads;        // 주기·종료 묶음 머리 — 멤버 재사용(매 주기 할당 회피)

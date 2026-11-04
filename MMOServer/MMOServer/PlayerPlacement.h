@@ -100,7 +100,7 @@ public:
     void RemoveFromZone(CZone* zone, CCharacter* player);
 
     // 떠나보내기 — 게임 중인 플레이어를 세계에서 내보내는 한 곳: 존에서 빼기(존을 찾으면) → 놓기(ReleasePlayer).
-    //   끊김(OnDisconnected)과 같은 계정 재접속(KickDuplicateAccount)이 같이 부른다. 부른 뒤에는 player 를 쓰지 말 것.
+    //   끊김(OnDisconnected)과 같은 캐릭터 재접속(KickDuplicateAccount)이 같이 부른다. 부른 뒤에는 player 를 쓰지 말 것.
     void LeaveGame(CPlayer* player);
 
     // 존 이동 실패 통보(S2C_ZONE_CHANGE_FAIL) — 존 이동 요청·포털·방 입장 거절이 부른다. reason 은 와이어 값 그대로(Protocol.h 의 그 구조체 — 고르는 것은 부르는 쪽).

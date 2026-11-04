@@ -15,7 +15,7 @@
 //  섹터 관리자는 이제 캐릭터 목록 셋만 든다 — 섹터는 땅 아이템이 시야 단위로 나뉘는 칸 번호로만 빌려 쓴다.
 //
 // [계층 경계]
-//  CZone·CSectorManager(좌표 → 섹터 좌표 · 칸 번호 · 그리드 범위 계산만)·CPlayer(줍는 사람의 생사·좌표·계정만 읽는다)를 안다. 세션·패킷 조립·CGameServer 는 모른다.
+//  CZone·CSectorManager(좌표 → 섹터 좌표 · 칸 번호 · 그리드 범위 계산만)·CPlayer(줍는 사람의 생사·좌표·캐릭터 번호만 읽는다)를 안다. 세션·패킷 조립·CGameServer 는 모른다.
 //  게임 서버 것(알림 통로·카운터)은 부를 때마다 GroundItemContext 로 받는다 — 몬스터 관리자와 같은 까닭
 //  (MonsterManager.h [계층 경계]). 무엇이 떨어질지(드랍 표 굴림)는 CRewardHandler::DropLoot 가 정한다 — 잡은 사람에게 주는
 //  보상이라 경험치와 같은 자리다. 여기는 굴린 결과를 받아 땅에 놓는 데서 시작한다.
@@ -85,10 +85,10 @@ public:
     const std::vector<CGroundItem>& GetSectorItems(int32_t sectorX, int32_t sectorY) const;
 
     // 떨어뜨리기 — 굴림 결과(loot)를 (x, y) 둘레에 놓는다. 첫 것은 그 자리, 다음부터 옆 칸.
-    //   주인 = ownerAccountId(막타 친 계정), LOOT_LOCK_FRAMES 동안 먼저 줍는다. GROUND_ITEM_LIFE_FRAMES 뒤 사라진다.
+    //   주인 = ownerCharacterId(막타 친 캐릭터), LOOT_LOCK_FRAMES 동안 먼저 줍는다. GROUND_ITEM_LIFE_FRAMES 뒤 사라진다.
     //   아이템마다 목록에 넣은 뒤 OnGroundItemDrop 으로 알린다.
     void Drop(const GroundItemContext& ctx, const std::vector<Item>& loot,
-              float x, float y, int64_t ownerAccountId, uint64_t frame);
+              float x, float y, int64_t ownerCharacterId, uint64_t frame);
 
     // 땅에서 빼는 한 자리 — 알림(OnGroundItemGone) · 사유별 계수 · 게이지 · 목록에서 빼기(자리 바꿔 빼기).
     //   줍기(PICKED)·사라지기(EXPIRED) 둘 다 여기로 온다. 채널 정리(CLEANED)는 알릴 사람이 없어 ForgetAll 이 센다.
