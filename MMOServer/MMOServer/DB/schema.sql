@@ -19,7 +19,7 @@ CREATE DATABASE IF NOT EXISTS gamedb DEFAULT CHARACTER SET utf8mb4;
 USE gamedb;
 
 CREATE TABLE IF NOT EXISTS characters (
-    account_id BIGINT      NOT NULL PRIMARY KEY,
+    character_id BIGINT      NOT NULL PRIMARY KEY,
     x          FLOAT       NOT NULL DEFAULT 0,
     y          FLOAT       NOT NULL DEFAULT 0,
     map_id     INT         NOT NULL DEFAULT 0,
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS characters (
 -- money = jeon the character carries (0 .. 100000000, Item.h MONEY_MAX). Part of the bag, so the column is
 --   written and read only by a build with the bag (USE_INVENTORY) - a build without it never overwrites it.
 --   Saved with the row (a buy or sell changes slots and money in ONE transaction - the save bundle).
---   A value out of range is not loaded (the character starts with 0 and the server logs the account and the
+--   A value out of range is not loaded (the character starts with 0 and the server logs the character and the
 --   old value) - the server never writes one, so it only appears after a hand edit or a broken row.
 
 -- job = the character's job (JobTable.csv jobId). 0 = not chosen yet -> the server sends 0 on enter and the web
@@ -138,13 +138,13 @@ PREPARE s FROM @add_job; EXECUTE s; DEALLOCATE PREPARE s;
 --   Final values: writing the same row twice gives the same result and a retry is safe.
 -- ==========================================================================
 CREATE TABLE IF NOT EXISTS inventory (
-    account_id BIGINT      NOT NULL,
+    character_id BIGINT      NOT NULL,
     slot       INT         NOT NULL,
     item_id    INT         NOT NULL DEFAULT 0,
     count      INT         NOT NULL DEFAULT 0,
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
                            ON UPDATE CURRENT_TIMESTAMP(3),
-    PRIMARY KEY (account_id, slot)
+    PRIMARY KEY (character_id, slot)
 ) ENGINE=InnoDB;
 
 -- Queries used by CDBWorker (numeric-only params -> no injection surface):
@@ -153,13 +153,13 @@ CREATE TABLE IF NOT EXISTS inventory (
 --     + one slot UPSERT per changed slot.
 --     Two or more statements are wrapped in START TRANSACTION ... COMMIT (ROLLBACK on error);
 --     a single statement (row only, or one slot only) runs alone (autocommit).
---     INSERT INTO characters (account_id,x,y,map_id,level,exp,hp,mp,skill_cooldowns,buffs,job,money)
+--     INSERT INTO characters (character_id,x,y,map_id,level,exp,hp,mp,skill_cooldowns,buffs,job,money)
 --       VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE x=?,y=?,map_id=?,level=?,exp=?,hp=?,mp=?,skill_cooldowns=?,buffs=?,job=?,money=?
 --       (money only in a build with the bag - USE_INVENTORY)
---     INSERT INTO inventory (account_id,slot,item_id,count) VALUES (?,?,?,?)
+--     INSERT INTO inventory (character_id,slot,item_id,count) VALUES (?,?,?,?)
 --       ON DUPLICATE KEY UPDATE item_id=?, count=?
 --   Load:
---     SELECT x,y,map_id,level,exp,hp,mp,skill_cooldowns,buffs,job,money FROM characters WHERE account_id=?
+--     SELECT x,y,map_id,level,exp,hp,mp,skill_cooldowns,buffs,job,money FROM characters WHERE character_id=?
 --   Inventory load (second statement of the same load job, run even when the
 --   character row is missing - see DBWorker.cpp RunLoadOnce):
---     SELECT slot,item_id,count FROM inventory WHERE account_id=? AND item_id<>0 ORDER BY slot
+--     SELECT slot,item_id,count FROM inventory WHERE character_id=? AND item_id<>0 ORDER BY slot
