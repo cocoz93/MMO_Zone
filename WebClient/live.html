@@ -2273,8 +2273,13 @@ function drawTrade(){
   const L=tradeLayout(); if(!L) return;
   const t=trade.win, { x, y, w, h } = L;
   ctx.fillStyle='rgba(8,12,10,.97)'; rr(x,y,w,h,10); ctx.fill(); ctx.strokeStyle='rgba(158,200,255,.45)'; ctx.lineWidth=1; ctx.stroke();
-  ctx.textAlign='left'; ctx.fillStyle='#cfe3ff'; ctx.font=uiFont(14,600); ctx.fillText('거래  ·  '+personName(t.partner)+'  Lv.'+t.partner.level, x+14, y+24);
-  ctx.textAlign='right'; ctx.fillStyle='rgba(200,215,200,.6)'; ctx.font=uiFont(11); ctx.fillText('올린 것은 못 뺍니다 — 잘못 올렸으면 취소', x+w-14, y+24);
+  const title='거래  ·  '+personName(t.partner)+'  Lv.'+t.partner.level;
+  ctx.textAlign='left'; ctx.fillStyle='#cfe3ff'; ctx.font=uiFont(14,600); ctx.fillText(title, x+14, y+24);
+  const titleW=ctx.measureText(title).width;
+  // 안내 — 이름이 길면 제목과 겹치므로 앞 문장만 싣는다(6글자 이름 + 레벨이면 전체 문장이 안 들어간다. 「취소」 단추는 창 아래에 그대로 있다)
+  ctx.textAlign='right'; ctx.fillStyle='rgba(200,215,200,.6)'; ctx.font=uiFont(11);
+  const noteFull='올린 것은 못 뺍니다 — 잘못 올렸으면 취소';
+  ctx.fillText(ctx.measureText(noteFull).width <= w-28-titleW-12 ? noteFull : '올린 것은 못 뺍니다', x+w-14, y+24);
   ctx.strokeStyle='rgba(150,200,150,.14)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x+14,y+34); ctx.lineTo(x+w-14,y+34); ctx.stroke();
   drawTradeSide(L, L.mine, t.mine, '내가 줄 것', t.mine.closed);
   drawTradeSide(L, L.theirs, t.theirs, '받을 것', t.theirs.closed);
