@@ -132,7 +132,7 @@ target_include_directories(ServerNetworkLib PUBLIC
 target_link_libraries(ServerNetworkLib PUBLIC ServerBaseLib)
 
 # ══════════════════════════════════════════════
-#  ServerCommonLib — 세 서버가 같이 쓰는 부품 (설정·표 읽기 · DB 연결 · 지표 · 종료 기다림)
+#  ServerCommonLib — 세 서버가 같이 쓰는 부품 (설정·표 읽기 · DB · 지표 · 종료 기다림 · 로비 고리 · 서버 간 연결)
 #    게임 규칙을 모른다. 코어 저장소로 안 올리는 까닭 — MySQL 을 알고, 이 게임 묶음만 쓴다.
 #    포함은 <Data/GameDataCsv.h> 처럼 ServerCommon 뿌리에서 쓴다.
 # ══════════════════════════════════════════════
@@ -142,13 +142,19 @@ add_library(ServerCommonLib STATIC
     ${COMMON_DIR}/Data/GameDataCsv.cpp
     ${COMMON_DIR}/Data/JobTable.cpp
     ${COMMON_DIR}/Db/DbConnection.cpp
+    ${COMMON_DIR}/Db/DbPipeline.cpp
+    ${COMMON_DIR}/Link/LinkConnector.cpp
+    ${COMMON_DIR}/Link/LinkPeers.cpp
+    ${COMMON_DIR}/Link/LinkRequests.cpp
+    ${COMMON_DIR}/Lobby/LobbyLoop.cpp
+    ${COMMON_DIR}/Lobby/PacketTable.cpp
     ${COMMON_DIR}/Monitoring/CoreMetrics.cpp
     ${COMMON_DIR}/Monitoring/MetricsEndpoint.cpp
     ${COMMON_DIR}/Process/ShutdownWait.cpp
 )
 
 target_include_directories(ServerCommonLib PUBLIC
-    ${COMMON_DIR}                        # <Data/…> · <Config/…> · <Db/…> · <Monitoring/…> · <Process/…>
+    ${COMMON_DIR}                        # <Data/…> · <Config/…> · <Db/…> · <Monitoring/…> · <Process/…> · <Lobby/…> · <Link/…>
     ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Identity/…> · <Protocol/…>
 )
 
@@ -323,3 +329,9 @@ endif()  # UNIX
 # ─────────────────────────────────────────────────────────────
 add_executable(core_link_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/CoreLinkTest.cpp)
 target_link_libraries(core_link_test PRIVATE ServerNetworkLib)
+
+add_executable(server_common_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/ServerCommonTest.cpp)
+target_link_libraries(server_common_test PRIVATE ServerCommonLib)
+
+add_executable(server_link_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/ServerLinkTest.cpp)
+target_link_libraries(server_link_test PRIVATE ServerCommonLib)
