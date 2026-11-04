@@ -94,6 +94,7 @@ try {
 
     # ── 1) 고정 설정 (동접만 스윕, 나머지는 못박음) ──
     Set-Ini $SrvIni "Mode" "GameServer"
+    Set-Ini $SrvIni "UseServerLink" "0"   # 측정 조건 고정 - 서버 간 연결 없이 잰다
     Set-Ini $SrvIni "MonitorEnabled" "1"
     Set-Ini $SrvIni "WorkerThreads" $WorkerThreads
     Set-Ini $SrvIni "SendWorkers"   $SendWorkers
@@ -196,6 +197,7 @@ try {
     }
 }
 finally {
+    Set-Ini $SrvIni "UseServerLink" "1"   # 위에서 끈 서버 간 연결을 커밋 기준으로 되돌린다
     if ($origCC)  { Set-Ini $StrIni "ClientCount"      $origCC }
     if ($origCPT) { Set-Ini $StrIni "ClientsPerThread" $origCPT }
     Write-Host "MMOStressConfig.ini 원복: ClientCount=$origCC · ClientsPerThread=$origCPT" -ForegroundColor DarkYellow

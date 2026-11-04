@@ -118,6 +118,7 @@ try {
 
     # ── 1) 고정 설정 (양쪽 공통 — 이것들이 delta의 교란요인이 되지 않게 못박음) ──
     Set-Ini $SrvIni "Mode" "GameServer"
+    Set-Ini $SrvIni "UseServerLink" "0"   # 측정 조건 고정 - 서버 간 연결 없이 잰다
     Set-Ini $SrvIni "MonitorEnabled" "1"
     Set-Ini $SrvIni "WorkerThreads" $WorkerThreads
     Set-Ini $SrvIni "SendWorkers"   $SendWorkers
@@ -226,6 +227,7 @@ try {
     }
 }
 finally {
+    Set-Ini $SrvIni "UseServerLink" "1"   # 위에서 끈 서버 간 연결을 커밋 기준으로 되돌린다
     # 중단되더라도 BuildConfig.h는 시작 시점 값으로 복원
     Set-Define $BuildCfg $Define $origDefine
     Write-Host "BuildConfig.h $Define 원복 = $origDefine (마지막 빌드가 OFF였다면 정상운영 전 'server' 리빌드 권장)" -ForegroundColor DarkYellow

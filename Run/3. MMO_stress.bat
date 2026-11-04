@@ -38,12 +38,12 @@ echo.
 
 REM === 4. Configure ===
 echo [3/5] Configuring...
-powershell -Command "(Get-Content -Encoding Default '%~dp0bin\MMOServerConfig.ini') -replace '^Mode=.*', 'Mode=GameServer' -replace '^MonitorEnabled=.*', 'MonitorEnabled=1' | Set-Content -Encoding Default '%~dp0bin\MMOServerConfig.ini'"
+powershell -Command "(Get-Content -Encoding Default '%~dp0bin\MMOServerConfig.ini') -replace '^Mode=.*', 'Mode=GameServer' -replace '^MonitorEnabled=.*', 'MonitorEnabled=1' -replace '^UseServerLink=.*', 'UseServerLink=0' | Set-Content -Encoding Default '%~dp0bin\MMOServerConfig.ini'"
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] MMOServerConfig.ini update failed!
     goto :ERROR
 )
-echo   - MMOServerConfig.ini updated (Mode=GameServer, MonitorEnabled=1)
+echo   - MMOServerConfig.ini updated (Mode=GameServer, MonitorEnabled=1, UseServerLink=0)
 
 REM 단일 PC 사용: 서버/클라가 같은 머신이므로 접속 IP를 127.0.0.1로 강제한다.
 REM (3-2 클라 PC 배치는 IP를 건드리지 않지만, 3번은 무조건 로컬 보장이 목적)

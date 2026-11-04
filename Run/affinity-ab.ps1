@@ -84,6 +84,7 @@ try {
 
     # ── 1) 고정 설정 (양 팔 공통 — delta 교란요인이 되지 않게 못박음) ──
     Set-Ini $SrvIni "Mode" "GameServer"
+    Set-Ini $SrvIni "UseServerLink" "0"   # 측정 조건 고정 - 서버 간 연결 없이 잰다
     Set-Ini $SrvIni "MonitorEnabled" "1"
     Set-Ini $SrvIni "ServerCores"   $ServerCores      # 격리 도출의 전제
     Set-Ini $SrvIni "WorkerThreads" $WorkerThreads
@@ -192,6 +193,7 @@ try {
     }
 }
 finally {
+    Set-Ini $SrvIni "UseServerLink" "1"   # 위에서 끈 서버 간 연결을 커밋 기준으로 되돌린다
     # 중단되더라도 INI GameCore는 baseline(off=빈값)으로 복원
     Set-Ini $SrvIni "GameCore" ""
     Write-Host "INI GameCore 복원 = 빈값(off, baseline)" -ForegroundColor DarkYellow

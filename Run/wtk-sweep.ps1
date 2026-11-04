@@ -86,6 +86,7 @@ try {
 
     # ── 1) 고정 설정: GameServer 모드 + 모니터링 on + 단일 PC 로컬 IP 강제 ──
     Set-Ini $SrvIni "Mode" "GameServer"
+    Set-Ini $SrvIni "UseServerLink" "0"   # 측정 조건 고정 - 서버 간 연결 없이 잰다
     Set-Ini $SrvIni "MonitorEnabled" "1"
     Set-Ini (Join-Path $Bin "MMOStressConfig.ini") "ServerIp" "127.0.0.1"
     Set-Ini (Join-Path $Bin "ClientConfig.ini")    "IP"       "127.0.0.1"
@@ -156,6 +157,7 @@ try {
     Write-Host "다음: Monitoring\metrics-compare.ps1 로 비교 / 실험 끝나면 BuildConfig.h USE_DB_WORKER=1 복귀" -ForegroundColor Green
 }
 finally {
+    Set-Ini $SrvIni "UseServerLink" "1"   # 위에서 끈 서버 간 연결을 커밋 기준으로 되돌린다
     # 중단되더라도 INI를 실행 전 값으로 복원 (시작값 백업/복원 — clientcount·membership 스윕과 통일)
     if ($origWT) { Set-Ini $SrvIni "WorkerThreads" $origWT }
     if ($origK)  { Set-Ini $SrvIni "SendWorkers"   $origK }

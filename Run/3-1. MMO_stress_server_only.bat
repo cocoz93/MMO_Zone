@@ -47,12 +47,12 @@ echo.
 
 REM === 4. Configure ===
 echo [3/4] Configuring...
-powershell -Command "(Get-Content -Encoding Default '%~dp0bin\MMOServerConfig.ini') -replace '^Mode=.*', 'Mode=GameServer' -replace '^MonitorEnabled=.*', 'MonitorEnabled=1' | Set-Content -Encoding Default '%~dp0bin\MMOServerConfig.ini'"
+powershell -Command "(Get-Content -Encoding Default '%~dp0bin\MMOServerConfig.ini') -replace '^Mode=.*', 'Mode=GameServer' -replace '^MonitorEnabled=.*', 'MonitorEnabled=1' -replace '^UseServerLink=.*', 'UseServerLink=0' | Set-Content -Encoding Default '%~dp0bin\MMOServerConfig.ini'"
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] MMOServerConfig.ini update failed!
     goto :ERROR
 )
-echo   - MMOServerConfig.ini updated (Mode=GameServer, MonitorEnabled=1)
+echo   - MMOServerConfig.ini updated (Mode=GameServer, MonitorEnabled=1, UseServerLink=0)
 
 REM 서버/클라 분리: Prometheus stress_client 타깃을 원격 부하 클라 IP로 주입.
 powershell -ExecutionPolicy Bypass -File "%~dp0..\Monitoring\config\setup.ps1" -StressClientIp %STRESS_CLIENT_IP%
