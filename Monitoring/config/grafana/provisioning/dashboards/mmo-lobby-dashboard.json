@@ -1,0 +1,643 @@
+{
+  "uid": "iocp-mmo-lobby",
+  "title": "MMO 로비 · 입장",
+  "tags": [
+    "mmo",
+    "lobby"
+  ],
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "서버 상태",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "서버 생존",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "colorMode": "background",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "up{job=~\"account_server|character_server|mmo_server\"}",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "접속 수",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "mmo_session_count{job=~\"account_server|character_server|mmo_server\"}",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "서버 간 연결 수",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "mmo_link_session_count{job=~\"account_server|character_server|mmo_server\"}",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "서버 간 연결 상태",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "mmo_link_up{job=~\"account_server|character_server|mmo_server\"}",
+          "legendFormat": "{{job}} → {{peer}}",
+          "refId": "A"
+        }
+      ],
+      "description": "1 = 위층 서버에 붙어 있음. 존 → 캐릭터, 캐릭터 → 계정"
+    },
+    {
+      "type": "timeseries",
+      "title": "로직 스레드 CPU (1.0 = 한 코어)",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "avg_over_time(mmo_thread_cpu_ratio{job=~\"account_server|character_server|mmo_server\",thread=\"gameloop\"}[1m])",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "처리 지연 99% (ms)",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (job, le) (rate(mmo_handle_latency_seconds_bucket{job=~\"account_server|character_server|mmo_server\"}[1m]))) * 1000",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "이벤트 대기",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "mmo_event_queue_size{job=~\"account_server|character_server|mmo_server\"}",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "입장 단계",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "단계별 성공 (초당)",
+      "gridPos": {
+        "h": 7,
+        "w": 16,
+        "x": 0,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(mmo_account_login_total{job=\"account_server\",result=\"ok\"}[1m])",
+          "legendFormat": "1 계정 로그인",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(mmo_char_login_total{job=\"character_server\",result=\"ok\"}[1m])",
+          "legendFormat": "2 캐릭터 서버 로그인",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(mmo_char_request_total{job=\"character_server\",kind=\"select\",result=\"ok\"}[1m])",
+          "legendFormat": "3 고르기",
+          "refId": "C"
+        },
+        {
+          "expr": "rate(mmo_enter_code_total{job=\"mmo_server\",result=\"ok\"}[1m])",
+          "legendFormat": "4 존 입장",
+          "refId": "D"
+        }
+      ],
+      "description": "고르기 성공보다 존 입장 성공이 적으면 입장 번호를 받고 못 들어온 것이다"
+    },
+    {
+      "type": "stat",
+      "title": "지금 대기 · 접속",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "colorMode": "background",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "mmo_auth_token_pending{job=\"account_server\"}",
+          "legendFormat": "토큰 대기",
+          "refId": "A"
+        },
+        {
+          "expr": "mmo_char_online{job=\"character_server\"}",
+          "legendFormat": "캐릭터 창 접속",
+          "refId": "B"
+        },
+        {
+          "expr": "mmo_enter_code_pending{job=\"mmo_server\"}",
+          "legendFormat": "입장 번호 대기",
+          "refId": "C"
+        },
+        {
+          "expr": "mmo_zone_registered{job=\"character_server\"}",
+          "legendFormat": "등록된 존",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "실패 갈래 (ok 가 아닌 것)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "계정 로그인",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 22
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(mmo_account_login_total{job=\"account_server\",result!=\"ok\"}[1m])",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "토큰 확인",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 22
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(mmo_auth_token_total{job=\"account_server\",result!=\"ok\"}[1m])",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "캐릭터 서버 로그인",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 22
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(mmo_char_login_total{job=\"character_server\",result!=\"ok\"}[1m])",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "캐릭터 요청",
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(mmo_char_request_total{job=\"character_server\",result!=\"ok\"}[1m])",
+          "legendFormat": "{{kind}} {{result}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "입장 번호",
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(mmo_enter_code_total{job=\"mmo_server\",result!=\"ok\"}[1m])",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ],
+      "description": "expired 가 꾸준히 나오면 입장 번호 유효 시간 2분이 짧다는 근거다"
+    },
+    {
+      "type": "row",
+      "title": "서버 간 · DB",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "서버 간 응답 99% (ms)",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 35
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (job, request, le) (rate(mmo_link_reply_seconds_bucket{job=~\"account_server|character_server\"}[1m]))) * 1000",
+          "legendFormat": "{{job}} {{request}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "서버 간 시한 초과 (초당)",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 35
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(mmo_link_timeout_total{job=~\"account_server|character_server\"}[1m])",
+          "legendFormat": "{{job}} {{request}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "서버 간 재접속 (초당)",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 35
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(mmo_link_reconnect_total{job=~\"account_server|character_server|mmo_server\"}[1m])",
+          "legendFormat": "{{job}} → {{peer}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "DB 대기",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 41
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "mmo_db_queue_depth{job=~\"account_server|character_server|mmo_server\"}",
+          "legendFormat": "{{job}} {{dbworker}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "DB 실패 (초당)",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 41
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(mmo_db_failed_total{job=~\"account_server|character_server|mmo_server\"}[1m])",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "DB 시간 99% (ms)",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 41
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (job, op, le) (rate(mmo_db_query_seconds_bucket{job=~\"account_server|character_server\"}[1m]))) * 1000",
+          "legendFormat": "{{job}} {{op}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

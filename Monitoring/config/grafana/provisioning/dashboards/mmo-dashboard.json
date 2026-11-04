@@ -31,7 +31,7 @@
       },
       "options": { "graphMode": "area", "colorMode": "background", "textMode": "auto" },
       "targets": [{
-        "expr": "mmo_session_count",
+        "expr": "mmo_session_count{job=\"mmo_server\"}",
         "legendFormat": "Sessions",
         "refId": "A"
       }]
@@ -49,8 +49,8 @@
       },
       "options": { "graphMode": "area", "colorMode": "background", "textMode": "auto" },
       "targets": [
-        { "expr": "mmo_session_created_total", "legendFormat": "Created", "refId": "A" },
-        { "expr": "mmo_session_destroyed_total", "legendFormat": "Destroyed", "refId": "B" }
+        { "expr": "mmo_session_created_total{job=\"mmo_server\"}", "legendFormat": "Created", "refId": "A" },
+        { "expr": "mmo_session_destroyed_total{job=\"mmo_server\"}", "legendFormat": "Destroyed", "refId": "B" }
       ]
     },
     {
@@ -62,8 +62,8 @@
         "overrides": []
       },
       "targets": [
-        { "expr": "rate(mmo_recv_packets_total[1m])", "legendFormat": "recv pkt/s", "refId": "A" },
-        { "expr": "rate(mmo_send_packets_total[1m])", "legendFormat": "send pkt/s", "refId": "B" }
+        { "expr": "rate(mmo_recv_packets_total{job=\"mmo_server\"}[1m])", "legendFormat": "recv pkt/s", "refId": "A" },
+        { "expr": "rate(mmo_send_packets_total{job=\"mmo_server\"}[1m])", "legendFormat": "send pkt/s", "refId": "B" }
       ]
     },
     {
@@ -75,8 +75,8 @@
         "overrides": []
       },
       "targets": [
-        { "expr": "rate(mmo_recv_bytes_total[1m]) / 1024", "legendFormat": "recv KB/s", "refId": "A" },
-        { "expr": "rate(mmo_send_bytes_total[1m]) / 1024", "legendFormat": "send KB/s", "refId": "B" }
+        { "expr": "rate(mmo_recv_bytes_total{job=\"mmo_server\"}[1m]) / 1024", "legendFormat": "recv KB/s", "refId": "A" },
+        { "expr": "rate(mmo_send_bytes_total{job=\"mmo_server\"}[1m]) / 1024", "legendFormat": "send KB/s", "refId": "B" }
       ]
     },
 
@@ -106,7 +106,7 @@
       },
       "options": { "graphMode": "area", "colorMode": "background", "textMode": "auto" },
       "targets": [{
-        "expr": "rate(mmo_tick_duration_seconds_sum[1m]) / rate(mmo_tick_duration_seconds_count[1m]) * 1000",
+        "expr": "rate(mmo_tick_duration_seconds_sum{job=\"mmo_server\"}[1m]) / rate(mmo_tick_duration_seconds_count{job=\"mmo_server\"}[1m]) * 1000",
         "legendFormat": "avg",
         "refId": "A"
       }]
@@ -130,7 +130,7 @@
         "overrides": []
       },
       "targets": [{
-        "expr": "histogram_quantile(0.99, rate(mmo_tick_duration_seconds_bucket[1m])) * 1000",
+        "expr": "histogram_quantile(0.99, rate(mmo_tick_duration_seconds_bucket{job=\"mmo_server\"}[1m])) * 1000",
         "legendFormat": "p99",
         "refId": "A"
       }]
@@ -147,7 +147,7 @@
         "tooltip": { "show": true }
       },
       "targets": [{
-        "expr": "rate(mmo_tick_duration_seconds_bucket[1m])",
+        "expr": "rate(mmo_tick_duration_seconds_bucket{job=\"mmo_server\"}[1m])",
         "legendFormat": "{{le}}",
         "format": "heatmap",
         "refId": "A"
@@ -169,9 +169,9 @@
         "overrides": []
       },
       "targets": [
-        { "expr": "rate(mmo_tick_phase_seconds_total{phase=\"network_dispatch\"}[1m]) / rate(mmo_tick_duration_seconds_count[1m]) * 1000", "legendFormat": "network_dispatch", "refId": "A" },
-        { "expr": "rate(mmo_tick_phase_seconds_total{phase=\"game_logic\"}[1m]) / rate(mmo_tick_duration_seconds_count[1m]) * 1000", "legendFormat": "game_logic", "refId": "B" },
-        { "expr": "rate(mmo_tick_phase_seconds_total{phase=\"broadcast_sync\"}[1m]) / rate(mmo_tick_duration_seconds_count[1m]) * 1000", "legendFormat": "broadcast_sync", "refId": "C" }
+        { "expr": "rate(mmo_tick_phase_seconds_total{job=\"mmo_server\",phase=\"network_dispatch\"}[1m]) / rate(mmo_tick_duration_seconds_count{job=\"mmo_server\"}[1m]) * 1000", "legendFormat": "network_dispatch", "refId": "A" },
+        { "expr": "rate(mmo_tick_phase_seconds_total{job=\"mmo_server\",phase=\"game_logic\"}[1m]) / rate(mmo_tick_duration_seconds_count{job=\"mmo_server\"}[1m]) * 1000", "legendFormat": "game_logic", "refId": "B" },
+        { "expr": "rate(mmo_tick_phase_seconds_total{job=\"mmo_server\",phase=\"broadcast_sync\"}[1m]) / rate(mmo_tick_duration_seconds_count{job=\"mmo_server\"}[1m]) * 1000", "legendFormat": "broadcast_sync", "refId": "C" }
       ]
     },
     {
@@ -192,7 +192,7 @@
         "overrides": []
       },
       "targets": [{
-        "expr": "mmo_event_queue_size",
+        "expr": "mmo_event_queue_size{job=\"mmo_server\"}",
         "legendFormat": "queue size",
         "refId": "A"
       }]
@@ -206,10 +206,10 @@
         "overrides": []
       },
       "targets": [
-        { "expr": "rate(mmo_broadcast_calls_total[1m])", "legendFormat": "calls/s", "refId": "A" },
-        { "expr": "rate(mmo_broadcast_targets_total[1m])", "legendFormat": "targets/s", "refId": "B" },
-        { "expr": "rate(mmo_broadcast_targets_total[1m]) / rate(mmo_broadcast_calls_total[1m])", "legendFormat": "avg targets/call", "refId": "C" },
-        { "expr": "rate(mmo_membership_sends_total[1m])", "legendFormat": "membership sends/s", "refId": "D" }
+        { "expr": "rate(mmo_broadcast_calls_total{job=\"mmo_server\"}[1m])", "legendFormat": "calls/s", "refId": "A" },
+        { "expr": "rate(mmo_broadcast_targets_total{job=\"mmo_server\"}[1m])", "legendFormat": "targets/s", "refId": "B" },
+        { "expr": "rate(mmo_broadcast_targets_total{job=\"mmo_server\"}[1m]) / rate(mmo_broadcast_calls_total{job=\"mmo_server\"}[1m])", "legendFormat": "avg targets/call", "refId": "C" },
+        { "expr": "rate(mmo_membership_sends_total{job=\"mmo_server\"}[1m])", "legendFormat": "membership sends/s", "refId": "D" }
       ]
     },
 
@@ -228,8 +228,8 @@
         "overrides": []
       },
       "targets": [
-        { "expr": "rate(mmo_packet_errors_total[1m])", "legendFormat": "packet errors/s", "refId": "A" },
-        { "expr": "rate(mmo_cheat_detected_total[1m])", "legendFormat": "cheat/s", "refId": "B" }
+        { "expr": "rate(mmo_packet_errors_total{job=\"mmo_server\"}[1m])", "legendFormat": "packet errors/s", "refId": "A" },
+        { "expr": "rate(mmo_cheat_detected_total{job=\"mmo_server\"}[1m])", "legendFormat": "cheat/s", "refId": "B" }
       ]
     },
     {
@@ -241,10 +241,10 @@
         "overrides": []
       },
       "targets": [
-        { "expr": "rate(mmo_send_queue_overflow_total[1m])", "legendFormat": "sendQ overflow/s", "refId": "A" },
-        { "expr": "rate(mmo_recv_buffer_overflow_total[1m])", "legendFormat": "recvBuf overflow/s", "refId": "B" },
-        { "expr": "rate(mmo_session_timed_out_total[1m])", "legendFormat": "timeout/s", "refId": "C" },
-        { "expr": "rate(mmo_partial_send_total[1m])", "legendFormat": "partial send/s", "refId": "D" }
+        { "expr": "rate(mmo_send_queue_overflow_total{job=\"mmo_server\"}[1m])", "legendFormat": "sendQ overflow/s", "refId": "A" },
+        { "expr": "rate(mmo_recv_buffer_overflow_total{job=\"mmo_server\"}[1m])", "legendFormat": "recvBuf overflow/s", "refId": "B" },
+        { "expr": "rate(mmo_session_timed_out_total{job=\"mmo_server\"}[1m])", "legendFormat": "timeout/s", "refId": "C" },
+        { "expr": "rate(mmo_partial_send_total{job=\"mmo_server\"}[1m])", "legendFormat": "partial send/s", "refId": "D" }
       ]
     },
     {
@@ -256,10 +256,10 @@
         "overrides": []
       },
       "targets": [
-        { "expr": "rate(mmo_accept_failed_total[1m])", "legendFormat": "accept fail/s", "refId": "A" },
-        { "expr": "rate(mmo_zone_change_total[1m])", "legendFormat": "zone change/s", "refId": "B" },
-        { "expr": "rate(mmo_session_created_total[1m])", "legendFormat": "session create/s", "refId": "C" },
-        { "expr": "rate(mmo_session_destroyed_total[1m])", "legendFormat": "session destroy/s", "refId": "D" }
+        { "expr": "rate(mmo_accept_failed_total{job=\"mmo_server\"}[1m])", "legendFormat": "accept fail/s", "refId": "A" },
+        { "expr": "rate(mmo_zone_change_total{job=\"mmo_server\"}[1m])", "legendFormat": "zone change/s", "refId": "B" },
+        { "expr": "rate(mmo_session_created_total{job=\"mmo_server\"}[1m])", "legendFormat": "session create/s", "refId": "C" },
+        { "expr": "rate(mmo_session_destroyed_total{job=\"mmo_server\"}[1m])", "legendFormat": "session destroy/s", "refId": "D" }
       ]
     },
 
@@ -278,10 +278,10 @@
         "overrides": []
       },
       "targets": [
-        { "expr": "rate(mmo_send_contention_total[1m])", "legendFormat": "send contention/s", "refId": "A" },
-        { "expr": "rate(mmo_wsa_send_calls_total[1m])", "legendFormat": "WSASend calls/s", "refId": "B" },
-        { "expr": "rate(mmo_wsa_send_completions_total[1m])", "legendFormat": "WSASend completions/s", "refId": "C" },
-        { "expr": "rate(mmo_send_packets_total[1m]) / rate(mmo_wsa_send_completions_total[1m])", "legendFormat": "packets/completion (batch)", "refId": "D" }
+        { "expr": "rate(mmo_send_contention_total{job=\"mmo_server\"}[1m])", "legendFormat": "send contention/s", "refId": "A" },
+        { "expr": "rate(mmo_wsa_send_calls_total{job=\"mmo_server\"}[1m])", "legendFormat": "WSASend calls/s", "refId": "B" },
+        { "expr": "rate(mmo_wsa_send_completions_total{job=\"mmo_server\"}[1m])", "legendFormat": "WSASend completions/s", "refId": "C" },
+        { "expr": "rate(mmo_send_packets_total{job=\"mmo_server\"}[1m]) / rate(mmo_wsa_send_completions_total{job=\"mmo_server\"}[1m])", "legendFormat": "packets/completion (batch)", "refId": "D" }
       ]
     },
     {
@@ -293,7 +293,7 @@
         "overrides": []
       },
       "targets": [{
-        "expr": "mmo_send_enqueued_bytes_total - mmo_send_bytes_total - mmo_send_discarded_bytes_total",
+        "expr": "mmo_send_enqueued_bytes_total{job=\"mmo_server\"} - mmo_send_bytes_total{job=\"mmo_server\"} - mmo_send_discarded_bytes_total{job=\"mmo_server\"}",
         "legendFormat": "pending bytes",
         "refId": "A"
       }]
@@ -307,8 +307,8 @@
         "overrides": []
       },
       "targets": [
-        { "expr": "rate(mmo_wsa_recv_calls_total[1m])", "legendFormat": "WSARecv calls/s", "refId": "A" },
-        { "expr": "rate(mmo_recv_packets_total[1m]) / rate(mmo_wsa_recv_calls_total[1m])", "legendFormat": "packets/call", "refId": "B" }
+        { "expr": "rate(mmo_wsa_recv_calls_total{job=\"mmo_server\"}[1m])", "legendFormat": "WSARecv calls/s", "refId": "A" },
+        { "expr": "rate(mmo_recv_packets_total{job=\"mmo_server\"}[1m]) / rate(mmo_wsa_recv_calls_total{job=\"mmo_server\"}[1m])", "legendFormat": "packets/call", "refId": "B" }
       ]
     },
 
@@ -327,7 +327,7 @@
         "overrides": []
       },
       "targets": [{
-        "expr": "rate(mmo_worker_completions_total[1m])",
+        "expr": "rate(mmo_worker_completions_total{job=\"mmo_server\"}[1m])",
         "legendFormat": "worker-{{worker}}",
         "refId": "A"
       }]
@@ -417,7 +417,7 @@
       },
       "options": { "graphMode": "area", "colorMode": "background", "textMode": "auto" },
       "targets": [{
-        "expr": "rate(mmo_handle_latency_seconds_sum[1m]) / rate(mmo_handle_latency_seconds_count[1m]) * 1000",
+        "expr": "rate(mmo_handle_latency_seconds_sum{job=\"mmo_server\"}[1m]) / rate(mmo_handle_latency_seconds_count{job=\"mmo_server\"}[1m]) * 1000",
         "legendFormat": "avg",
         "refId": "A"
       }]
@@ -441,8 +441,8 @@
         "overrides": []
       },
       "targets": [
-        { "expr": "histogram_quantile(0.50, rate(mmo_handle_latency_seconds_bucket[1m])) * 1000", "legendFormat": "p50", "refId": "A" },
-        { "expr": "histogram_quantile(0.99, rate(mmo_handle_latency_seconds_bucket[1m])) * 1000", "legendFormat": "p99", "refId": "B" }
+        { "expr": "histogram_quantile(0.50, rate(mmo_handle_latency_seconds_bucket{job=\"mmo_server\"}[1m])) * 1000", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.99, rate(mmo_handle_latency_seconds_bucket{job=\"mmo_server\"}[1m])) * 1000", "legendFormat": "p99", "refId": "B" }
       ]
     },
     {
@@ -455,8 +455,8 @@
       },
       "targets": [
         { "expr": "rate(mmo_dummy_rtt_seconds_sum[1m]) / rate(mmo_dummy_rtt_seconds_count[1m]) * 1000", "legendFormat": "클라 RTT(왕복)", "refId": "A" },
-        { "expr": "rate(mmo_handle_latency_seconds_sum[1m]) / rate(mmo_handle_latency_seconds_count[1m]) * 1000", "legendFormat": "서버 handle", "refId": "B" },
-        { "expr": "(rate(mmo_dummy_rtt_seconds_sum[1m]) / rate(mmo_dummy_rtt_seconds_count[1m]) - rate(mmo_handle_latency_seconds_sum[1m]) / rate(mmo_handle_latency_seconds_count[1m])) * 1000", "legendFormat": "네트워크+더미(나머지)", "refId": "C" }
+        { "expr": "rate(mmo_handle_latency_seconds_sum{job=\"mmo_server\"}[1m]) / rate(mmo_handle_latency_seconds_count{job=\"mmo_server\"}[1m]) * 1000", "legendFormat": "서버 handle", "refId": "B" },
+        { "expr": "(rate(mmo_dummy_rtt_seconds_sum[1m]) / rate(mmo_dummy_rtt_seconds_count[1m]) - rate(mmo_handle_latency_seconds_sum{job=\"mmo_server\"}[1m]) / rate(mmo_handle_latency_seconds_count{job=\"mmo_server\"}[1m])) * 1000", "legendFormat": "네트워크+더미(나머지)", "refId": "C" }
       ]
     },
 
@@ -478,10 +478,10 @@
         "overrides": []
       },
       "targets": [
-        { "expr": "rate(mmo_broadcast_cost_seconds_total{type=\"gather\"}[1m]) / ignoring(type) rate(mmo_tick_duration_seconds_count[1m]) * 1000", "legendFormat": "gather(모으기)", "refId": "A" },
-        { "expr": "rate(mmo_broadcast_cost_seconds_total{type=\"enqueue\"}[1m]) / ignoring(type) rate(mmo_tick_duration_seconds_count[1m]) * 1000", "legendFormat": "copy(enqueue)", "refId": "B" },
-        { "expr": "rate(mmo_broadcast_cost_seconds_total{type=\"flush_send\"}[1m]) / ignoring(type) rate(mmo_tick_duration_seconds_count[1m]) * 1000", "legendFormat": "send(flush, 전체송신)", "refId": "C" },
-        { "expr": "rate(mmo_membership_cost_seconds_total[1m]) / rate(mmo_tick_duration_seconds_count[1m]) * 1000", "legendFormat": "membership(멤버십복사)", "refId": "D" }
+        { "expr": "rate(mmo_broadcast_cost_seconds_total{job=\"mmo_server\",type=\"gather\"}[1m]) / ignoring(type) rate(mmo_tick_duration_seconds_count{job=\"mmo_server\"}[1m]) * 1000", "legendFormat": "gather(모으기)", "refId": "A" },
+        { "expr": "rate(mmo_broadcast_cost_seconds_total{job=\"mmo_server\",type=\"enqueue\"}[1m]) / ignoring(type) rate(mmo_tick_duration_seconds_count{job=\"mmo_server\"}[1m]) * 1000", "legendFormat": "copy(enqueue)", "refId": "B" },
+        { "expr": "rate(mmo_broadcast_cost_seconds_total{job=\"mmo_server\",type=\"flush_send\"}[1m]) / ignoring(type) rate(mmo_tick_duration_seconds_count{job=\"mmo_server\"}[1m]) * 1000", "legendFormat": "send(flush, 전체송신)", "refId": "C" },
+        { "expr": "rate(mmo_membership_cost_seconds_total{job=\"mmo_server\"}[1m]) / rate(mmo_tick_duration_seconds_count{job=\"mmo_server\"}[1m]) * 1000", "legendFormat": "membership(멤버십복사)", "refId": "D" }
       ]
     },
     {
@@ -497,8 +497,8 @@
         "overrides": []
       },
       "targets": [
-        { "expr": "sum(rate(mmo_broadcast_cost_seconds_total[1m])) / scalar(rate(mmo_tick_duration_seconds_sum[1m])) * 100", "legendFormat": "브로드캐스트", "refId": "A" },
-        { "expr": "100 - sum(rate(mmo_broadcast_cost_seconds_total[1m])) / scalar(rate(mmo_tick_duration_seconds_sum[1m])) * 100", "legendFormat": "그 외 잔여", "refId": "B" }
+        { "expr": "sum(rate(mmo_broadcast_cost_seconds_total{job=\"mmo_server\"}[1m])) / scalar(rate(mmo_tick_duration_seconds_sum{job=\"mmo_server\"}[1m])) * 100", "legendFormat": "브로드캐스트", "refId": "A" },
+        { "expr": "100 - sum(rate(mmo_broadcast_cost_seconds_total{job=\"mmo_server\"}[1m])) / scalar(rate(mmo_tick_duration_seconds_sum{job=\"mmo_server\"}[1m])) * 100", "legendFormat": "그 외 잔여", "refId": "B" }
       ]
     },
 
@@ -517,10 +517,10 @@
         "overrides": []
       },
       "targets": [
-        { "expr": "avg_over_time(mmo_thread_cpu_ratio{thread=\"gameloop\"}[1m])", "legendFormat": "gameloop", "refId": "A" },
-        { "expr": "sum(avg_over_time(mmo_thread_cpu_ratio{thread=~\"worker-.*\"}[1m]))", "legendFormat": "worker 합", "refId": "B" },
-        { "expr": "avg_over_time(mmo_thread_cpu_ratio{thread=~\"sendworker-.*\"}[1m])", "legendFormat": "{{thread}}", "refId": "C" },
-        { "expr": "sum(avg_over_time(mmo_thread_cpu_ratio[1m]))", "legendFormat": "★ 전체합 (A/B 비교)", "refId": "D" }
+        { "expr": "avg_over_time(mmo_thread_cpu_ratio{job=\"mmo_server\",thread=\"gameloop\"}[1m])", "legendFormat": "gameloop", "refId": "A" },
+        { "expr": "sum(avg_over_time(mmo_thread_cpu_ratio{job=\"mmo_server\",thread=~\"worker-.*\"}[1m]))", "legendFormat": "worker 합", "refId": "B" },
+        { "expr": "avg_over_time(mmo_thread_cpu_ratio{job=\"mmo_server\",thread=~\"sendworker-.*\"}[1m])", "legendFormat": "{{thread}}", "refId": "C" },
+        { "expr": "sum(avg_over_time(mmo_thread_cpu_ratio{job=\"mmo_server\"}[1m]))", "legendFormat": "★ 전체합 (A/B 비교)", "refId": "D" }
       ]
     },
     {
@@ -535,8 +535,8 @@
         "overrides": []
       },
       "targets": [
-        { "expr": "rate(mmo_broadcast_cost_seconds_total{type=\"flush_send\"}[1m]) / ignoring(type) rate(mmo_tick_duration_seconds_count[1m]) * 1000", "legendFormat": "flush_send(게임루프)", "refId": "A" },
-        { "expr": "rate(mmo_send_worker_flush_seconds_total[1m]) / scalar(rate(mmo_tick_duration_seconds_count[1m])) * 1000", "legendFormat": "sendworker-{{sendworker}}", "refId": "B" }
+        { "expr": "rate(mmo_broadcast_cost_seconds_total{job=\"mmo_server\",type=\"flush_send\"}[1m]) / ignoring(type) rate(mmo_tick_duration_seconds_count{job=\"mmo_server\"}[1m]) * 1000", "legendFormat": "flush_send(게임루프)", "refId": "A" },
+        { "expr": "rate(mmo_send_worker_flush_seconds_total{job=\"mmo_server\"}[1m]) / scalar(rate(mmo_tick_duration_seconds_count{job=\"mmo_server\"}[1m])) * 1000", "legendFormat": "sendworker-{{sendworker}}", "refId": "B" }
       ]
     },
     {
@@ -548,8 +548,8 @@
         "overrides": []
       },
       "targets": [
-        { "expr": "mmo_send_flush_backlog", "legendFormat": "sendworker-{{sendworker}}", "refId": "A" },
-        { "expr": "max(max_over_time(mmo_send_flush_backlog[1m]))", "legendFormat": "전체 1m max", "refId": "B" }
+        { "expr": "mmo_send_flush_backlog{job=\"mmo_server\"}", "legendFormat": "sendworker-{{sendworker}}", "refId": "A" },
+        { "expr": "max(max_over_time(mmo_send_flush_backlog{job=\"mmo_server\"}[1m]))", "legendFormat": "전체 1m max", "refId": "B" }
       ]
     }
   ],

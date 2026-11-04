@@ -50,7 +50,7 @@ function Write-NoBom([string]$path, [string]$text) {
 $dashTpl = Get-Content -Raw (Join-Path $ConfigDir "grafana\provisioning\dashboards\dashboards.yml")
 Write-NoBom (Join-Path $DashboardsPath "dashboards.yml") ($dashTpl -replace '__MMO_DASHBOARDS_PATH__', $DashboardsPath)
 
-# 2) 대시보드 JSON 3종은 머신 비종속 → 그대로 복사
+# 2) 대시보드 JSON 은 전부 머신 비종속 → 그대로 복사
 Copy-Item (Join-Path $ConfigDir "grafana\provisioning\dashboards\*.json") $DashboardsPath -Force
 
 # 3) datasource prometheus.yml 도 비종속 → 그대로 복사
