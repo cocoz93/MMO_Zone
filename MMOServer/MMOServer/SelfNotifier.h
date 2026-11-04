@@ -50,6 +50,9 @@ public:
     void SendMyStats(CPlayer* player);
     // 내 직업 — 입장 때 한 장(NotifyArrival) · 고르기 요청의 답(CJobHandler). 토글 없음
     void SendMyJob(CPlayer* player);
+    // 내 이름 · 내 몸 겉모습 — 처음 입장 때 한 장씩(NotifyArrival) · 값이 있을 때만. 입장 뒤 안 바뀐다
+    void SendMyName(CPlayer* player);
+    void SendMyLook(CPlayer* player);
 
     // 본인에게 버프 하나(S2C_ACTOR_BUFF) — 안 걸려 있으면 remainMs 0(풀림). 세는 곳도 여기 한 곳.
     //   ★ 본인 전용이다 — BroadcastAroundSector 로 보내지 말 것(Protocol.h MSG_S2C_ACTOR_BUFF).

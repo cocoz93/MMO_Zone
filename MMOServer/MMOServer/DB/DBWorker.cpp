@@ -471,6 +471,13 @@ static constexpr DbColumn kInvColumns[] = {
 };
 static constexpr int kInvColCount = static_cast<int>(sizeof(kInvColumns) / sizeof(kInvColumns[0]));
 #endif
+
+// 소유 표 — 존은 읽기만 한다(쓰는 쪽은 캐릭터 서버). 버퍼 DBRosterRowBuf · 결과 DBResult
+static constexpr DbColumn kRosterColumns[] = {
+    DB_COL(DBRosterRowBuf, DBResult, name, rosterName, false),
+    DB_COL(DBRosterRowBuf, DBResult, look, rosterLook, false),
+};
+static constexpr int kRosterColCount = static_cast<int>(sizeof(kRosterColumns) / sizeof(kRosterColumns[0]));
 #undef DB_COL
 
 static constexpr int kMaxCols = 11;  // 바인딩 배열 크기 — 표가 이보다 길어지면 아래 static_assert 가 막는다(10-21 돈 열로 9 → 10 · 11-02 직업 열로 10 → 11)
@@ -515,6 +522,7 @@ static const std::string kItemSaveSql = BuildUpsertSql("inventory", kInvColumns,
 // 가방 불러오기 — 빈 칸(item_id 0)은 안 읽는다. 칸 순서로 받는다(줄이 넘칠 때 어느 줄을 버릴지가 늘 같게).
 static const std::string kLoadInvSql  = BuildSelectSql("inventory", kInvColumns, kInvColCount, " AND item_id<>0 ORDER BY slot");
 #endif
+static const std::string kLoadRosterSql = BuildSelectSql("character_roster", kRosterColumns, kRosterColCount, "");
 
 // 열 하나를 바인딩 칸에 댄다 — 저장 파라미터와 불러오기 결과가 같은 꼴이다(base = 저장 구조체 꼴의 슬롯 버퍼).
 //   숫자 열은 멤버 자리 하나, 바이트 열은 data(buffer)·len(length)·N(buffer_length) 셋.
@@ -602,6 +610,12 @@ static bool BindLoadInventory(MYSQL_STMT* st, DBWorkerSlot& slot)
 }
 #endif
 
+// ── 소유 표 불러오기 (불러오기 잡의 마지막 문장 — 입장 번호 길만) ──────────
+static bool BindLoadRoster(MYSQL_STMT* st, DBWorkerSlot& slot)
+{
+    return BindSelect(st, &slot.bRoster, &slot.bRoster.characterId, kRosterColumns, kRosterColCount);
+}
+
 // DBStmt 순서 그대로 — 인덱스가 곧 문장이다. 문장은 열 표(kCharColumns · kInvColumns)에서 조립.
 static const StmtDesc kStmts[] = {
     /* CHAR_UPSERT */ { "char_upsert", kSaveSql.c_str(),     BindPositionParams },
@@ -610,6 +624,7 @@ static const StmtDesc kStmts[] = {
     /* SLOT_UPSERT */ { "slot_upsert", kItemSaveSql.c_str(), BindItemSlotParams },
     /* INV_SELECT  */ { "inv_select",  kLoadInvSql.c_str(),  BindLoadInventory },
 #endif
+    /* ROSTER_SELECT */ { "roster_select", kLoadRosterSql.c_str(), BindLoadRoster },
 };
 static_assert(sizeof(kStmts) / sizeof(kStmts[0]) == DB_STMT_COUNT,
               "DBStmt 를 늘렸으면 kStmts 에도 같은 순서로 한 줄을 넣을 것");
@@ -620,6 +635,7 @@ static constexpr int kLoadIdx = static_cast<int>(DBStmt::CHAR_SELECT);
 static constexpr int kItemIdx    = static_cast<int>(DBStmt::SLOT_UPSERT);
 static constexpr int kInvLoadIdx = static_cast<int>(DBStmt::INV_SELECT);
 #endif
+static constexpr int kRosterIdx = static_cast<int>(DBStmt::ROSTER_SELECT);
 
 // 문장 준비 실패 로그 — 테이블이 없으면(ER_NO_SUCH_TABLE) 할 일을 같이 적는다.
 //   게임 계정에는 CREATE 권한이 없어 서버가 테이블을 만들 수 없다 — 사람이 root 로 한 번 돌려야 한다.
@@ -756,10 +772,17 @@ CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJo
     }
 #endif
 
+    // 마지막 문장 — 소유 표. 가방과 같은 규칙: 실패하면 캐릭터 행을 읽었어도 전체가 실패다(이름 없는 사람으로 들여보내지 않는다).
+    if (job.readRoster && (outcome == LoadOutcome::FOUND || outcome == LoadOutcome::NOT_FOUND))
+    {
+        const LoadOutcome roster = RunRosterLoad(slot, job, out);
+        if (roster != LoadOutcome::FOUND)
+            return roster;
+    }
+
     return outcome;
 }
 
-#if USE_INVENTORY
 // 새로 붙은 문장들의 오류 분류 — 유실(재연결 후 다시 해 볼 값어치가 있다)과 그 밖을 가른다(RunLoadOnce 와 같은 규칙).
 CDBWorker::LoadOutcome CDBWorker::ClassifyStmtError(void* stmt, const char* what, CharacterId characterId)
 {
@@ -774,6 +797,7 @@ CDBWorker::LoadOutcome CDBWorker::ClassifyStmtError(void* stmt, const char* what
     return LoadOutcome::QUERY_ERROR;
 }
 
+#if USE_INVENTORY
 CDBWorker::LoadOutcome CDBWorker::RunInventoryLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out)
 {
     // 재시도로 두 번 돌 수 있다 — 매번 비우고 시작한다(앞선 시도의 반쪽 줄이 섞이지 않게).
@@ -810,6 +834,42 @@ CDBWorker::LoadOutcome CDBWorker::RunInventoryLoad(DBWorkerSlot& slot, const DBL
     return LoadOutcome::FOUND;   // 줄이 0 이어도 성공 — "가방이 비었다"는 사실이다
 }
 #endif
+
+CDBWorker::LoadOutcome CDBWorker::RunRosterLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out)
+{
+    // 재시도로 두 번 돌 수 있다 — 매번 비우고 시작한다.
+    out.rosterFound = false;
+
+    MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmt[kRosterIdx]);
+    if (st == nullptr)
+        return LoadOutcome::QUERY_ERROR;   // PrepareStmt 가 캐릭터 문장과 함께 세우므로 닿지 않는다 — 닿으면 실패로
+    slot.bRoster.characterId = ToInt(job.characterId);
+
+    if (mysql_stmt_execute(st) != 0)
+        return ClassifyStmtError(st, "load roster execute", job.characterId);
+
+    // 기본 키 조회 — 행은 많아야 하나. switch 인 까닭은 RunLoadOnce 와 같다(오류가 「없음」에 삼켜지면 안 된다).
+    LoadOutcome outcome = LoadOutcome::FOUND;
+    switch (mysql_stmt_fetch(st))
+    {
+    case 0:
+    case MYSQL_DATA_TRUNCATED:
+        // 칸보다 긴 값은 len 에 원래 길이가 남는다 — 게임 스레드가 불량으로 본다(ApplyRoster)
+        CopyColumns(&out, &slot.bRoster, kRosterColumns, kRosterColCount);
+        out.rosterFound = true;
+        break;
+
+    case MYSQL_NO_DATA:
+        break;   // 소유 표에 없는 캐릭터 — 사실이다(이름·몸 없이 들어간다)
+
+    default:
+        outcome = ClassifyStmtError(st, "load roster fetch", job.characterId);
+        break;
+    }
+    if (outcome != LoadOutcome::CONNECTION_LOST)
+        mysql_stmt_free_result(st);
+    return outcome;
+}
 
 bool CDBWorker::TryReconnectForLoad(DBWorkerSlot& slot, bool& reconnectFailedThisBatch)
 {

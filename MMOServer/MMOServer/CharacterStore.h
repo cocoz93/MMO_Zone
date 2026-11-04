@@ -109,7 +109,7 @@ public:
     void RestoreCooldownsAndBuffs(CPlayer* player, const DBResult* cooldownsAndBuffs, bool dropBuffs);
 
     // DB 왕복 — 캐릭터 불러오기 (요청은 워커 큐로, 결과는 회신 큐로 돌아와 다음 틱에 꺼낸다)
-    bool RequestCharacterLoad(SessionId sessionId, CharacterId characterId);   // 조회 1건 투입 + 계수. false = 거절됨(결과가 안 온다)
+    bool RequestCharacterLoad(SessionId sessionId, CharacterId characterId, bool readRoster);   // 조회 1건 투입 + 계수. false = 거절됨(결과가 안 온다)
     void ProcessDbResults();                                           // 틱마다: 회신 큐를 통째로 꺼내 종류별로 넘긴다(불러오기 → _loadEvents)
 
 private:

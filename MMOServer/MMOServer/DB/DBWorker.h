@@ -19,6 +19,8 @@
 // ==========================================================================
 
 #include <Identity/GameIds.h>
+#include <Identity/CharacterName.h>       // 소유 표 이름 칸 크기
+#include <Identity/CharacterLookBlob.h>   // 소유 표 외형 칸 크기
 #include <Db/DbConnection.h>   // DBConfig — 세 서버가 같이 쓴다
 #include "BuildConfig.h"
 
@@ -131,6 +133,7 @@ struct DBLoadJob
     CharacterId characterId;
     SessionId sessionId;   // 결과의 주인. 게임 스레드가 세션 번호 "전체"로 대조한다(자리 재사용 방어)
     int64_t requestNs;   // 요청 시각(steady_clock, ns) — 요청→결과 수령 지연을 재는 기준
+    bool    readRoster;  // 소유 표(이름·몸)도 읽나 — 입장 번호 길만 true. 시험 입장 길은 소유 구간이 막혀 행이 있을 수 없고 더미 DB 왕복이 그대로여야 한다
 };
 
 #if USE_INVENTORY
@@ -165,6 +168,19 @@ enum class DBJobKind : uint8_t
 };
 constexpr int DB_JOB_KIND_COUNT = static_cast<int>(DBJobKind::COUNT);
 
+// 소유 표(character_roster) 칸 크기 — name = VARCHAR(6) utf8mb4(글자당 최대 4바이트) · look = VARBINARY(32)
+constexpr size_t DB_ROSTER_NAME_BYTES = CHAR_NAME_MAX_LEN * 4;
+constexpr size_t DB_ROSTER_LOOK_BYTES = CharacterLookBlob::COLUMN_BYTES;
+
+// 소유 표 한 줄의 버퍼 꼴 — characterId 가 WHERE 파라미터, 나머지가 결과(존은 이 표를 읽기만 한다).
+//   멤버 이름이 DBResult 와 같아야 한다(열 표가 이름으로 잇는다)
+struct DBRosterRowBuf
+{
+    int64_t characterId;
+    DBBytes<DB_ROSTER_NAME_BYTES> rosterName;
+    DBBytes<DB_ROSTER_LOOK_BYTES> rosterLook;
+};
+
 // 준비해 두는 문장 — 작업 종류와 따로 센다. 저장 묶음은 캐릭터 행 + 칸 문장을, 불러오기는 캐릭터 행 + 가방 문장을 쓴다
 //   (전에는 종류마다 문장 하나 + 불러오기의 둘째 문장이 따로였다 — 묶음도 둘째 문장이 생겨 표로 모음).
 enum class DBStmt : uint8_t
@@ -175,6 +191,7 @@ enum class DBStmt : uint8_t
     SLOT_UPSERT,       // inventory 칸 UPSERT — 저장 묶음의 칸 문장
     INV_SELECT,        // inventory 줄 SELECT — 불러오기의 둘째 문장
 #endif
+    ROSTER_SELECT,     // character_roster 이름·몸 SELECT — 불러오기의 마지막 문장(입장 번호 길만)
     COUNT
 };
 constexpr int DB_STMT_COUNT = static_cast<int>(DBStmt::COUNT);
@@ -223,6 +240,11 @@ struct DBResult
     DBBytes<DB_SKILL_COOLDOWNS_BYTES> skillCooldowns;   // 바이트 그대로 — 검사·풀기는 게임 스레드(SpawnPlayer). len > 버퍼 = 잘림(불량)
     DBBytes<DB_BUFFS_BYTES>           buffs;
     int32_t      job;         // DB 값 그대로 — 표에 있는 번호인지는 게임 스레드(OnCharacterLoaded)가 본다
+    // ↓ FOUND·NOT_FOUND 둘 다 유효 — 소유 표는 characters 행과 따로 있다. 바이트 그대로 — 검사·풀기는 게임 스레드(SpawnPlayer).
+    //   rosterFound = false 는 「행이 없다」는 사실이다. 조회가 실패하면 code 가 FAILED 다 — 없음과 못 읽음을 섞지 않는다.
+    bool         rosterFound;
+    DBBytes<DB_ROSTER_NAME_BYTES> rosterName;
+    DBBytes<DB_ROSTER_LOOK_BYTES> rosterLook;
     int64_t      money;       // DB 값 그대로 — 범위(0~MONEY_MAX) 검사는 게임 스레드(CCharacterStore::LoadInventoryRows — 망가진 값은 안 넣는다)
 #if USE_INVENTORY
     // ↓ FOUND·NOT_FOUND 둘 다 유효 — 캐릭터 행이 없어도 가방은 읽는다(칸만 쓰는 묶음은 행이 이미 써진 뒤에만 나오지만 —
@@ -253,6 +275,7 @@ struct DBWorkerSlot
     DBInvRowBuf              bItem{};               // 칸 UPSERT 파라미터 버퍼 — 칸 줄을 캐릭터과 함께 복사. 열 표(kInvColumns)가 멤버 자리를 가리킨다
     DBInvRowBuf              bInvLoad{};            // 가방 SELECT — characterId 가 WHERE 파라미터, 나머지 멤버가 결과 열(fetch 가 줄마다 채운다)
 #endif
+    DBRosterRowBuf           bRoster{};       // 소유 표 SELECT — characterId 가 WHERE 파라미터, 나머지 멤버가 결과
     int                      index = 0;
 };
 
@@ -321,9 +344,11 @@ private:
 #if USE_INVENTORY
     // 불러오기의 둘째 문장 — 가방 줄을 out.inv 에 채운다. 결말은 LoadOutcome 로(FOUND = 성공, 줄이 0 이어도).
     LoadOutcome RunInventoryLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out);
-    // 가방 문장의 오류 분류(유실 / 그 밖). stmt 는 MYSQL_STMT* — 헤더를 mysql.h 로 더럽히지 않으려고 void*
-    static LoadOutcome ClassifyStmtError(void* stmt, const char* what, CharacterId characterId);
 #endif
+    // 불러오기의 마지막 문장 — 소유 표의 이름·몸을 out 에 채운다(입장 번호 길만). FOUND = 성공 — 행이 없어도 성공이다(rosterFound 가 가른다)
+    LoadOutcome RunRosterLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out);
+    // 가방·소유 표 문장의 오류 분류(유실 / 그 밖). stmt 는 MYSQL_STMT* — 헤더를 mysql.h 로 더럽히지 않으려고 void*
+    static LoadOutcome ClassifyStmtError(void* stmt, const char* what, CharacterId characterId);
     // 불러오기용 재연결 — 이 묶음에서 이미 실패했으면 시도하지 않는다(죽은 DB 에 불러오기마다 접속 제한 시간을 쓰지 않게).
     bool TryReconnectForLoad(DBWorkerSlot& slot, bool& reconnectFailedThisBatch);
     void PushResult(const DBResult& result);  // 워커 스레드 → 회신 큐

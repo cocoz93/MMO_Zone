@@ -165,6 +165,26 @@ void CSelfNotifier::SendMyJob(CPlayer* player)
     _sessionHub.SendPacket(player, buf);
 }
 
+void CSelfNotifier::SendMyName(CPlayer* player)
+{
+    CSerialBuffer* buf = CSerialBuffer::Alloc();
+    BeginPacket(buf, MSG_S2C_MY_NAME::TYPE);
+    WriteNameCells(buf, player->_name);
+    FinalizePacket(buf);
+    assert(buf->GetDataSize() == sizeof(MSG_S2C_MY_NAME));
+    _sessionHub.SendPacket(player, buf);
+}
+
+void CSelfNotifier::SendMyLook(CPlayer* player)
+{
+    CSerialBuffer* buf = CSerialBuffer::Alloc();
+    BeginPacket(buf, MSG_S2C_MY_LOOK::TYPE);
+    WriteBodyLook(buf, BodyLookOf(player->_body));
+    FinalizePacket(buf);
+    assert(buf->GetDataSize() == sizeof(MSG_S2C_MY_LOOK));
+    _sessionHub.SendPacket(player, buf);
+}
+
 // ==========================================================================
 // 스탯·경험치 보내기 — 세우는 규칙은 CStatSystem(StatSystem.cpp), 여기는 결과를 패킷으로만
 // ==========================================================================

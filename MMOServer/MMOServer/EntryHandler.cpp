@@ -16,6 +16,8 @@
 #include "SerialBuffer.h"
 #include "NetIoModel.h"       // CSession::ExtractIndex — 대기표 색인(세션 허브의 칸과 같은 색인)
 #include <Protocol/Protocol.h>
+#include <Identity/CharacterName.h>
+#include <Identity/CharacterLookBlob.h>
 #include <Common/ErrorLog.h>
 #include <cassert>
 #include <memory>             // std::make_unique — 스폰
@@ -25,6 +27,24 @@
 // ==========================================================================
 namespace
 {
+#if USE_DB_WORKER
+    // 소유 표의 바이트를 이름·몸으로 푼다 — 불량이면 로그를 남기고 그 칸만 없음으로 들여보낸다(입장까지 막을 일이 아니다).
+    //   존은 외형 표 번호를 판정하지 않는다 — 캐릭터 서버가 만들 때 봤고, 존은 옮기기만 한다.
+    void ApplyRoster(CPlayer* player, const DBResult& result)
+    {
+        if (!result.rosterFound)
+            return;
+
+        const bool nameFits = result.rosterName.len <= sizeof(result.rosterName.data);
+        if (!nameFits || !CharacterName::FromUtf8(reinterpret_cast<const char*>(result.rosterName.data), result.rosterName.len, player->_name))
+            SLOG_WARN("[DB] roster name unusable -> no name (character={}, bytes={})", result.characterId, result.rosterName.len);
+
+        const bool lookFits = result.rosterLook.len <= sizeof(result.rosterLook.data);
+        if (!lookFits || !CharacterLookBlob::Read(result.rosterLook.data, static_cast<int>(result.rosterLook.len), player->_body))
+            SLOG_WARN("[DB] roster look unusable -> no look (character={}, bytes={})", result.characterId, result.rosterLook.len);
+    }
+#endif
+
     // 존 이동 거절 사유 → 와이어 값 (MSG_S2C_ZONE_CHANGE_FAIL::reason — 0: 없음, 1: 가득 참, 2: 이미 해당 채널)
     uint8_t ToZoneChangeFailReason(ZoneChangeReject reject)
     {
@@ -247,6 +267,7 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
 #if USE_INVENTORY
         place.loaded = &result;   // 가방 줄 — 검사와 적재는 SpawnPlayer 가 한다(이 함수 안에서 동기로 불리므로 가리켜도 안전)
 #endif
+        place.roster = &result;              // 이름·몸 — 입장 번호 길만 값이 있다(rosterFound)
         place.cooldownsAndBuffs = &result;   // 쿨타임·버프 묶음 — 풀기·검사·칸 채우기도 SpawnPlayer 가 한다(같은 수명)
 
 #if USE_COMBAT
@@ -298,6 +319,7 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
 
     case DBResultCode::NOT_FOUND:
         enter._newCharacter.Inc();   // 새 캐릭터 — 기본 맵(마을) 시작 구역. 행은 첫 저장(UPSERT)이 만든다
+        place.roster = &result;      // 소유 표는 characters 행과 따로 있다
 #if USE_INVENTORY
         // ★ 캐릭터 행이 없어도 가방 줄은 있을 수 있다(첫 저장 전에 서버가 죽은 캐릭터) — 워커가 읽어 왔다. 그대로 넣는다.
         place.loaded = &result;
@@ -378,6 +400,9 @@ CPlayer* CEntryHandler::SpawnPlayer(SessionId sessionId, ActorId actorId, Charac
     //   USE_LOGIN=0 이면 접속 때 뽑은 actorId 와 같은 값(OnConnected)
     player->_characterId = characterId;
     player->_accountId   = accountId;   // 입장 번호 길만 값이 있다 — 시험 입장 길은 NO_ACCOUNT
+    // 이름·몸 — 패킷을 보내기 "전"에 세운다(남의 화면에 나갈 값이다)
+    if (place.roster != nullptr)
+        ApplyRoster(player, *place.roster);
     // 새 캐릭터·시작 위치면 true(첫 주기에 저장 → 신규 행 INSERT 유도), DB 에서 불러온 자리 그대로면 false
     player->_dbDirty   = place.dbDirty;
     // DB 가 들고 있는 값 — 아래 레벨 정산·체력 깎기가 바꾼 몫은 다음 주기 판정(ShouldSave)이 이 값과 견주어 싣는다.
@@ -476,7 +501,7 @@ void CEntryHandler::OnConnected(SessionId sessionId)
         //   플레이어도 존 입장도 패킷도 없다 — 스폰은 결과가 와야 한다(OnCharacterLoaded).
         //   그 사이에 온 패킷은 OnReceived 가 조용히 버린다(FindPlayer == nullptr).
         const CharacterId characterId = MakeDevCharacterId(actorId);
-        if (!_characterStore.RequestCharacterLoad(sessionId, characterId))
+        if (!_characterStore.RequestCharacterLoad(sessionId, characterId, false))
         {
             // 거절 = 결과가 안 온다. 매달아 두면 영영 안 들어오므로 끊는다(rejected 는 위에서 셌다).
             _sessionHub.RequestDisconnect(sessionId);
@@ -660,7 +685,9 @@ void CEntryHandler::RecvEnterGame(SessionId sessionId, CSerialBuffer* pMsg)
         KickDuplicateCharacter(characterId, sessionId);
 
     // ⑷ 조회를 던진다. 거절되면 결과가 안 오므로 매달아 두지 않고 끊는다(rejected 는 안에서 셌다).
-    if (!_characterStore.RequestCharacterLoad(sessionId, characterId))
+    //    소유 표는 입장 번호 길만 읽는다 — 시험 입장 길은 소유 구간이 막혀 행이 있을 수 없고, 더미의 DB 왕복이 그대로여야 한다.
+    const bool readRoster = (who.accountId != NO_ACCOUNT);
+    if (!_characterStore.RequestCharacterLoad(sessionId, characterId, readRoster))
     {
         PendingEnter gone;
         TakePendingEnter(sessionId, gone);

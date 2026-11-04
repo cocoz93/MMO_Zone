@@ -238,6 +238,12 @@ void CPlayerPlacement::NotifyArrival(CPlayer* player, CZone* zone, ArrivalKind k
         //   ★ 부하 더미도 이 한 장을 반드시 받는다 — 가방 전체와 같은 함정(더미 크기 표에서 빠지면 전원 떨어진다).
         _selfNotifier.SendMyJob(player);
 
+        // 3-0d) 내 이름 · 내 몸 — 접속 때만(입장 뒤 안 바뀐다). 값이 없으면 안 보낸다(옛 행 · 더미의 바이트가 그대로다)
+        if (player->_name[0] != 0)
+            _selfNotifier.SendMyName(player);
+        if (player->_body.gender != 0)
+            _selfNotifier.SendMyLook(player);
+
 #if USE_INVENTORY
         // 3-1) 가방 전체 — 빈 가방이어도 한 장. 존 이동 때는 안 보낸다(가방이 안 바뀐다).
         //   ★ 부하 더미가 이 패킷을 받는 유일한 길이 여기다(더미는 아이템을 안 받는다). 그래서 더미 시험과

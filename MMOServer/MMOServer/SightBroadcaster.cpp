@@ -368,6 +368,7 @@ void CSightBroadcaster::OnCharacterMoveStop(CZone* zone, CCharacter* character)
 //   ★ 등장 빌더(MakeCreateOtherPlayer · MakeCreatePlayerBatch)를 이 셋 밖에서 부르지 말 것 — 겉모습이 빠진 등장이 나간다
 //     (「그 길로 들어온 사람만 무기가 안 보이는」 꼴. 체력 막대가 같은 꼴로 빠졌던 적이 있다 — ShowToSectors 주석).
 //   겉모습은 _tickMembershipSends 에 안 센다 — 멤버십 변경(생성·삭제) 복사 수라 A/B 통제지표가 그대로이게.
+//   이름도 같은 길이다 — 등장 → 겉모습 → 이름 순서 · 이름 있는 사람만 · 안 센다(더미 바이트 그대로).
 void CSightBroadcaster::SendCreateOtherPlayer(CPlayer* target, CCharacter* who, SpawnReason reason)
 {
     ++_tickMembershipSends;   // 멤버십 변경 복사 집계 (BroadcastAroundSector 밖 경로)
@@ -375,6 +376,8 @@ void CSightBroadcaster::SendCreateOtherPlayer(CPlayer* target, CCharacter* who, 
     const ActorLook look = LookOf(who);
     if (HasLook(look))
         _sessionHub.SendPacket(target, MakeActorLook(who, look));   // 같은 송신 큐 — 등장 바로 뒤에 닿는다
+    if (const CPlayer* named = NamedPlayerOf(who))
+        _sessionHub.SendPacket(target, MakeActorName(named));
 }
 
 void CSightBroadcaster::SendDeletePlayer(CPlayer* target, CCharacter* who)
@@ -401,6 +404,8 @@ void CSightBroadcaster::SendCreatePlayerBatch(CPlayer* target, CCharacter* const
         const ActorLook look = LookOf(others[i]);
         if (HasLook(look))
             _sessionHub.SendPacket(target, MakeActorLook(others[i], look));
+        if (const CPlayer* named = NamedPlayerOf(others[i]))
+            _sessionHub.SendPacket(target, MakeActorName(named));
     }
 }
 
@@ -811,7 +816,7 @@ void CSightBroadcaster::RegisterOutboundToSectors(CZone* zone, ZoneId zoneId,
 }
 #endif // USE_MEMBERSHIP_DIGEST
 
-// 보이기(아웃바운드) — 「보이기」 절의 셋째 함수. 등장 1장 + 겉모습이 있으면 겉모습 1장을 같은 섹터들에 같은 길로 보낸다.
+// 보이기(아웃바운드) — 「보이기」 절의 셋째 함수. 등장 1장 + 겉모습이 있으면 겉모습 1장 + 이름이 있으면 이름 1장을 같은 섹터들에 같은 길로 보낸다.
 //   순서: 직송(DIGEST)은 섹터 칸 목록에 넣은 순서대로 쌓였다가 틱 끝에 그 순서로 이어 붙는다(RegisterSectorDirectItem · FlushSectorSends 의 직송 선연접) ·
 //         점프 폴백과 팬아웃은 그 자리에서 수신자 큐에 넣는다 — 어느 길이든 등장 바로 뒤에 겉모습이 닿는다.
 //   ★ 예전 이 자리는 등장 빌더를 직접 불렀다. 그때 체력(STATS)을 따로 실어야 했는데 빠뜨려 "내 HP 막대는 뜨는데 남의 것만 안 뜨는"
@@ -819,17 +824,22 @@ void CSightBroadcaster::RegisterOutboundToSectors(CZone* zone, ZoneId zoneId,
 void CSightBroadcaster::ShowToSectors(CZone* zone, const CSectorManager::SectorPos* sectors, int32_t sectorCount, CCharacter* player)
 {
     const ActorLook look = LookOf(player);
+    const CPlayer* named = NamedPlayerOf(player);
 #if USE_MEMBERSHIP_DIGEST
     // [Phase 4] "나를 생성" 1개 빌드 → 진입 섹터들에 직송 등록.
     //           1칸 이동은 진입 섹터에 자신이 없고, 멀티섹터 점프로 자기 현재 섹터가 끼면 그 섹터만 개별 폴백
     RegisterOutboundToSectors(zone, player->_zoneId, sectors, sectorCount, MakeCreateOtherPlayer(player, SpawnReason::NORMAL), player);
     if (HasLook(look))
         RegisterOutboundToSectors(zone, player->_zoneId, sectors, sectorCount, MakeActorLook(player, look), player);
+    if (named != nullptr)
+        RegisterOutboundToSectors(zone, player->_zoneId, sectors, sectorCount, MakeActorName(named), player);
 #else
     // "나를 생성" 1개 빌드 → 진입 섹터 전원에게 팬아웃 (자기 자신 제외)
     FanoutToSectors(zone, sectors, sectorCount, MakeCreateOtherPlayer(player, SpawnReason::NORMAL), player);
     if (HasLook(look))
         FanoutToSectors(zone, sectors, sectorCount, MakeActorLook(player, look), player);
+    if (named != nullptr)
+        FanoutToSectors(zone, sectors, sectorCount, MakeActorName(named), player);
 #endif
 }
 #endif // USE_MEMBERSHIP_FANOUT_DEDUP

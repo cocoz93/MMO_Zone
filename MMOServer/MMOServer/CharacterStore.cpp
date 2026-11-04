@@ -915,12 +915,13 @@ static int64_t SteadyNowNs()
         std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-bool CCharacterStore::RequestCharacterLoad(SessionId sessionId, CharacterId characterId)
+bool CCharacterStore::RequestCharacterLoad(SessionId sessionId, CharacterId characterId, bool readRoster)
 {
     DBLoadJob job;
     job.characterId = characterId;
     job.sessionId = sessionId;       // 결과가 돌아왔을 때 주인을 찾는 열쇠 — 세션 번호 "전체"
     job.requestNs = SteadyNowNs();
+    job.readRoster = readRoster;     // 소유 표도 읽나(DBLoadJob 주석)
 
     // 그 캐릭터의 떠난 기록이 실패 중이면 먼저 다시 싣는다 — 같은 슬롯 큐라 이 불러오기가 그 뒤에 줄 서서, 성공하면 새 값을 읽는다.
     //   비행 중이면 그대로 둔다(이미 앞에 있다). 확정 전에 온 불러오기 결과는 ProcessDbResults 가 실패로 돌린다.

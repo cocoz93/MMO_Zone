@@ -141,6 +141,8 @@ private:
         // 불러온 쿨타임·버프 묶음(characters.skill_cooldowns · buffs)이 든 결과 — 찾음 분기에서만 채운다. nullptr = 되살릴 것 없음(새 캐릭터).
         //   loaded 와 같은 수명이다. 풀기·검사·칸 채우기는 SpawnPlayer 의 RestoreCooldownsAndBuffs 가 한다.
         const DBResult* cooldownsAndBuffs = nullptr;
+        // 소유 표의 이름·몸이 든 결과 — 찾음·없음 분기에서 채운다. 같은 수명 · 풀기는 SpawnPlayer. nullptr = 안 읽음
+        const DBResult* roster = nullptr;
         bool            dropBuffs         = false;   // 죽은 채 저장된 행 — 버프는 버린다(죽으면 버프가 지워지는 규칙). 쿨타임은 되살린다(죽어도 남는 규칙)
 #endif
     };
