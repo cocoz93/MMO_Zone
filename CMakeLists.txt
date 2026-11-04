@@ -147,6 +147,7 @@ add_library(ServerCommonLib STATIC
     ${COMMON_DIR}/Link/ServerLinkConfig.cpp
     ${COMMON_DIR}/Link/LinkPeers.cpp
     ${COMMON_DIR}/Link/LinkRequests.cpp
+    ${COMMON_DIR}/Lobby/LobbyConfig.cpp
     ${COMMON_DIR}/Lobby/LobbyLoop.cpp
     ${COMMON_DIR}/Lobby/PacketTable.cpp
     ${COMMON_DIR}/Monitoring/CoreMetrics.cpp
@@ -327,6 +328,48 @@ set_target_properties(lockfree_headers_check PROPERTIES
 
 endif()  # UNIX
 
+# ═══════════════════════════════════════════════════════════
+#  AccountServer / account_server — 계정 서버 실행 파일
+#    이름을 플랫폼별로 가르는 규칙은 존 서버와 같다. 출력도 같은 Run/bin(런타임 DLL·INI가 거기 있음)
+# ═══════════════════════════════════════════════════════════
+set(ACCOUNT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/AccountServer)
+
+# 네트워크 없는 부품 — 단위 시험이 같이 빌드한다
+set(ACCOUNT_LOGIC_SOURCES
+    ${ACCOUNT_DIR}/AccountRules.cpp
+    ${ACCOUNT_DIR}/AuthTokenLedger.cpp
+    ${ACCOUNT_DIR}/AccountDb.cpp
+)
+
+set(ACCOUNT_SOURCES
+    ${ACCOUNT_LOGIC_SOURCES}
+    ${ACCOUNT_DIR}/main.cpp
+    ${ACCOUNT_DIR}/AccountServer.cpp
+    ${ACCOUNT_DIR}/AccountServerConfig.cpp
+    ${ACCOUNT_DIR}/AccountLoginFlow.cpp
+    ${ACCOUNT_DIR}/TokenCheckFlow.cpp
+    ${ACCOUNT_DIR}/AccountMetrics.cpp
+)
+
+if(WIN32)
+    set(ACCOUNT_TARGET AccountServer)
+else()
+    set(ACCOUNT_TARGET account_server)
+endif()
+
+add_executable(${ACCOUNT_TARGET} ${ACCOUNT_SOURCES})
+target_link_libraries(${ACCOUNT_TARGET} PRIVATE ServerCommonLib)
+target_include_directories(${ACCOUNT_TARGET} PRIVATE ${ACCOUNT_DIR})
+if(MSVC)
+    target_link_options(${ACCOUNT_TARGET} PRIVATE /SUBSYSTEM:CONSOLE /DEBUG
+                        $<$<CONFIG:Release>:/LTCG:incremental>)
+endif()
+set_target_properties(${ACCOUNT_TARGET} PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY         ${CMAKE_CURRENT_SOURCE_DIR}/Run/bin
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_CURRENT_SOURCE_DIR}/Run/bin
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG   ${CMAKE_CURRENT_SOURCE_DIR}/Run/bin
+)
+
 # ─────────────────────────────────────────────────────────────
 #  시험 — 외부 라이브러리 없음, 실패하면 종료 값 1. 빌드 폴더에 남기고 Run/bin에 안 넣는다
 # ─────────────────────────────────────────────────────────────
@@ -343,3 +386,8 @@ target_link_libraries(server_link_test PRIVATE ServerCommonLib)
 add_executable(enter_gate_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/EnterGateTest.cpp ${SRV_DIR}/EnterGate.cpp)
 target_include_directories(enter_gate_test PRIVATE ${SRV_DIR})
 target_link_libraries(enter_gate_test PRIVATE ServerCommonLib)
+
+# 계정 서버의 규칙 · 장부 · DB 문장 — 서버를 안 띄운다. 인자 <ini> <db> 를 주면 시험 DB 경쟁까지 본다
+add_executable(account_unit_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/AccountUnitTest.cpp ${ACCOUNT_LOGIC_SOURCES})
+target_include_directories(account_unit_test PRIVATE ${ACCOUNT_DIR})
+target_link_libraries(account_unit_test PRIVATE ServerCommonLib)
