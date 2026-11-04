@@ -29,6 +29,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 #include <string>    // LoadGameDataFiles 의 경로
 #include <thread>
@@ -133,8 +134,8 @@ private:
 
     // NetworkEvent 디스패치
     void ProcessNetworkEvents();
-    void OnDisconnected(int64_t sessionId);
-    void OnReceived(int64_t sessionId, CSerialBuffer* pMsg);
+    void OnDisconnected(SessionId sessionId);
+    void OnReceived(SessionId sessionId, CSerialBuffer* pMsg);
 
     // 「존에서 빠짐 · 떠남」 알림 (IPlacementEvents) — CPlayerPlacement 가 떠나보내기·놓기 안에서 부른다. 뜻은 PlayerPlacement.h.
     void OnLeavingZone(CCharacter* player) override;   // 부활 대기열에서 빼기 (전투)

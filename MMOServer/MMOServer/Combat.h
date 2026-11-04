@@ -15,6 +15,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 
 #include "BuildConfig.h"   // USE_COMBAT — 안 읽으면 아래 #if 가 조용히 0 이 된다
@@ -89,7 +90,7 @@ namespace Combat
     //   부르는 곳 둘: CCombatHandler::TickRespawn(부활 틱 — 죽고 3초 뒤) · CEntryHandler::OnCharacterLoaded(죽은 채 저장된 행 —
     //   나가기·부활 전 주기 저장·죽은 채 서버 다운). 두 클래스가 같이 쓰는 규칙이라 서로 부르지 않게 여기 순수 함수로 둔다
     //   (게임 서버 나누기 9 단계 — 전에는 CGameServer 멤버 함수였다).
-    inline bool RespawnsToTown(int32_t deathMapId, int32_t townMapId) { return deathMapId != townMapId; }
+    inline bool RespawnsToTown(MapId deathMapId, MapId townMapId) { return deathMapId != townMapId; }
 
 #endif // USE_COMBAT
 }

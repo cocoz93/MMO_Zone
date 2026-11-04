@@ -18,6 +18,7 @@
 //        오는 길은 회신 상자 하나(저장 회신 · 불러오기 결과) — 워커가 넣고, 게임 루프가 틱마다 통째로 꺼낸다.
 // ==========================================================================
 
+#include <Identity/GameIds.h>
 #include "BuildConfig.h"
 
 #include <cstdint>
@@ -114,11 +115,14 @@ constexpr uint8_t SAVE_PART_ALL      = SAVE_PART_CHAR_ROW;   // 나갈 때·종�
 //   칸 줄은 원소 안에 두지 않는다 — 슬롯 큐 옆 줄 벡터(DBWorkerSlot::rows)에 이어 붙이고 시작 자리만 든다.
 //   원소 안 고정 배열이면 대부분 0줄인 주기 묶음마다 칸 61줄(732B)이 붙는다.
 //   문장이 하나면(행만 · 칸 1줄만) 그 자체가 트랜잭션, 둘 이상이면 START TRANSACTION … COMMIT 으로 감싼다.
+// 저장 묶음의 주인 없음 — 저장소의 떠난 기록 · 종료 때 묶음(회신은 캐릭터 번호로 찾는다)
+inline constexpr SessionId NO_OWNER_SESSION{ 0 };
+
 struct DBSaveBundle
 {
     DBCharRow row;         // 캐릭터 행 10열(돈 열은 가방을 켠 빌드만) + 캐릭터(열 표 kCharColumns 가 이 꼴의 멤버를 가리킨다)
                            //   행 비트가 꺼져 있어도 캐릭터 번호는 늘 쓴다(큐 고르기 · 칸 문장 · 회신 · 로그)
-    int64_t   sessionId;   // 주인 — 살아 있는 사람의 세션 번호 · 0 = 저장소의 떠난 기록·종료(회신은 캐릭터 번호로 찾는다)
+    SessionId   sessionId;   // 주인 — 살아 있는 사람의 세션 번호 · 0 = 저장소의 떠난 기록·종료(회신은 캐릭터 번호로 찾는다)
     uint32_t  bundleNo;    // 회신과 짝을 맞추는 번호(0 은 안 씀)
     uint32_t  slotBegin;   // 줄 벡터 안 시작 자리 — 넣는 함수가 매긴다(부르는 쪽 값은 무시)
     int32_t   slotCount;   // 칸 줄 수(0 ~ 가방 칸 수)
@@ -129,8 +133,8 @@ struct DBSaveBundle
 // 저장 회신 — 모든 묶음이 하나씩 받는다(성공 · 실패). 무엇을 다시 실을지는 받는 쪽(저장소)이 정한다 — 워커는 주인을 모른다.
 struct DBSaveReply
 {
-    int64_t  characterId;
-    int64_t  sessionId;   // 묶음에 실어 보낸 값 그대로
+    CharacterId  characterId;
+    SessionId  sessionId;   // 묶음에 실어 보낸 값 그대로
     uint32_t bundleNo;
     bool     ok;
 };
@@ -138,8 +142,8 @@ struct DBSaveReply
 // 불러오기 잡 — 캐릭터 번호로 캐릭터 행을 읽는다. 저장과 달리 결과가 회신 큐로 돌아온다.
 struct DBLoadJob
 {
-    int64_t characterId;
-    int64_t sessionId;   // 결과의 주인. 게임 스레드가 세션 번호 "전체"로 대조한다(자리 재사용 방어)
+    CharacterId characterId;
+    SessionId sessionId;   // 결과의 주인. 게임 스레드가 세션 번호 "전체"로 대조한다(자리 재사용 방어)
     int64_t requestNs;   // 요청 시각(steady_clock, ns) — 요청→결과 수령 지연을 재는 기준
 };
 
@@ -220,8 +224,8 @@ struct DBResult
 {
     DBJobKind    kind;
     DBResultCode code;
-    int64_t      characterId;
-    int64_t      sessionId;   // 요청 때 실어 보낸 값 그대로
+    CharacterId      characterId;
+    SessionId      sessionId;   // 요청 때 실어 보낸 값 그대로
     int64_t      requestNs;   // 요청 때 실어 보낸 값 그대로
     float        x;           // ↓ FOUND 일 때만 유효 — 멤버 이름이 DBCharRow 와 같아야 한다(열 표가 이름으로 잇는다)
     float        y;
@@ -332,7 +336,7 @@ private:
     // 불러오기의 둘째 문장 — 가방 줄을 out.inv 에 채운다. 결말은 LoadOutcome 로(FOUND = 성공, 줄이 0 이어도).
     LoadOutcome RunInventoryLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out);
     // 가방 문장의 오류 분류(유실 / 그 밖). stmt 는 MYSQL_STMT* — 헤더를 mysql.h 로 더럽히지 않으려고 void*
-    static LoadOutcome ClassifyStmtError(void* stmt, const char* what, int64_t characterId);
+    static LoadOutcome ClassifyStmtError(void* stmt, const char* what, CharacterId characterId);
 #endif
     // 불러오기용 재연결 — 이 묶음에서 이미 실패했으면 시도하지 않는다(죽은 DB 에 불러오기마다 접속 제한 시간을 쓰지 않게).
     bool TryReconnectForLoad(DBWorkerSlot& slot, bool& reconnectFailedThisBatch);
@@ -355,14 +359,14 @@ private:
     enum class FaultKind : uint8_t { NONE, ERROR_AFTER, LOST_AFTER, DOWN, DELAY };
     FaultKind            _faultKind = FaultKind::NONE;
     int                  _faultArg = 0;
-    int64_t              _faultCharacter = 0;
+    CharacterId              _faultCharacter = NO_CHARACTER;
     std::atomic<int>     _faultTimesLeft{ 0 };
     std::atomic<int>     _faultDownLeft{ 0 };      // 남은 「재연결 실패」 수 — down 이 걸리면 채워지고 Connect 가 깎는다
     void LoadFaultPlan();
-    bool TakeFault(int64_t characterId);              // 이 캐릭터 묶음에 주입이 걸리나(남은 횟수 하나 깎음)
+    bool TakeFault(CharacterId characterId);              // 이 캐릭터 묶음에 주입이 걸리나(남은 횟수 하나 깎음)
 #endif
 
-    int SlotIndex(int64_t characterId) const    // characterId % K (음수 방어)
+    int SlotIndex(CharacterId characterId) const    // characterId % K (음수 방어)
     {
         return static_cast<int>(static_cast<uint64_t>(characterId) % static_cast<uint64_t>(_workerCount));
     }

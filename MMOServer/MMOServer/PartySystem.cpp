@@ -45,7 +45,7 @@ bool CPartySystem::IsMember(const Party& party, const CPlayer* p)
     return false;
 }
 
-CPlayer* CPartySystem::FindMember(Party& party, int32_t actorId)
+CPlayer* CPartySystem::FindMember(Party& party, ActorId actorId)
 {
     for (Party::Member& m : party.members)
     {
@@ -87,7 +87,7 @@ Party::Sent CPartySystem::SnapshotOf(const CPlayer* p)
 
 // ── 보내기 대행 — 알림과 계산을 한 자리에서 ──
 
-void CPartySystem::Notice(CPlayer* to, PartyNotice code, int32_t actorId)
+void CPartySystem::Notice(CPlayer* to, PartyNotice code, ActorId actorId)
 {
     _gameMonitor._party._notices[static_cast<int>(code)].Inc();
     _events.OnPartyNotice(to, code, actorId);
@@ -149,7 +149,7 @@ void CPartySystem::Request(CPlayer* me, CPlayer* target, uint64_t frame)
 {
     if (target == nullptr)
     {
-        Notice(me, PartyNotice::NO_TARGET, 0);
+        Notice(me, PartyNotice::NO_TARGET, NO_ACTOR);
         return;
     }
     if (target == me)
@@ -159,7 +159,7 @@ void CPartySystem::Request(CPlayer* me, CPlayer* target, uint64_t frame)
     }
     if (HasSent(me))
     {
-        Notice(me, PartyNotice::SELF_BUSY, 0);
+        Notice(me, PartyNotice::SELF_BUSY, NO_ACTOR);
         return;
     }
 
@@ -234,7 +234,7 @@ void CPartySystem::Answer(CPlayer* me, uint32_t requestId, bool accept, uint64_t
         ++i;
     if (i == _requests.size())
     {
-        Notice(me, PartyNotice::NO_REQUEST, 0);
+        Notice(me, PartyNotice::NO_REQUEST, NO_ACTOR);
         return;
     }
     const PendingRequest r = TakeRequest(i, accept ? PartyRequestEnd::ACCEPTED : PartyRequestEnd::DECLINED);
@@ -324,23 +324,23 @@ void CPartySystem::Leave(CPlayer* me)
     Party* party = PartyOf(me);
     if (party == nullptr)
     {
-        Notice(me, PartyNotice::NOT_IN_PARTY, 0);
+        Notice(me, PartyNotice::NOT_IN_PARTY, NO_ACTOR);
         return;
     }
     RemoveMember(*party, me, PartyLeave::LEAVE, true);
 }
 
-void CPartySystem::Kick(CPlayer* me, int32_t targetId)
+void CPartySystem::Kick(CPlayer* me, ActorId targetId)
 {
     Party* party = PartyOf(me);
     if (party == nullptr)
     {
-        Notice(me, PartyNotice::NOT_IN_PARTY, 0);
+        Notice(me, PartyNotice::NOT_IN_PARTY, NO_ACTOR);
         return;
     }
     if (party->leader != me)
     {
-        Notice(me, PartyNotice::NOT_LEADER, 0);
+        Notice(me, PartyNotice::NOT_LEADER, NO_ACTOR);
         return;
     }
     CPlayer* target = FindMember(*party, targetId);
@@ -357,17 +357,17 @@ void CPartySystem::Kick(CPlayer* me, int32_t targetId)
     RemoveMember(*party, target, PartyLeave::KICKED, true);
 }
 
-void CPartySystem::SetLeader(CPlayer* me, int32_t targetId)
+void CPartySystem::SetLeader(CPlayer* me, ActorId targetId)
 {
     Party* party = PartyOf(me);
     if (party == nullptr)
     {
-        Notice(me, PartyNotice::NOT_IN_PARTY, 0);
+        Notice(me, PartyNotice::NOT_IN_PARTY, NO_ACTOR);
         return;
     }
     if (party->leader != me)
     {
-        Notice(me, PartyNotice::NOT_LEADER, 0);
+        Notice(me, PartyNotice::NOT_LEADER, NO_ACTOR);
         return;
     }
     CPlayer* target = FindMember(*party, targetId);
@@ -389,12 +389,12 @@ void CPartySystem::Disband(CPlayer* me)
     Party* party = PartyOf(me);
     if (party == nullptr)
     {
-        Notice(me, PartyNotice::NOT_IN_PARTY, 0);
+        Notice(me, PartyNotice::NOT_IN_PARTY, NO_ACTOR);
         return;
     }
     if (party->leader != me)
     {
-        Notice(me, PartyNotice::NOT_LEADER, 0);
+        Notice(me, PartyNotice::NOT_LEADER, NO_ACTOR);
         return;
     }
     DisbandParty(*party);
@@ -504,7 +504,7 @@ void CPartySystem::DisbandParty(Party& party)
         _gameMonitor._party._memberRemoved[static_cast<int>(PartyLeave::DISBANDED)].Inc();
         _gameMonitor._party._members.Add(-1);
         _events.OnPartyInfo(m, nullptr);
-        Notice(m, PartyNotice::DISBANDED, 0);
+        Notice(m, PartyNotice::DISBANDED, NO_ACTOR);
     }
     _gameMonitor._party._ended.Inc();
     _gameMonitor._party._active.Add(-1);
@@ -528,7 +528,7 @@ void CPartySystem::BroadcastInfo(Party& party)
         _events.OnPartyInfo(m.player, &party);
 }
 
-void CPartySystem::BroadcastNotice(const Party& party, PartyNotice code, int32_t actorId)
+void CPartySystem::BroadcastNotice(const Party& party, PartyNotice code, ActorId actorId)
 {
     for (const Party::Member& m : party.members)
         Notice(m.player, code, actorId);

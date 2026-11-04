@@ -8,8 +8,8 @@
 #include <random>
 
 CZone::CZone(const CGameDataFiles& gameData)
-    : _zoneId(-1)
-    , _mapId(-1)
+    : _zoneId(NO_ZONE)
+    , _mapId(NO_MAP)
     , _mapWidth(0)
     , _mapHeight(0)
     , _blocks(gameData.Blocks())
@@ -27,7 +27,7 @@ CZone::~CZone()
     _characterList.clear();
 }
 
-bool CZone::Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHeight, int32_t sectorSize, const StartArea& start)
+bool CZone::Init(ZoneId zoneId, MapId mapId, int32_t mapWidth, int32_t mapHeight, int32_t sectorSize, const StartArea& start)
 {
     if (!_sectorManager.Init(mapWidth, mapHeight, sectorSize))
         return false;

@@ -69,7 +69,7 @@ bool CMapTable::Load(const std::string& path)
             SLOG_ERROR("[MapTable] {}줄: 맵 번호 {} 는 0~{} 여야 합니다", dl.fileLine, mapId, MAX_MAP_ID);
             return false;
         }
-        if (Find(static_cast<int32_t>(mapId)) != nullptr)
+        if (Find(MapId{ static_cast<int32_t>(mapId) }) != nullptr)
         {
             SLOG_ERROR("[MapTable] {}줄: 맵 번호 {} 가 겹칩니다", dl.fileLine, mapId);
             return false;
@@ -166,7 +166,7 @@ bool CMapTable::Load(const std::string& path)
         }
 
         MapDef d;
-        d.mapId    = static_cast<int32_t>(mapId);
+        d.mapId    = MapId{ static_cast<int32_t>(mapId) };
         d.width    = static_cast<int32_t>(width);
         d.height   = static_cast<int32_t>(height);
         d.kind     = kind;
@@ -189,7 +189,7 @@ bool CMapTable::Load(const std::string& path)
     return true;
 }
 
-const MapDef* CMapTable::Find(int32_t mapId) const
+const MapDef* CMapTable::Find(MapId mapId) const
 {
     for (const MapDef& d : _rows)
     {

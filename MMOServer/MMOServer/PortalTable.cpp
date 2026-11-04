@@ -67,8 +67,8 @@ bool CPortalTable::Load(const std::string& path, const CMapTable& maps)
         }
 
         // ⑵ 맵 — 둘 다 맵 표에 있고 서로 다르다(헤더 [맵 대조]). 번호가 상한 밖이면 맵 표에 없는 것과 같다
-        const MapDef* from = (mapId < 0 || mapId > CMapTable::MAX_MAP_ID) ? nullptr : maps.Find(static_cast<int32_t>(mapId));
-        const MapDef* to   = (targetMapId < 0 || targetMapId > CMapTable::MAX_MAP_ID) ? nullptr : maps.Find(static_cast<int32_t>(targetMapId));
+        const MapDef* from = (mapId < 0 || mapId > CMapTable::MAX_MAP_ID) ? nullptr : maps.Find(MapId{ static_cast<int32_t>(mapId) });
+        const MapDef* to   = (targetMapId < 0 || targetMapId > CMapTable::MAX_MAP_ID) ? nullptr : maps.Find(MapId{ static_cast<int32_t>(targetMapId) });
         if (from == nullptr || to == nullptr)
         {
             SLOG_ERROR("[PortalTable] {}줄: 맵 {} → {} — 둘 다 맵 표(MapTable.csv)에 있어야 합니다", dl.fileLine, mapId, targetMapId);
@@ -110,11 +110,11 @@ bool CPortalTable::Load(const std::string& path, const CMapTable& maps)
 
         PortalDef d;
         d.portalId    = static_cast<int32_t>(portalId);
-        d.mapId       = static_cast<int32_t>(mapId);
+        d.mapId       = MapId{ static_cast<int32_t>(mapId) };
         d.x           = static_cast<int32_t>(x);
         d.y           = static_cast<int32_t>(y);
         d.radius      = static_cast<int32_t>(radius);
-        d.targetMapId = static_cast<int32_t>(targetMapId);
+        d.targetMapId = MapId{ static_cast<int32_t>(targetMapId) };
         d.targetX     = static_cast<int32_t>(targetX);
         d.targetY     = static_cast<int32_t>(targetY);
         d.name        = cell[8];

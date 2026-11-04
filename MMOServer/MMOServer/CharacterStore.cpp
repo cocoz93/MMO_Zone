@@ -110,10 +110,10 @@ bool CCharacterStore::CharRowChanged(const CPlayer* player) const
 DBCharRow CCharacterStore::MakeCharRow(const CPlayer* player) const
 {
     DBCharRow row;
-    row.characterId = player->_characterId;
+    row.characterId = ToInt(player->_characterId);
     row.x         = player->_x;
     row.y         = player->_y;
-    row.mapId     = CMapManager::GetMapIdFromZoneId(player->_zoneId);
+    row.mapId     = ToInt(CMapManager::GetMapIdFromZoneId(player->_zoneId));
     row.level     = player->_level;
     row.exp       = player->_exp;
     row.job       = player->_job;
@@ -453,7 +453,7 @@ void CCharacterStore::SaveTrade(CPlayer* a, CPlayer* b)
     SendPair(_pairs.back(), SaveTrigger::TRADE);   // 거절돼도 고리는 남는다 — 다음 주기에 다시(TickSaves)
 }
 
-CCharacterStore::PairLink* CCharacterStore::FindPair(int64_t characterId, int* outSide)
+CCharacterStore::PairLink* CCharacterStore::FindPair(CharacterId characterId, int* outSide)
 {
     for (PairLink& link : _pairs)
     {
@@ -479,7 +479,7 @@ bool CCharacterStore::SendPair(PairLink& link, SaveTrigger trigger)
     for (int s = 0; s < 2; ++s)
     {
         _pairRows[s].clear();
-        if (link.session[s] != 0)
+        if (link.session[s] != NO_OWNER_SESSION)
         {
             player[s] = _sessionHub.FindPlayer(link.session[s]);
             assert(player[s] != nullptr && player[s]->_characterId == link.character[s] && "나가면 LeaveFinal 이 세션을 0 으로 바꾼다");
@@ -572,9 +572,9 @@ void CCharacterStore::OnPairReply(const DBSaveReply& reply)
         ReleasePairSide(done.character[s], done.session[s]);
 }
 
-void CCharacterStore::ReleasePairSide(int64_t characterId, int64_t sessionId)
+void CCharacterStore::ReleasePairSide(CharacterId characterId, SessionId sessionId)
 {
-    if (sessionId != 0)
+    if (sessionId != NO_OWNER_SESSION)
     {
         CPlayer* player = _sessionHub.FindPlayer(sessionId);
         if (player != nullptr && player->_characterId == characterId)
@@ -749,7 +749,7 @@ void CCharacterStore::TickSaves()
     }
 
     // ② 틱 끝 목록 — 세션 번호로 찾는다(같은 틱에 나간 사람은 없다 — 표시는 나갈 때 묶음이 실었다)
-    for (int64_t sessionId : _tickEndSessions)
+    for (SessionId sessionId : _tickEndSessions)
     {
         CPlayer* player = _sessionHub.FindPlayer(sessionId);
         if (player == nullptr)
@@ -791,7 +791,7 @@ void CCharacterStore::LeaveFinal(CPlayer* player, SaveTrigger trigger)
     DBSaveBundle head{};
     head.parts     = SAVE_PART_ALL;   // 판정 없이 다 쓴다(안전망) — ★ 0 은 「안 씀」이라 이 줄이 빠지면 나갈 때 행이 안 써진다
     head.row       = MakeCharRow(player);
-    head.sessionId = 0;   // 주인 = 떠난 기록(회신은 캐릭터 번호로 찾는다)
+    head.sessionId = NO_OWNER_SESSION;   // 주인 = 떠난 기록(회신은 캐릭터 번호로 찾는다)
     std::vector<DBInvRow> rows;
     FillFinalRows(player, rows);
     if (player->_dbFlight.bundleNo != 0)
@@ -807,7 +807,7 @@ void CCharacterStore::LeaveFinal(CPlayer* player, SaveTrigger trigger)
     {
         int side = 0;
         if (PairLink* link = FindPair(player->_characterId, &side))
-            link->session[side] = 0;
+            link->session[side] = NO_OWNER_SESSION;
         player->_dbFlight.paired = false;   // 플레이어는 곧 해제된다 — 고리는 기록 쪽이 든다
     }
     PutLeaveRecord(head, std::move(rows), trigger, hold);
@@ -815,7 +815,7 @@ void CCharacterStore::LeaveFinal(CPlayer* player, SaveTrigger trigger)
 
 void CCharacterStore::PutLeaveRecord(DBSaveBundle head, std::vector<DBInvRow>&& rows, SaveTrigger trigger, bool hold)
 {
-    const int64_t characterId = head.row.characterId;
+    const CharacterId characterId{ head.row.characterId };
     auto it = _leaveRecords.find(characterId);
     if (it != _leaveRecords.end())
     {
@@ -856,7 +856,7 @@ void CCharacterStore::OnSaveReply(const DBSaveReply& reply)
 {
     CGameMonitor::SaveCounters& counters = _gameMonitor._save;
 
-    if (reply.sessionId != 0)
+    if (reply.sessionId != NO_OWNER_SESSION)
     {
         // 살아 있는 사람 — 세션 번호 전체 + 캐릭터 + 비행 번호가 다 맞아야 주인이다
         CPlayer* player = _sessionHub.FindPlayer(reply.sessionId);
@@ -915,7 +915,7 @@ static int64_t SteadyNowNs()
         std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-bool CCharacterStore::RequestCharacterLoad(int64_t sessionId, int64_t characterId)
+bool CCharacterStore::RequestCharacterLoad(SessionId sessionId, CharacterId characterId)
 {
     DBLoadJob job;
     job.characterId = characterId;

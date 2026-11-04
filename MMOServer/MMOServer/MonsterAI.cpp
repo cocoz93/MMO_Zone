@@ -44,7 +44,7 @@ namespace
     void BeginWander(Decision& d, uint64_t frame)
     {
         d.nextState      = AIState::WANDER;
-        d.targetActorId  = -1;
+        d.targetActorId  = NO_TARGET_ACTOR;
         d.direction      = RandDirection();
         d.moveState      = MoveState::MOVING;
         d.stateEndFrame  = frame + RandFrames(WANDER_MIN_FRAMES, WANDER_MAX_FRAMES);   // 얼마나 오래
@@ -159,7 +159,7 @@ Decision Think(const CMonster& monster, const CCharacter* target, uint64_t frame
     {
         d.nextState     = AIState::IDLE;
         d.moveState     = MoveState::IDLE;
-        d.targetActorId = -1;
+        d.targetActorId = NO_TARGET_ACTOR;
         return d;
     }
 

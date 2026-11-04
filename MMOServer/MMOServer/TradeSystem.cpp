@@ -270,7 +270,7 @@ void CTradeSystem::Cancel(CPlayer* me)
 // ==========================================================================
 // 끝내기
 // ==========================================================================
-void CTradeSystem::EndSession(size_t i, TradeEnd why, int32_t actorId, const CPlayer* skip)
+void CTradeSystem::EndSession(size_t i, TradeEnd why, ActorId actorId, const CPlayer* skip)
 {
     TradeSession t = std::move(_sessions[i]);
     _sessions.erase(_sessions.begin() + static_cast<std::ptrdiff_t>(i));
@@ -283,7 +283,7 @@ void CTradeSystem::EndSession(size_t i, TradeEnd why, int32_t actorId, const CPl
         if (p == skip)
             continue;
         // DONE 이면 상대 번호 · 그 밖이면 끝낸 사람 번호
-        const int32_t who = (why == TradeEnd::DONE) ? t.side[1 - s].player->_actorId : actorId;
+        const ActorId who = (why == TradeEnd::DONE) ? t.side[1 - s].player->_actorId : actorId;
         _events.OnTradeEnd(p, why, who);
     }
 }
@@ -338,7 +338,7 @@ void CTradeSystem::Tick(uint64_t frame)
     {
         const PendingTrade& r = _requests[i];
         TradeEnd why = TradeEnd::COUNT;
-        int32_t who = 0;
+        ActorId who = NO_ACTOR;
         if (r.from->_health.IsDead())      { why = TradeEnd::DEAD; who = r.from->_actorId; }
         else if (r.to->_health.IsDead())   { why = TradeEnd::DEAD; who = r.to->_actorId; }
         else if (frame >= r.expireFrame)   { why = TradeEnd::EXPIRED; }
@@ -390,14 +390,14 @@ bool CTradeSystem::TryExecute(size_t i, uint64_t frame)
         if (frame - t.readyFrame >= TRADE_SAVE_WAIT_FRAMES)
         {
             SLOG_WARN("[TRADE] save wait over (trade={}, a={}, b={}) — 아무것도 안 바꾸고 끝낸다", t.id, a->_characterId, b->_characterId);
-            EndSession(i, TradeEnd::SAVE_DELAY, 0, nullptr);
+            EndSession(i, TradeEnd::SAVE_DELAY, NO_ACTOR, nullptr);
             return true;
         }
         _gameMonitor._trade._saveWaits.Inc();
         return false;
     }
 
-    int32_t who = 0;
+    ActorId who = NO_ACTOR;
     const TradeEnd r = Swap(t, who);
     if (r != TradeEnd::DONE)
     {
@@ -422,11 +422,11 @@ bool CTradeSystem::TryExecute(size_t i, uint64_t frame)
     _gameMonitor._trade._moneyMoved.Add(t.side[0].money + t.side[1].money);
 
     _events.OnTradeSwapped(a, b);
-    EndSession(i, TradeEnd::DONE, 0, nullptr);
+    EndSession(i, TradeEnd::DONE, NO_ACTOR, nullptr);
     return true;
 }
 
-TradeEnd CTradeSystem::Swap(TradeSession& t, int32_t& outWho)
+TradeEnd CTradeSystem::Swap(TradeSession& t, ActorId& outWho)
 {
     CPlayer* p[2] = { t.side[0].player, t.side[1].player };
 

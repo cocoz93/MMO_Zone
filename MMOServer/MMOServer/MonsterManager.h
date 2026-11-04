@@ -29,6 +29,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -59,7 +60,7 @@ public:
     virtual ~IMonsterEvents() = default;
 
     // 번호 하나 — 사건이 아니라 부탁이다. 번호 공간이 플레이어와 하나라서(단일 증가 카운터) 여기서 못 뽑는다.
-    virtual int32_t AllocActorId() = 0;
+    virtual ActorId AllocActorId() = 0;
 
     // 등장 — 지금 자리 주변에 CREATE(SPAWN). 깔 때.
     virtual void OnMonsterSpawn(CZone* zone, CMonster* monster) = 0;

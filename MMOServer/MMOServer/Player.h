@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 #include <string>
 #include <random>
@@ -53,7 +54,7 @@ public:
     int32_t _baseSpeed     = 0;   // 버프·GM 없는 바탕 속도 — 입장 때 정해진다. 지금 속도 _speed 는 스탯 세우기가 이 값으로 세운다(CStatSystem::BuildStats)
 
     // USE_DB_WORKER: 캐릭터 식별자 (1단계는 스폰 시 서버가 임시 부여, 2단계는 접속 핸드셰이크로 수신)
-    int64_t _characterId = 0;
+    CharacterId _characterId = NO_CHARACTER;
     // USE_DB_WORKER: 마지막 저장 이후 위치가 바뀌었는지 (주기 저장 대상 선별, 저장 후 리셋)
     //   정지·접속·존 변경·경계 클램프 때 켠다. 레벨·경험치·체력·마력은 여기가 아니라 아래 _dbSaved 비교로 본다.
     bool _dbDirty = false;
@@ -144,7 +145,7 @@ public:
 private:
     // 이 플레이어를 조종하는 네트워크 세션. -1 = 아직 없음 — 스폰 경로(CEntryHandler::SpawnPlayer)가
     //   EnterZone → 세션 부여(CSessionHub::AddPlayer) 순이라 EnterZone 시점엔 잠시 -1 이다. SendPacket 이 이 값을 검사한다.
-    int64_t _sessionId = -1;
+    SessionId _sessionId = NO_SESSION;
 };
 
 #if USE_PARTY

@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -32,7 +33,7 @@ class CSpawnRegionTable;
 // ==========================================================================
 struct BlockRect
 {
-    int32_t     mapId    = 0;
+    MapId     mapId{ 0 };
     int32_t     x0       = 0;   // 칸 번호 — 양끝 포함
     int32_t     y0       = 0;
     int32_t     x1       = 0;
@@ -57,15 +58,15 @@ public:
 #endif
 
     // 그 맵의 CWalkGrid — 막힌 줄이 없는 맵이면 nullptr(존은 판정을 통째로 건너뛴다)
-    const CWalkGrid* GridOf(int32_t mapId) const;
+    const CWalkGrid* GridOf(MapId mapId) const;
 
     const std::vector<BlockRect>& All() const { return _rows; }
 
 private:
     // 칸 사각형 [x0,x1]×[y0,y1](양끝 포함)이 막힌 칸을 하나라도 덮나
-    bool TouchesBlocked(int32_t mapId, int32_t x0, int32_t y0, int32_t x1, int32_t y1) const;
+    bool TouchesBlocked(MapId mapId, int32_t x0, int32_t y0, int32_t x1, int32_t y1) const;
 
-    struct MapGrid { int32_t mapId; CWalkGrid grid; };
+    struct MapGrid { MapId mapId; CWalkGrid grid; };
 
     std::vector<BlockRect> _rows;    // 파일 순서
     std::vector<MapGrid>   _grids;   // 막힌 줄이 있는 맵만. 맵이 몇 개뿐이라 찾기는 앞에서부터 훑는다(맵 표와 같은 꼴)

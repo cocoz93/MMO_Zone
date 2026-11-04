@@ -16,6 +16,7 @@
 //        (송신 함수 = 세션 허브 SendPacket · CSightBroadcaster::BroadcastAroundSector 의 CSerialBuffer* 오버로드).
 // ==========================================================================
 
+#include <Identity/GameIds.h>
 #include <cassert>
 #include <cstdint>
 
@@ -127,7 +128,7 @@ namespace PacketBuild
 
 #if USE_COMBAT
     // 부활 — 도착 때 본인에게(배치) · 부활을 주변에 방송(전투) 둘이 부른다
-    inline CSerialBuffer* MakeRespawn(int32_t targetId, float x, float y, int32_t hp)
+    inline CSerialBuffer* MakeRespawn(ActorId targetId, float x, float y, int32_t hp)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_RESPAWN::TYPE);
@@ -141,7 +142,7 @@ namespace PacketBuild
     }
 
     // 속도 바뀜 — 본인 + 주변(BroadcastAroundSector, excludeSelf=false — Protocol.h MSG_S2C_ACTOR_SPEED). 운영 명령 /gm · 속도 버프
-    inline CSerialBuffer* MakeActorSpeed(int32_t actorId, int32_t speed)
+    inline CSerialBuffer* MakeActorSpeed(ActorId actorId, int32_t speed)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_ACTOR_SPEED::TYPE);
@@ -153,7 +154,7 @@ namespace PacketBuild
     }
 
     // 체력 바뀜 — 전투 · 처치 보상 · 가방(물약) · 운영 명령이 주변에 방송한다
-    inline CSerialBuffer* MakeActorStats(int32_t actorId, int32_t hp, int32_t maxHp)
+    inline CSerialBuffer* MakeActorStats(ActorId actorId, int32_t hp, int32_t maxHp)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_ACTOR_STATS::TYPE);
@@ -170,7 +171,7 @@ namespace PacketBuild
     // 파티원 정보 구조체(Protocol.h PartyPerson 10B) — p 가 nullptr 이면 0 으로 채운다(ASK 의 about 이 없을 때).
     inline void WritePartyPerson(CSerialBuffer* buf, const CPlayer* p)
     {
-        *buf << static_cast<int>(p != nullptr ? p->_actorId : 0);
+        *buf << static_cast<int>(p != nullptr ? p->_actorId : NO_ACTOR);
         *buf << static_cast<uint8_t>(p != nullptr ? p->_displayChar : 0);
         *buf << static_cast<uint8_t>(p != nullptr ? p->_colorIndex : 0);
         *buf << static_cast<int>(p != nullptr ? p->_level : 0);

@@ -26,6 +26,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 #include <vector>
 
@@ -93,7 +94,7 @@ public:
     // 스킬 한 번 — 통과면 COUNT(비용을 떼고 효과까지 냈다), 아니면 거절 사유(아무것도 안 바뀌었다).
     //   skillId 는 와이어에서 온 값 그대로 넣어도 된다(표에 없으면 BAD_SKILL). frame = CGameServer::_frameCount.
     //   targetActorId = 대상 지정 기술(SkillTarget::TARGET)의 대상 — 와이어 값 그대로 넣어도 된다(SelectTargets 가 다시 본다). 다른 기술은 안 본다.
-    SkillReject UseSkill(CZone* zone, CCharacter* caster, int32_t skillId, uint64_t frame, int32_t targetActorId = 0);
+    SkillReject UseSkill(CZone* zone, CCharacter* caster, int32_t skillId, uint64_t frame, ActorId targetActorId = NO_ACTOR);
 
 private:
     // 1) 시전자 — 번호·가진 기술인가·생사·쿨타임·체력·마력. 통과면 COUNT 이고 outDef 에 스킬, outEntry 에 시전자 기술 목록의 그 항목
@@ -105,7 +106,7 @@ private:
                             CAttackComponent::SkillBookEntry*& outEntry, int32_t& outHpCost) const;
 
     // 2) 대상 축 — _targets 를 채운다. 하나도 없으면 NO_TARGET, 있으면 COUNT.
-    SkillReject SelectTargets(CZone* zone, CCharacter* caster, const SkillDef& def, int32_t targetActorId);
+    SkillReject SelectTargets(CZone* zone, CCharacter* caster, const SkillDef& def, ActorId targetActorId);
 
     // 6) 효과 축 — _targets 에 효과를 내고 버퍼를 비운다. hpBefore = 비용을 떼기 전 체력(피해 식의 바탕).
     void ApplyEffect(CZone* zone, CCharacter* caster, const SkillDef& def, int32_t hpBefore, uint64_t frame);

@@ -50,7 +50,7 @@ bool CBlockTable::Load(const std::string& path, const CMapTable& maps)
         const int64_t mapId = v[0], x0 = v[1], y0 = v[2], x1 = v[3], y1 = v[4];
 
         // ⑴ 맵 — 맵 표에 있어야 한다. 번호가 상한 밖이면 맵 표에 없는 것과 같다
-        const MapDef* map = (mapId < 0 || mapId > CMapTable::MAX_MAP_ID) ? nullptr : maps.Find(static_cast<int32_t>(mapId));
+        const MapDef* map = (mapId < 0 || mapId > CMapTable::MAX_MAP_ID) ? nullptr : maps.Find(MapId{ static_cast<int32_t>(mapId) });
         if (map == nullptr)
         {
             SLOG_ERROR("[BlockTable] {}줄: 맵 {} 가 맵 표(MapTable.csv)에 없습니다", dl.fileLine, mapId);
@@ -66,7 +66,7 @@ bool CBlockTable::Load(const std::string& path, const CMapTable& maps)
         }
 
         BlockRect r;
-        r.mapId    = static_cast<int32_t>(mapId);
+        r.mapId    = MapId{ static_cast<int32_t>(mapId) };
         r.x0       = static_cast<int32_t>(x0);
         r.y0       = static_cast<int32_t>(y0);
         r.x1       = static_cast<int32_t>(x1);
@@ -98,7 +98,7 @@ bool CBlockTable::Load(const std::string& path, const CMapTable& maps)
     return true;
 }
 
-const CWalkGrid* CBlockTable::GridOf(int32_t mapId) const
+const CWalkGrid* CBlockTable::GridOf(MapId mapId) const
 {
     for (const MapGrid& g : _grids)
     {
@@ -108,7 +108,7 @@ const CWalkGrid* CBlockTable::GridOf(int32_t mapId) const
     return nullptr;
 }
 
-bool CBlockTable::TouchesBlocked(int32_t mapId, int32_t x0, int32_t y0, int32_t x1, int32_t y1) const
+bool CBlockTable::TouchesBlocked(MapId mapId, int32_t x0, int32_t y0, int32_t x1, int32_t y1) const
 {
     const CWalkGrid* grid = GridOf(mapId);
     if (grid == nullptr)

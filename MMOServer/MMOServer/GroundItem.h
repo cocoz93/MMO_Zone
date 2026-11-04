@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 
 #include "BuildConfig.h"
@@ -25,7 +26,7 @@ struct CGroundItem
     Item     item;                    // 무엇이 몇 개 — 가방 칸과 같은 타입이라 줍기가 이것을 그대로 옮긴다
     float    x               = 0.0f;
     float    y               = 0.0f;
-    int64_t  ownerCharacterId  = 0;     // 막타 친 캐릭터 (0 = 주인 없음)
+    CharacterId  ownerCharacterId  = NO_CHARACTER;     // 막타 친 캐릭터 (0 = 주인 없음)
     uint64_t ownerUntilFrame = 0;     // 이 틱 전까지는 주인만 줍는다
     uint64_t expireFrame     = 0;     // 이 틱이 지나면 사라진다
 };

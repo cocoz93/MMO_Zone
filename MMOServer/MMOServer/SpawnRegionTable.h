@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -48,7 +49,7 @@ struct SpawnSpot
 
 struct SpawnRegion
 {
-    int32_t mapId     = 0;
+    MapId mapId{ 0 };
     int32_t x0        = 0;   // 구역 = [x0, x1) × [y0, y1) (칸)
     int32_t y0        = 0;
     int32_t x1        = 0;
@@ -73,11 +74,12 @@ public:
     bool Load(const std::string& path, const CMapTable& maps, const CMonsterTable& monsters);
 
     // 이 맵의 구역들 (없으면 빈 목록).
-    const std::vector<SpawnRegion>& RegionsOf(int32_t mapId) const
+    const std::vector<SpawnRegion>& RegionsOf(MapId mapId) const
     {
-        if (mapId < 0 || mapId >= static_cast<int32_t>(_byMap.size()))
+        const int32_t index = ToInt(mapId);   // 맵 번호가 곧 칸 번호다
+        if (index < 0 || index >= static_cast<int32_t>(_byMap.size()))
             return EMPTY;
-        return _byMap[static_cast<size_t>(mapId)];
+        return _byMap[static_cast<size_t>(index)];
     }
 
 private:

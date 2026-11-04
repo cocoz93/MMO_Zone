@@ -48,7 +48,7 @@ namespace
     }
 
     // 지속 효과 통보 — 본인에게만(Protocol.h MSG_S2C_ACTOR_BUFF). remainMs 0 = 풀림
-    CSerialBuffer* MakeActorBuff(int32_t actorId, uint16_t buffId, uint32_t remainMs)
+    CSerialBuffer* MakeActorBuff(ActorId actorId, uint16_t buffId, uint32_t remainMs)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_ACTOR_BUFF::TYPE);
@@ -128,7 +128,7 @@ namespace
 
 #if USE_SKILL
     // 남은 스킬 쿨타임 — 본인에게만(Protocol.h MSG_S2C_SKILL_COOLDOWN_REMAIN). remainMs 는 1 이상(다 돈 칸은 안 보낸다)
-    CSerialBuffer* MakeSkillCooldownRemain(int32_t actorId, uint16_t skillId, uint32_t remainMs)
+    CSerialBuffer* MakeSkillCooldownRemain(ActorId actorId, uint16_t skillId, uint32_t remainMs)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_SKILL_COOLDOWN_REMAIN::TYPE);
@@ -141,7 +141,7 @@ namespace
     }
 
     // 마력 — 본인 전용(SendActorMp 만 부른다). 모양은 ACTOR_STATS 꼴(대상 번호 먼저)
-    CSerialBuffer* MakeActorMp(int32_t actorId, int32_t mp, int32_t maxMp)
+    CSerialBuffer* MakeActorMp(ActorId actorId, int32_t mp, int32_t maxMp)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_ACTOR_MP::TYPE);

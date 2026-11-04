@@ -189,7 +189,7 @@ void CBuffSystem::Forget(CCharacter* target)
     RemoveFromList(target);   // 알림·재계산 없음 — 곧 해제되고 받을 세션도 없다
 }
 
-void CBuffSystem::ForgetZone(int32_t zoneId)
+void CBuffSystem::ForgetZone(ZoneId zoneId)
 {
     // 뒤엣것과 바꿔치기로 O(1) 제거 — 바꿔 온 것을 아직 안 봤으니 i 를 안 올린다(Tick 과 같은 꼴). 목록이 비어 있으면(보통) 바로 끝난다.
     for (size_t i = 0; i < _buffed.size(); )

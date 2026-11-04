@@ -18,6 +18,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 
 #include "BuildConfig.h"   // USE_DB_WORKER — 안 읽으면 아래 #if 가 조용히 0 이 된다
@@ -119,7 +120,7 @@ private:
     // 패킷별 전송 함수 (Fill + Send)
     void SendZoneInfo(CPlayer* target, CZone* zone);
     void SendCreateMyPlayer(CPlayer* target);
-    void SendZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex);
+    void SendZoneChangeOk(CPlayer* target, MapId mapId, int32_t channelIndex);
 
     CSessionHub&       _sessionHub;         // 한 사람 패킷 · 칸 비우기
     CSelfNotifier&     _selfNotifier;       // 도착 차례의 본인 상태 패킷

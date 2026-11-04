@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -28,7 +29,7 @@ class CShopTable;
 struct NpcDef
 {
     int32_t     npcId    = 0;
-    int32_t     mapId    = 0;
+    MapId     mapId{ 0 };
     int32_t     x        = 0;   // 서 있는 자리(좌표)
     int32_t     y        = 0;
     int32_t     radius   = 0;   // 이 거리 안이면 말 걸고 사고판다(칸) — 식은 Reach.h

@@ -37,7 +37,7 @@ CSkillSystem::CSkillSystem(const CGameDataFiles& tables, CGameMonitor& gameMonit
 {
 }
 
-SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skillId, uint64_t frame, int32_t targetActorId)
+SkillReject CSkillSystem::UseSkill(CZone* zone, CCharacter* caster, int32_t skillId, uint64_t frame, ActorId targetActorId)
 {
     // 지표는 시전자 종류로 갈라 센다 — 사람 몫(_cast·_rejected·_hits)과 몬스터 몫(_monster*)이 따로다(일반 공격이 종류로 갈라 세는 것과 같은 꼴).
     //   안 가르면 몬스터(보스)의 시전이 사람 시전 수에 섞인다. 몬스터가 스킬을 부르는 곳은 CMonsterManager::Think 다.
@@ -124,7 +124,7 @@ SkillReject CSkillSystem::CheckCaster(const CHealthComponent& health, CAttackCom
     return SkillReject::COUNT;   // 통과
 }
 
-SkillReject CSkillSystem::SelectTargets(CZone* zone, CCharacter* caster, const SkillDef& def, int32_t targetActorId)
+SkillReject CSkillSystem::SelectTargets(CZone* zone, CCharacter* caster, const SkillDef& def, ActorId targetActorId)
 {
     _targets.clear();
 

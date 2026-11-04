@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 
 // 4방향
@@ -86,7 +87,7 @@ public:
     CActor();
     virtual ~CActor();
 
-    int32_t _actorId;     // S2C 패킷 전용 엔티티 식별자 (서버 내부는 포인터로 식별)
+    ActorId _actorId;     // S2C 패킷 전용 엔티티 식별자 (서버 내부는 포인터로 식별)
 
     // 월드 좌표
     float _x;
@@ -101,7 +102,7 @@ public:
     int32_t _speed;
     bool    _rooted = false;   // 묶임 — 스탯 세우기가 걸린 버프(root)로 세운다. 지금은 몬스터 이동 결정만 본다(CMonsterManager::Think)
 
-    int32_t _zoneId;      // 소속 존 ID (-1: 미배정)
+    ZoneId _zoneId;      // 소속 존 ID (-1: 미배정)
 
     // 델타 동기화: 마지막 위치 동기화 시점의 좌표 — 「클라가 마지막으로 받은 자리」라는 송신 쪽 기록.
     //   읽고 쓰는 곳은 게임 서버뿐(보정 훑기 · 입장 · 이동 수용 · 존 이동 · 몬스터 등장 알림). 존 층은 안 건드린다.

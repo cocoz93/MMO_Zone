@@ -355,15 +355,15 @@ void CGameServer::ProcessNetworkEvents()
         switch (event.type)
         {
         case NetworkEvent::Type::CONNECTED:
-            _entryHandler.OnConnected(event.sessionId);
+            _entryHandler.OnConnected(SessionId{ event.sessionId });
             break;
 
         case NetworkEvent::Type::DISCONNECTED:
-            OnDisconnected(event.sessionId);
+            OnDisconnected(SessionId{ event.sessionId });
             break;
 
         case NetworkEvent::Type::RECEIVED:
-            OnReceived(event.sessionId, event.pMsg);
+            OnReceived(SessionId{ event.sessionId }, event.pMsg);
             // handle-latency: enqueue(recv) → 처리완료(응답 송신 포함) 시간.
             // 틱 게이트 대기 + 핸들러 비용 = RTT의 서버 기여분. RECEIVED만 측정.
             if (event.enqueueTimeNs != 0)
@@ -379,7 +379,7 @@ void CGameServer::ProcessNetworkEvents()
     }
 }
 
-void CGameServer::OnDisconnected(int64_t sessionId)
+void CGameServer::OnDisconnected(SessionId sessionId)
 {
     CPlayer* player = _sessionHub.FindPlayer(sessionId);
     if (player == nullptr)
@@ -463,7 +463,7 @@ void CGameServer::OnErasingZone(CZone* zone)
     (void)zone;   // 땅·전투·파티를 다 끈 빌드엔 할 일이 없다
 }
 
-void CGameServer::OnReceived(int64_t sessionId, CSerialBuffer* pMsg)
+void CGameServer::OnReceived(SessionId sessionId, CSerialBuffer* pMsg)
 {
     // [불변식] RECEIVED 생산자는 ParsePackets 한 곳뿐이고, 그 버퍼는 직전에 역참조된 Alloc 결과다.
     assert(pMsg != nullptr);

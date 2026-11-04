@@ -19,6 +19,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -47,7 +48,7 @@ public:
 
     // 칸에 넣기 — 세션 번호를 붙이고 칸이 주인이 된다.
     //   그 칸에 아직 살아 있는 플레이어가 있으면(있을 수 없는 경우) 옛 것은 해제하지 않고 놓아 버린다 — 몸의 주석.
-    void AddPlayer(int64_t sessionId, std::unique_ptr<CPlayer> owned);
+    void AddPlayer(SessionId sessionId, std::unique_ptr<CPlayer> owned);
 
     // 칸 비우기 — 주인이 칸이라 여기서 해제된다. 떠나보내기의 맨 끝이어야 한다(그 뒤로 player 를 못 쓴다).
     void RemovePlayer(CPlayer* player);
@@ -56,9 +57,9 @@ public:
     size_t SlotCount() const { return _slots.size(); }
 
     // 슬롯 조회 + 재사용 가드 — 등록된 세션이 아니면 nullptr
-    CPlayer* FindPlayer(int64_t sessionId) const
+    CPlayer* FindPlayer(SessionId sessionId) const
     {
-        uint16_t idx = CSession::ExtractIndex(sessionId);
+        uint16_t idx = CSession::ExtractIndex(ToInt(sessionId));
         // [불변식] idx < _slots.size() — 슬롯 배열은 Init에서 maxClients 칸으로 잡히고,
         //   세션 인덱스는 같은 maxClients로 잡힌 CIOCPServer 세션 배열의 인덱스라 항상 그 미만이다.
         //   ※ 바로 아래가 배열 인덱싱이다. 이 불변식이 깨지면 릴리즈에서는 곧장 범위 밖 접근이 된다
@@ -110,23 +111,28 @@ public:
     //   돌려주는 값 = 송신 큐에 들어갔나(네트워크 그대로). 게임 루프 송신이라 늘 Deferred(SendPacket 과 같다).
     bool RequestSend(CPlayer* target, CSerialBuffer* pMsg)
     {
-        return _network->RequestSendMsg(target->_sessionId, pMsg, SendFlush::Deferred);
+        return _network->RequestSendMsg(ToInt(target->_sessionId), pMsg, SendFlush::Deferred);
     }
     // 연접한 바이트 덩어리 넣기 — 수신섹터 digest(USE_BROADCAST_BUNDLE)가 주민마다 부른다. 버퍼 소유권이 없다(바이트 복사).
     bool RequestSendRaw(CPlayer* target, const char* data, int size)
     {
-        return _network->RequestSendRaw(target->_sessionId, data, size);
+        return _network->RequestSendRaw(ToInt(target->_sessionId), data, size);
     }
 
     // ── 액터 번호 발급 ──
     //   플레이어·몬스터·NPC 가 같이 쓴다(몬스터는 CMonsterHandler::AllocActorId — IMonsterEvents · NPC 는 CNpcHandler::AllocActorId — INpcEvents 를 거쳐 온다).
     //   단일 증가 카운터라 서로 충돌하지 않는다. int32 라 2^31 위로 못 올라온다(지정 캐릭터 번호 하한 DEV_CHARACTER_ID_MIN 이 여기에 기댄다).
-    int32_t AllocActorId() { return _nextActorId++; }
+    ActorId AllocActorId()
+    {
+        const ActorId id = _nextActorId;
+        _nextActorId = ActorId{ ToInt(id) + 1 };
+        return id;
+    }
 
     // ── 끊기 요청 ──
     //   세션 단위 일이라 보내기와 같은 네트워크(Init 에서 받은 것)에 넘긴다 — CEntryHandler 가 쓴다(접속 거절 · 불러오기 실패 · 같은 캐릭터 걷어내기 ·
     //   게임 서버 나누기 12 단계). 네트워크는 게임 서버의 Init 에서 생겨 모듈이 생성 때 받을 수 없어 여기를 거친다. 실제 끊김은 끊김 이벤트로 돌아온다.
-    bool RequestDisconnect(int64_t sessionId) { return _network->RequestDisconnectSession(sessionId); }
+    bool RequestDisconnect(SessionId sessionId) { return _network->RequestDisconnectSession(ToInt(sessionId)); }
 
 private:
     CMonitorManager& _monitor;        // 코어 지표 — 보낸 수·바이트(SendPacket)
@@ -140,5 +146,5 @@ private:
     //     입장 중 슬롯에 넣기 전까지는 CEntryHandler::SpawnPlayer 의 지역 unique_ptr 가 든다.
     std::vector<std::unique_ptr<CPlayer>> _slots;
 
-    int32_t _nextActorId = 1;  // 전역 액터 번호 카운터 (싱글스레드 게임 루프)
+    ActorId _nextActorId{ 1 };  // 전역 액터 번호 카운터 (싱글스레드 게임 루프)
 };

@@ -14,6 +14,7 @@
 // [모르는 것] 세션·플레이어 찾기·버퍼 해제는 부르는 쪽(CGameServer::OnReceived) 몫이다.
 // ==========================================================================
 
+#include <Identity/GameIds.h>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -28,7 +29,7 @@ class CPacketRoutes
 {
 public:
     using PlayerHandler  = std::function<void(CPlayer*, CSerialBuffer*)>;
-    using SessionHandler = std::function<void(int64_t, CSerialBuffer*)>;
+    using SessionHandler = std::function<void(SessionId, CSerialBuffer*)>;
 
     struct Route
     {

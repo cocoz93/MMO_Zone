@@ -45,7 +45,7 @@ void CMonsterHandler::TickMonsters()
 
 // ── 몬스터 알림과 번호 부탁 (IMonsterEvents) ── 보내기는 CSightBroadcaster(BroadcastSpawn) · 존에서 빼기는 배치(RemoveFromZone).
 
-int32_t CMonsterHandler::AllocActorId()
+ActorId CMonsterHandler::AllocActorId()
 {
     return _sessionHub.AllocActorId();   // 단일 증가 카운터라 플레이어와 충돌하지 않는다
 }

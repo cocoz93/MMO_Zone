@@ -25,6 +25,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -39,7 +40,7 @@ class CGameDataFiles;   // GameDataFiles.h — 존을 만들 때 건네기만 �
 // 맵 설정 데이터
 struct MapConfig
 {
-    int32_t mapId;
+    MapId mapId;
     int32_t mapWidth;
     int32_t mapHeight;
     int32_t sectorSize;
@@ -241,20 +242,20 @@ public:
 
     // 기본 접속 맵 = 처음 등록한 맵 = 맵 표 첫 줄(마을 — MapTable.h). 등록 차례가 곧 표 차례다(CGameServer::Init 이 표 순서로 부른다).
     //   새 캐릭터 · 저장된 맵이 없을 때 · 죽은 채 저장됐을 때 · 마을 부활이 여기로 간다. 등록 전엔 0.
-    int32_t GetDefaultMapId() const { return _defaultMapId; }
+    MapId GetDefaultMapId() const { return _defaultMapId; }
 
     // 채널 자동 배정 — 여유 있는 채널 반환, 없으면 동적 생성(CFieldMap). 방 맵은 일반 표에 없어 nullptr(로그인·포털 자동 배정이 방에 안 들어가게)
-    CZone* FindOrCreateChannel(int32_t mapId, bool isAdmin = false);
+    CZone* FindOrCreateChannel(MapId mapId, bool isAdmin = false);
 
     // 방 만들기 — 방 맵의 빈 번호로 새 채널(CRoomMap::CreateRoom). 맵이 없거나 방 맵이 아니거나 번호가 다 찼으면 nullptr
     //   들어갈 자격(파티·생존·잠금)은 여기서 안 본다 — 게임 서버가 판정한 뒤 부른다
-    CZone* CreateRoom(int32_t mapId);
+    CZone* CreateRoom(MapId mapId);
 
     // 방 맵인가 = 방 표(_roomMaps)에 있나 — 없는 맵이면 false
-    bool IsRoomMap(int32_t mapId) const;
+    bool IsRoomMap(MapId mapId) const;
 
     // 특정 채널 조회 — 존재하지 않으면 nullptr (자동 생성 안 함)
-    CZone* FindChannel(int32_t mapId, int32_t channelIndex);
+    CZone* FindChannel(MapId mapId, int32_t channelIndex);
 
     // 존 이동 목적지 고르기 — 지금 존에서 받은 요청(맵·채널)으로 목적지 존 또는 거절 사유를 돌려준다
     //   targetChannelIndex >= 0 : 지금 맵의 그 채널 (targetMapId 는 안 본다) — 없음 · 같은 존 · 정원 순으로 거절.
@@ -262,7 +263,7 @@ public:
     //   targetChannelIndex <  0 : 자동 배정 — 운영자만(아니면 NOT_ALLOWED — 다른 맵으로 가는 길은 포털).
     //                             targetMapId == -1 이면 지금 맵을 뺀 무작위 맵. 없음 · 같은 존 순으로 거절
     //   자동 배정은 채널을 새로 만들 수 있다(FindOrCreateChannel)
-    ZoneChangeTarget PickZoneChangeTarget(int32_t currentZoneId, int32_t targetMapId, int32_t targetChannelIndex, bool isAdmin);
+    ZoneChangeTarget PickZoneChangeTarget(ZoneId currentZoneId, MapId targetMapId, int32_t targetChannelIndex, bool isAdmin);
 
     // 빈 방 정리 (플레이어 0명인 방) — 판정은 CRoomMap 한 곳. 일반 맵 채널은 안 지운다(CFieldMap [책임] ★).
     //   여기는 지우기 직전 알림을 가로채 조회표(_zoneCache)에서 빼고 onBeforeErase 를 이어 부른다 — 뜻·계약은 CRoomMap::CloseEmptyRooms 주석 참조.
@@ -270,13 +271,13 @@ public:
     void CloseEmptyRooms(const std::function<void(CZone*)>& onBeforeErase);
 
     // 존 조회 (zoneId로 직접 접근)
-    CZone* GetZone(int32_t zoneId);
+    CZone* GetZone(ZoneId zoneId);
 
     // 전체 존 Tick — 섹터 변경은 존마다 대기열에 쌓인다(CZone::GetSectorChanges). 걷기·멈춤 알림은 events 로 건네기만
     void TickAll(float deltaTime, IZoneEvents& events);
 
     // 현재 맵을 제외한 랜덤 맵 ID 반환 (-1이면 선택 불가) — 일반 표에서만 뽑는다(방 맵은 자동 배정이 nullptr 이라 뽑히면 늘 실패)
-    int32_t GetRandomMapId(int32_t excludeMapId) const;
+    MapId GetRandomMapId(MapId excludeMapId) const;
 
     // 전체 존 순회 콜백 — 일반 맵 다음 방 맵
     template<typename Fn>
@@ -294,19 +295,19 @@ public:
     //   10-17 1000 → 10000 — 방 맵은 채널 하나가 파티 하나라, 2인 파티 999개(1,998명)면 차던 것을 넓혔다(room-plan.md 「채널 상한」).
     //   최대 존 번호 = 맵 번호 상한(CMapTable::MAX_MAP_ID 1000) × 10000 + 9999 ≈ 1천만 — int32 안. 와이어·DB 에는 존 번호가 안 나간다
     static constexpr int32_t CHANNELS_PER_MAP = 10000;
-    static int32_t MakeZoneId(int32_t mapId, int32_t channelIndex);
-    static int32_t GetMapIdFromZoneId(int32_t zoneId);
-    static int32_t GetChannelIndexFromZoneId(int32_t zoneId);
+    static ZoneId MakeZoneId(MapId mapId, int32_t channelIndex);
+    static MapId GetMapIdFromZoneId(ZoneId zoneId);
+    static int32_t GetChannelIndexFromZoneId(ZoneId zoneId);
 
 private:
     const CGameDataFiles& _gameData;   // 생성자 주석 — 맵마다 만들 때 건넨다
 
     // mapId → 맵 정책 — 한 맵 번호는 둘 중 한 표에만 있다(RegisterMap 이 중복을 막는다)
-    std::unordered_map<int32_t, CFieldMap> _fieldMaps;   // 마을·사냥터
-    std::unordered_map<int32_t, CRoomMap>  _roomMaps;    // 방 맵(instance)
+    std::unordered_map<MapId, CFieldMap> _fieldMaps;   // 마을·사냥터
+    std::unordered_map<MapId, CRoomMap>  _roomMaps;    // 방 맵(instance)
 
     // zoneId → CZone* 플랫 캐시 (GetZone 해시 2회 → 1회 최적화, 채널 생성/삭제 시 갱신)
-    std::unordered_map<int32_t, CZone*> _zoneCache;
+    std::unordered_map<ZoneId, CZone*> _zoneCache;
 
-    int32_t _defaultMapId = 0;   // 기본 접속 맵 — RegisterMap 이 첫 성공 때 정한다(GetDefaultMapId)
+    MapId _defaultMapId{ 0 };   // 기본 접속 맵 — RegisterMap 이 첫 성공 때 정한다(GetDefaultMapId)
 };

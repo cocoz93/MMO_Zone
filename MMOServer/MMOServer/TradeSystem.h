@@ -35,6 +35,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 #include <vector>
 
@@ -80,7 +81,7 @@ public:
     virtual void OnTradeAsk(CPlayer* to, uint32_t requestId, const CPlayer* from, uint32_t remainMs) = 0;   // S2C_TRADE_ASK
     virtual void OnTradeAskEnd(CPlayer* to, uint32_t requestId, TradeEnd why) = 0;                       // S2C_TRADE_ASK_END
     virtual void OnTradeState(CPlayer* to, const TradeSession& trade, int mySide) = 0;                   // S2C_TRADE_STATE(mine = side[mySide])
-    virtual void OnTradeEnd(CPlayer* to, TradeEnd why, int32_t actorId) = 0;                             // S2C_TRADE_END
+    virtual void OnTradeEnd(CPlayer* to, TradeEnd why, ActorId actorId) = 0;                             // S2C_TRADE_END
     virtual void OnTradeFail(CPlayer* to, TradeFail why) = 0;                                            // S2C_TRADE_FAIL
     // 저장 쪽이 지금 짝 묶음을 받을 수 있나 — 맞바꾸기 직전(거짓이면 다음 틱에 다시)
     virtual bool CanSaveSwap(const CPlayer* a, const CPlayer* b) = 0;
@@ -140,11 +141,11 @@ private:
     // 신청 표에서 i 번째를 뺀다 — 끝난 까닭을 센다(받아들여진 것은 _opened 가 센다). 알림은 부르는 쪽 몫
     PendingTrade TakeRequest(size_t i, TradeEnd why, bool accepted);
     // 거래창을 끝낸다 — 두 가방 잠금을 풀고, 두 사람(skip 빼고)에게 END(why, actorId)
-    void EndSession(size_t i, TradeEnd why, int32_t actorId, const CPlayer* skip);
+    void EndSession(size_t i, TradeEnd why, ActorId actorId, const CPlayer* skip);
     // 둘 다 닫힌 거래창 — 저장 쪽 기다림 · 다시 판정 · 맞바꾸기. 끝났으면 true(거래창이 지워졌다)
     bool TryExecute(size_t i, uint64_t frame);
     // 맞바꾸기 판정·적용 — TradeEnd::DONE 이면 원본에 대입했다 · 그 밖이면 원본 무변경. outWho = 걸린 사람
-    TradeEnd Swap(TradeSession& t, int32_t& outWho);
+    TradeEnd Swap(TradeSession& t, ActorId& outWho);
     // 이 사람이 낀 신청·거래를 다 끝낸다(OnLeavingZone · Forget 공용) — skip 이면 이 사람에게는 안 보낸다
     void Drop(CPlayer* player, TradeEnd why, bool skipSelf);
 

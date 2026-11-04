@@ -22,6 +22,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -58,7 +59,7 @@ public:
     //   why 는 PICKED(pickerId = 주운 사람)·EXPIRED(pickerId = 0) 둘뿐이다(CLEANED 는 알릴 사람이 없어 ForgetAll 이 센다).
     //   와이어 값(GroundItemGone)으로 바꾸는 건 받는 쪽 — 여기는 「왜 빠졌나」만 말한다.
     virtual void OnGroundItemGone(CZone* zone, int32_t sectorX, int32_t sectorY,
-                                  int32_t groundId, GroundItemRemoval why, int32_t pickerId) = 0;
+                                  int32_t groundId, GroundItemRemoval why, ActorId pickerId) = 0;
 };
 
 // 부를 때마다 넘기는 묶음 — 게임 서버가 만든다(존을 만들 때 꽂지 않는다. MonsterContext 와 같은 까닭).
@@ -88,13 +89,13 @@ public:
     //   주인 = ownerCharacterId(막타 친 캐릭터), LOOT_LOCK_FRAMES 동안 먼저 줍는다. GROUND_ITEM_LIFE_FRAMES 뒤 사라진다.
     //   아이템마다 목록에 넣은 뒤 OnGroundItemDrop 으로 알린다.
     void Drop(const GroundItemContext& ctx, const std::vector<Item>& loot,
-              float x, float y, int64_t ownerCharacterId, uint64_t frame);
+              float x, float y, CharacterId ownerCharacterId, uint64_t frame);
 
     // 땅에서 빼는 한 자리 — 알림(OnGroundItemGone) · 사유별 계수 · 게이지 · 목록에서 빼기(자리 바꿔 빼기).
     //   줍기(PICKED)·사라지기(EXPIRED) 둘 다 여기로 온다. 채널 정리(CLEANED)는 알릴 사람이 없어 ForgetAll 이 센다.
     //   ★ 빼면 index 자리로 뒤엣것이 온다 — 훑으며 부르는 쪽은 index 를 올리지 말 것.
     void Remove(const GroundItemContext& ctx, int32_t sectorX, int32_t sectorY, size_t index,
-                GroundItemRemoval why, int32_t pickerId);
+                GroundItemRemoval why, ActorId pickerId);
 
     // 게임 루프 3-3 — 섹터를 훑어 수명이 다한 것을 뺀다. 이 존 땅에 아무것도 없으면 훑지 않는다.
     //   몇 틱마다 부를지는 게임 서버가 정한다(GROUND_ITEM_SCAN_FRAMES) — 존마다 세면 존이 생긴 틱에 따라

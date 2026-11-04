@@ -32,6 +32,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 #include <vector>
 #include <unordered_map>
@@ -75,7 +76,7 @@ struct Party
         int32_t hp    = 0;
         int32_t maxHp = 0;
         int32_t level = 0;
-        int32_t mapId = -1;
+        MapId mapId = NO_MAP;
     };
     struct Member
     {
@@ -100,7 +101,7 @@ public:
     // 그 요청이 무효가 됐다(S2C_PARTY_ASK_END) — why = EXPIRED · CANCELLED
     virtual void OnPartyAskEnd(CPlayer* to, uint32_t requestId, PartyNotice why) = 0;
     // 알림 한 줄(S2C_PARTY_NOTICE) — actorId = 관련 사람(없으면 0)
-    virtual void OnPartyNotice(CPlayer* to, PartyNotice code, int32_t actorId) = 0;
+    virtual void OnPartyNotice(CPlayer* to, PartyNotice code, ActorId actorId) = 0;
     // 파티 전체(S2C_PARTY_INFO) — party 가 nullptr 이면 파티 없음(빠진 사람에게)
     virtual void OnPartyInfo(CPlayer* to, const Party* party) = 0;
     // 파티원 한 명의 줄(S2C_PARTY_MEMBER) — member 의 지금 값을 읽어 보낸다
@@ -126,8 +127,8 @@ public:
 
     // 나가기 · 내보내기 · 파티장 넘기기 · 해산 — 뒤 셋은 파티장만. 대상은 우리 파티원 중 actorId 로 찾는다(맵이 달라도 된다).
     void Leave(CPlayer* me);
-    void Kick(CPlayer* me, int32_t targetId);
-    void SetLeader(CPlayer* me, int32_t targetId);
+    void Kick(CPlayer* me, ActorId targetId);
+    void SetLeader(CPlayer* me, ActorId targetId);
     void Disband(CPlayer* me);
 
     // 틱마다 1회(게임 루프 3-2c) — 요청 시간 지남 · 파티원 상태 비교(MEMBER_SCAN_FRAMES 마다). 둘 다 비면 바로 끝난다.
@@ -138,7 +139,7 @@ public:
 
     // 알림 한 줄 — 번호별로 세고(_party._notices) 내보낸다. 방 들어가기 거절(파티 없음 · 파티장 아님 · 방 거절 셋)도 CPartyHandler::SendRoomReject 가 이 길로 보낸다 —
     //   보내는 자리가 둘로 갈려도 세는 자리는 여기 하나다
-    void Notice(CPlayer* to, PartyNotice code, int32_t actorId);
+    void Notice(CPlayer* to, PartyNotice code, ActorId actorId);
 
     // 읽기 — 이 사람의 파티(없으면 nullptr). 방 들어가기 판정(Room.h CheckRoomEntry)이 파티장·파티원 목록을 읽는다.
     //   바꾸는 길은 위 공개 함수뿐이다 — 돌려준 주소는 다음 파티 변화까지만 믿을 것(같은 처리 안에서 읽고 끝낸다)
@@ -158,7 +159,7 @@ private:
 
     Party* PartyOf(const CPlayer* p);
     static bool IsMember(const Party& party, const CPlayer* p);
-    CPlayer* FindMember(Party& party, int32_t actorId);
+    CPlayer* FindMember(Party& party, ActorId actorId);
     bool HasReceived(const CPlayer* p) const;   // 답할 요청이 있나(받는 사람 하나씩)
     bool HasSent(const CPlayer* p) const;       // 내가 누른 요청이 아직 있나(보내는 사람 하나씩)
 
@@ -182,7 +183,7 @@ private:
     void ChangeLeader(Party& party, CPlayer* newLeader);
     // 전원에게 INFO — 사본(sent)을 지금 값으로 맞춘다(바로 뒤 상태 비교가 같은 값을 또 보내지 않게).
     void BroadcastInfo(Party& party);
-    void BroadcastNotice(const Party& party, PartyNotice code, int32_t actorId);
+    void BroadcastNotice(const Party& party, PartyNotice code, ActorId actorId);
 
     void Expire(uint64_t frame);
     void ScanMembers();

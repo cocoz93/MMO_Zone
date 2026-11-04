@@ -112,7 +112,7 @@ private:
     void OnGroundItemDrop(CZone* zone, const CGroundItem& item,
                           int32_t sectorX, int32_t sectorY) override;         // 주변에 CREATE(DROP)
     void OnGroundItemGone(CZone* zone, int32_t sectorX, int32_t sectorY,
-                          int32_t groundId, GroundItemRemoval why, int32_t pickerId) override;   // 주변 + 같은 틱 이동자에게 DELETE — 와이어 값 변환은 여기
+                          int32_t groundId, GroundItemRemoval why, ActorId pickerId) override;   // 주변 + 같은 틱 이동자에게 DELETE — 와이어 값 변환은 여기
     //   두 알림의 보내기(주변 · 같은 틱 이동자 · 한 사람에게 보이기·지우기)는 CSightBroadcaster(_sightBroadcaster) — 게임 서버 나누기 3 단계
 #endif
 

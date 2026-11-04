@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -28,11 +29,11 @@ class CMapTable;
 struct PortalDef
 {
     int32_t     portalId    = 0;
-    int32_t     mapId       = 0;   // 포털이 있는 맵
+    MapId     mapId{ 0 };         // 포털이 있는 맵
     int32_t     x           = 0;   // 포털 자리(좌표)
     int32_t     y           = 0;
     int32_t     radius      = 0;   // 이 거리 안이면 쓸 수 있다(칸)
-    int32_t     targetMapId = 0;   // 가는 맵
+    MapId     targetMapId{ 0 };   // 가는 맵
     int32_t     targetX     = 0;   // 도착 자리(좌표)
     int32_t     targetY     = 0;
     std::string name;              // 안내 글자 — 웹이 띄운다(같은 파일을 serve.js 로 받는다). 서버는 로그에만 쓴다

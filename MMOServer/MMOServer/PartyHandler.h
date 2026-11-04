@@ -18,6 +18,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 
 #include "BuildConfig.h"     // USE_PARTY — 안 읽으면 아래 #if 가 조용히 0 이 된다
@@ -65,7 +66,7 @@ public:
 
     // 방 다시 들어가기 잠금 넣기 — 방 보상이 사람마다 부른다(캐릭터 · 방 맵 → 풀리는 틱). 같은 캐릭터·맵이 있으면 덮는다(CRoomLocks::Lock).
     //   표 크기 게이지(_gameMonitor._room._locks)도 여기서 맞춘다 — 표를 바꾸는 두 길(넣기 · 빼기)이 다 이 클래스 안이라 게이지가 늘 표와 같다.
-    void LockRoomReentry(int64_t characterId, int32_t mapId, uint64_t untilFrame);
+    void LockRoomReentry(CharacterId characterId, MapId mapId, uint64_t untilFrame);
 
     // 틱 3-2c(파티 규칙의 틱 뒤) — 초마다 풀린 잠금 빼기 · 표 크기 게이지.
     void TickRoomLocks();
@@ -83,12 +84,12 @@ private:
 
     // 내 주변 9섹터(시야 — 내 화면에 그려질 수 있는 곳)의 사람 중 이 번호 — 없으면 nullptr. 몬스터는 안 본다(플레이어 목록만).
     //   서버에 번호 → 사람 표가 없어서(세션 번호로만 찾는다 — FindPlayer) 화면에서 누른 사람을 여기서 찾는다. 「화면에 보이는 사람」 검사를 겸한다.
-    CPlayer* FindPlayerAround(CPlayer* player, int32_t actorId);
+    CPlayer* FindPlayerAround(CPlayer* player, ActorId actorId);
 
     // 파티 알림 (IPartyEvents) — 뜻은 PartySystem.h. 보내는 수는 여기서 센다(_gameMonitor._party 의 …Sent).
     void OnPartyAsk(CPlayer* to, uint32_t requestId, PartyAskKind kind, const CPlayer* from, const CPlayer* about, uint32_t remainMs) override;
     void OnPartyAskEnd(CPlayer* to, uint32_t requestId, PartyNotice why) override;
-    void OnPartyNotice(CPlayer* to, PartyNotice code, int32_t actorId) override;
+    void OnPartyNotice(CPlayer* to, PartyNotice code, ActorId actorId) override;
     void OnPartyInfo(CPlayer* to, const Party* party) override;
     void OnPartyMember(CPlayer* to, const CPlayer* member) override;
 

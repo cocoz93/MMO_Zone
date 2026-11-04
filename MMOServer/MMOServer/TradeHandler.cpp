@@ -75,7 +75,7 @@ namespace
         return buf;
     }
 
-    CSerialBuffer* MakeTradeEnd(TradeEnd why, int32_t actorId)
+    CSerialBuffer* MakeTradeEnd(TradeEnd why, ActorId actorId)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_TRADE_END::TYPE);
@@ -119,7 +119,7 @@ void CTradeHandler::RecvTradeRequest(CPlayer* player, CSerialBuffer* pMsg)
 {
     MSG_C2S_TRADE_REQUEST recvMsg{};
     pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
-    _tradeSystem.Request(player, FindPlayerAround(player, recvMsg.targetId), _frameCount);
+    _tradeSystem.Request(player, FindPlayerAround(player, ActorId{ recvMsg.targetId }), _frameCount);
 }
 
 void CTradeHandler::RecvTradeAnswer(CPlayer* player, CSerialBuffer* pMsg)
@@ -153,7 +153,7 @@ void CTradeHandler::RecvTradeCancel(CPlayer* player)
     _tradeSystem.Cancel(player);
 }
 
-CPlayer* CTradeHandler::FindPlayerAround(CPlayer* player, int32_t actorId)
+CPlayer* CTradeHandler::FindPlayerAround(CPlayer* player, ActorId actorId)
 {
     CZone* zone = _mapManager.GetZone(player->_zoneId);
     if (zone == nullptr)
@@ -196,7 +196,7 @@ void CTradeHandler::OnTradeState(CPlayer* to, const TradeSession& trade, int myS
     _gameMonitor._trade._stateSent.Inc();
 }
 
-void CTradeHandler::OnTradeEnd(CPlayer* to, TradeEnd why, int32_t actorId)
+void CTradeHandler::OnTradeEnd(CPlayer* to, TradeEnd why, ActorId actorId)
 {
     _sessionHub.SendPacket(to, MakeTradeEnd(why, actorId));
     _gameMonitor._trade._endSent.Inc();

@@ -17,6 +17,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 
 #include "BuildConfig.h"     // USE_TRADE · USE_DB_WORKER — 안 읽으면 아래 #if 가 조용히 0 이 된다
@@ -66,13 +67,13 @@ private:
 
     // 내 주변 9섹터의 사람 중 이 번호 — 없으면 nullptr. 몬스터·NPC 는 안 본다(사람 목록만).
     //   ★ CPartyHandler::FindPlayerAround 와 같은 식이다 — 같은 일을 하는 자리가 둘이 됐다(섹터 쪽으로 모을지는 미결 · trade-progress.md).
-    CPlayer* FindPlayerAround(CPlayer* player, int32_t actorId);
+    CPlayer* FindPlayerAround(CPlayer* player, ActorId actorId);
 
     // 거래 알림 (ITradeEvents) — 뜻은 TradeSystem.h. 보내는 수는 여기서 센다(_gameMonitor._trade 의 …Sent).
     void OnTradeAsk(CPlayer* to, uint32_t requestId, const CPlayer* from, uint32_t remainMs) override;
     void OnTradeAskEnd(CPlayer* to, uint32_t requestId, TradeEnd why) override;
     void OnTradeState(CPlayer* to, const TradeSession& trade, int mySide) override;
-    void OnTradeEnd(CPlayer* to, TradeEnd why, int32_t actorId) override;
+    void OnTradeEnd(CPlayer* to, TradeEnd why, ActorId actorId) override;
     void OnTradeFail(CPlayer* to, TradeFail why) override;
     bool CanSaveSwap(const CPlayer* a, const CPlayer* b) override;
     void OnTradeSwapped(CPlayer* a, CPlayer* b) override;

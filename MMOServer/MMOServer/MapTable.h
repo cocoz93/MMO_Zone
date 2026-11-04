@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -48,7 +49,7 @@ struct StartArea
 
 struct MapDef
 {
-    int32_t   mapId    = 0;
+    MapId   mapId{ 0 };
     int32_t   width    = 0;   // 칸
     int32_t   height   = 0;   // 칸
     MapKind   kind     = MapKind::DUNGEON;
@@ -68,7 +69,7 @@ public:
     bool Load(const std::string& path);
 
     // 없는 번호면 nullptr — 스폰 표가 맵 번호를 대조하는 길이다.
-    const MapDef* Find(int32_t mapId) const;
+    const MapDef* Find(MapId mapId) const;
 
     // 파일 순서 그대로 — 첫 줄이 기본 접속 맵
     const std::vector<MapDef>& All() const { return _rows; }

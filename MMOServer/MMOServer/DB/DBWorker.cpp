@@ -168,7 +168,7 @@ bool CDBWorker::PushBundleLocked(DBWorkerSlot& slot, DBSaveBundle head, const DB
 
 bool CDBWorker::EnqueueSave(const DBSaveBundle& head, const DBInvRow* rows, int rowCount)
 {
-    DBWorkerSlot& slot = *_workers[SlotIndex(head.row.characterId)];   // 불러오기·저장과 같은 슬롯 — 캐릭터별 순서 보장
+    DBWorkerSlot& slot = *_workers[SlotIndex(CharacterId{ head.row.characterId })];   // 불러오기·저장과 같은 슬롯 — 캐릭터별 순서 보장
 
     bool taken;
     {
@@ -192,7 +192,7 @@ bool CDBWorker::EnqueueSavePair(const DBSaveBundle& a, const DBInvRow* aRows, in
     assert(a.row.characterId != b.row.characterId && "짝은 두 캐릭터다");
     // 작은 캐릭터 번호의 슬롯 — 같은 짝은 늘 같은 큐(헤더 주석)
     const int64_t route = (a.row.characterId < b.row.characterId) ? a.row.characterId : b.row.characterId;
-    DBWorkerSlot& slot = *_workers[SlotIndex(route)];
+    DBWorkerSlot& slot = *_workers[SlotIndex(CharacterId{ route })];
 
     bool taken = false;
     {
@@ -235,7 +235,7 @@ void CDBWorker::EnqueueSaveBatch(const std::vector<DBSaveBundle>& heads, const s
             for (size_t i = 0; i < heads.size(); ++i)
             {
                 const DBSaveBundle& h = heads[i];
-                if (SlotIndex(h.row.characterId) != w)
+                if (SlotIndex(CharacterId{ h.row.characterId }) != w)
                     continue;
                 assert(static_cast<size_t>(h.slotBegin) + static_cast<size_t>(h.slotCount) <= allRows.size());
                 const DBInvRow* rows = (h.slotCount > 0) ? allRows.data() + h.slotBegin : nullptr;
@@ -379,7 +379,7 @@ void CDBWorker::WorkerThread(int idx)
                     }
                     else
                         _counters._failedJobs.Inc();
-                    PushSaveReply(DBSaveReply{ b.row.characterId, b.sessionId, b.bundleNo, ok });
+                    PushSaveReply(DBSaveReply{ CharacterId{ b.row.characterId }, b.sessionId, b.bundleNo, ok });
                 }
                 break;
             }
@@ -720,7 +720,7 @@ void CDBWorker::DropConnection(DBWorkerSlot& slot)
 CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out)
 {
     MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmt[kLoadIdx]);
-    slot.bLoad.characterId = job.characterId;
+    slot.bLoad.characterId = ToInt(job.characterId);
 
     // 오류 분류 — 유실(재연결 후 다시 해 볼 값어치가 있다)과 그 밖(다시 해도 같다)을 가른다.
     //   errno·메시지는 free_result 가 지우기 전에 먼저 읽는다.
@@ -784,7 +784,7 @@ CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJo
 
 #if USE_INVENTORY
 // 새로 붙은 문장들의 오류 분류 — 유실(재연결 후 다시 해 볼 값어치가 있다)과 그 밖을 가른다(RunLoadOnce 와 같은 규칙).
-CDBWorker::LoadOutcome CDBWorker::ClassifyStmtError(void* stmt, const char* what, int64_t characterId)
+CDBWorker::LoadOutcome CDBWorker::ClassifyStmtError(void* stmt, const char* what, CharacterId characterId)
 {
     MYSQL_STMT* st = static_cast<MYSQL_STMT*>(stmt);
     const unsigned int err = mysql_stmt_errno(st);
@@ -806,7 +806,7 @@ CDBWorker::LoadOutcome CDBWorker::RunInventoryLoad(DBWorkerSlot& slot, const DBL
     MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmt[kInvLoadIdx]);
     if (st == nullptr)
         return LoadOutcome::QUERY_ERROR;   // PrepareStmt 가 캐릭터 문장과 함께 세우므로 닿지 않는다 — 닿으면 실패로
-    slot.bInvLoad.characterId = job.characterId;
+    slot.bInvLoad.characterId = ToInt(job.characterId);
 
     if (mysql_stmt_execute(st) != 0)
         return ClassifyStmtError(st, "load inventory execute", job.characterId);
@@ -1042,7 +1042,7 @@ bool CDBWorker::ExecBundle(DBWorkerSlot& slot, const DBSaveBundle* const* heads,
 {
     const DBSaveBundle& b = *heads[0];   // 로그·주입의 머리 — 짝이면 둘 중 하나라도 주입 캐릭터이면 건다
 #if USE_DB_FAULT_INJECT
-    t_faultArmed = TakeFault(b.row.characterId) || (n > 1 && TakeFault(heads[1]->row.characterId));
+    t_faultArmed = TakeFault(CharacterId{ b.row.characterId }) || (n > 1 && TakeFault(CharacterId{ heads[1]->row.characterId }));
     if (t_faultArmed && _faultKind == FaultKind::DELAY)
     {
         SLOG_WARN("[DB][fault] trigger delay {}ms (character={}, bundle={})", _faultArg, b.row.characterId, b.bundleNo);
@@ -1146,7 +1146,7 @@ void CDBWorker::LoadFaultPlan()
         }
         _faultKind = kind;
         _faultArg = arg;
-        _faultCharacter = character;
+        _faultCharacter = CharacterId{ character };
         _faultTimesLeft.store(times);
         SLOG_WARN("[DB][fault] plan loaded: {} (kind={}, arg={}, character={}, times={})",
                   spec, static_cast<int>(kind), arg, character, times);
@@ -1158,7 +1158,7 @@ void CDBWorker::LoadFaultPlan()
     }
 }
 
-bool CDBWorker::TakeFault(int64_t characterId)
+bool CDBWorker::TakeFault(CharacterId characterId)
 {
     if (_faultKind == FaultKind::NONE || characterId != _faultCharacter)
         return false;

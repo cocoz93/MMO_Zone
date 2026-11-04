@@ -18,6 +18,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstddef>
 #include <cstdint>
 #include <functional>        // std::hash — 열쇠 해시
@@ -54,10 +55,10 @@ class CRoomLocks
 {
 public:
     // 잠그기 — 같은 캐릭터·맵이 이미 있으면 풀리는 틱을 새 값으로 덮는다(보상을 또 받은 것)
-    void Lock(int64_t characterId, int32_t mapId, uint64_t untilFrame);
+    void Lock(CharacterId characterId, MapId mapId, uint64_t untilFrame);
 
     // 잠겨 있나 — 풀리는 틱이 지났으면 false(훑기 전이라 표에 남아 있어도)
-    bool IsLocked(int64_t characterId, int32_t mapId, uint64_t frame) const;
+    bool IsLocked(CharacterId characterId, MapId mapId, uint64_t frame) const;
 
     // 풀린 것 빼기 — CPartyHandler 가 틱에서 가끔 부른다(CPartyHandler::TickRoomLocks — 초마다). 표는 「잠금 시간 동안 보상을 받은 캐릭터 수」로 묶인다
     void Sweep(uint64_t frame);
@@ -68,15 +69,15 @@ private:
     // 열쇠 = 캐릭터 · 맵 — 맵 번호 상한이 1000(CMapTable::MAX_MAP_ID)이라 캐릭터 번호에 곱해 합치지 않고 둘을 그대로 둔다
     struct Key
     {
-        int64_t characterId;
-        int32_t mapId;
+        CharacterId characterId;
+        MapId mapId;
         bool operator==(const Key& o) const { return characterId == o.characterId && mapId == o.mapId; }
     };
     struct KeyHash
     {
         size_t operator()(const Key& k) const
         {
-            return std::hash<int64_t>()(k.characterId) ^ (std::hash<int32_t>()(k.mapId) * 0x9E3779B97F4A7C15ull);
+            return std::hash<int64_t>()(ToInt(k.characterId)) ^ (std::hash<int32_t>()(ToInt(k.mapId)) * 0x9E3779B97F4A7C15ull);
         }
     };
     std::unordered_map<Key, uint64_t, KeyHash> _untilFrame;
@@ -85,6 +86,6 @@ private:
 // 들어가도 되나 — me = 포털을 쓴 사람(살아 있고 포털 반경 안이라는 것은 게임 서버가 이미 봤다), party = me 의 파티(없으면 nullptr),
 //   roomMapId = 포털이 가는 방 맵. 순서 = 파티 없음 → 파티장 아님 → 다른 존 → 쓰러짐 → 잠금. 사유마다 파티원을 가입 순서로 다 훑고 다음 사유로 간다
 //   (그래서 「다른 존에도 있고 쓰러진 사람도 있다」면 다른 존이 먼저 보인다 — 모이는 것이 먼저다).
-RoomEntryResult CheckRoomEntry(const CPlayer* me, const Party* party, const CRoomLocks& locks, int32_t roomMapId, uint64_t frame);
+RoomEntryResult CheckRoomEntry(const CPlayer* me, const Party* party, const CRoomLocks& locks, MapId roomMapId, uint64_t frame);
 
 #endif // USE_PARTY

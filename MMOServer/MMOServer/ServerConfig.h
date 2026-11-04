@@ -22,6 +22,7 @@
 //  SectorSize=10
 // ==========================================================================
 
+#include <Identity/GameIds.h>
 #include <string>
 #include <iostream>
 #include <cstdlib>      // strtol (ServerCores 범위 파싱)
@@ -193,9 +194,9 @@ struct ServerConfig
 
     // 이 맵의 운영 값 — [MapN](N = 맵 번호)이 있으면 그 값, 없으면 [MapDefault]. INI 가 없으면 기본값.
     //   맵 번호는 맵 표에서 오므로 main 이 표를 읽은 뒤 맵마다 부른다.
-    MapOps MapOpsOf(int32_t mapId) const
+    MapOps MapOpsOf(MapId mapId) const
     {
-        const std::string section = "Map" + std::to_string(mapId);
+        const std::string section = "Map" + std::to_string(ToInt(mapId));
         if (_ini.HasKey(section, "Width") || _ini.HasKey(section, "Height"))
             SLOG_WARN("[ServerConfig] [{}] Width·Height 는 더 이상 안 읽습니다 — 맵 크기는 MapTable.csv 에 있습니다", section);
 

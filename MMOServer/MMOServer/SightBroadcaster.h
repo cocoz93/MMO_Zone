@@ -20,6 +20,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 #include <unordered_map>
 #include <utility>
@@ -94,12 +95,12 @@ public:
     void BroadcastGroundItemCreate(CZone* zone, const CGroundItem& item, int32_t sectorX, int32_t sectorY);
     // 땅의 아이템이 빠졌다 — 주변 + 같은 틱 이동자에게 DELETE. 와이어 사유로 바꾸는 것은 부르는 쪽(CItemHandler::OnGroundItemGone).
     void BroadcastGroundItemDelete(CZone* zone, int32_t sectorX, int32_t sectorY,
-                                   int32_t groundId, GroundItemGone wire, int32_t pickerId);
+                                   int32_t groundId, GroundItemGone wire, ActorId pickerId);
 #endif
 
 #if USE_BROADCAST_BUNDLE
     // 보류 등록 — 수신섹터 digest 로 틱 끝에 배포(아래 「수신섹터 digest 경로」). 채팅(CChatHandler::RecvChat)도 이것으로 보낸다.
-    void RegisterSectorItem(CZone* zone, int32_t zoneId, int32_t sectorX, int32_t sectorY,
+    void RegisterSectorItem(CZone* zone, ZoneId zoneId, int32_t sectorX, int32_t sectorY,
                             CSerialBuffer* pMsg);   // 보류 등록 (버퍼 소유권 1을 digest 배포 후 회수)
 #endif
 
@@ -134,7 +135,7 @@ private:
 #if USE_MEMBERSHIP_DIGEST
     // ── 멤버십 직송 경로 (Phase 4) — 아웃바운드 CREATE/DELETE를 digest에 합류 ──
     // 방송(3×3 이웃 배포)과 달리 "정확히 그 섹터 주민에게만" 전달. 연접 순서는 직송이 방송보다 앞.
-    void RegisterSectorDirectItem(CZone* zone, int32_t zoneId, int32_t sectorX, int32_t sectorY,
+    void RegisterSectorDirectItem(CZone* zone, ZoneId zoneId, int32_t sectorX, int32_t sectorY,
                                   CSerialBuffer* pMsg);   // 직송 보류 등록 (버퍼 소유권 1을 배포 후 회수)
 #endif
 #endif
@@ -147,7 +148,7 @@ private:
                          CSerialBuffer* pMsg, CCharacter* exclude);
 #if USE_MEMBERSHIP_DIGEST
     // [Phase 4] 아웃바운드 멤버십을 직송 보류로 등록 (+자기 섹터 점프 폴백). 버퍼 소유권 1을 소비.
-    void RegisterOutboundToSectors(CZone* zone, int32_t zoneId,
+    void RegisterOutboundToSectors(CZone* zone, ZoneId zoneId,
                                    const CSectorManager::SectorPos* sectors, int32_t sectorCount,
                                    CSerialBuffer* pMsg, CCharacter* exclude);
 #endif
@@ -171,7 +172,7 @@ private:
     // 땅의 아이템 하나를 한 사람에게 보여 준다 — 떨어질 때(DROP)·시야에 들어올 때(SEEN) 공용
     void SendGroundItemCreate(CPlayer* target, const CGroundItem& item, GroundItemAppear reason);
     // 한 사람 화면에서 지운다 — 시야 밖(OUT_OF_SIGHT) · 주움(PICKED, pickerId) · 사라짐(EXPIRED) 공용
-    void SendGroundItemDelete(CPlayer* target, int32_t groundId, GroundItemGone reason, int32_t pickerId);
+    void SendGroundItemDelete(CPlayer* target, int32_t groundId, GroundItemGone reason, ActorId pickerId);
 
     // 같은 틱에 섹터를 넘은 사람 보정 — 땅 아이템이 빠질 때(BroadcastGroundItemDelete) 주변에 DELETE 를 보낸 뒤 부른다.
     //   RecvMoveStart 는 네트워크 처리 자리에서 섹터 등록을 바꾸고 알림은 틱 끝이라, 틱 1단계(줍기)에서는
@@ -179,7 +180,7 @@ private:
     //   주변 DELETE 에서 빠지고, 틱 끝 이탈 처리 때는 아이템이 이미 없어 영영 안 지워진다 → 여기서 보낸다.
     //   고르는 것은 존(CZone::CollectLateMovers — BroadcastLeaveZone 셋째 덩이와 같은 함수)이다. 대기열이 비면 아무 일도 없다.
     void SendGroundItemDeleteToLateMovers(CZone* zone, int32_t sectorX, int32_t sectorY,
-                                          int32_t groundId, GroundItemGone wire, int32_t pickerId);
+                                          int32_t groundId, GroundItemGone wire, ActorId pickerId);
 #endif
 
     CSessionHub&     _sessionHub;    // 보내기 — 한 사람에게 한 패킷 · 수신자 한 명에게 한 장(RequestSend · RequestSendRaw)
@@ -217,12 +218,12 @@ private:
             std::vector<std::vector<CSerialBuffer*>> directItems;   // flatIdx → 직송 버퍼들 (등록순)
 #endif
         };
-        std::unordered_map<int32_t, ZonePending> pendingByZone;
-        std::vector<std::pair<int32_t, int32_t>> touchedSectors;   // (zoneId, flatIdx) — 보류물 있는 소스 섹터
+        std::unordered_map<ZoneId, ZonePending> pendingByZone;
+        std::vector<std::pair<ZoneId, int32_t>> touchedSectors;   // (zoneId, flatIdx) — 보류물 있는 소스 섹터
 #if USE_MEMBERSHIP_DIGEST
-        std::vector<std::pair<int32_t, int32_t>> touchedDirectSectors;  // (zoneId, flatIdx) — 직송물 있는 섹터
+        std::vector<std::pair<ZoneId, int32_t>> touchedDirectSectors;  // (zoneId, flatIdx) — 직송물 있는 섹터
 #endif
-        std::vector<std::pair<int32_t, int32_t>> receiverSectors;  // (zoneId, flatIdx) — 이번 틱 수신 후보 (재사용)
+        std::vector<std::pair<ZoneId, int32_t>> receiverSectors;  // (zoneId, flatIdx) — 이번 틱 수신 후보 (재사용)
         std::vector<char> concatBuf;                               // 수신섹터별 연접 버퍼 (재사용)
         uint64_t flushEpoch = 0;                                   // 64비트 — wrap 없음 (0 = 미마킹 초기값과 충돌 방지)
 #endif

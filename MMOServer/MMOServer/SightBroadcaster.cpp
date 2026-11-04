@@ -22,7 +22,7 @@ using namespace PacketBuild;   // 아래 조립 함수들이 머리 쓰기·닫�
 namespace
 {
     // MOVE_START / MOVE_STOP은 레이아웃 동일 — 3곳/2곳에서 재사용되므로 빌더로 DRY 처리
-    CSerialBuffer* MakeMoveStart(int32_t playerId, uint8_t direction, float x, float y)
+    CSerialBuffer* MakeMoveStart(ActorId playerId, uint8_t direction, float x, float y)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_MOVE_START::TYPE);
@@ -35,7 +35,7 @@ namespace
         return buf;
     }
 
-    CSerialBuffer* MakeMoveStop(int32_t playerId, uint8_t direction, float x, float y)
+    CSerialBuffer* MakeMoveStop(ActorId playerId, uint8_t direction, float x, float y)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_MOVE_STOP::TYPE);
@@ -48,7 +48,7 @@ namespace
         return buf;
     }
 
-    CSerialBuffer* MakeSyncPosition(int32_t playerId, float x, float y)
+    CSerialBuffer* MakeSyncPosition(ActorId playerId, float x, float y)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_SYNC_POSITION::TYPE);
@@ -70,7 +70,7 @@ namespace
         return buf;
     }
 
-    CSerialBuffer* MakeDeletePlayer(int32_t playerId)
+    CSerialBuffer* MakeDeletePlayer(ActorId playerId)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_DELETE_PLAYER::TYPE);
@@ -96,7 +96,7 @@ namespace
         return buf;
     }
 
-    CSerialBuffer* MakeGroundItemDelete(int32_t groundId, GroundItemGone reason, int32_t pickerId)
+    CSerialBuffer* MakeGroundItemDelete(int32_t groundId, GroundItemGone reason, ActorId pickerId)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_GROUND_ITEM_DELETE::TYPE);
@@ -426,7 +426,7 @@ void CSightBroadcaster::SendGroundItemCreate(CPlayer* target, const CGroundItem&
     _sessionHub.SendPacket(target, MakeGroundItemCreate(item, reason));
 }
 
-void CSightBroadcaster::SendGroundItemDelete(CPlayer* target, int32_t groundId, GroundItemGone reason, int32_t pickerId)
+void CSightBroadcaster::SendGroundItemDelete(CPlayer* target, int32_t groundId, GroundItemGone reason, ActorId pickerId)
 {
     _sessionHub.SendPacket(target, MakeGroundItemDelete(groundId, reason, pickerId));
 }
@@ -442,7 +442,7 @@ void CSightBroadcaster::BroadcastGroundItemCreate(CZone* zone, const CGroundItem
 
 // 땅의 아이템이 빠졌다 — 주변 + 같은 틱 이동자에게 DELETE. 몸은 땅 아이템 알림(3 단계 당시 CGameServer · 지금 CItemHandler::OnGroundItemGone)에서 옮긴 그대로(와이어 사유 변환은 거기 남음).
 void CSightBroadcaster::BroadcastGroundItemDelete(CZone* zone, int32_t sectorX, int32_t sectorY,
-                                                  int32_t groundId, GroundItemGone wire, int32_t pickerId)
+                                                  int32_t groundId, GroundItemGone wire, ActorId pickerId)
 {
     _eventAroundBuffer.clear();
     zone->GetSectorManager().GetAroundPlayers(sectorX, sectorY, _eventAroundBuffer);
@@ -457,7 +457,7 @@ void CSightBroadcaster::BroadcastGroundItemDelete(CZone* zone, int32_t sectorX, 
 //   판정은 존(CZone::CollectLateMovers — BroadcastLeaveZone 셋째 덩이와 같은 함수)이고, 아이템은 안 움직이니
 //   "대상의 옛 섹터 = 지금 섹터"로 부른다. 옛 섹터로는 보였고(화면에 있다) 새 섹터로는 안 보이는(방금 보낸 주변 DELETE 에서 빠진) 이동자가 온다.
 void CSightBroadcaster::SendGroundItemDeleteToLateMovers(CZone* zone, int32_t sectorX, int32_t sectorY,
-                                                   int32_t groundId, GroundItemGone wire, int32_t pickerId)
+                                                   int32_t groundId, GroundItemGone wire, ActorId pickerId)
 {
     zone->CollectLateMovers(sectorX, sectorY, sectorX, sectorY, nullptr, _lateMoverBuffer);
     for (CCharacter* character : _lateMoverBuffer)
@@ -727,7 +727,7 @@ void CSightBroadcaster::ProcessSectorChange(CZone* zone, const CZone::SightMove&
         for (int32_t i = 0; i < removedCount; ++i)
         {
             for (const CGroundItem& g : groundItems.GetSectorItems(removed[i].x, removed[i].y))
-                SendGroundItemDelete(me, g.groundId, GroundItemGone::OUT_OF_SIGHT, 0);
+                SendGroundItemDelete(me, g.groundId, GroundItemGone::OUT_OF_SIGHT, NO_ACTOR);
         }
         for (int32_t i = 0; i < addedCount; ++i)
         {
@@ -790,7 +790,7 @@ void CSightBroadcaster::FanoutToSectors(CZone* zone,
 // exclude 처리: 직송은 공유 버퍼라 수신자별 제외가 불가 → exclude가 그 섹터의 주민인 경우
 // (멀티섹터 점프로 진입 목록에 자기 현재 섹터가 포함될 때뿐 — 1칸 이동은 진입 섹터에 자신이 없음)만
 // 그 1개 섹터를 기존 FanoutToSectors(개별 송신, exclude 지원)로 폴백해 와이어 내용을 보존한다.
-void CSightBroadcaster::RegisterOutboundToSectors(CZone* zone, int32_t zoneId,
+void CSightBroadcaster::RegisterOutboundToSectors(CZone* zone, ZoneId zoneId,
                                             const CSectorManager::SectorPos* sectors, int32_t sectorCount,
                                             CSerialBuffer* pMsg, CCharacter* exclude)
 {
@@ -874,7 +874,7 @@ void CSightBroadcaster::FlushSectorUpdates()
     while (i < total)
     {
         CCharacter* head = _sectorOutbox.dirtyMovers[i];
-        const int32_t zoneId = head->_zoneId;
+        const ZoneId zoneId = head->_zoneId;
         const int32_t sx = head->_sectorX;
         const int32_t sy = head->_sectorY;
 
@@ -973,7 +973,7 @@ void CSightBroadcaster::EnsureZonePending(CZone* zone, SectorOutbox::ZonePending
 // 보류 등록 — (zoneId, 섹터)에 버퍼 적재. 버퍼 소유권 1은 FlushSectorSends 4)에서 회수.
 // _broadcastCalls는 소스 아이템 단위로 집계 (기존 per-청크/per-채팅 호출 카운트와 동일 의미 → A/B 비교 가능).
 // → 배출: 틱 끝 FlushSectorSends에서 _sectorOutbox.pendingByZone을 수신섹터 digest로 연접·배포.
-void CSightBroadcaster::RegisterSectorItem(CZone* zone, int32_t zoneId, int32_t sectorX, int32_t sectorY,
+void CSightBroadcaster::RegisterSectorItem(CZone* zone, ZoneId zoneId, int32_t sectorX, int32_t sectorY,
                                      CSerialBuffer* pMsg)
 {
     auto& zp = _sectorOutbox.pendingByZone[zoneId];
@@ -989,7 +989,7 @@ void CSightBroadcaster::RegisterSectorItem(CZone* zone, int32_t zoneId, int32_t 
 // [Phase 4] 직송 보류 등록 — (zoneId, 섹터)에 "그 섹터 주민에게만" 전달할 버퍼 적재 (멤버십 CREATE/DELETE 전용).
 // 버퍼 소유권 1은 FlushSectorSends 4)에서 회수. _broadcastCalls는 안 늘린다(방송 지표 오염 방지) —
 // 멤버십 횟수는 배포 시점에 _tickMembershipSends로 승계 (OFF의 타겟당 1 집계와 동일 산식).
-void CSightBroadcaster::RegisterSectorDirectItem(CZone* zone, int32_t zoneId, int32_t sectorX, int32_t sectorY,
+void CSightBroadcaster::RegisterSectorDirectItem(CZone* zone, ZoneId zoneId, int32_t sectorX, int32_t sectorY,
                                            CSerialBuffer* pMsg)
 {
     auto& zp = _sectorOutbox.pendingByZone[zoneId];
@@ -1033,7 +1033,7 @@ void CSightBroadcaster::FlushSectorSends()
         while (i < total)
         {
             CCharacter* head = _sectorOutbox.dirtyMovers[i];
-            const int32_t zoneId = head->_zoneId;
+            const ZoneId zoneId = head->_zoneId;
             const int32_t sx = head->_sectorX;
             const int32_t sy = head->_sectorY;
 

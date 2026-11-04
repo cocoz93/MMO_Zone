@@ -58,7 +58,7 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMapTable& maps, con
         const int64_t mapId = v[0], x0 = v[1], y0 = v[2], x1 = v[3], y1 = v[4], monsterId = v[5], count = v[6], regenSec = v[7];
 
         // ⑴ 맵 — 맵 표에 있어야 한다(표끼리 대조). 번호가 곧 색인이라 상한은 맵 표가 본다
-        const MapDef* map = (mapId < 0 || mapId > CMapTable::MAX_MAP_ID) ? nullptr : maps.Find(static_cast<int32_t>(mapId));
+        const MapDef* map = (mapId < 0 || mapId > CMapTable::MAX_MAP_ID) ? nullptr : maps.Find(MapId{ static_cast<int32_t>(mapId) });
         if (map == nullptr)
         {
             SLOG_ERROR("[SpawnRegion] {}줄: 맵 {} 은 맵 표(MapTable.csv)에 없습니다", dl.fileLine, mapId);
@@ -124,7 +124,7 @@ bool CSpawnRegionTable::Load(const std::string& path, const CMapTable& maps, con
             _byMap.resize(static_cast<size_t>(mapId) + 1);
 
         SpawnRegion r;
-        r.mapId    = static_cast<int32_t>(mapId);
+        r.mapId    = MapId{ static_cast<int32_t>(mapId) };
         r.x0       = static_cast<int32_t>(x0);
         r.y0       = static_cast<int32_t>(y0);
         r.x1       = static_cast<int32_t>(x1);

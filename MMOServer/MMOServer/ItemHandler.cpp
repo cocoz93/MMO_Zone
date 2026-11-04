@@ -290,7 +290,7 @@ void CItemHandler::OnGroundItemDrop(CZone* zone, const CGroundItem& item, int32_
 }
 
 void CItemHandler::OnGroundItemGone(CZone* zone, int32_t sectorX, int32_t sectorY,
-                                   int32_t groundId, GroundItemRemoval why, int32_t pickerId)
+                                   int32_t groundId, GroundItemRemoval why, ActorId pickerId)
 {
     const GroundItemGone wire = ToGroundItemGone(why);   // 사유 → 와이어 값은 여기서 — 관리자는 패킷을 모른다
 

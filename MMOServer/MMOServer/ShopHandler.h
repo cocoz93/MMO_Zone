@@ -16,6 +16,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 
 #include "BuildConfig.h"   // USE_SHOP — 안 읽으면 아래 #if 가 조용히 0 이 된다
@@ -49,7 +50,7 @@ private:
 
     // 요청이 가리킨 액터 번호를 그 사람 주변에서 찾는다 — 섹터 범위 = NPC 반경 상한(CNpcTable::MAX_RADIUS). 못 찾으면 nullptr.
     //   세 목록(사람 · 맞을 수 있는 것 · 그 밖)을 다 본다 — 싸우는 NPC 가 생겨도 같은 찾기다. NPC 인지는 판정(말 걸기 칸)이 가른다.
-    const CCharacter* FindAround(const CPlayer* player, int32_t actorId) const;
+    const CCharacter* FindAround(const CPlayer* player, ActorId actorId) const;
 
     // 결과 내보내기 — 통과(COUNT)면 FlushInventory, 거절이면 S2C_SHOP_FAIL(와이어 값으로 옮겨서)
     void Finish(CPlayer* player, ShopReject reject);

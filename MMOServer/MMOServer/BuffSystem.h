@@ -25,6 +25,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 #include <vector>
 
@@ -75,7 +76,7 @@ public:
     // 존 삭제 — 이 존 번호의 캐릭터를 목록에서 전부 뺀다(Forget 과 같은 규칙: 버프 비움 · 끝난 사유 LEAVE · 알림·재계산 없음).
     //   빈 채널을 지우기 직전에 부른다 — 사람은 이미 다 나가 Forget 으로 빠졌으니 남은 것은 존이 든 몬스터뿐이다. 목록을 밖에 내주지 않고
     //   여기서 훑는다(MonsterManager.h 「목록을 밖에 내주는 함수는 두지 않는다」와 같은 까닭). 없으면 아무 일 없음.
-    void ForgetZone(int32_t zoneId);
+    void ForgetZone(ZoneId zoneId);
 
     // 되살리기 — 입장 때 DB 저장값을 건다(CCharacterStore::RestoreCooldownsAndBuffs). 반환 false = 이미 걸려 있어 안 넣음
     //   (입장 직후라 늘 비어 있다 — 한 묶음에 같은 번호가 둘인 불량 행이면 첫 것만 쓴다).

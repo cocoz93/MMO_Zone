@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 
 #include "BuildConfig.h"
@@ -41,6 +42,9 @@ enum class AIState : uint8_t
 
 // 능력치(체력·공격·방어·속도)·경험치·겉모습은 몬스터 표에 있다(Run/bin/MonsterTable.csv · MonsterTable.h).
 
+// 추적 대상 없음 — 패킷의 없음(NO_ACTOR = 0)과 값이 다르다. 패킷에 안 실린다
+inline constexpr ActorId NO_TARGET_ACTOR{ -1 };
+
 class CMonster : public CCharacter
 {
 public:
@@ -68,7 +72,7 @@ public:
     uint64_t _stateEndFrame  = 0;   // 배회를 언제 끝낼까 — 다음 판단 시점과 따로 둔다.
                                     //   한 값으로 묶었더니 "1~3초 배회"가 곧 "1~3초 동안 주변을 안 봄"이 돼서,
                                     //   시야 안에 들어온 뱀의 절반이 플레이어를 못 알아채고 지나갔다.
-    int32_t  _targetActorId  = -1;  // 추적 대상 (-1: 없음). [대상] 참조
+    ActorId  _targetActorId  = NO_TARGET_ACTOR;  // 추적 대상 (-1: 없음). [대상] 참조
 
     // 스폰 지점 — 귀환(RETURN 상태)을 넣을 때 쓴다. 지금은 기록만 한다.
     float _spawnX = 0.0f;

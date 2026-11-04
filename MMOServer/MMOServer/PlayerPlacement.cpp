@@ -52,7 +52,7 @@ namespace
         return buf;
     }
 
-    CSerialBuffer* MakeZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex)
+    CSerialBuffer* MakeZoneChangeOk(CPlayer* target, MapId mapId, int32_t channelIndex)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_ZONE_CHANGE_OK::TYPE);
@@ -156,7 +156,7 @@ void CPlayerPlacement::TransferPlayer(CPlayer* player, CZone* oldZone, CZone* ne
     NotifyArrival(player, newZone, kind);
 }
 
-void CPlayerPlacement::SendZoneChangeOk(CPlayer* target, int32_t mapId, int32_t channelIndex)
+void CPlayerPlacement::SendZoneChangeOk(CPlayer* target, MapId mapId, int32_t channelIndex)
 {
     _sessionHub.SendPacket(target, MakeZoneChangeOk(target, mapId, channelIndex));
 }

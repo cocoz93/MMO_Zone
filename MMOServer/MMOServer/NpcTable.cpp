@@ -67,7 +67,7 @@ bool CNpcTable::Load(const std::string& path, const CMapTable& maps)
         }
 
         // ⑵ 맵 — 맵 표에 있다(헤더 [맵 대조]). 번호가 상한 밖이면 맵 표에 없는 것과 같다
-        const MapDef* map = (mapId < 0 || mapId > CMapTable::MAX_MAP_ID) ? nullptr : maps.Find(static_cast<int32_t>(mapId));
+        const MapDef* map = (mapId < 0 || mapId > CMapTable::MAX_MAP_ID) ? nullptr : maps.Find(MapId{ static_cast<int32_t>(mapId) });
         if (map == nullptr)
         {
             SLOG_ERROR("[NpcTable] {}줄: 맵 {} 가 맵 표(MapTable.csv)에 없습니다 (NPC {})", dl.fileLine, mapId, npcId);
@@ -105,7 +105,7 @@ bool CNpcTable::Load(const std::string& path, const CMapTable& maps)
 
         NpcDef d;
         d.npcId    = static_cast<int32_t>(npcId);
-        d.mapId    = static_cast<int32_t>(mapId);
+        d.mapId    = MapId{ static_cast<int32_t>(mapId) };
         d.x        = static_cast<int32_t>(x);
         d.y        = static_cast<int32_t>(y);
         d.radius   = static_cast<int32_t>(radius);

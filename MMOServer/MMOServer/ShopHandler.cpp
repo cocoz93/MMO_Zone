@@ -64,7 +64,7 @@ bool CShopHandler::RegisterRoutes(CPacketRoutes& routes)
     return ok;
 }
 
-const CCharacter* CShopHandler::FindAround(const CPlayer* player, int32_t actorId) const
+const CCharacter* CShopHandler::FindAround(const CPlayer* player, ActorId actorId) const
 {
     const CZone* zone = _mapManager.GetZone(player->_zoneId);
     if (zone == nullptr)
@@ -102,7 +102,7 @@ void CShopHandler::RecvShopBuy(CPlayer* player, CSerialBuffer* pMsg)
     MSG_C2S_SHOP_BUY recvMsg{};
     pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
 
-    const CCharacter* npc = FindAround(player, recvMsg.npcActorId);
+    const CCharacter* npc = FindAround(player, ActorId{ recvMsg.npcActorId });
     Finish(player, _shopSystem.Buy(player, npc, recvMsg.itemId, recvMsg.count));
 }
 
@@ -111,7 +111,7 @@ void CShopHandler::RecvShopSell(CPlayer* player, CSerialBuffer* pMsg)
     MSG_C2S_SHOP_SELL recvMsg{};
     pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
 
-    const CCharacter* npc = FindAround(player, recvMsg.npcActorId);
+    const CCharacter* npc = FindAround(player, ActorId{ recvMsg.npcActorId });
     Finish(player, _shopSystem.Sell(player, npc, recvMsg.slot, recvMsg.count));
 }
 

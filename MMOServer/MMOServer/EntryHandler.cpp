@@ -53,7 +53,7 @@ bool CEntryHandler::RegisterRoutes(CPacketRoutes& routes)
     //   플레이어가 아직 없으면 그 앞 문턱에서 버려진다). 서버 동작은 그대로다.
     //   (USE_LOGIN 이면 플레이어를 찾기 「전」에 처리한다 — 이 패킷이 올 때는 아직 플레이어가 없다. 끄면 크기만)
 #if USE_LOGIN
-    ok &= routes.OnSession(MsgType::C2S_ENTER_GAME, sizeof(MSG_C2S_ENTER_GAME), [this](int64_t s, CSerialBuffer* m) { RecvEnterGame(s, m); });
+    ok &= routes.OnSession(MsgType::C2S_ENTER_GAME, sizeof(MSG_C2S_ENTER_GAME), [this](SessionId s, CSerialBuffer* m) { RecvEnterGame(s, m); });
 #else
     ok &= routes.Size(MsgType::C2S_ENTER_GAME, sizeof(MSG_C2S_ENTER_GAME));
 #endif
@@ -72,7 +72,7 @@ void CEntryHandler::Init(int maxClients)
 
 #if USE_DB_WORKER
 // 끊김의 대기표 몫 — 게임 서버 끊김 분기에 있던 두 줄 그대로(게임 서버 나누기 12 단계)
-void CEntryHandler::DropPendingEnter(int64_t sessionId)
+void CEntryHandler::DropPendingEnter(SessionId sessionId)
 {
     PendingEnter gone;
     TakePendingEnter(sessionId, gone);
@@ -124,13 +124,13 @@ void CEntryHandler::AdjustPendingCount(EnterState state, int delta)
     }
 }
 
-void CEntryHandler::SetPendingEnter(int64_t sessionId, int64_t characterId, int32_t actorId, EnterState state)
+void CEntryHandler::SetPendingEnter(SessionId sessionId, CharacterId characterId, ActorId actorId, EnterState state)
 {
-    const uint16_t idx = CSession::ExtractIndex(sessionId);
+    const uint16_t idx = CSession::ExtractIndex(ToInt(sessionId));
     assert(idx < _pendingEnter.size());   // FindPlayer 와 같은 불변식 — 두 배열은 Init 에서 같은 크기로 잡힌다
     PendingEnter& slot = _pendingEnter[idx];
 
-    if (slot.sessionId != -1)
+    if (slot.sessionId != NO_SESSION)
     {
         // 있을 수 없다 — 같은 자리의 끊김 이벤트는 다음 접속보다 먼저 온다(세션 허브의 칸도 같은 순서에 기댄다).
         //   그래도 덮어쓰면 스스로 아문다: 옛 조회의 결과는 세션 번호가 안 맞아 orphaned 로 세어진다.
@@ -152,9 +152,9 @@ void CEntryHandler::SetPendingEnter(int64_t sessionId, int64_t characterId, int3
 //   정말 [입장 대기]였나"를 보는 이 함수의 전제다. 이 줄이 없으면 [불러오는 중]에 또 불렸을 때
 //   입장 대기 수가 음수로 내려간다(돌연변이로 확인: 요청 셋에 입장 대기 -2 · 불러오는 중 2).
 //   ※ 지금은 앞 문턱이 먼저 막아서 이 검사에 도달하는 길이 없다 — 시험으로는 못 태운다.
-bool CEntryHandler::PromotePendingEnter(int64_t sessionId, int64_t characterId, int32_t actorId)
+bool CEntryHandler::PromotePendingEnter(SessionId sessionId, CharacterId characterId, ActorId actorId)
 {
-    const uint16_t idx = CSession::ExtractIndex(sessionId);
+    const uint16_t idx = CSession::ExtractIndex(ToInt(sessionId));
     assert(idx < _pendingEnter.size());
     PendingEnter& slot = _pendingEnter[idx];
 
@@ -169,9 +169,9 @@ bool CEntryHandler::PromotePendingEnter(int64_t sessionId, int64_t characterId, 
     return true;
 }
 
-bool CEntryHandler::TakePendingEnter(int64_t sessionId, PendingEnter& out)
+bool CEntryHandler::TakePendingEnter(SessionId sessionId, PendingEnter& out)
 {
-    const uint16_t idx = CSession::ExtractIndex(sessionId);
+    const uint16_t idx = CSession::ExtractIndex(ToInt(sessionId));
     assert(idx < _pendingEnter.size());
     PendingEnter& slot = _pendingEnter[idx];
 
@@ -242,14 +242,14 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
         {
             enter._deadRespawn.Inc();
             place.hp = DB_HP_MP_UNSAVED;   // 가득 — 마을이면 제자리(아래 저장된 자리 분기)에서
-            toTown   = Combat::RespawnsToTown(result.mapId, _mapManager.GetDefaultMapId());
+            toTown   = Combat::RespawnsToTown(MapId{ result.mapId }, _mapManager.GetDefaultMapId());
             place.dropBuffs = true;        // 버프는 버린다(죽으면 지워지는 규칙 — 쿨타임은 죽어도 남아 되살린다)
         }
 #endif
 
         // 존 먼저, 좌표는 그 존의 크기로 본다. 저장된 맵이 없으면 zone 이 nullptr 로 남아 아래에서 기본 맵을 구한다.
         if (!toTown)
-            zone = _mapManager.FindOrCreateChannel(result.mapId);
+            zone = _mapManager.FindOrCreateChannel(MapId{ result.mapId });
 
         if (toTown)
         {
@@ -309,7 +309,7 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
 }
 #endif // USE_DB_WORKER
 
-CPlayer* CEntryHandler::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t characterId,
+CPlayer* CEntryHandler::SpawnPlayer(SessionId sessionId, ActorId actorId, CharacterId characterId,
                                   CZone* zone, const EnterPlacement& place)
 {
     if (zone == nullptr)
@@ -419,7 +419,7 @@ CPlayer* CEntryHandler::SpawnPlayer(int64_t sessionId, int32_t actorId, int64_t 
     return player;
 }
 
-void CEntryHandler::OnConnected(int64_t sessionId)
+void CEntryHandler::OnConnected(SessionId sessionId)
 {
     // 이미 등록된 세션이면 무시 (중복 접속 방어)
     if (_sessionHub.FindPlayer(sessionId) != nullptr)
@@ -436,11 +436,11 @@ void CEntryHandler::OnConnected(int64_t sessionId)
     //   ※ 입장 요청을 끝내 안 보내는 세션은 여기 남는다. 네트워크 계층의 유휴 타임아웃은
     //     하트비트만 보내도 갱신되므로 안 끊는다 — 그래서 게이지(mmo_enter_waiting)로 지켜본다.
     //     값이 올라가서 안 내려오면 그때 쓸어내기를 넣는다(지금 넣으면 한 번도 안 도는 분기다).
-    SetPendingEnter(sessionId, 0, 0, EnterState::WAITING_ENTER);
+    SetPendingEnter(sessionId, NO_CHARACTER, NO_ACTOR, EnterState::WAITING_ENTER);
 #else
     // 번호는 접속 때 뽑는다 — 지금은 캐릭터 번호 = 액터 번호(임시)라 조회 열쇠로 먼저 필요하다.
     //   못 들어간 접속은 번호 하나를 버린다(단조 증가 카운터라 무해 — 몬스터도 같은 카운터를 쓴다).
-    const int32_t actorId = _sessionHub.AllocActorId();
+    const ActorId actorId = _sessionHub.AllocActorId();
 
 #if USE_DB_WORKER
     if (_characterStore.IsRunning())
@@ -448,7 +448,7 @@ void CEntryHandler::OnConnected(int64_t sessionId)
         // [DB 왕복 2단계] 접속 → 불러오는 중 → 게임 중. 여기서는 대기표만 남기고 조회를 던진다.
         //   플레이어도 존 입장도 패킷도 없다 — 스폰은 결과가 와야 한다(OnCharacterLoaded).
         //   그 사이에 온 패킷은 OnReceived 가 조용히 버린다(FindPlayer == nullptr).
-        const int64_t characterId = actorId;
+        const CharacterId characterId = MakeDevCharacterId(actorId);
         if (!_characterStore.RequestCharacterLoad(sessionId, characterId))
         {
             // 거절 = 결과가 안 온다. 매달아 두면 영영 안 들어오므로 끊는다(rejected 는 위에서 셌다).
@@ -462,7 +462,7 @@ void CEntryHandler::OnConnected(int64_t sessionId)
 
     // DB 워커가 없으면(토글 OFF·미기동) 예전 그대로 곧바로 스폰 — 기본 맵(마을)의 여유 채널, 시작 구역.
     CZone* zone = _mapManager.FindOrCreateChannel(_mapManager.GetDefaultMapId());
-    if (SpawnPlayer(sessionId, actorId, actorId, zone, EnterPlacement{}) == nullptr)
+    if (SpawnPlayer(sessionId, actorId, MakeDevCharacterId(actorId), zone, EnterPlacement{}) == nullptr)
         _sessionHub.RequestDisconnect(sessionId);
 #endif
 }
@@ -474,7 +474,7 @@ void CEntryHandler::OnConnected(int64_t sessionId)
 //     아예 안 타므로(부하 더미가 전부 그렇다) 훑는 횟수가 사람 수준에 머문다.
 //   ※ 모든 캐릭터이 지정 번호로 들어오는 날(로그인 서버가 붙는 날, 또는 부하 더미를 고정 캐릭터으로
 //     바꾸는 날)에는 접속마다 전체를 훑게 된다. 그때 재 보고 캐릭터 → 플레이어 맵으로 바꾼다.
-void CEntryHandler::KickDuplicateAccount(int64_t characterId, int64_t exceptSessionId)
+void CEntryHandler::KickDuplicateAccount(CharacterId characterId, SessionId exceptSessionId)
 {
     // ⑴ 게임 중 — 정리 코드를 새로 쓰지 않고 평소 끊김 처리와 같은 「떠나보내기」(LeaveGame)를 부른다. 그 안에 퇴장 방송·
     //    슬롯 해제·부활 대기열 회수·최종 저장 투입이 전부 있고, 무엇보다 **틱 중간 대기열에서 빼는
@@ -489,7 +489,7 @@ void CEntryHandler::KickDuplicateAccount(int64_t characterId, int64_t exceptSess
     });
     if (other != nullptr)
     {
-        const int64_t oldSession = other->_sessionId;
+        const SessionId oldSession = other->_sessionId;
         SLOG_WARN("[LOGIN] duplicate character -> kick old session (character={}, old={}, new={})",
                   characterId, oldSession, exceptSessionId);
         _placement.LeaveGame(other);                                  // 최종 저장이 이 뒤의 조회보다 큐에서 앞선다 · 이 뒤로 other 는 못 쓴다(칸이 비며 해제)
@@ -503,11 +503,11 @@ void CEntryHandler::KickDuplicateAccount(int64_t characterId, int64_t exceptSess
     //    [입장 대기] 자리는 캐릭터 번호가 아직 0 이라 여기 안 걸린다(이 함수는 0 으로 안 불린다).
     for (const PendingEnter& slot : _pendingEnter)
     {
-        if (slot.sessionId == -1 || slot.state != EnterState::LOADING
+        if (slot.sessionId == NO_SESSION || slot.state != EnterState::LOADING
             || slot.characterId != characterId || slot.sessionId == exceptSessionId)
             continue;
 
-        const int64_t oldSession = slot.sessionId;   // TakePendingEnter 가 slot 을 비우므로 먼저 복사한다
+        const SessionId oldSession = slot.sessionId;   // TakePendingEnter 가 slot 을 비우므로 먼저 복사한다
         SLOG_WARN("[LOGIN] duplicate character while loading -> drop (character={}, old={})", characterId, oldSession);
         PendingEnter gone;
         TakePendingEnter(oldSession, gone);
@@ -517,7 +517,7 @@ void CEntryHandler::KickDuplicateAccount(int64_t characterId, int64_t exceptSess
     }
 }
 
-void CEntryHandler::RecvEnterGame(int64_t sessionId, CSerialBuffer* pMsg)
+void CEntryHandler::RecvEnterGame(SessionId sessionId, CSerialBuffer* pMsg)
 {
     MSG_C2S_ENTER_GAME recvMsg{};
     pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
@@ -525,7 +525,7 @@ void CEntryHandler::RecvEnterGame(int64_t sessionId, CSerialBuffer* pMsg)
     // ⑴ 대기표가 [입장 대기]인가. 이미 요청했거나(불러오는 중) 이미 게임 중이면 조용히 무시한다 —
     //    두 번째 요청으로 캐릭터를 하나 더 만들지 않게 막는 자리다.
     {
-        const uint16_t idx = CSession::ExtractIndex(sessionId);
+        const uint16_t idx = CSession::ExtractIndex(ToInt(sessionId));
         assert(idx < _pendingEnter.size());
         const PendingEnter& slot = _pendingEnter[idx];
         if (slot.sessionId != sessionId || slot.state != EnterState::WAITING_ENTER)
@@ -549,8 +549,8 @@ void CEntryHandler::RecvEnterGame(int64_t sessionId, CSerialBuffer* pMsg)
     // ⑵ 번호 둘. 액터 번호는 언제나 새로 뽑고, 캐릭터 번호는 들고 온 값이 있으면 그것, 없으면(0)
     //    방금 뽑은 액터 번호를 그대로 쓴다 — 그래야 번호를 안 들고 온 접속이 지금까지와 똑같이 돈다.
     //    자동과 지정은 구간이 타입으로 갈린다: 액터 번호(CSessionHub::AllocActorId)는 int32 카운터라 2^31 위로 못 올라온다.
-    const int32_t actorId   = _sessionHub.AllocActorId();
-    const int64_t characterId = (recvMsg.devCharacterId != 0) ? recvMsg.devCharacterId : static_cast<int64_t>(actorId);
+    const ActorId actorId   = _sessionHub.AllocActorId();
+    const CharacterId characterId = (recvMsg.devCharacterId != 0) ? CharacterId{ recvMsg.devCharacterId } : MakeDevCharacterId(actorId);
 
     // [불변식] 여기 오는 동안 저장소의 DB 워커는 떠 있다(_characterStore.IsRunning) — InitDB 가 실패하면 main 이 서버를 아예
     //   안 띄우고(main.cpp:109~113), 내리는 쪽은 게임 스레드를 join 한 "뒤"다(Stop, :428~437).
@@ -587,7 +587,7 @@ void CEntryHandler::RecvEnterGame(int64_t sessionId, CSerialBuffer* pMsg)
 #endif
 
 // playerId → 고유 표시 문자 (A-Z, a-z, 0-9 = 62종)
-uint8_t CEntryHandler::CalcDisplayChar(int32_t playerId)
+uint8_t CEntryHandler::CalcDisplayChar(ActorId playerId)
 {
     static constexpr char CHARS[] =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -595,7 +595,7 @@ uint8_t CEntryHandler::CalcDisplayChar(int32_t playerId)
 }
 
 // playerId → 고유 색상 인덱스 (0-6, 7종)
-uint8_t CEntryHandler::CalcColorIndex(int32_t playerId)
+uint8_t CEntryHandler::CalcColorIndex(ActorId playerId)
 {
     return static_cast<uint8_t>((static_cast<uint32_t>(playerId) / 62) % 7);
 }
@@ -607,8 +607,8 @@ void CEntryHandler::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
         return;   // 죽은 채로 존을 옮기면 부활 대기열이 옛 존을 가리킨 채 남는다
 #endif
 
-    int64_t sessionId = player->_sessionId;
-    if (sessionId == -1)
+    SessionId sessionId = player->_sessionId;
+    if (sessionId == NO_SESSION)
         return;
 
     CZone* oldZone = _mapManager.GetZone(player->_zoneId);
@@ -620,7 +620,7 @@ void CEntryHandler::RecvZoneChange(CPlayer* player, CSerialBuffer* pMsg)
 
     // 목적지 고르기(지정 채널 · 자동 배정 · 무작위 맵 · 정원 · 같은 존 거부 · 맵 지정은 운영자만)는 맵 관리자 몫 — 여기는 거절 사유를 패킷으로 바꿔 보낼 뿐
     const ZoneChangeTarget target = _mapManager.PickZoneChangeTarget(
-        oldZone->GetZoneId(), recvMsg.targetMapId, recvMsg.targetChannelIndex, player->_isAdmin);
+        oldZone->GetZoneId(), MapId{ recvMsg.targetMapId }, recvMsg.targetChannelIndex, player->_isAdmin);
     _gameMonitor._sector._zoneChangeResults[static_cast<int>(target.reject)].Inc();   // 성공(NONE)·거절 모두 — 칸의 합 = 요청 수
     if (target.reject != ZoneChangeReject::NONE)
     {

@@ -37,7 +37,7 @@ namespace
     //   필드 순서는 Protocol.h의 구조체와 글자 그대로 같아야 한다. 아래 assert가 크기만 보므로
     //   순서가 뒤바뀌어도 크기가 같으면 안 걸린다 — 고칠 때 구조체를 나란히 열고 볼 것.
 
-    CSerialBuffer* MakeAttack(int32_t attackerId, uint8_t direction)
+    CSerialBuffer* MakeAttack(ActorId attackerId, uint8_t direction)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_ATTACK::TYPE);
@@ -48,7 +48,7 @@ namespace
         return buf;
     }
 
-    CSerialBuffer* MakeDamage(int32_t targetId, int32_t attackerId, int32_t damage, int32_t remainHp)
+    CSerialBuffer* MakeDamage(ActorId targetId, ActorId attackerId, int32_t damage, int32_t remainHp)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_DAMAGE::TYPE);
@@ -61,7 +61,7 @@ namespace
         return buf;
     }
 
-    CSerialBuffer* MakeDeath(int32_t targetId)
+    CSerialBuffer* MakeDeath(ActorId targetId)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_DEATH::TYPE);
@@ -93,7 +93,7 @@ namespace
     }
 
     // 필드 순서는 Protocol.h 의 구조체와 글자 그대로 — 위 전투 패킷과 같은 주의(assert 는 크기만 본다)
-    CSerialBuffer* MakeSkillCast(int32_t casterId, uint16_t skillId, uint8_t direction)
+    CSerialBuffer* MakeSkillCast(ActorId casterId, uint16_t skillId, uint8_t direction)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_SKILL_CAST::TYPE);
@@ -260,7 +260,7 @@ void CCombatHandler::RecvUseSkill(CPlayer* player, CSerialBuffer* pMsg)
         return;
 
     // 거절이면 아무것도 안 바뀌었다(비용은 모든 검사 뒤에만 뗀다) — 사유만 본인에게
-    const SkillReject reject = _skillSystem.UseSkill(zone, player, recvMsg.skillId, _frameCount, recvMsg.targetActorId);
+    const SkillReject reject = _skillSystem.UseSkill(zone, player, recvMsg.skillId, _frameCount, ActorId{ recvMsg.targetActorId });
     if (reject != SkillReject::COUNT)
         _sessionHub.SendPacket(player, MakeSkillFail(recvMsg.skillId, ToSkillFail(reject)));
 }

@@ -22,6 +22,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 
 #include "BuildConfig.h"
@@ -82,7 +83,7 @@ namespace MonsterAI
         AIState   nextState;
         Direction direction;
         MoveState moveState;
-        int32_t   targetActorId;    // -1 = 없음
+        ActorId   targetActorId;    // -1 = 없음
         bool      attack;           // 이번 판단에 휘두를 것인가 (쿨타임까지 보고 정한다)
         uint64_t  nextThinkFrame;   // 다음 판단 시점 — "얼마나 자주 주변을 보나"
         uint64_t  stateEndFrame;    // 배회를 끝낼 시점 — "얼마나 오래 배회하나" (위와 따로다)

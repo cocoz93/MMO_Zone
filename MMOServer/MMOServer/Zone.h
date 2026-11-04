@@ -20,6 +20,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 #include <memory>
 #include <unordered_set>
@@ -73,7 +74,7 @@ public:
     CZone& operator=(const CZone&) = delete;
 
     // 존 초기화 (존 ID, 맵 ID, 맵 크기, 섹터 크기)
-    bool Init(int32_t zoneId, int32_t mapId, int32_t mapWidth, int32_t mapHeight, int32_t sectorSize, const StartArea& start);
+    bool Init(ZoneId zoneId, MapId mapId, int32_t mapWidth, int32_t mapHeight, int32_t sectorSize, const StartArea& start);
 
     // 캐릭터 입장 — 스폰 좌표 설정, 섹터 등록
     // actorId 발급은 게임 서버(세션 허브 CSessionHub::AllocActorId)가 담당 — 객체를 만들고 지우는 것은 플레이어는 CEntryHandler::SpawnPlayer(만들기)와 배치(놓기 — CPlayerPlacement::ReleasePlayer · 칸 주인은 세션 허브),
@@ -96,8 +97,8 @@ public:
     void Tick(float deltaTime, IZoneEvents& events);
 
     // 존 정보
-    int32_t GetZoneId() const { return _zoneId; }
-    int32_t GetMapId() const { return _mapId; }
+    ZoneId GetZoneId() const { return _zoneId; }
+    MapId GetMapId() const { return _mapId; }
     int32_t GetMapWidth() const { return _mapWidth; }
     int32_t GetMapHeight() const { return _mapHeight; }
 
@@ -212,8 +213,8 @@ private:
     // 같은 틱 이동자 쌍 판정 — TakeSightChanges 가 부른다. 까닭은 Zone.cpp 머리 주석
     void CollectPairFixes(std::vector<SightPairFix>& out) const;
 
-    int32_t _zoneId;
-    int32_t _mapId;
+    ZoneId _zoneId;
+    MapId _mapId;
     int32_t _mapWidth;
     int32_t _mapHeight;
     StartArea _start;   // 지정 자리 없이 들어올 때의 자리 — 없으면(has == false) 맵 전체(CalcSpawnPos)

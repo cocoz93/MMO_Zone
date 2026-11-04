@@ -51,7 +51,7 @@ namespace
         return buf;
     }
 
-    CSerialBuffer* MakePartyNotice(PartyNotice code, int32_t actorId)
+    CSerialBuffer* MakePartyNotice(PartyNotice code, ActorId actorId)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_PARTY_NOTICE::TYPE);
@@ -74,7 +74,7 @@ namespace
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_PARTY_INFO::TYPE);
         *buf << static_cast<int>(party != nullptr ? party->id : 0);
-        *buf << static_cast<int>(party != nullptr ? party->leader->_actorId : 0);
+        *buf << static_cast<int>(party != nullptr ? party->leader->_actorId : NO_ACTOR);
         *buf << static_cast<uint8_t>(count);
         if (party != nullptr)
         {
@@ -165,11 +165,11 @@ void CPartyHandler::EnterRoom(CPlayer* leader, CZone* oldZone, const PortalDef& 
 
 void CPartyHandler::SendRoomReject(CPlayer* leader, const RoomEntryResult& result)
 {
-    const int32_t blocker = (result.blocker != nullptr) ? result.blocker->_actorId : 0;
+    const ActorId blocker = (result.blocker != nullptr) ? result.blocker->_actorId : NO_ACTOR;
     switch (result.reject)
     {
-    case RoomEntryReject::NOT_IN_PARTY: _partySystem.Notice(leader, PartyNotice::NOT_IN_PARTY, 0);            return;
-    case RoomEntryReject::NOT_LEADER:   _partySystem.Notice(leader, PartyNotice::NOT_LEADER, 0);              return;
+    case RoomEntryReject::NOT_IN_PARTY: _partySystem.Notice(leader, PartyNotice::NOT_IN_PARTY, NO_ACTOR);            return;
+    case RoomEntryReject::NOT_LEADER:   _partySystem.Notice(leader, PartyNotice::NOT_LEADER, NO_ACTOR);              return;
     case RoomEntryReject::NOT_GATHERED: _partySystem.Notice(leader, PartyNotice::ROOM_NOT_GATHERED, blocker); return;
     case RoomEntryReject::DEAD:         _partySystem.Notice(leader, PartyNotice::ROOM_DEAD, blocker);         return;
     case RoomEntryReject::LOCKED:       _partySystem.Notice(leader, PartyNotice::ROOM_LOCKED, blocker);       return;
@@ -181,7 +181,7 @@ void CPartyHandler::SendRoomReject(CPlayer* leader, const RoomEntryResult& resul
 }
 
 // 방 다시 들어가기 잠금 넣기(PartyHandler.h 선언 주석) — 방 보상(RewardRoom)이 사람마다 부르던 Lock 과 그 뒤 게이지 한 줄을 여기 한 곳으로(게임 서버 나누기 7 단계)
-void CPartyHandler::LockRoomReentry(int64_t characterId, int32_t mapId, uint64_t untilFrame)
+void CPartyHandler::LockRoomReentry(CharacterId characterId, MapId mapId, uint64_t untilFrame)
 {
     _roomLocks.Lock(characterId, mapId, untilFrame);
     _gameMonitor._room._locks.Store(static_cast<int64_t>(_roomLocks.Size()));
@@ -218,7 +218,7 @@ void CPartyHandler::RecvPartyRequest(CPlayer* player, CSerialBuffer* pMsg)
 {
     MSG_C2S_PARTY_REQUEST recvMsg{};
     pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
-    _partySystem.Request(player, FindPlayerAround(player, recvMsg.targetId), _frameCount);
+    _partySystem.Request(player, FindPlayerAround(player, ActorId{ recvMsg.targetId }), _frameCount);
 }
 
 void CPartyHandler::RecvPartyAnswer(CPlayer* player, CSerialBuffer* pMsg)
@@ -238,14 +238,14 @@ void CPartyHandler::RecvPartyKick(CPlayer* player, CSerialBuffer* pMsg)
 {
     MSG_C2S_PARTY_KICK recvMsg{};
     pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
-    _partySystem.Kick(player, recvMsg.targetId);
+    _partySystem.Kick(player, ActorId{ recvMsg.targetId });
 }
 
 void CPartyHandler::RecvPartyLeader(CPlayer* player, CSerialBuffer* pMsg)
 {
     MSG_C2S_PARTY_LEADER recvMsg{};
     pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
-    _partySystem.SetLeader(player, recvMsg.targetId);
+    _partySystem.SetLeader(player, ActorId{ recvMsg.targetId });
 }
 
 void CPartyHandler::RecvPartyDisband(CPlayer* player)
@@ -253,7 +253,7 @@ void CPartyHandler::RecvPartyDisband(CPlayer* player)
     _partySystem.Disband(player);
 }
 
-CPlayer* CPartyHandler::FindPlayerAround(CPlayer* player, int32_t actorId)
+CPlayer* CPartyHandler::FindPlayerAround(CPlayer* player, ActorId actorId)
 {
     CZone* zone = _mapManager.GetZone(player->_zoneId);
     if (zone == nullptr)
@@ -287,7 +287,7 @@ void CPartyHandler::OnPartyAskEnd(CPlayer* to, uint32_t requestId, PartyNotice w
     _gameMonitor._party._askEndSent.Inc();
 }
 
-void CPartyHandler::OnPartyNotice(CPlayer* to, PartyNotice code, int32_t actorId)
+void CPartyHandler::OnPartyNotice(CPlayer* to, PartyNotice code, ActorId actorId)
 {
     _sessionHub.SendPacket(to, MakePartyNotice(code, actorId));   // 세기는 규칙 쪽(CPartySystem::Notice — 번호별)
 }

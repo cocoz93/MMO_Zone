@@ -40,7 +40,7 @@ namespace
     }
 
     // 가변 길이 — message는 고정배열/문자열이라 SetData(raw). msgLen은 null 제외 글자 수.
-    CSerialBuffer* MakeChat(int32_t playerId, uint8_t displayChar, uint8_t colorIndex,
+    CSerialBuffer* MakeChat(ActorId playerId, uint8_t displayChar, uint8_t colorIndex,
                              ChatChar* message, uint16_t msgLen)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();

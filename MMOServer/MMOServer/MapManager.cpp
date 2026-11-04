@@ -15,7 +15,7 @@ CZone* CChannelTable::Create(int32_t channelIndex)
     if (_channels.find(channelIndex) != _channels.end())
         return nullptr;
 
-    int32_t zoneId = CMapManager::MakeZoneId(_config.mapId, channelIndex);
+    ZoneId zoneId = CMapManager::MakeZoneId(_config.mapId, channelIndex);
 
     auto zone = std::make_unique<CZone>(_gameData);
     if (!zone->Init(zoneId, _config.mapId, _config.mapWidth, _config.mapHeight, _config.sectorSize, _config.start))
@@ -152,7 +152,7 @@ bool CMapManager::RegisterMap(const MapConfig& config)
         }
 
         // 기본 채널(channelIndex=0) 캐시 등록
-        int32_t zoneId = MakeZoneId(config.mapId, 0);
+        ZoneId zoneId = MakeZoneId(config.mapId, 0);
         CZone* baseZone = fieldMap.FindChannel(0);
         if (baseZone != nullptr)
             _zoneCache[zoneId] = baseZone;
@@ -165,7 +165,7 @@ bool CMapManager::RegisterMap(const MapConfig& config)
     return true;
 }
 
-CZone* CMapManager::FindOrCreateChannel(int32_t mapId, bool isAdmin)
+CZone* CMapManager::FindOrCreateChannel(MapId mapId, bool isAdmin)
 {
     // 일반 표에서만 — 방 맵은 자동 배정이 없다. 로그인(저장된 자리가 방 맵) · 포털 · 운영자 무작위가 여기로 방에 들어가지 못하게.
     //   부르는 쪽은 nullptr 을 「그 맵에 자리 없음」으로 이미 다룬다(로그인은 기본 맵으로 — CEntryHandler::OnCharacterLoaded)
@@ -182,7 +182,7 @@ CZone* CMapManager::FindOrCreateChannel(int32_t mapId, bool isAdmin)
     return zone;
 }
 
-CZone* CMapManager::CreateRoom(int32_t mapId)
+CZone* CMapManager::CreateRoom(MapId mapId)
 {
     // 방 표에서만 — 일반 맵 번호면 없음(nullptr)
     auto it = _roomMaps.find(mapId);
@@ -198,12 +198,12 @@ CZone* CMapManager::CreateRoom(int32_t mapId)
     return zone;
 }
 
-bool CMapManager::IsRoomMap(int32_t mapId) const
+bool CMapManager::IsRoomMap(MapId mapId) const
 {
     return _roomMaps.find(mapId) != _roomMaps.end();
 }
 
-CZone* CMapManager::FindChannel(int32_t mapId, int32_t channelIndex)
+CZone* CMapManager::FindChannel(MapId mapId, int32_t channelIndex)
 {
     // 두 표 중 그 번호가 있는 쪽 — 한 번호는 한 표에만 있다
     if (auto it = _fieldMaps.find(mapId); it != _fieldMaps.end())
@@ -213,9 +213,9 @@ CZone* CMapManager::FindChannel(int32_t mapId, int32_t channelIndex)
     return nullptr;
 }
 
-ZoneChangeTarget CMapManager::PickZoneChangeTarget(int32_t currentZoneId, int32_t targetMapId, int32_t targetChannelIndex, bool isAdmin)
+ZoneChangeTarget CMapManager::PickZoneChangeTarget(ZoneId currentZoneId, MapId targetMapId, int32_t targetChannelIndex, bool isAdmin)
 {
-    const int32_t currentMapId = GetMapIdFromZoneId(currentZoneId);
+    const MapId currentMapId = GetMapIdFromZoneId(currentZoneId);
 
     CZone* zone = nullptr;
     CFieldMap* pickedMap = nullptr;   // 일반 맵 채널 지정일 때만 — 정원은 아래에서 이 맵의 규칙으로 본다
@@ -248,10 +248,10 @@ ZoneChangeTarget CMapManager::PickZoneChangeTarget(int32_t currentZoneId, int32_
             return { nullptr, ZoneChangeReject::NOT_ALLOWED };
 
         // 랜덤 맵 이동 요청 처리
-        if (targetMapId == -1)
+        if (targetMapId == NO_MAP)
         {
             targetMapId = GetRandomMapId(currentMapId);
-            if (targetMapId == -1)
+            if (targetMapId == NO_MAP)
                 return { nullptr, ZoneChangeReject::NOT_FOUND };
         }
 
@@ -294,7 +294,7 @@ void CMapManager::CloseEmptyRooms(const std::function<void(CZone*)>& onBeforeEra
     }
 }
 
-CZone* CMapManager::GetZone(int32_t zoneId)
+CZone* CMapManager::GetZone(ZoneId zoneId)
 {
     auto it = _zoneCache.find(zoneId);
     if (it != _zoneCache.end())
@@ -311,10 +311,10 @@ void CMapManager::TickAll(float deltaTime, IZoneEvents& events)
         roomMap.TickAll(deltaTime, events);
 }
 
-int32_t CMapManager::GetRandomMapId(int32_t excludeMapId) const
+MapId CMapManager::GetRandomMapId(MapId excludeMapId) const
 {
     static constexpr int32_t MAX_MAPS = 64;
-    int32_t candidates[MAX_MAPS];
+    MapId candidates[MAX_MAPS];
     int32_t count = 0;
 
     // 일반 표만 훑는다 — 방 맵은 자동 배정이 없어(FindOrCreateChannel nullptr) 뽑히면 이동이 늘 「없음」으로 끝난다
@@ -324,24 +324,24 @@ int32_t CMapManager::GetRandomMapId(int32_t excludeMapId) const
             candidates[count++] = mapId;
     }
     if (count == 0)
-        return -1;
+        return NO_MAP;
 
     static thread_local std::mt19937 rng(std::random_device{}());
     std::uniform_int_distribution<int32_t> dist(0, count - 1);
     return candidates[dist(rng)];
 }
 
-int32_t CMapManager::MakeZoneId(int32_t mapId, int32_t channelIndex)
+ZoneId CMapManager::MakeZoneId(MapId mapId, int32_t channelIndex)
 {
-    return mapId * CHANNELS_PER_MAP + channelIndex;
+    return ZoneId{ ToInt(mapId) * CHANNELS_PER_MAP + channelIndex };
 }
 
-int32_t CMapManager::GetMapIdFromZoneId(int32_t zoneId)
+MapId CMapManager::GetMapIdFromZoneId(ZoneId zoneId)
 {
-    return zoneId / CHANNELS_PER_MAP;
+    return MapId{ ToInt(zoneId) / CHANNELS_PER_MAP };
 }
 
-int32_t CMapManager::GetChannelIndexFromZoneId(int32_t zoneId)
+int32_t CMapManager::GetChannelIndexFromZoneId(ZoneId zoneId)
 {
-    return zoneId % CHANNELS_PER_MAP;
+    return ToInt(zoneId) % CHANNELS_PER_MAP;
 }

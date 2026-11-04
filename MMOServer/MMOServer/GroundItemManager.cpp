@@ -48,7 +48,7 @@ void CGroundItemManager::RemoveAt(int32_t sectorX, int32_t sectorY, size_t index
 }
 
 void CGroundItemManager::Drop(const GroundItemContext& ctx, const std::vector<Item>& loot,
-                              float x, float y, int64_t ownerCharacterId, uint64_t frame)
+                              float x, float y, CharacterId ownerCharacterId, uint64_t frame)
 {
     // 놓는 자리 — 첫 아이템은 죽은 자리, 다음부터 옆 칸. 한 점에 포개면 웹이 그림 하나만 그린다.
     static constexpr float OFFSETS[][2] = {
@@ -85,7 +85,7 @@ void CGroundItemManager::Drop(const GroundItemContext& ctx, const std::vector<It
 }
 
 void CGroundItemManager::Remove(const GroundItemContext& ctx, int32_t sectorX, int32_t sectorY, size_t index,
-                                GroundItemRemoval why, int32_t pickerId)
+                                GroundItemRemoval why, ActorId pickerId)
 {
     const int32_t groundId = GetSectorItems(sectorX, sectorY)[index].groundId;   // 빼기 전에 읽는다
 
@@ -115,7 +115,7 @@ void CGroundItemManager::TickExpire(const GroundItemContext& ctx, uint64_t frame
             for (size_t i = 0; i < list.size(); )
             {
                 if (frame >= list[i].expireFrame)
-                    Remove(ctx, sx, sy, i, GroundItemRemoval::EXPIRED, 0);   // 뒤엣것이 i 로 온다 — 올리지 않는다
+                    Remove(ctx, sx, sy, i, GroundItemRemoval::EXPIRED, NO_ACTOR);   // 뒤엣것이 i 로 온다 — 올리지 않는다
                 else
                     ++i;
             }
@@ -169,7 +169,7 @@ PickupReject CGroundItemManager::FindPickup(const CPlayer* player, uint64_t fram
             anyInRange = true;
 
             // 내 것이거나(막타 친 캐릭터) 우선 시간이 끝났으면 주울 수 있다
-            const bool mine = g.ownerCharacterId == 0 || g.ownerCharacterId == player->_characterId ||
+            const bool mine = g.ownerCharacterId == NO_CHARACTER || g.ownerCharacterId == player->_characterId ||
                               frame >= g.ownerUntilFrame;
             if (!mine)
                 continue;

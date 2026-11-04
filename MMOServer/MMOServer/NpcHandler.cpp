@@ -23,7 +23,7 @@ void CNpcHandler::TickNpcs()
     });
 }
 
-int32_t CNpcHandler::AllocActorId()
+ActorId CNpcHandler::AllocActorId()
 {
     return _sessionHub.AllocActorId();   // 단일 증가 카운터라 플레이어·몬스터와 충돌하지 않는다
 }

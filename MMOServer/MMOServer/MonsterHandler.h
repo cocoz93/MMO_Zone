@@ -14,6 +14,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 
 #include "BuildConfig.h"     // USE_MONSTER · USE_COMBAT · USE_SKILL · USE_PARTY — 안 읽으면 아래 #if 가 조용히 0 이 된다
@@ -74,7 +75,7 @@ private:
     MonsterContext MakeMonsterContext();
 
     // 몬스터 알림과 번호 부탁 (IMonsterEvents) — 뜻은 MonsterManager.h.
-    int32_t AllocActorId() override;                                         // = 세션 허브의 발급기 — 번호 공간이 플레이어와 하나
+    ActorId AllocActorId() override;                                         // = 세션 허브의 발급기 — 번호 공간이 플레이어와 하나
     void OnMonsterSpawn(CZone* zone, CMonster* monster) override;            // 주변에 CREATE(SPAWN) · 동기화 기준점을 지금 자리로
     void OnMonsterVanish(CZone* zone, CMonster* monster) override;           // 방 클리어 — 효과 목록에서 빼고 존에서 뺀다(주변 DELETE) · 죽은 몬스터 지우기 앞과 같은 길
 

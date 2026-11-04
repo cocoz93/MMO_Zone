@@ -4,12 +4,12 @@
 
 #include "Player.h"   // _zoneId · 체력 컴포넌트(생사) · _characterId
 
-void CRoomLocks::Lock(int64_t characterId, int32_t mapId, uint64_t untilFrame)
+void CRoomLocks::Lock(CharacterId characterId, MapId mapId, uint64_t untilFrame)
 {
     _untilFrame[Key{ characterId, mapId }] = untilFrame;
 }
 
-bool CRoomLocks::IsLocked(int64_t characterId, int32_t mapId, uint64_t frame) const
+bool CRoomLocks::IsLocked(CharacterId characterId, MapId mapId, uint64_t frame) const
 {
     auto it = _untilFrame.find(Key{ characterId, mapId });
     return it != _untilFrame.end() && frame < it->second;
@@ -26,7 +26,7 @@ void CRoomLocks::Sweep(uint64_t frame)
     }
 }
 
-RoomEntryResult CheckRoomEntry(const CPlayer* me, const Party* party, const CRoomLocks& locks, int32_t roomMapId, uint64_t frame)
+RoomEntryResult CheckRoomEntry(const CPlayer* me, const Party* party, const CRoomLocks& locks, MapId roomMapId, uint64_t frame)
 {
     if (party == nullptr)
         return { RoomEntryReject::NOT_IN_PARTY, nullptr };

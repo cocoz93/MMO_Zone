@@ -14,6 +14,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 
 #include "NpcManager.h"   // INpcEvents
@@ -38,7 +39,7 @@ public:
 
 private:
     // NPC 알림과 번호 부탁 (INpcEvents) — 뜻은 NpcManager.h.
-    int32_t AllocActorId() override;                       // = 세션 허브의 발급기 — 번호 공간이 플레이어·몬스터와 하나
+    ActorId AllocActorId() override;                       // = 세션 허브의 발급기 — 번호 공간이 플레이어·몬스터와 하나
     void OnNpcSpawn(CZone* zone, CNpc* npc) override;      // 부류 값 · 정의 번호 · 주변에 CREATE(SPAWN) · 지표
 
     CSessionHub&       _sessionHub;         // 번호 발급기

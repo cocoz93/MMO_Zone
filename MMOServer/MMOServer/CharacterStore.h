@@ -21,6 +21,7 @@
 // ==========================================================================
 #pragma once
 
+#include <Identity/GameIds.h>
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -108,7 +109,7 @@ public:
     void RestoreCooldownsAndBuffs(CPlayer* player, const DBResult* cooldownsAndBuffs, bool dropBuffs);
 
     // DB 왕복 — 캐릭터 불러오기 (요청은 워커 큐로, 결과는 회신 큐로 돌아와 다음 틱에 꺼낸다)
-    bool RequestCharacterLoad(int64_t sessionId, int64_t characterId);   // 조회 1건 투입 + 계수. false = 거절됨(결과가 안 온다)
+    bool RequestCharacterLoad(SessionId sessionId, CharacterId characterId);   // 조회 1건 투입 + 계수. false = 거절됨(결과가 안 온다)
     void ProcessDbResults();                                           // 틱마다: 회신 큐를 통째로 꺼내 종류별로 넘긴다(불러오기 → _loadEvents)
 
 private:
@@ -144,17 +145,17 @@ private:
     // 짝 고리 — 거래 한 건의 확정 안 된 저장. 쪽마다 살아 있는 사람(세션) 또는 떠난 기록(캐릭터 열쇠)이다.
     struct PairLink
     {
-        int64_t  character[2]  = {};
-        int64_t  session[2]  = {};      // 살아 있으면 세션 번호 · 0 = 나갔다(그쪽 최종 = 붙잡힌 떠난 기록)
+        CharacterId  character[2]  = {};
+        SessionId  session[2]  = {};      // 살아 있으면 세션 번호 · 0 = 나갔다(그쪽 최종 = 붙잡힌 떠난 기록)
         uint32_t bundleNo[2] = {};      // 떠 있는 짝 묶음의 머리 번호 — 회신 짝 맞추기(inFlight 일 때만 뜻이 있다)
         bool     replied[2]  = {};
         bool     ok          = true;    // 받은 회신이 다 성공인가(트랜잭션 하나라 둘은 같다)
         bool     inFlight    = false;
     };
-    PairLink* FindPair(int64_t characterId, int* outSide = nullptr);
+    PairLink* FindPair(CharacterId characterId, int* outSide = nullptr);
     bool SendPair(PairLink& link, SaveTrigger trigger);   // 짝 묶음 하나를 낸다 — 반환 = 큐가 받았나
     void OnPairReply(const DBSaveReply& reply);           // 회신이 떠 있는 짝 묶음의 머리면 고리에 적고, 둘 다 오면 푼다(ProcessDbResults — OnSaveReply 바로 뒤)
-    void ReleasePairSide(int64_t characterId, int64_t sessionId);   // 고리가 풀린 한쪽 — 혼자 묶음·붙잡힌 떠난 기록을 다시 흐르게
+    void ReleasePairSide(CharacterId characterId, SessionId sessionId);   // 고리가 풀린 한쪽 — 혼자 묶음·붙잡힌 떠난 기록을 다시 흐르게
 
     // 쿨타임·버프 ↔ DB 묶음(characters.skill_cooldowns · buffs, 형식은 CooldownBuffBlob.h). 게임 안의 시간은 틱이고 DB 는 실제 시각이다.
     void PackCooldownsAndBuffs(const CPlayer* player, DBCharRow& row) const;      // 저장 — 돌고 있는 칸을 틱 → 실제 시각으로 묶는다(MakeCharRow)
@@ -181,8 +182,8 @@ private:
     std::vector<DBSaveReply> _dbSaveReplies;   // 저장 회신 — 위와 같은 맞바꿈 버퍼(한 락에 같이 꺼낸다)
 
     // 저장 묶음 — 접근은 게임 스레드 단독(종료 때는 게임 스레드 join 뒤 메인 스레드 단독)
-    std::vector<int64_t>                       _tickEndSessions;   // 이번 틱 끝 목록(세션 번호 — 같은 틱에 나간 사람은 틱 끝에 못 찾아 건너뜀)
-    std::unordered_map<int64_t, LeaveRecord>   _leaveRecords;      // 캐릭터 → 떠난 기록
+    std::vector<SessionId>                       _tickEndSessions;   // 이번 틱 끝 목록(세션 번호 — 같은 틱에 나간 사람은 틱 끝에 못 찾아 건너뜀)
+    std::unordered_map<CharacterId, LeaveRecord>   _leaveRecords;      // 캐릭터 → 떠난 기록
     uint32_t                                   _leaveSeq = 0;      // 떠난 기록 묶음 번호(실을 때마다 새로 — 늦게 온 옛 회신이 새 시도를 확정하지 않게)
     int64_t                                    _inflightCount = 0; // 비행 중 묶음이 있는 살아 있는 캐릭터 수(게이지의 원본)
     std::vector<DBSaveBundle>                  _batchHeads;        // 주기·종료 묶음 머리 — 멤버 재사용(매 주기 할당 회피)
