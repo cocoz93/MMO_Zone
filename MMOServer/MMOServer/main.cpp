@@ -5,8 +5,6 @@
 #include <cstdint>
 #include <thread>
 #include <chrono>
-#include <condition_variable>
-#include <mutex>
 #include <vector>
 
 #include "GameServer.h"
@@ -18,33 +16,11 @@
 #include "ServerConfig.h"
 #include "CoreAffinity.h"       // 게임스레드 코어 격리 마스크 주입
 #include "Platform/Platform.h"   // affinity·종료 시그널 격리
+#include <Process/ShutdownWait.h>
 #include <Common/Logger.h>
 #include <Common/ErrorLog.h>
 
-std::atomic<bool> running{true};
-std::mutex mtx;
-std::condition_variable cv;
-
-// main이 정리(server.Stop)를 끝냈는지 — 콘솔 종료 핸들러가 이걸 기다린다.
-std::atomic<bool> shutdownComplete{false};
-
-// CTRL_CLOSE/LOGOFF/SHUTDOWN에서 정리를 기다릴 상한.
-//   이 이벤트들은 OS 유예(기본 5초) 후 프로세스를 강제 종료하므로 그보다 짧게 잡는다.
-constexpr uint32_t SHUTDOWN_WAIT_MAX_MS = 4500;
-
-// 프로세스 전체 종료 컨트롤러이므로 메인문에 빼둔다
-//   running 변경은 반드시 mtx 안에서 — 락 없이 바꾸면 main이 wait 술어를 평가한 직후
-//   대기 큐에 등록되기 전 구간에 끼어들어 notify가 유실된다(기상 유실).
-void SignalProcessShutdown()
-{
-    {
-        std::lock_guard<std::mutex> lk(mtx);
-        running = false;
-    }
-    cv.notify_one();
-}
-
-// 정리 기다림이 상한(SHUTDOWN_WAIT_MAX_MS)에 닿았을 때 — 창 닫기·로그오프·윈도 종료라 반환하면 곧 OS 가 죽인다.
+// 정리 기다림이 상한(CShutdownWait::WAIT_MAX_MS)에 닿았을 때 — 창 닫기·로그오프·윈도 종료라 반환하면 곧 OS 가 죽인다.
 //   확정 못 받은 종료 저장(떠난 기록 수)을 로그로 남긴다 — 저장 플랜 C 종료 시험 S4(10-21): DB 가 4.5초 넘게 막히면 저장이 로그 한 줄 없이 사라졌다.
 //   로거가 비동기라 직접 내보내고, 실제로 쓸 틈을 조금 준다(OS 유예 약 5초 − 4.5초 안). 콘솔 핸들러 스레드에서 불린다 — 게이지(원자 값)만 읽는다
 CGameMonitor* g_gameMonitorForShutdown = nullptr;
@@ -52,7 +28,7 @@ void OnShutdownWaitTimeout()
 {
     const int64_t pendingLeave = (g_gameMonitorForShutdown != nullptr) ? g_gameMonitorForShutdown->_save._pendingLeave.Load() : -1;
     SLOG_ERROR("[Shutdown] 정리 기다림 {}ms 를 넘김 — OS 가 곧 끈다. 확정 못 받은 종료 저장(떠난 기록) {}개 — 그 캐릭터들의 마지막 저장 뒤 변경은 잃을 수 있다",
-               SHUTDOWN_WAIT_MAX_MS, pendingLeave);
+               CShutdownWait::WAIT_MAX_MS, pendingLeave);
     if (auto& logger = shared::Logger::Get())
         logger->flush();
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -151,7 +127,7 @@ int main()
 
     // Ctrl+C / 콘솔 종료 시 graceful shutdown (server.Stop이 DB 드레인 수행)
     g_gameMonitorForShutdown = &gameMonitor;
-    Platform::InstallShutdownHandler(SignalProcessShutdown, &shutdownComplete, SHUTDOWN_WAIT_MAX_MS, OnShutdownWaitTimeout);
+    CShutdownWait::Install(OnShutdownWaitTimeout);
 
     if (!server.Start())
     {
@@ -161,16 +137,13 @@ int main()
 
     if (monitorSvr) monitorSvr->Start();
 
-    // main 스레드는 condition_variable로 대기
-    {
-        std::unique_lock<std::mutex> lock(mtx);
-        cv.wait(lock, [&] { return !running; });
-    }
+    // main 스레드는 종료 신호까지 대기
+    CShutdownWait::Wait();
 
     if (monitorSvr) monitorSvr->Stop();
     server.Stop();
 
     SLOG_INFO("Server shutdown complete");
-    shutdownComplete.store(true, std::memory_order_release);   // 콘솔 종료 핸들러 해제
+    CShutdownWait::MarkCleanedUp();   // 콘솔 종료 핸들러 해제
     return 0;
 }
