@@ -12,6 +12,7 @@
 #include "GameMonitor.h"
 #include "GameDataFiles.h"    // 포털 표
 #include "PacketRoutes.h"
+#include "ZoneLink.h"
 #include "SerialBuffer.h"
 #include "NetIoModel.h"       // CSession::ExtractIndex — 대기표 색인(세션 허브의 칸과 같은 색인)
 #include <Protocol/Protocol.h>
@@ -438,6 +439,9 @@ CPlayer* CEntryHandler::SpawnPlayer(SessionId sessionId, ActorId actorId, Charac
     // 본인에게 존·내 캐릭터·숫자·가방·스탯 → 주변과 서로 생성 (순서와 「접속만 보내는 것」은 NotifyArrival 한 곳)
     //   불러온 가방은 위에서 이미 채웠다(스탯 세우기 앞 — 무기 몫 때문). 여기서는 보내기만 한다.
     _placement.NotifyArrival(player, zone, CPlayerPlacement::ArrivalKind::CONNECT);
+
+    // 캐릭터 서버의 게임 중 장부 — 세운 뒤에 알린다. 불러오다 나간 사람은 여기를 안 지나니 퇴장 알림도 없어 짝이 맞는다.
+    _zoneLink.NotifyEnter(characterId);
 
     return player;
 }

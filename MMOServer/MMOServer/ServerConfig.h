@@ -27,6 +27,7 @@
 #include <iostream>
 #include <cstdlib>      // strtol (ServerCores 범위 파싱)
 
+#include <Protocol/ServerLinkProtocol.h>   // LINK_WS_ADDR_BYTES — 웹 주소 패킷 칸
 #include <Config/IniFile.h>       // 플랫폼 독립 INI 리더 (GetPrivateProfile* 대체)
 #include "Platform/Platform.h"    // Platform::GetExecutableDir
 #include "EnterGate.h"            // CEnterGate::TTL_SEC_DEFAULT
@@ -47,6 +48,7 @@ struct ServerConfig
     //   INI 파일이 없을 때(Load 가 일찍 돌아감)도, 파일은 있는데 키가 없을 때(GetInt 의 세 번째 인자)도
     //   아래 멤버 초기값과 이 상수들을 쓴다. Load 안에 숫자를 다시 적지 말 것 — 한쪽만 고쳐지면 두 경우가 갈린다.
     static constexpr int    MAX_CLIENTS_DEFAULT = 1000;          // 범위 밖 값을 되돌릴 때도 이 값
+    static constexpr int    MAX_CLIENTS_LIMIT   = 65535;         // 세션 인덱스가 SessionID 상위 16bit
     static constexpr MapOps DEFAULT_MAP_OPS     = { 20, 100 };   // 섹터 크기 · 채널 정원
 
     ServerMode  mode         = ServerMode::GameServer;
@@ -100,6 +102,9 @@ struct ServerConfig
     int         enterCodeTtlSec = CEnterGate::TTL_SEC_DEFAULT;
     bool        allowDevEnter   = false;   // 입장 번호 없이 들어오는 길(부하 더미 · 콘솔 · 시험 대본)
     bool        allowDevAdmin   = false;   // 채팅 /test 로 운영자 켜기 — 로그인 서버가 붙으면 계정 권한으로 옮긴다
+    bool        useServerLink   = false;   // 캐릭터 서버에 접속할까 — 코드 기본은 끔. 부하 측정은 0 으로 돈다(측정 조건이 안 바뀌게)
+    int         zoneServerId    = 1;       // 캐릭터 서버에 등록하는 번호
+    std::string publicWsAddr    = "ws://127.0.0.1:9000";   // 웹 브라우저가 접속할 주소 — relay.js 기본 포트. 캐릭터 서버가 웹에 그대로 넘긴다
 
     // 실행 파일 경로 기준으로 MMOServerConfig.ini 로드
     bool Load()
@@ -124,7 +129,6 @@ struct ServerConfig
         //   이 값이 GameServer::Init의 vector::assign에 들어가면 size_t로 확대되어 length_error를
         //   던지고, catch가 없어 "Init failed" 로그 대신 크래시 덤프를 남기며 죽는다.
         //   Start()의 범위 검사는 Init보다 뒤라 여기서 막지 않으면 도달하지 못한다.
-        constexpr int MAX_CLIENTS_LIMIT   = 65535;  // 세션 인덱스가 SessionID 상위 16bit
 
         maxClients  = ini.GetInt("Server", "MaxClients", maxClients);
         if (maxClients <= 0 || maxClients > MAX_CLIENTS_LIMIT)
@@ -193,6 +197,20 @@ struct ServerConfig
         }
         allowDevEnter = (ini.GetInt("Zone", "AllowDevEnter", allowDevEnter ? 1 : 0) != 0);
         allowDevAdmin = (ini.GetInt("Zone", "AllowDevAdmin", allowDevAdmin ? 1 : 0) != 0);
+        useServerLink = (ini.GetInt("Zone", "UseServerLink", useServerLink ? 1 : 0) != 0);
+        zoneServerId = ini.GetInt("Zone", "ZoneServerId", zoneServerId);
+        if (zoneServerId <= 0)
+        {
+            SLOG_ERROR("[ServerConfig] ZoneServerId({}) out of range. Using default 1.", zoneServerId);
+            zoneServerId = 1;
+        }
+        {
+            const std::string addr = ini.GetString("Zone", "PublicWsAddr", publicWsAddr);
+            if (addr.empty() || addr.size() >= LINK_WS_ADDR_BYTES)
+                SLOG_ERROR("[ServerConfig] PublicWsAddr length {} out of range (1~{}). Using {}.", addr.size(), LINK_WS_ADDR_BYTES - 1, publicWsAddr);
+            else
+                publicWsAddr = addr;
+        }
 
         // [MapDefault] 섹션 로드 — 맵 목록·크기는 맵 표(MapTable.csv)라 여기 없다
         mapDefault.sectorSize           = ini.GetInt("MapDefault", "SectorSize", mapDefault.sectorSize);
@@ -327,5 +345,7 @@ private:
         SLOG_INFO("  Speed       : player {} (칸/초, 0=기본 — 25~50 무작위)", playerSpeed);
         SLOG_INFO("  Zone        : enter code ttl {}s · dev enter {} · dev admin {}",
                   enterCodeTtlSec, allowDevEnter ? "on" : "off", allowDevAdmin ? "on" : "off");
+        SLOG_INFO("  ServerLink  : {} · zone server {} · web {}",
+                  useServerLink ? "on" : "off", zoneServerId, publicWsAddr);
     }
 };

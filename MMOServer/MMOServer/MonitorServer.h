@@ -18,6 +18,8 @@
 #include <sstream>
 #include <iomanip>
 #include <cstdint>
+#include <functional>
+#include <utility>
 
 #include <Monitoring/CoreMetrics.h>
 #include <Monitoring/MetricsEndpoint.h>
@@ -37,6 +39,9 @@ public:
     CMonitorServer(const CMonitorServer&) = delete;
     CMonitorServer& operator=(const CMonitorServer&) = delete;
 
+    // 서버 간 연결 지표 — Start 전에 건다. 안 걸면 줄이 없다
+    void SetLinkMetrics(std::function<void(std::ostringstream&)> writer) { _linkMetrics = std::move(writer); }
+
     bool Start() { return _endpoint.Start(); }
     void Stop() { _endpoint.Stop(); }
 
@@ -53,6 +58,8 @@ private:
 
         // ── 코어 지표 (네트워크·세션·처리 지연·워커·스레드 CPU) — 세 서버가 같은 이름으로 낸다 ──
         _coreMetrics.Write(ss);
+        if (_linkMetrics)
+            _linkMetrics(ss);
 
         // ── 게임 지표 ──
         WriteCounter(ss, "mmo_zone_change_total",
@@ -765,5 +772,6 @@ private:
     CMonitorManager& _monitor;       // 코어 지표 저장소 (ServerCore)
     CGameMonitor&    _gameMonitor;   // 게임 컨텐츠 지표 저장소 — 코어와 별개 객체
     CCoreMetrics     _coreMetrics;   // 코어 지표 글자 — CPU 직전 샘플도 여기 있다
+    std::function<void(std::ostringstream&)> _linkMetrics;   // 서버 간 연결 줄 — 꺼져 있으면 비어 있다
     CMetricsEndpoint _endpoint;      // 맨 뒤에 둔다 — 먼저 내려가야 위 멤버를 쓰는 핸들러가 남지 않는다
 };

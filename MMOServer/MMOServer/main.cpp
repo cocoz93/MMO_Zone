@@ -17,6 +17,7 @@
 #include "CoreAffinity.h"       // 게임스레드 코어 격리 마스크 주입
 #include "Platform/Platform.h"   // affinity·종료 시그널 격리
 #include <Process/ShutdownWait.h>
+#include <Link/ServerLinkConfig.h>
 #include <Common/Logger.h>
 #include <Common/ErrorLog.h>
 
@@ -95,7 +96,30 @@ int main()
                   def.kind == MapKind::INSTANCE ? " · room map (no channel 0)" : "");
     }
 
-    if (!server.Init(config.mode, config.port, config.maxClients,
+    // 서버 간 연결 — 게임 서버 모드에서 UseServerLink=1 일 때만. 에코 모드는 게임 스레드가 없어 사건을 받을 곳이 없다.
+    //   ServerLink.ini 가 틀리면 기동을 거절한다 — 조용히 꺼진 채 뜨면 「고르기가 ZONE_DOWN」으로만 보인다(ServerLinkConfig.h).
+    //   세션 표는 정원 + 여유 칸. 끄면 정원 그대로라 세션 표 · 스레드 · 지표 줄이 켜기 전과 같다.
+    const bool useServerLink = config.useServerLink && config.mode == ServerMode::GameServer;
+    ServerLinkConfig linkConfig;
+    int sessionSlots = config.maxClients;
+    if (useServerLink)
+    {
+        std::string linkError;
+        if (!linkConfig.Load(Platform::GetExecutableDir() + "ServerLink.ini", linkError))
+        {
+            SLOG_ERROR("[Error] ServerLink.ini: {}", linkError);
+            return 1;
+        }
+        sessionSlots = config.maxClients + linkConfig.sessionReserve;
+        if (sessionSlots > ServerConfig::MAX_CLIENTS_LIMIT)
+        {
+            SLOG_ERROR("[Error] MaxClients({}) + SessionReserve({}) exceeds {}",
+                       config.maxClients, linkConfig.sessionReserve, ServerConfig::MAX_CLIENTS_LIMIT);
+            return 1;
+        }
+    }
+
+    if (!server.Init(config.mode, config.port, sessionSlots,
                      maps.data(), static_cast<int32_t>(maps.size()),
                      config.workerThreads, config.sendWorkers, config.rioWorkers,
                      config.completionBatch, config.sendDepth))
@@ -107,6 +131,25 @@ int main()
     // 이벤트 큐 과부하 시 신규 accept 차단 임계 (네트워크 객체는 Init에서 생성된다)
     server.SetEventQueueAcceptLimit(config.eventQueueAcceptLimit);
     server.SetEnterRules(config.enterCodeTtlSec, config.allowDevEnter, config.allowDevAdmin);
+    if (useServerLink)
+    {
+        server.SetUntaggedSessionLimit(config.maxClients);   // 웹 세션이 여유 칸을 못 먹게 — 재접속할 자리가 늘 남는다
+
+        CZoneLink::Config link;
+        link.characterIp = linkConfig.character.ip;
+        link.characterPort = linkConfig.character.port;
+        link.retrySec = linkConfig.retrySec;
+        link.heartbeatSec = linkConfig.heartbeatSec;
+        link.zoneServerId = config.zoneServerId;
+        link.maxClients = config.maxClients;
+        link.publicWsAddr = config.publicWsAddr;
+        link.enterCodeTtlSec = config.enterCodeTtlSec;
+        if (!server.ConfigureZoneLink(link))
+        {
+            SLOG_ERROR("[Error] Zone link config failed");
+            return 1;
+        }
+    }
     server.SetPlayerSpeed(config.playerSpeed);   // 0 = 기본(부하 시험 기준) — ServerConfig [Game]. 몬스터 사양은 표에 있다
 
     // DB 저장 파이프라인 초기화 (USE_DB_WORKER=0이면 no-op)
@@ -136,7 +179,11 @@ int main()
         return 1;
     }
 
-    if (monitorSvr) monitorSvr->Start();
+    if (monitorSvr)
+    {
+        monitorSvr->SetLinkMetrics([&server](std::ostringstream& ss) { server.WriteLinkMetrics(ss); });
+        monitorSvr->Start();
+    }
 
     // main 스레드는 종료 신호까지 대기
     CShutdownWait::Wait();

@@ -144,6 +144,7 @@ add_library(ServerCommonLib STATIC
     ${COMMON_DIR}/Db/DbConnection.cpp
     ${COMMON_DIR}/Db/DbPipeline.cpp
     ${COMMON_DIR}/Link/LinkConnector.cpp
+    ${COMMON_DIR}/Link/ServerLinkConfig.cpp
     ${COMMON_DIR}/Link/LinkPeers.cpp
     ${COMMON_DIR}/Link/LinkRequests.cpp
     ${COMMON_DIR}/Lobby/LobbyLoop.cpp
@@ -192,6 +193,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/TradeHandler.cpp
     ${SRV_DIR}/MoveHandler.cpp
     ${SRV_DIR}/EnterGate.cpp
+    ${SRV_DIR}/ZoneLink.cpp
     ${SRV_DIR}/EntryHandler.cpp
     ${SRV_DIR}/JobHandler.cpp
     ${SRV_DIR}/ChatHandler.cpp

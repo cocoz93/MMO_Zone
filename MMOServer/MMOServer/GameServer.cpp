@@ -4,6 +4,7 @@
 #include <Protocol/Protocol.h>
 #include "SerialBuffer.h"
 #include <Common/ErrorLog.h>
+#include <Link/SessionTag.h>
 #include "CoreAffinity.h"
 #include <chrono>
 #include <cassert>  // 불변식 검증(틱 끝 이동 표시 · 받은 패킷 머리)
@@ -120,6 +121,9 @@ bool CGameServer::Start()
     // 에코 테스트는 CIOCPServer 내부에서 자체 처리
     if (_mode == ServerMode::GameServer)
     {
+        // 게임 스레드보다 먼저 — 게임 스레드가 틱마다 보는 연결 객체를 여기서 만든다. 접속이 먼저 돼도 사건은 큐에서 기다린다.
+        _zoneLink.Start(*_network);
+
         _running = true;
         _gameThread = std::thread(&CGameServer::GameLoopThread, this);
     }
@@ -150,6 +154,7 @@ void CGameServer::Stop()
 
     if (_network)
     {
+        _zoneLink.Stop();   // 코어를 내리기 전에 접속 스레드부터 — CLinkConnector 약속
         _network->ShutdownServer();
 
         // 미처리 이벤트의 CSerialBuffer 정리
@@ -281,6 +286,7 @@ void CGameServer::GameLoopThread()
 
         // 4-1) 동접 게이지(_enter._inGame — 존 정원 카운터의 합, 약 0.5초마다) — CEntryHandler. 위 순회에 얹혀 있던 자리 그대로(게임 서버 나누기 14 단계)
         _entryHandler.TickInGameGauge();
+        _zoneLink.Tick();   // 서버 간 하트비트 — 꺼져 있으면 바로 돌아온다
 
         // 이번 틱 보류물 비우기 — digest(USE_BROADCAST_BUNDLE) 또는 섹터 묶음(USE_SECTOR_AGGREGATION). 아래 flush가 묶어 보냄
         _sightBroadcaster.FlushSends();
@@ -352,18 +358,29 @@ void CGameServer::ProcessNetworkEvents()
     while (!_localEvents.empty())
     {
         NetworkEvent& event = _localEvents.front();
+        // 구분 값이 가른다 — 웹 포트로 온 접속은 언제나 0(Web)이라 서버 간 패킷을 보내도 이쪽으로 못 온다.
+        const bool fromLink = (event.tag == static_cast<int>(SessionTag::LinkUp));
         switch (event.type)
         {
         case NetworkEvent::Type::CONNECTED:
-            _entryHandler.OnConnected(SessionId{ event.sessionId });
+            if (fromLink)
+                _zoneLink.OnConnected(SessionId{ event.sessionId });
+            else
+                _entryHandler.OnConnected(SessionId{ event.sessionId });
             break;
 
         case NetworkEvent::Type::DISCONNECTED:
-            OnDisconnected(SessionId{ event.sessionId });
+            if (fromLink)
+                _zoneLink.OnDisconnected(SessionId{ event.sessionId });
+            else
+                OnDisconnected(SessionId{ event.sessionId });
             break;
 
         case NetworkEvent::Type::RECEIVED:
-            OnReceived(SessionId{ event.sessionId }, event.pMsg);
+            if (fromLink)
+                _zoneLink.OnReceived(SessionId{ event.sessionId }, event.pMsg);
+            else
+                OnReceived(SessionId{ event.sessionId }, event.pMsg);
             // handle-latency: enqueue(recv) → 처리완료(응답 송신 포함) 시간.
             // 틱 게이트 대기 + 핸들러 비용 = RTT의 서버 기여분. RECEIVED만 측정.
             if (event.enqueueTimeNs != 0)
@@ -417,6 +434,9 @@ void CGameServer::OnLeavingZone(CCharacter* player)
 // 떠남 — 최종 저장 뒤 · 칸 비우기(해제) 앞(CPlayerPlacement::ReleasePlayer). 이 사람에게 보낼 세션은 이미 없다.
 void CGameServer::OnLeavingGame(CPlayer* player)
 {
+    // 캐릭터 서버의 게임 중 장부 — 같은 계정 끊기는 LeaveGame 을 동기로 불러 이 알림이 새 입장 알림보다 먼저 간다
+    _zoneLink.NotifyLeave(player->_characterId);
+
 #if USE_COMBAT
     // 부활 대기열 회수 — 끊김 길에서는 RemoveFromZone 이 이미 하지만, 존을 못 찾은 분기는 그걸 건너뛴다.
     //   그 상태로 죽어 있을 수는 없어도, 아래 해제 뒤에 대기열이 그 주소를 들고 있으면

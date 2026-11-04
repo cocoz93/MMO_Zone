@@ -4,7 +4,10 @@
 #include "NetIoModel.h"
 
 #include <atomic>
+#include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <mutex>
 #include <set>
 #include <sstream>
@@ -15,6 +18,7 @@
 #include <Db/DbPipeline.h>
 #include <Identity/SecureRandom.h>
 #include <Link/LinkRequests.h>
+#include <Link/ServerLinkConfig.h>
 #include <Link/SessionTag.h>
 #include <Lobby/LobbyLoop.h>
 #include <Lobby/PacketSend.h>
@@ -569,6 +573,74 @@ namespace
     }
 }
 
+namespace
+{
+    // 시험 파일을 임시 폴더에 쓴다 — 실제 ServerLink.ini 와 같은 꼴(첫 줄이 섹션, 바이트 그대로)
+    std::string WriteLinkIni(const char* name, const std::string& bytes)
+    {
+        const std::string path = (std::filesystem::temp_directory_path() / name).string();
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file << bytes;
+        return path;
+    }
+
+    void TestServerLinkConfig()
+    {
+        std::printf("-- ServerLinkConfig\n");
+
+        // 주소 읽기 — 맞는 꼴 · 틀린 꼴 전부
+        ServerLinkConfig::Address addr;
+        Check(ServerLinkConfig::ParseAddress("127.0.0.1:6101", addr) && addr.ip == "127.0.0.1" && addr.port == 6101, "주소 맞는 꼴");
+        Check(ServerLinkConfig::ParseAddress("db.example:1", addr) && addr.ip == "db.example" && addr.port == 1, "포트 하한 1");
+        Check(ServerLinkConfig::ParseAddress("h:65535", addr) && addr.port == 65535, "포트 상한 65535");
+
+        const ServerLinkConfig::Address before = addr;
+        const char* badOnes[] = { "", "127.0.0.1", ":6101", "127.0.0.1:", "h:0", "h:65536", "h:99999", "h:123456", "h:61a", "h:-1", "h: 1" };
+        for (const char* text : badOnes)
+            Check(!ServerLinkConfig::ParseAddress(text, addr), std::string("틀린 주소를 거절: \"") + text + "\"");
+        Check(addr.ip == before.ip && addr.port == before.port, "틀리면 out 이 그대로");
+
+        // 파일 — 첫 섹션 [Account] 가 읽히는가. 이 리포에서 BOM 이 첫 섹션을 통째로 지운 일이 있어 첫 섹션 값을 본다
+        const std::string body =
+            "[Account]\r\nInternalAddr=10.0.0.1:6201\r\n\r\n"
+            "[Character]\r\nInternalAddr=10.0.0.2:6101\r\n\r\n"
+            "[Link]\r\nRetrySec=7\r\nHeartbeatSec=11\r\nReplyTimeoutSec=13\r\nSessionReserve=17\r\n";
+        {
+            ServerLinkConfig config;
+            std::string error;
+            const bool ok = config.Load(WriteLinkIni("mz_link_ok.ini", body), error);
+            Check(ok && error.empty(), "정상 파일을 읽음: " + error);
+            Check(config.account.ip == "10.0.0.1" && config.account.port == 6201, "첫 섹션 [Account] 값이 읽힘");
+            Check(config.character.ip == "10.0.0.2" && config.character.port == 6101, "[Character] 값");
+            Check(config.retrySec == 7 && config.heartbeatSec == 11 && config.replyTimeoutSec == 13 && config.sessionReserve == 17, "[Link] 네 값");
+        }
+        {
+            // [Link] 가 없으면 기본값 — 근거 없이 고른 값이라 INI 없이도 돌아야 한다
+            ServerLinkConfig config;
+            std::string error;
+            const bool ok = config.Load(WriteLinkIni("mz_link_nolink.ini", "[Account]\r\nInternalAddr=a:1\r\n[Character]\r\nInternalAddr=b:2\r\n"), error);
+            Check(ok && config.retrySec == 3 && config.heartbeatSec == 20 && config.replyTimeoutSec == 3 && config.sessionReserve == 8, "키가 없으면 기본값");
+        }
+
+        // 실패는 어느 값이 틀렸는지를 담는다 — 기동 거절 로그가 이 글자다
+        const auto expectFail = [](const char* what, const std::string& path, const char* expected)
+        {
+            ServerLinkConfig config;
+            std::string error;
+            const bool ok = config.Load(path, error);
+            Check(!ok && error.find(expected) != std::string::npos, std::string(what) + " → " + error);
+        };
+        expectFail("없는 파일", (std::filesystem::temp_directory_path() / "mz_link_none.ini").string(), "mz_link_none.ini");
+        expectFail("첫 섹션 주소 없음", WriteLinkIni("mz_link_a.ini", "[Character]\r\nInternalAddr=b:2\r\n"), "[Account]");
+        expectFail("둘째 섹션 주소 틀림", WriteLinkIni("mz_link_c.ini", "[Account]\r\nInternalAddr=a:1\r\n[Character]\r\nInternalAddr=b\r\n"), "[Character]");
+        const std::string addrs = "[Account]\r\nInternalAddr=a:1\r\n[Character]\r\nInternalAddr=b:2\r\n[Link]\r\n";
+        expectFail("RetrySec 0", WriteLinkIni("mz_link_r.ini", addrs + "RetrySec=0\r\n"), "RetrySec");
+        expectFail("HeartbeatSec 0", WriteLinkIni("mz_link_h.ini", addrs + "HeartbeatSec=0\r\n"), "HeartbeatSec");
+        expectFail("ReplyTimeoutSec 음수", WriteLinkIni("mz_link_t.ini", addrs + "ReplyTimeoutSec=-1\r\n"), "ReplyTimeoutSec");
+        expectFail("SessionReserve 0", WriteLinkIni("mz_link_s.ini", addrs + "SessionReserve=0\r\n"), "SessionReserve");
+    }
+}
+
 int main(int argc, char** argv)
 {
     CShutdownWait::Install();   // 코어의 종료 알림 정의(SignalProcessShutdown)가 이 파일과 같이 이어진다
@@ -576,6 +648,7 @@ int main(int argc, char** argv)
     TestSecureRandom();
     TestLatencyHistogram();
     TestLinkRequests();
+    TestServerLinkConfig();
 
     if (argc >= 2)
     {

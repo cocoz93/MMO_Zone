@@ -37,6 +37,7 @@ class CPlayerPlacement;
 class CMapManager;
 class CGameMonitor;
 class CGameDataFiles;
+class CZoneLink;
 #if USE_PARTY
 class CPartyHandler;
 #endif
@@ -67,7 +68,7 @@ public:
                   CStatSystem& statSystem,
 #endif
                   CMapManager& mapManager, CGameMonitor& gameMonitor, const CGameDataFiles& gameDataFiles,
-                  CEnterGate& enterGate)
+                  CEnterGate& enterGate, CZoneLink& zoneLink)
         : _sessionHub(sessionHub), _placement(placement)
 #if USE_DB_WORKER
         , _characterStore(characterStore)
@@ -78,7 +79,7 @@ public:
 #if USE_COMBAT
         , _statSystem(statSystem)
 #endif
-        , _mapManager(mapManager), _gameMonitor(gameMonitor), _gameDataFiles(gameDataFiles), _enterGate(enterGate) {}
+        , _mapManager(mapManager), _gameMonitor(gameMonitor), _gameDataFiles(gameDataFiles), _enterGate(enterGate), _zoneLink(zoneLink) {}
 
     // 대기표 잡기 — 게임 서버 모드의 Init 이 세션 허브의 칸을 잡은 뒤 부른다(같은 크기·같은 색인). DB 를 끈 빌드는 할 일이 없다.
     void Init(int maxClients);
@@ -244,6 +245,7 @@ private:
     CGameMonitor&         _gameMonitor;      // 입장 · 존 이동 · 포털 지표
     const CGameDataFiles& _gameDataFiles;    // 포털 표
     CEnterGate&           _enterGate;        // 입장 번호 확인 · 예고는 CZoneLink 가 적는다
+    CZoneLink&            _zoneLink;         // 입장 알림 — 캐릭터 서버의 게임 중 장부
     bool                  _allowDevEnter = false;   // 입장 번호 없는 접속을 받을까(SetAllowDevEnter)
 
     // 플레이어 이동 속도 덮어쓰기(칸/초) — 0 이면 생성자의 기본값을 그대로 쓴다(SetPlayerSpeed)
