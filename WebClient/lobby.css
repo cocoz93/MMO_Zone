@@ -1,0 +1,57 @@
+/* login.html · character.html 공용. 색 · 테두리는 live.html 의 직업 고르는 창(drawJobPick)과 같은 값이다 */
+@font-face{font-family:Galmuri11;font-weight:400;src:url('fonts/galmuri/Galmuri11.woff2') format('woff2')}
+@font-face{font-family:Galmuri11;font-weight:700;src:url('fonts/galmuri/Galmuri11-Bold.woff2') format('woff2')}
+@font-face{font-family:Galmuri14;src:url('fonts/galmuri/Galmuri14.woff2') format('woff2')}
+/* 픽셀 글꼴이라 제 크기(Galmuri11=12px · Galmuri14=15px)에서만 또렷하다 — live.html uiFont 와 같은 크기만 쓴다 */
+html,body{margin:0;min-height:100%;background:#12211a;color:#eaf3e0;font:12px Galmuri11,system-ui,"Malgun Gothic",sans-serif}
+body{display:flex;min-height:100vh}
+.center{margin:auto;padding:24px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.panel{background:rgba(8,12,10,.97);border:1px solid rgba(255,233,138,.45);border-radius:10px;box-sizing:border-box}
+h1{margin:0;color:#ffe98a;font:15px Galmuri14,system-ui,"Malgun Gothic",sans-serif;text-align:center}
+.sub{margin:0;color:rgba(220,230,215,.8);text-align:center;line-height:1.5;word-break:keep-all}
+.msg{margin:0;min-height:18px;color:#ff9c8a;text-align:center;line-height:1.5;word-break:keep-all}
+.msg.info{color:rgba(220,230,215,.8)}
+.btn{font:12px Galmuri11,system-ui,"Malgun Gothic",sans-serif;color:#eaf3e0;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.22);border-radius:7px;padding:7px 12px;cursor:pointer;box-sizing:border-box}
+.btn:hover:not(:disabled){color:#ffe98a;background:rgba(255,233,138,.22);border-color:rgba(255,233,138,.9)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn.gold{color:#ffe98a;border-color:rgba(255,233,138,.6);font-weight:700}
+.btn.on{color:#ffe98a;background:rgba(255,233,138,.22);border-color:rgba(255,233,138,.9)}
+.btn.small{padding:4px 8px}
+.text{font:15px Galmuri14,system-ui,"Malgun Gothic",sans-serif;color:#eaf3e0;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.22);border-radius:7px;padding:8px 10px;outline:none;box-sizing:border-box;width:100%}
+.text:focus{border-color:rgba(255,233,138,.9)}
+.text::placeholder{color:rgba(220,230,215,.4)}
+
+/* 로그인 */
+.login{width:320px;padding:22px 20px;display:flex;flex-direction:column;gap:12px}
+
+/* 캐릭터 창 */
+.topbar{width:100%;display:flex;align-items:center;gap:10px}
+.topbar .who{flex:1;color:rgba(220,230,215,.8)}
+.slots{display:grid;grid-template-columns:repeat(4,190px);gap:12px}
+.slot{height:304px;padding:12px 10px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:border-box}
+.slot.empty{border-color:rgba(255,255,255,.14);justify-content:center}
+.slot canvas{width:128px;height:128px;image-rendering:pixelated}
+.slot.pending canvas{opacity:.35}
+.slot .name{color:#ffe98a;font:15px Galmuri14,system-ui,"Malgun Gothic",sans-serif;height:20px}
+.slot .info{color:rgba(220,230,215,.8);height:16px}
+.slot .wait{color:#ff9c8a;height:16px}
+.slot .acts{margin-top:auto;display:flex;flex-direction:column;gap:6px;width:100%}
+.slot .acts .btn{width:100%}
+
+/* 만들기 · 지우기 창 */
+.shade{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:10}
+.shade[hidden]{display:none}
+.maker,.confirm{background:#080c0a}   /* 뒤 글자가 비치지 않게 */
+.maker{width:560px;padding:18px 20px;display:flex;flex-direction:column;gap:12px}
+.maker .body{display:flex;gap:18px}
+.maker .preview{width:192px;display:flex;flex-direction:column;align-items:center;gap:8px;flex:none}
+.maker canvas{width:192px;height:192px;image-rendering:pixelated;background:rgba(255,255,255,.04);border-radius:8px}
+.maker .form{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0}
+.row{display:flex;align-items:center;gap:6px}
+.row .label{width:44px;flex:none;color:rgba(220,230,215,.8)}
+.row .value{flex:1;text-align:center;color:#eaf3e0}
+.row .btn{flex:none}
+.jobs{display:flex;gap:6px;flex-wrap:wrap}
+.jobs .btn{flex:1}
+.foot{display:flex;gap:8px;justify-content:flex-end}
+.confirm{width:340px;padding:18px 20px;display:flex;flex-direction:column;gap:12px}

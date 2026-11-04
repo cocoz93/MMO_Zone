@@ -16,6 +16,11 @@
     color:#eaf3e0;font:13px system-ui,"Malgun Gothic",sans-serif;padding:0 12px;outline:none;text-overflow:ellipsis}
   .chatbox:focus{border-color:rgba(120,220,150,.6);background:rgba(12,20,14,.96)}
   .chatbox::placeholder{color:rgba(200,220,200,.4)}
+  /* 오른쪽 위 서버 정보 창(폭 232)의 왼쪽 — 레이더 · 메뉴 · 가방 자리를 피한다 */
+  .tolobby{position:absolute;right:254px;top:14px;z-index:6;height:28px;padding:0 10px;cursor:pointer;
+    background:rgba(10,16,12,.82);border:1px solid rgba(150,200,150,.25);border-radius:8px;color:#eaf3e0;font:12px Galmuri11,system-ui,"Malgun Gothic",sans-serif}
+  .tolobby:hover{border-color:rgba(255,233,138,.9);color:#ffe98a}
+  .tolobby[hidden]{display:none}
   /* 캔버스 글꼴 — Galmuri(픽셀, SIL OFL 1.1 · fonts/galmuri/LICENSE.txt). 고르는 규칙은 아래 uiFont() */
   @font-face{font-family:Galmuri7;src:url('fonts/galmuri/Galmuri7.woff2') format('woff2')}
   @font-face{font-family:Galmuri9;src:url('fonts/galmuri/Galmuri9.woff2') format('woff2')}
@@ -29,7 +34,8 @@
 </head>
 <body>
 <div class="stage"><canvas id="v"></canvas><div class="conn" id="conn">연결 중…</div>
-<input id="chatbox" class="chatbox" maxlength="200" autocomplete="off" placeholder="Enter로 채팅 입력 · 방향키로 이동 · Space로 공격"></div>
+<input id="chatbox" class="chatbox" maxlength="200" autocomplete="off" placeholder="Enter로 채팅 입력 · 방향키로 이동 · Space로 공격">
+<button id="toLobby" class="tolobby" hidden>캐릭터 선택</button></div>
 <script src="proto.js"></script>
 <script src="assets/assetsB.js"></script>
 <script src="assets/lpc/anim.js"></script>
@@ -65,7 +71,18 @@ function loadFonts(){
 }
 const q = new URLSearchParams(location.search);
 const SNAP = q.has('snap');                 // headless verify: render one frame from snapshot.json
-const WS_URL = q.get('ws') || 'ws://127.0.0.1:9000';
+// 캐릭터 창(character.html)이 탭 저장소로 넘긴 입장 번호 · 존 서버 주소 — 읽자마자 지운다.
+//   번호는 한 번만 쓰이므로 새로고침하면 다시 쓸 수 없다 — 그때는 아래 boot 가 캐릭터 창으로 돌려보낸다(그 창에서 다시 고른다).
+//   ?account= 를 주면 시험 입장 길이다 — 탭에 남은 번호를 안 본다.
+const ENTRY = (()=>{
+  if(SNAP || q.has('account')) return null;
+  const code=sessionStorage.getItem('mmo.enterCode'), addr=sessionStorage.getItem('mmo.zoneWs');
+  sessionStorage.removeItem('mmo.enterCode'); sessionStorage.removeItem('mmo.zoneWs');
+  if(!code || !addr) return null;
+  const ticket=new Uint8Array(code.length>>1); for(let i=0;i<ticket.length;i++) ticket[i]=parseInt(code.substr(i*2,2),16);
+  return { ticket, addr };
+})();
+const WS_URL = q.get('ws') || (ENTRY ? ENTRY.addr : 'ws://127.0.0.1:9000');
 // ?account=N — 지정 계정 번호로 입장한다(같은 번호면 저장된 자리에서 다시 시작).
 //   N 은 2^31(2147483648) 이상이어야 한다 — 그 미만(0 제외)은 서버가 입장 요청에서 끊는다(자동 번호 구간).
 //   없으면 0 = "번호를 지정하지 않음" → 서버가 매번 새 번호를 붙인다(탭을 여럿 열어도 안 겹친다).
@@ -2430,12 +2447,26 @@ function connect(){
   ws=new WebSocket(WS_URL); ws.binaryType='arraybuffer';
   // 입장 요청을 먼저 보낸다 — 서버는 이걸 받아야 캐릭터를 불러온다(USE_LOGIN).
   //   이 패킷 전엔 내 캐릭터가 세상에 없으므로 S2C_CREATE_MY_PLAYER 도 안 온다.
-  ws.onopen=()=>{ ws.send(P.enc.enterGame(ACCOUNT)); setConn(true,'● 실서버 연결됨 — '+WS_URL); };
+  ws.onopen=()=>{ ws.send(P.enc.enterGame(ACCOUNT, ENTRY && ENTRY.ticket)); setConn(true,'● 실서버 연결됨 — '+WS_URL); };
   ws.onmessage=(ev)=>{ const b=ev.data; stat.bytes+=b.byteLength||b.length||0; re.push(new Uint8Array(b)); };
   ws.onerror=()=>setConn(false,'연결 오류 — 릴레이/서버 확인');
-  ws.onclose=()=>{ setConn(false,'연결 끊김 — 재시도 중…'); setTimeout(connect,1500); };
+  ws.onclose=()=>{
+    // 입장 번호로 들어왔으면 다시 잇지 않는다 — 번호는 이미 쓰였다. 캐릭터 창에서 다시 고른다. 그 창이 까닭을 띄운다
+    if(ENTRY){ if(!leavingToLobby) sessionStorage.setItem('mmo.notice', self ? '게임 서버와 연결이 끊겼습니다' : '게임 서버에 들어가지 못했습니다'); toLobby(); return; }
+    setConn(false,'연결 끊김 — 재시도 중…'); setTimeout(connect,1500);
+  };
 }
 const hb=setInterval(()=>{ if(ws&&ws.readyState===1) ws.send(P.enc.heartbeat()); }, 15000);
+// 캐릭터 창으로 — 주소 인자(?accountWs · ?charWs)는 그대로 넘긴다
+let leavingToLobby=false;
+function toLobby(){ location.replace('character.html'+location.search); }
+// 「캐릭터 선택」 단추 — 연결을 닫고 캐릭터 창으로 간다. 저장은 존 서버의 끊김 처리가 맡는다. 시험 입장 길에서는 숨긴다
+function setupLobbyButton(){
+  const btn=document.getElementById('toLobby');
+  if(!ENTRY) return;
+  btn.hidden=false;
+  btn.onclick=()=>{ leavingToLobby=true; if(ws&&ws.readyState<=1) ws.close(); else toLobby(); };
+}
 
 // ---- boot ----
 // 조합이 쓰는 부위 이름 전부 — 그림 받기(loadAssets)와 빠짐 검사(checkLayers)가 같은 목록을 쓴다
@@ -2620,6 +2651,9 @@ function parsePortalTable(text){
     PORTALS.push({ id:Number(c[0]), mapId:Number(c[1]), x:Number(c[2]), y:Number(c[3]), radius:Number(c[4]), targetMapId:Number(c[5]), name:c[8] });
 }
 async function boot(){
+  // 입장 번호도 ?account= 도 없음 → 캐릭터 창으로. 파일로 바로 연 경우(_launch.ps1)는 예전 그대로 시험 입장 길이다 — 파일에는 서버 주소가 안 따라간다
+  if(!SNAP && !ENTRY && !q.has('account') && location.protocol!=='file:'){ toLobby(); return; }
+  setupLobbyButton();
   resize(); await loadFonts(); await loadAssets(); await loadTown(); checkLayers(); await loadItems(); await loadBuffs(); await loadSkills(); await loadSkillFx(); await loadJobs(); await loadWorldTables();
   if(SNAP){
     // headless verification: load a real snapshot, render one frame, expose PNG

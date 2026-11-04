@@ -1,0 +1,293 @@
+<!doctype html><html><head>
+<meta charset="utf8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MMO — 캐릭터 선택</title>
+<link rel="stylesheet" href="lobby.css">
+</head>
+<body>
+<div class="center">
+  <div class="topbar">
+    <div class="who" id="who"></div>
+    <button class="btn small" id="logout">로그아웃</button>
+  </div>
+  <h1>캐릭터를 고르세요</h1>
+  <div class="slots" id="slots"></div>
+  <p class="msg info" id="msg"></p>
+  <button class="btn" id="retry" hidden>다시 연결</button>
+</div>
+
+<div class="shade" id="makerShade" hidden>
+  <div class="panel maker">
+    <h1>새 캐릭터</h1>
+    <div class="body">
+      <div class="preview"><canvas id="makerCanvas" width="64" height="64"></canvas></div>
+      <div class="form">
+        <input id="makerName" class="text" maxlength="6" placeholder="이름 — 한글 · 영문 · 숫자 2~6글자">
+        <div class="jobs" id="makerJobs"></div>
+        <div class="row"><span class="label">성별</span><button class="btn small" id="gender1">남</button><button class="btn small" id="gender2">여</button></div>
+        <div id="makerParts"></div>
+      </div>
+    </div>
+    <p class="msg" id="makerMsg"></p>
+    <div class="foot">
+      <button class="btn" id="makerCancel">취소</button>
+      <button class="btn gold" id="makerOk">만들기</button>
+    </div>
+  </div>
+</div>
+
+<div class="shade" id="confirmShade" hidden>
+  <div class="panel confirm">
+    <h1 id="confirmName"></h1>
+    <p class="sub">일주일 안에 복구할 수 있습니다</p>
+    <div class="foot">
+      <button class="btn" id="confirmCancel">취소</button>
+      <button class="btn gold" id="confirmOk">지우기</button>
+    </div>
+  </div>
+</div>
+
+<script src="proto-lobby.js"></script>
+<script src="assets/lpc/anim.js"></script>
+<script>
+(()=>{
+const L = window.LobbyProto, S = L.STORE;
+const q = new URLSearchParams(location.search);
+const ACCOUNT_WS = q.get('accountWs') || 'ws://127.0.0.1:9002';
+const CHAR_WS = q.get('charWs') || 'ws://127.0.0.1:9001';
+const HEARTBEAT_MS = 15000;   // live.html 하트비트와 같은 값. 코어 세션 시한이 60초라 창을 띄워 두고 고민하는 동안 끊기면 안 된다
+const IDLE_FRAME_MS = 400;
+const SPRITE = 64;
+const DOWN_ROW = window.LPC_ANIM.rows.indexOf('down');   // 앞모습
+const $ = id => document.getElementById(id);
+
+const LOGIN_TEXT = {
+  SERVER_DOWN: '계정 서버와 연결이 끊겼습니다. 잠시 뒤 다시 눌러 주세요',
+  BUSY: '서버가 바쁩니다. 잠시 뒤 다시 눌러 주세요',
+  DB_FAIL: '서버가 잠시 저장소를 못 읽었습니다. 다시 눌러 주세요',
+};
+const CREATE_TEXT = {
+  TAKEN: '이미 있는 이름입니다',
+  BAD_FORM: '이름은 한글 · 영문 · 숫자 2~6글자입니다',
+  BAD_JOB: '이 직업은 고를 수 없습니다',
+  BAD_LOOK: '이 외형은 고를 수 없습니다',
+  SLOT_TAKEN: '이 칸은 이미 찼습니다',
+  BUSY: '서버가 바쁩니다. 다시 눌러 주세요',
+  DB_FAIL: '서버가 잠시 저장소를 못 읽었습니다. 다시 눌러 주세요',
+};
+const DELETE_TEXT = { NOT_MINE: '내 캐릭터가 아닙니다', IN_GAME: '게임에 들어가 있는 캐릭터는 지울 수 없습니다', BUSY: '서버가 바쁩니다. 다시 눌러 주세요', DB_FAIL: '서버가 잠시 저장소를 못 읽었습니다. 다시 눌러 주세요' };
+const RESTORE_TEXT = { NOT_MINE: '내 캐릭터가 아닙니다', EXPIRED: '복구 기간이 지났습니다', BUSY: '서버가 바쁩니다. 다시 눌러 주세요', DB_FAIL: '서버가 잠시 저장소를 못 읽었습니다. 다시 눌러 주세요' };
+const SELECT_TEXT = { NOT_MINE: '내 캐릭터가 아닙니다', DELETED: '삭제 대기 중인 캐릭터입니다', ZONE_DOWN: '게임 서버가 꺼져 있습니다. 잠시 뒤 다시 눌러 주세요', ZONE_FULL: '게임 서버가 꽉 찼습니다', BUSY: '서버가 바쁩니다. 다시 눌러 주세요', DB_FAIL: '서버가 잠시 저장소를 못 읽었습니다. 다시 눌러 주세요' };
+
+let ws = null, hb = null, rows = [], jobs = new Map(), looks = null, waiting = false, state = 'connecting', lastResult = '', tokenRetried = false;
+let makerSlot = 0, confirmId = null, noticeText = '';
+const pick = { gender: 1, job: 0, skin: 0, hair: 0, top: 0, bottom: 0 };   // skin ~ bottom = 표에서의 순서(번호 아님)
+const images = new Map();
+
+// 헤드리스 시험이 읽는 표지 — 화면 상태 · 목록 · 마지막 결과
+function mark() { document.documentElement.setAttribute('data-char', JSON.stringify({ state, rows: rows.map(r => ({ id: r.id, slot: r.slot, name: r.name, job: r.job, level: r.level, left: r.deleteLeftSec, look: r.look })), last: lastResult, msg: $('msg').textContent, makerMsg: $('makerMsg').textContent })); }
+function say(text) { $('msg').textContent = text || ''; mark(); }
+const loginName = () => sessionStorage.getItem(S.loginName);
+function toLogin() {
+  sessionStorage.removeItem(S.loginName); sessionStorage.removeItem(S.authToken);
+  const p = new URLSearchParams(location.search); const s = p.toString();
+  location.replace('login.html' + (s ? '?' + s : ''));
+}
+function send(packet) { if (ws && ws.readyState === 1) ws.send(packet); }
+
+// ── 연결 ──
+async function connect() {
+  $('retry').hidden = true; state = 'connecting'; say('연결 중…');
+  let token = sessionStorage.getItem(S.authToken);
+  if (!token) {
+    const name = loginName();
+    if (!name) { toLogin(); return; }
+    const out = await L.fetchToken(ACCOUNT_WS, name);
+    if (out.result !== 'OK') { state = 'failed'; lastResult = out.result; say('계정 서버에서 표를 못 받았습니다. 잠시 뒤 다시 눌러 주세요'); $('retry').hidden = false; return; }
+    token = out.token;
+  }
+  sessionStorage.removeItem(S.authToken);   // 한 번 쓰면 끝이다 — 실패해도 새로 받는다
+  ws = new WebSocket(CHAR_WS); ws.binaryType = 'arraybuffer';
+  const re = new L.Reassembler(onPacket);
+  ws.onopen = () => ws.send(L.enc.charLogin(L.fromHex(token)));
+  ws.onmessage = ev => re.push(new Uint8Array(ev.data));
+  ws.onerror = () => { };
+  ws.onclose = () => { clearInterval(hb); hb = null; if (state === 'entering') return; state = 'closed'; waiting = false; rows = []; render(); say('연결이 끊겼습니다. 다른 창에서 들어갔을 수 있습니다'); $('retry').hidden = false; };
+}
+function onPacket(p) {
+  switch (p.type) {
+    case L.MSG.S2C_CHAR_LOGIN:
+      lastResult = p.result;
+      if (p.result === 'OK') { state = 'list'; tokenRetried = false; say(noticeText); noticeText = ''; hb = setInterval(() => send(L.enc.heartbeat()), HEARTBEAT_MS); return; }
+      ws.onclose = null; try { ws.close(); } catch (e) { }
+      // 토큰이 낡았으면 이름으로 새로 받아 한 번만 다시 시도한다 — 저장된 이름도 없으면 로그인 창으로
+      if ((p.result === 'BAD_TOKEN' || p.result === 'EXPIRED') && !tokenRetried) { tokenRetried = true; connect(); return; }
+      if (p.result === 'BAD_TOKEN' || p.result === 'EXPIRED') { toLogin(); return; }
+      state = 'failed'; say(LOGIN_TEXT[p.result] || p.result); $('retry').hidden = false;
+      return;
+    case L.MSG.S2C_CHAR_LIST:
+      rows = p.rows; render(); mark();
+      return;
+    case L.MSG.S2C_CHAR_CREATE:
+      waiting = false; lastResult = p.result;
+      if (p.result === 'OK') { closeMaker(); say(''); return; }
+      $('makerMsg').textContent = CREATE_TEXT[p.result] || p.result; $('makerOk').disabled = false; mark();
+      return;
+    case L.MSG.S2C_CHAR_DELETE:
+      waiting = false; lastResult = p.result; say(p.result === 'OK' ? '' : (DELETE_TEXT[p.result] || p.result)); render();
+      return;
+    case L.MSG.S2C_CHAR_RESTORE:
+      waiting = false; lastResult = p.result; say(p.result === 'OK' ? '' : (RESTORE_TEXT[p.result] || p.result)); render();
+      return;
+    case L.MSG.S2C_CHAR_SELECT:
+      waiting = false; lastResult = p.result;
+      if (p.result === 'OK') {
+        sessionStorage.setItem(S.enterCode, L.toHex(p.enterCode));
+        sessionStorage.setItem(S.zoneWs, p.zoneWs);
+        state = 'entering'; mark();
+        location.href = 'live.html' + location.search;   // 주소 인자(?accountWs · ?charWs)를 그대로 넘겨 돌아올 때 쓴다
+        return;
+      }
+      say(SELECT_TEXT[p.result] || p.result); render();
+      return;
+    default: return;
+  }
+}
+
+// ── 그림 ──
+function image(name) {
+  let e = images.get(name);
+  if (e) return e;
+  e = { ready: false, img: new Image() };
+  images.set(name, e);
+  e.img.onload = () => { e.ready = true; };
+  e.img.onerror = () => console.warn('[look] 그림 없음:', name);
+  e.img.src = 'assets/lpc/' + name + '_idle.png';
+  return e;
+}
+// 표의 그림을 미리 받는다 — 안 받아 두면 ◀▶ 를 처음 누를 때 그 부위가 잠깐 비어 보인다
+function preloadLooks() {
+  if (!looks) return;
+  for (const g of [L.GENDER_MALE, L.GENDER_FEMALE])
+    for (const part of Object.keys(looks[g]))
+      for (const e of looks[g][part]) { image(e.sprite); if (e.head) image(e.head); }
+}
+function drawLook(canvas, look) {
+  const cx = canvas.getContext('2d'); cx.clearRect(0, 0, canvas.width, canvas.height);
+  const names = L.lookLayers(looks, look);
+  if (!names) return;
+  const frame = Math.floor(performance.now() / IDLE_FRAME_MS) % 2;
+  for (const n of names) { const e = image(n); if (e.ready) cx.drawImage(e.img, frame * SPRITE, DOWN_ROW * SPRITE, SPRITE, SPRITE, 0, 0, SPRITE, SPRITE); }
+}
+function tick() {
+  for (const c of document.querySelectorAll('canvas[data-look]')) drawLook(c, JSON.parse(c.dataset.look));
+  if (!$('makerShade').hidden) drawLook($('makerCanvas'), makerLook());
+  requestAnimationFrame(tick);
+}
+
+// ── 목록 ──
+function leftText(sec) {
+  if (sec >= 86400) return Math.ceil(sec / 86400) + '일 남음';
+  return Math.ceil(sec / 3600) + '시간 남음';   // 하루 미만은 시간으로. 남은 시간은 서버가 준 값만 쓴다
+}
+function button(text, onClick, gold) { const b = document.createElement('button'); b.className = 'btn' + (gold ? ' gold' : ''); b.textContent = text; b.disabled = waiting; b.onclick = onClick; return b; }
+function render() {
+  const box = $('slots'); box.textContent = '';
+  for (let slot = 0; slot < L.SLOT_COUNT; slot++) {
+    const r = rows.find(x => x.slot === slot);
+    const el = document.createElement('div'); el.className = 'panel slot'; el.id = 'slot' + slot;
+    if (!r) {
+      el.classList.add('empty');
+      const b = button('새 캐릭터', () => openMaker(slot)); b.id = 'make' + slot; b.disabled = state !== 'list' || waiting;
+      el.appendChild(b);
+    } else {
+      const pending = r.deleteLeftSec > 0;
+      if (pending) el.classList.add('pending');
+      const c = document.createElement('canvas'); c.width = SPRITE; c.height = SPRITE; c.dataset.look = JSON.stringify(r.look); el.appendChild(c);
+      const name = document.createElement('div'); name.className = 'name'; name.textContent = r.name; el.appendChild(name);
+      const info = document.createElement('div'); info.className = 'info'; info.textContent = 'Lv.' + r.level + ' · ' + (jobs.get(r.job) || '직업 ' + r.job); el.appendChild(info);
+      if (pending) { const w = document.createElement('div'); w.className = 'wait'; w.textContent = '삭제 대기 · ' + leftText(r.deleteLeftSec); el.appendChild(w); }
+      const acts = document.createElement('div'); acts.className = 'acts';
+      const enter = button('입장', () => { waiting = true; render(); send(L.enc.charSelect(r.id)); }, true); enter.id = 'enter' + slot;
+      if (pending) enter.disabled = true;   // 삭제 대기면 입장을 막는다
+      acts.appendChild(enter);
+      if (pending) { const b = button('복구', () => { waiting = true; render(); send(L.enc.charRestore(r.id)); }); b.id = 'restore' + slot; acts.appendChild(b); }
+      else { const b = button('지우기', () => openConfirm(r)); b.id = 'delete' + slot; acts.appendChild(b); }
+      el.appendChild(acts);
+    }
+    box.appendChild(el);
+  }
+  mark();
+}
+
+// ── 만들기 ──
+function partList(part) { return looks ? looks[pick.gender][part] : []; }
+function makerLook() {
+  const id = part => { const list = partList(part); return list.length ? list[pick[part] % list.length].id : 0; };
+  return { gender: pick.gender, skin: id('skin'), hair: id('hair'), top: id('top'), bottom: id('bottom') };
+}
+function renderMaker() {
+  $('gender1').className = 'btn small' + (pick.gender === 1 ? ' on' : ''); $('gender2').className = 'btn small' + (pick.gender === 2 ? ' on' : '');
+  const jobBox = $('makerJobs'); jobBox.textContent = '';
+  for (const [id, name] of jobs) { const b = document.createElement('button'); b.className = 'btn small' + (pick.job === id ? ' on' : ''); b.textContent = name; b.id = 'job' + id; b.onclick = () => { pick.job = id; renderMaker(); }; jobBox.appendChild(b); }
+  const box = $('makerParts'); box.textContent = '';
+  for (const [part, label] of [['skin', '피부'], ['hair', '머리'], ['top', '윗옷'], ['bottom', '아래옷']]) {
+    const list = partList(part), row = document.createElement('div'); row.className = 'row';
+    const lab = document.createElement('span'); lab.className = 'label'; lab.textContent = label; row.appendChild(lab);
+    const prev = document.createElement('button'); prev.className = 'btn small'; prev.textContent = '◀'; prev.id = part + 'Prev'; prev.onclick = () => { pick[part] = (pick[part] + list.length - 1) % list.length; renderMaker(); }; row.appendChild(prev);
+    const val = document.createElement('span'); val.className = 'value'; val.id = part + 'Value'; val.textContent = (pick[part] % (list.length || 1) + 1) + ' / ' + list.length; row.appendChild(val);
+    const next = document.createElement('button'); next.className = 'btn small'; next.textContent = '▶'; next.id = part + 'Next'; next.onclick = () => { pick[part] = (pick[part] + 1) % list.length; renderMaker(); }; row.appendChild(next);
+    box.appendChild(row);
+  }
+}
+function openMaker(slot) {
+  makerSlot = slot; $('makerName').value = ''; $('makerMsg').textContent = ''; $('makerOk').disabled = false;
+  pick.job = jobs.size ? [...jobs.keys()][0] : 0;
+  $('makerShade').hidden = false; renderMaker(); $('makerName').focus(); mark();
+}
+function closeMaker() { $('makerShade').hidden = true; mark(); }
+function submitMaker() {
+  const name = $('makerName').value.trim();
+  if (!L.isValidCharName(name)) { $('makerMsg').textContent = CREATE_TEXT.BAD_FORM; lastResult = 'BAD_FORM_LOCAL'; mark(); return; }
+  if (!pick.job) { $('makerMsg').textContent = '직업을 고르세요'; mark(); return; }
+  $('makerMsg').textContent = ''; $('makerOk').disabled = true; waiting = true;
+  send(L.enc.charCreate({ slot: makerSlot, name, job: pick.job, look: makerLook() }));
+}
+
+// ── 지우기 ──
+function openConfirm(r) { confirmId = r.id; $('confirmName').textContent = r.name + ' 을(를) 지울까요?'; $('confirmShade').hidden = false; mark(); }
+function closeConfirm() { $('confirmShade').hidden = true; confirmId = null; mark(); }
+
+// ── 표 ──
+function loadTables() {
+  const jobTable = fetch('/data/JobTable.csv', { cache: 'no-store' }).then(r => r.ok ? r.text() : Promise.reject('HTTP ' + r.status)).then(text => {
+    for (const raw of text.split(/\r?\n/)) { const line = raw.trim(); if (!line || line[0] === '#') continue; const [id, name] = line.split(','); if (/^\d+$/.test(id)) jobs.set(Number(id), name); }
+  }).catch(e => console.warn('[job] 직업 표를 못 받았다:', e));
+  const lookTable = fetch('/data/LookTable.csv', { cache: 'no-store' }).then(r => r.ok ? r.text() : Promise.reject('HTTP ' + r.status)).then(text => { looks = L.parseLookTable(text); })
+    .catch(e => console.warn('[look] 외형 표를 못 받았다:', e));
+  return Promise.all([jobTable, lookTable]);
+}
+
+$('logout').onclick = () => { if (ws) { ws.onclose = null; try { ws.close(); } catch (e) { } } toLogin(); };
+$('retry').onclick = () => connect();
+$('makerCancel').onclick = closeMaker;
+$('makerOk').onclick = submitMaker;
+$('makerName').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) submitMaker(); });
+$('gender1').onclick = () => { pick.gender = 1; renderMaker(); };
+$('gender2').onclick = () => { pick.gender = 2; renderMaker(); };
+$('confirmCancel').onclick = closeConfirm;
+$('confirmOk').onclick = () => { const id = confirmId; closeConfirm(); waiting = true; render(); send(L.enc.charDelete(id)); };
+
+(async () => {
+  $('who').textContent = loginName() ? '계정: ' + loginName() : '';
+  if (!loginName() && !sessionStorage.getItem(S.authToken)) { toLogin(); return; }
+  await loadTables();
+  preloadLooks();
+  render();
+  requestAnimationFrame(tick);
+  noticeText = sessionStorage.getItem(S.notice) || ''; sessionStorage.removeItem(S.notice);   // 게임에서 돌아온 까닭 — 목록 창에 띄운다
+  connect();
+})();
+})();
+</script>
+</body></html>

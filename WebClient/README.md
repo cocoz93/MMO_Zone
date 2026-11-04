@@ -15,7 +15,7 @@ WS↔TCP 릴레이(`relay.js`, Node)를 두어 서버의 TCP 프로토콜을 그
 
 | 파일 | 용도 |
 |---|---|
-| **`run-webclient.bat`** | **평소 루틴.** 서버·더미를 평소대로 켠 뒤 이걸 실행 → 릴레이(있으면 재사용) + 브라우저로 `live.html`. |
+| **`run-webclient.bat`** | **평소 루틴.** 서버·더미를 평소대로 켠 뒤 이걸 실행 → 릴레이(있으면 재사용) + 브라우저로 `live.html`(파일로 열어 시험 입장 길 — 로그인 · 캐릭터 창을 안 거친다). |
 | `run-all.bat` | 전체 한 번에 — 서버 + 더미 + 릴레이 + 클라. (`-Dummies N`으로 더미 수 조절) |
 | `stop.bat` | 릴레이·더미 정리(서버 유지). `stop.bat -StopServer` = 서버까지. |
 | `relay-only.bat` | 릴레이만 별도 창(로그 표시, Ctrl+C 종료). 디버깅용. |
@@ -41,12 +41,15 @@ WS↔TCP 릴레이(`relay.js`, Node)를 두어 서버의 TCP 프로토콜을 그
   가방 장비 탭의 무기를 **두 번 눌러** 끼우고(차 있으면 맞바꿈), 상태창 무기 칸을 **두 번 눌러** 벗는다(장비 탭 첫 빈 칸으로). 1초 대기 · 쓰러져 있거나 장비 탭이 가득하면 까닭이 `[System]` 으로 온다.
 - 운영자가 가방을 바로 채우기 — 주소에 `?admin=키` 를 붙여 운영자로 들어온 뒤 채팅창에 `/item <아이템번호> [개수]`.
   `/` 로 시작하는 채팅은 방송되지 않고 서버 명령으로 처리되며, 답은 채팅 칸에 `[System]` 으로 온다.
-- 아이템 이름·그림은 **`serve.js` 로 열 때만** 나온다(`Run/4. Web_client.bat` = `http://127.0.0.1:8200/live.html`) — 아이템 표를 `/data/ItemTable.csv` 로 받기 때문이다. 다른 길로 열면 칸에 아이템 번호가 회색으로 찍힌다(동작은 같다).
+- 아이템 이름·그림은 **`serve.js` 로 열 때만** 나온다(`Run/4. Web_client.bat` = `http://127.0.0.1:8200/login.html`) — 아이템 표를 `/data/ItemTable.csv` 로 받기 때문이다. 다른 길로 열면 칸에 아이템 번호가 회색으로 찍힌다(동작은 같다).
 
 ## 구성 파일
 | 파일 | 역할 |
 |---|---|
-| `live.html` | 브라우저 클라(픽셀 렌더 + 서버 내부 오버레이). `?snap`=스냅샷 렌더(검증용) |
+| `login.html` | 로그인 창 — 계정 서버에서 토큰을 받아 캐릭터 창으로. `?accountWs=` 기본 `ws://127.0.0.1:9002` |
+| `character.html` | 캐릭터 창 — 목록 · 만들기 · 지우기 · 복구 · 고르기. 고르면 입장 번호를 탭 저장소에 두고 `live.html`로. `?charWs=` 기본 `ws://127.0.0.1:9001` |
+| `lobby.css` · `proto-lobby.js` | 위 두 창의 모양 · 계정 / 캐릭터 패킷(`Shared/Protocol/AccountProtocol.h` · `CharacterProtocol.h`와 나란히 볼 것) |
+| `live.html` | 브라우저 클라(픽셀 렌더 + 서버 내부 오버레이). `?snap`=스냅샷 렌더(검증용) · `?account=N`=시험 입장 길. 둘 다 아니고 입장 번호도 없으면 캐릭터 창으로 간다 |
 | `proto.js` | 와이어 프로토콜 파서/인코더 — `Shared/Protocol/Protocol.h` 1:1 이식 (pack(1), 리틀엔디안) |
 | `relay.js` | WS↔TCP 릴레이(프로토콜 무관 바이트 파이프). `--ws 9000 --server-port 6000` |
 | `serve.js` | 정적 서버 `node serve.js --port 8200`. `WebClient/` 밖은 막고, 예외로 `/data/ItemTable.csv` 하나만 `Run/bin/ItemTable.csv` 를 내준다(웹이 아이템 이름·그림 번호를 서버와 같은 파일에서 읽는다) |
