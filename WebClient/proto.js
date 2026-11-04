@@ -54,7 +54,9 @@
     // 직업 (토글 없음) — 처음 입장 때 한 번 고른다. MY_JOB 은 본인에게만(입장 때 · 고르기 답), 0 = 아직 안 고름
     C2S_CHOOSE_JOB:1077, S2C_MY_JOB:1078,
     // 기술 효과 대상 (USE_SKILL) — 피해 없는 기술(회복 · 남에게 건 버프)의 대상. 대상 주변에 대상마다 한 장
-    S2C_SKILL_EFFECT:1079
+    S2C_SKILL_EFFECT:1079,
+    // 이름 · 몸 겉모습 — 입장 번호 길로 들어온 캐릭터만. MY_* 는 처음 입장 때 본인에게 한 번, ACTOR_NAME 은 남이 나타날 때 겉모습 바로 뒤
+    S2C_MY_NAME:1080, S2C_ACTOR_NAME:1081, S2C_MY_LOOK:1082
   };
   // 파티 — Protocol.h PartyAskKind · PartyNotice 순서 그대로(값이 와이어에 실린다). 한글 문구는 live.html 이 이름으로 고른다
   const PARTY_ASK_KIND = ['INVITE','APPLY','SUGGEST'];
@@ -63,7 +65,7 @@
     'DECLINED','EXPIRED','CANCELLED','JOINED','LEFT','KICKED','LEADER','DISBANDED',
     'ROOM_NOT_GATHERED','ROOM_DEAD','ROOM_LOCKED'];
   const PARTY_MAX_MEMBERS = 8;      // Protocol.h PARTY_MAX_MEMBERS — INFO 줄 수 상한
-  const PARTY_MEMBER_BYTES = 22;    // Protocol.h PartyMemberEntry = PartyPerson 10 + hp·maxHp·mapId 12
+  const PARTY_MEMBER_BYTES = 34;    // Protocol.h PartyMemberEntry = PartyPerson 22 + hp·maxHp·mapId 12
   // 아이템 쓰기 거절 사유 — Protocol.h UseItemFail 순서 그대로(값이 와이어에 실린다). 서버가 이 순서로 보고 먼저 걸린 하나를 보낸다
   const USE_FAIL = ['BAD_SLOT','EMPTY','NOT_USABLE','DEAD','COOLDOWN','FULL_HP','FULL_MP','IN_TRADE'];
   // 땅의 아이템 — Protocol.h GroundItemAppear · GroundItemGone · PickupFail 순서 그대로(값이 와이어에 실린다)
@@ -110,15 +112,26 @@
       x:dv.getFloat32(o+9,true), y:dv.getFloat32(o+13,true), speed:dv.getInt32(o+17,true),
       ...readSnap(dv, o+21), defId:dv.getUint16(o+29,true) };
   }
-  // 겉모습 구조체 — Protocol.h ActorLook 2B = weaponItemId u16(0 = 맨손). 칸을 늘리면 여기 한 곳(ACTOR_LOOK 크기 단언이 알려 준다)
-  function readLook(dv, o) { return { weaponItemId:dv.getUint16(o,true) }; }
-  // 파티원 정보 구조체 — Protocol.h PartyPerson 10B = actorId i32 · displayChar u8 · colorIndex u8 · level i32
-  function readPartyPerson(dv, o) {
-    return { actorId:dv.getInt32(o,true), displayChar:dv.getUint8(o+4), colorIndex:dv.getUint8(o+5), level:dv.getInt32(o+6,true) };
+  // 이름 칸 — u16 6칸(Protocol.h CHAR_NAME_MAX_LEN). 6글자면 끝 표시 0 이 없다 — 0 에서 끝내되 6칸을 넘지 않는다. 이름 없음 = ''
+  const NAME_CELLS = 6;
+  function readName(dv, o) {
+    let s = '';
+    for (let i = 0; i < NAME_CELLS; i++) { const c = dv.getUint16(o+i*2,true); if (!c) break; s += String.fromCharCode(c); }
+    return s;
   }
-  // 파티원 한 줄 — Protocol.h PartyMemberEntry 22B = PartyPerson 10 · hp i32 · maxHp i32 · mapId i32. INFO 의 줄이자 MEMBER 의 몸통
+  // 몸 겉모습 — Protocol.h BodyLook 6B = gender · skin · hair · top · bottom · 빈자리. gender 0 = 외형 없음(해시로 그린다)
+  function readBody(dv, o) {
+    return { gender:dv.getUint8(o), skin:dv.getUint8(o+1), hair:dv.getUint8(o+2), top:dv.getUint8(o+3), bottom:dv.getUint8(o+4) };
+  }
+  // 겉모습 구조체 — Protocol.h ActorLook 8B = weaponItemId u16(0 = 맨손) · BodyLook 6B. 칸을 늘리면 여기 한 곳(ACTOR_LOOK 크기 단언이 알려 준다)
+  function readLook(dv, o) { return { weaponItemId:dv.getUint16(o,true), body:readBody(dv, o+2) }; }
+  // 파티원 정보 구조체 — Protocol.h PartyPerson 22B = actorId i32 · displayChar u8 · colorIndex u8 · level i32 · 이름 u16×6
+  function readPartyPerson(dv, o) {
+    return { actorId:dv.getInt32(o,true), displayChar:dv.getUint8(o+4), colorIndex:dv.getUint8(o+5), level:dv.getInt32(o+6,true), name:readName(dv, o+10) };
+  }
+  // 파티원 한 줄 — Protocol.h PartyMemberEntry 34B = PartyPerson 22 · hp i32 · maxHp i32 · mapId i32. INFO 의 줄이자 MEMBER 의 몸통
   function readPartyMember(dv, o) {
-    return { ...readPartyPerson(dv, o), hp:dv.getInt32(o+10,true), maxHp:dv.getInt32(o+14,true), mapId:dv.getInt32(o+18,true) };
+    return { ...readPartyPerson(dv, o), hp:dv.getInt32(o+22,true), maxHp:dv.getInt32(o+26,true), mapId:dv.getInt32(o+30,true) };
   }
   // 거래창 한쪽 — Protocol.h TradeSide 210B. 칸 줄은 가방 칸과 같은 꼴(slot u16 · itemId i32 · count i32). count 는 상한으로 한 번 더 막는다
   function readTradeSide(dv, o) {
@@ -290,17 +303,17 @@
       case MSG.S2C_ACTOR_SPEED:
         p.actorId=dv.getInt32(o,true); p.speed=dv.getInt32(o+4,true); break;
       // ---- 파티 (USE_PARTY) ----
-      //   PARTY_ASK 33B = requestId u32 · kind u8 · from PartyPerson(10) · about PartyPerson(10) · remainMs u32 — 받는 사람에게만
+      //   PARTY_ASK 57B = requestId u32 · kind u8 · from PartyPerson(22) · about PartyPerson(22) · remainMs u32 — 받는 사람에게만
       case MSG.S2C_PARTY_ASK:
         p.requestId=dv.getUint32(o,true); p.kind=dv.getUint8(o+4); p.kindName=PARTY_ASK_KIND[p.kind] || ('?'+p.kind);
-        p.from=readPartyPerson(dv, o+5); p.about=readPartyPerson(dv, o+15); p.remainMs=dv.getUint32(o+25,true); break;
+        p.from=readPartyPerson(dv, o+5); p.about=readPartyPerson(dv, o+27); p.remainMs=dv.getUint32(o+49,true); break;
       //   PARTY_ASK_END 9B = requestId u32 · reason u8 (PARTY_NOTICE — EXPIRED · CANCELLED). 창을 닫는다
       case MSG.S2C_PARTY_ASK_END:
         p.requestId=dv.getUint32(o,true); p.reason=dv.getUint8(o+4); p.reasonName=PARTY_NOTICE[p.reason] || ('?'+p.reason); break;
       //   PARTY_NOTICE 9B = code u8 (PARTY_NOTICE) · actorId i32 (관련 사람, 없으면 0)
       case MSG.S2C_PARTY_NOTICE:
         p.code=dv.getUint8(o); p.codeName=PARTY_NOTICE[p.code] || ('?'+p.code); p.actorId=dv.getInt32(o+1,true); break;
-      //   PARTY_INFO 가변 = partyId i32 · leaderId i32 · count u8 · 파티원 줄(22B) × count — count 0 = 파티 없음.
+      //   PARTY_INFO 가변 = partyId i32 · leaderId i32 · count u8 · 파티원 줄(34B) × count — count 0 = 파티 없음.
       //   count 는 header.size 와 상한으로 한 번 더 막는다(서버 이상 시 넘겨 읽지 않게 — S2C_INVENTORY 와 같은 꼴)
       case MSG.S2C_PARTY_INFO: {
         p.partyId=dv.getInt32(o,true); p.leaderId=dv.getInt32(o+4,true);
@@ -310,7 +323,7 @@
         for(let i=0;i<count;i++) p.members.push(readPartyMember(dv, o+9+i*PARTY_MEMBER_BYTES));
         break;
       }
-      //   PARTY_MEMBER 26B = 파티원 한 줄(22B) — 바뀐 사람만(0.5초마다 서버가 견준다)
+      //   PARTY_MEMBER 38B = 파티원 한 줄(34B) — 바뀐 사람만(0.5초마다 서버가 견준다)
       case MSG.S2C_PARTY_MEMBER:
         Object.assign(p, readPartyMember(dv, o)); break;
       // ---- 상점 · 돈 ----
@@ -319,25 +332,33 @@
       case MSG.S2C_MONEY:   // int64 최종값 — 상한 1억이라 Number 로 옮겨도 정확하다
         p.money=Number(dv.getBigInt64(o,true)); break;
       // ---- 거래 (USE_TRADE) ----
-      //   TRADE_ASK 22B = requestId u32 · from PartyPerson(10) · remainMs u32 — 받는 사람에게만
+      //   TRADE_ASK 34B = requestId u32 · from PartyPerson(22) · remainMs u32 — 받는 사람에게만
       case MSG.S2C_TRADE_ASK:
-        p.requestId=dv.getUint32(o,true); p.from=readPartyPerson(dv, o+4); p.remainMs=dv.getUint32(o+14,true); break;
+        p.requestId=dv.getUint32(o,true); p.from=readPartyPerson(dv, o+4); p.remainMs=dv.getUint32(o+26,true); break;
       //   TRADE_ASK_END 9B = requestId u32 · reason u8 (TRADE_END). 창을 닫는다
       case MSG.S2C_TRADE_ASK_END:
         p.requestId=dv.getUint32(o,true); p.reason=dv.getUint8(o+4); p.reasonName=TRADE_END[p.reason] || ('?'+p.reason); break;
-      //   TRADE_STATE 438B = tradeId u32 · partner PartyPerson(10) · mine TradeSide(210) · theirs TradeSide(210) — 최종값
+      //   TRADE_STATE 450B = tradeId u32 · partner PartyPerson(22) · mine TradeSide(210) · theirs TradeSide(210) — 최종값
       case MSG.S2C_TRADE_STATE:
         p.tradeId=dv.getUint32(o,true); p.partner=readPartyPerson(dv, o+4);
-        p.mine=readTradeSide(dv, o+14); p.theirs=readTradeSide(dv, o+14+TRADE_SIDE_BYTES); break;
+        p.mine=readTradeSide(dv, o+26); p.theirs=readTradeSide(dv, o+26+TRADE_SIDE_BYTES); break;
       //   TRADE_END 9B = reason u8 (TRADE_END) · actorId i32 (끝낸 사람 · 없으면 0)
       case MSG.S2C_TRADE_END:
         p.reason=dv.getUint8(o); p.reasonName=TRADE_END[p.reason] || ('?'+p.reason); p.actorId=dv.getInt32(o+1,true); break;
       case MSG.S2C_TRADE_FAIL:
         p.reason=dv.getUint8(o); p.reasonName=TRADE_FAIL[p.reason] || ('?'+p.reason); break;
       // ---- 겉모습 (USE_EQUIP) ----
-      //   ACTOR_LOOK 10B = actorId i32 · ActorLook(weaponItemId u16) — 칸이 늘면 readLook 한 곳
+      //   ACTOR_LOOK 16B = actorId i32 · ActorLook(weaponItemId u16 · BodyLook 6B) — 칸이 늘면 readLook 한 곳
       case MSG.S2C_ACTOR_LOOK:
         p.actorId=dv.getInt32(o,true); p.look=readLook(dv, o+4); break;
+      // ---- 이름 · 몸 겉모습 ----
+      //   MY_NAME 16B = 이름 u16×6 · ACTOR_NAME 20B = actorId i32 · 이름 u16×6 · MY_LOOK 10B = BodyLook 6B
+      case MSG.S2C_MY_NAME:
+        p.name=readName(dv, o); break;
+      case MSG.S2C_ACTOR_NAME:
+        p.actorId=dv.getInt32(o,true); p.name=readName(dv, o+4); break;
+      case MSG.S2C_MY_LOOK:
+        p.body=readBody(dv, o); break;
       default: break; // ADMIN_* etc. — not needed for the view
     }
     return p;

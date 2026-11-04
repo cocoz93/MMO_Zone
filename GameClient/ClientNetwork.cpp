@@ -445,6 +445,12 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
     case MsgType::S2C_SKILL_EFFECT:
         break;
 
+    // 이름 · 몸 겉모습 — 콘솔 클라는 글자 한 칸이 캐릭터라 안 그린다. 모르는 타입 로그만 막는다.
+    case MsgType::S2C_MY_NAME:
+    case MsgType::S2C_ACTOR_NAME:
+    case MsgType::S2C_MY_LOOK:
+        break;
+
     default:
         LOG_ERROR_STREAM("Unknown message type: " << static_cast<int>(header->type));
         break;

@@ -297,6 +297,11 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     case MsgType::S2C_MY_JOB:             return sizeof(MSG_S2C_MY_JOB);
     // 기술 효과 대상 — 사람이 곁에서 회복·남에게 거는 버프를 쓰면 온다. ★ 빠뜨리면 근처 더미가 전부 떨어진다(SKILL_CAST 와 같은 함정)
     case MsgType::S2C_SKILL_EFFECT:       return sizeof(MSG_S2C_SKILL_EFFECT);
+    // 이름 — 이름 있는 사람이 곁에 나타나면 온다. ★ 빠뜨리면 그 순간 근처 더미가 전부 떨어진다(ACTOR_LOOK 과 같은 함정).
+    //   MY_NAME · MY_LOOK 은 더미 자신에게는 안 온다(더미는 시험 입장 길이라 이름·몸이 없다) — 등록은 같은 표에 나란히 둔다.
+    case MsgType::S2C_MY_NAME:            return sizeof(MSG_S2C_MY_NAME);
+    case MsgType::S2C_ACTOR_NAME:         return sizeof(MSG_S2C_ACTOR_NAME);
+    case MsgType::S2C_MY_LOOK:            return sizeof(MSG_S2C_MY_LOOK);
     default: return 0;
     }
 }

@@ -5,6 +5,7 @@
 // 와이어 헤더는 서버 코어가 갖는다 — "패킷 앞 2바이트가 길이다"는 전송 계층이 정하는 규약이라
 //   게임이 바뀌어도 안 바뀐다. 이 파일이 include 하므로 클라·게임 사용처는 수정 불필요.
 #include "../../ServerCore/Network/NetHeader.h"   // MsgHeader · EchoMsgHeader
+#include "../Identity/CharacterName.h"             // CHAR_NAME_MAX_LEN — 사람 이름 칸(PartyPerson · S2C_MY_NAME · S2C_ACTOR_NAME)
 
 // 패킷 타입 (혼용 방지를 위해 L7 Msg로 표기)
 enum class MsgType : uint16_t
@@ -207,7 +208,14 @@ enum class MsgType : uint16_t
     //--------------------------------------------------
     // 기술 효과 대상 (USE_SKILL — 피해가 없는 기술은 DAMAGE 가 안 와서 누가 받았는지 따로 알린다)
     //--------------------------------------------------
-    S2C_SKILL_EFFECT            // 서버 → 클라이언트: 이 기술의 효과가 이 대상에게 났다 (대상 주변 — 회복 · 남에게 건 버프)
+    S2C_SKILL_EFFECT,           // 서버 → 클라이언트: 이 기술의 효과가 이 대상에게 났다 (대상 주변 — 회복 · 남에게 건 버프)
+
+    //--------------------------------------------------
+    // 이름 · 몸 겉모습 (토글 없음 — 입장 번호 길로 들어온 캐릭터만 값이 있다)
+    //--------------------------------------------------
+    S2C_MY_NAME,                // 서버 → 클라이언트: 내 캐릭터 이름 (본인에게만 — 처음 입장 때 한 번)
+    S2C_ACTOR_NAME,             // 서버 → 클라이언트: 남의 이름 (남이 화면에 나타날 때 겉모습 바로 뒤 — 이름이 있는 사람만)
+    S2C_MY_LOOK                 // 서버 → 클라이언트: 내 몸 겉모습 (본인에게만 — 처음 입장 때 한 번)
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -1253,16 +1261,19 @@ enum class PartyNotice : uint8_t
     COUNT
 };
 
-// 사람 하나를 가리키는 구조체 — 이름이 없어 번호·글자·색·레벨로 보여 준다(10B, pack(1))
+// 사람 하나를 가리키는 구조체 — 번호·글자·색·레벨·이름(22B, pack(1))
+//   이름은 파티창·요청 창이 다른 맵 사람도 그려야 해서 여기에 싣는다 — 시야 패킷(S2C_ACTOR_NAME)으로는 시야 밖 사람의 이름을 모른다.
+//   이름이 없는 사람(소유 표에 없는 옛 행 · 더미)은 이름 칸이 전부 0 이고 웹은 글자 한 자로 보여 준다.
 struct PartyPerson
 {
     int32_t actorId;      // 0 = 없음
     uint8_t displayChar;  // CREATE 의 displayChar 와 같은 값
     uint8_t colorIndex;   // CREATE 의 colorIndex 와 같은 값
     int32_t level;
+    ChatChar name[CHAR_NAME_MAX_LEN];   // 6칸을 다 쓰면 끝 표시 0 이 없다 — 글자 수는 앞에서 세어 0 까지(CharacterName.h)
 };
 
-// 파티원 한 줄 — 파티창이 그리는 것(22B, pack(1)). 맵이 달라도 온다(파티는 존을 넘는다).
+// 파티원 한 줄 — 파티창이 그리는 것(34B, pack(1)). 맵이 달라도 온다(파티는 존을 넘는다).
 //   ★ 늘리면 S2C_PARTY_INFO 의 보폭이 바뀐다 — proto.js PARTY_MEMBER_BYTES 를 같은 커밋에서 고칠 것(가변 묶음 엔트리 규칙, 위 전투 절 머리말).
 struct PartyMemberEntry
 {
@@ -1381,20 +1392,20 @@ struct MSG_S2C_PARTY_MEMBER
     MSG_S2C_PARTY_MEMBER() : header{ sizeof(*this), TYPE }, entry{} {}
 };
 
-static_assert(sizeof(PartyPerson)           == 10, "PartyPerson 은 10B (proto.js 와 맞출 것)");
-static_assert(sizeof(PartyMemberEntry)      == 22, "PartyMemberEntry 는 22B (proto.js PARTY_MEMBER_BYTES 와 맞출 것)");
+static_assert(sizeof(PartyPerson)           == 22, "PartyPerson 은 22B (proto.js 와 맞출 것)");
+static_assert(sizeof(PartyMemberEntry)      == 34, "PartyMemberEntry 는 34B (proto.js PARTY_MEMBER_BYTES 와 맞출 것)");
 static_assert(sizeof(MSG_C2S_PARTY_REQUEST) == 8,  "C2S_PARTY_REQUEST 는 8B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_C2S_PARTY_ANSWER)  == 9,  "C2S_PARTY_ANSWER 는 9B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_C2S_PARTY_LEAVE)   == 4,  "C2S_PARTY_LEAVE 는 헤더뿐");
 static_assert(sizeof(MSG_C2S_PARTY_KICK)    == 8,  "C2S_PARTY_KICK 은 8B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_C2S_PARTY_LEADER)  == 8,  "C2S_PARTY_LEADER 는 8B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_C2S_PARTY_DISBAND) == 4,  "C2S_PARTY_DISBAND 는 헤더뿐");
-static_assert(sizeof(MSG_S2C_PARTY_ASK)     == 33, "PARTY_ASK 는 33B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_PARTY_ASK)     == 57, "PARTY_ASK 는 57B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_S2C_PARTY_ASK_END) == 9,  "PARTY_ASK_END 는 9B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_S2C_PARTY_NOTICE)  == 9,  "PARTY_NOTICE 는 9B (proto.js 와 맞출 것)");
 static_assert(offsetof(MSG_S2C_PARTY_INFO, entries) == 13, "PARTY_INFO 머리는 13B (proto.js 와 맞출 것)");
-static_assert(sizeof(MSG_S2C_PARTY_INFO)    == 13 + 22 * PARTY_MAX_MEMBERS, "PARTY_INFO 는 머리 13B + 22B x 인원");
-static_assert(sizeof(MSG_S2C_PARTY_MEMBER)  == 26, "PARTY_MEMBER 는 26B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_PARTY_INFO)    == 13 + 34 * PARTY_MAX_MEMBERS, "PARTY_INFO 는 머리 13B + 34B x 인원");
+static_assert(sizeof(MSG_S2C_PARTY_MEMBER)  == 38, "PARTY_MEMBER 는 38B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::C2S_PARTY_REQUEST) == 1050, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_PARTY_MEMBER)  == 1060, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
@@ -1476,7 +1487,7 @@ static_assert(static_cast<uint16_t>(MsgType::S2C_MONEY)    == 1064, "새 타입 
 // 규칙(10-26 사용자 결정) — 마을·사냥터에서만(파티 방 안 됨) · 가방 칸 최대 TRADE_MAX_ITEMS + 돈 · 「교환하기」 한 버튼 · 누른 사람 쪽만 닫힘(더 못 올림) · 상대는 닫기 전까지 계속 올린다 ·
 //   둘 다 눌러야 성사 · 올린 것은 못 뺀다(같은 칸 두 번 · 개수 줄이기 · 돈 깎기 없음 — 돈은 「더할 액수」로만 받는다).
 //   그래서 내가 누른 뒤 상대가 할 수 있는 건 더 올리기뿐이다 — 내가 본 것보다 덜 받는 일이 없다. 잘못 올렸으면 취소하고 다시.
-//   규칙의 몸은 서버 CTradeSystem(TradeSystem.h) — 여기는 와이어만. 사람은 번호(actorId)와 글자·색으로 가리킨다(파티 절 PartyPerson).
+//   규칙의 몸은 서버 CTradeSystem(TradeSystem.h) — 여기는 와이어만. 사람은 번호(actorId)와 글자·색·이름으로 가리킨다(파티 절 PartyPerson).
 //   ★ 부하 더미·콘솔 클라도 받을 수 있다 — 웹 사람이 그 캐릭터를 눌러 신청하면 S2C_TRADE_ASK 가, 시간이 지나면 S2C_TRADE_ASK_END 가 간다.
 //     둘 다 S2C 다섯을 다 등록할 것(DummyClient.cpp · GameClient/ClientNetwork.cpp).
 constexpr int TRADE_MAX_ITEMS = 20;   // 사용자 결정 값(10-26) — 가방 한 탭 칸 수와 같다(웹이 같은 칸 배치를 쓴다). S2C_TRADE_STATE 의 줄 수 상한이기도 하다
@@ -1605,7 +1616,7 @@ struct MSG_S2C_TRADE_ASK_END
 };
 
 // S2C: 거래창 전체 — 최종값(두 번 와도 같다). 열릴 때 · 올리기·돈·교환하기마다 두 사람에게(각자 mine = 자기 쪽).
-//   고정 길이 — 줄 수가 적어도 TRADE_MAX_ITEMS 줄을 다 싣는다(438B · 바뀔 때만 가서 가변으로 줄일 값이 작다).
+//   고정 길이 — 줄 수가 적어도 TRADE_MAX_ITEMS 줄을 다 싣는다(450B · 바뀔 때만 가서 가변으로 줄일 값이 작다).
 struct MSG_S2C_TRADE_STATE
 {
     static constexpr MsgType TYPE = MsgType::S2C_TRADE_STATE;
@@ -1646,9 +1657,9 @@ static_assert(sizeof(MSG_C2S_TRADE_OFFER)    == 10,  "C2S_TRADE_OFFER 는 10B (p
 static_assert(sizeof(MSG_C2S_TRADE_MONEY)    == 12,  "C2S_TRADE_MONEY 는 12B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_C2S_TRADE_COMMIT)   == 4,   "C2S_TRADE_COMMIT 은 헤더뿐");
 static_assert(sizeof(MSG_C2S_TRADE_CANCEL)   == 4,   "C2S_TRADE_CANCEL 은 헤더뿐");
-static_assert(sizeof(MSG_S2C_TRADE_ASK)      == 22,  "TRADE_ASK 는 22B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_TRADE_ASK)      == 34,  "TRADE_ASK 는 34B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_S2C_TRADE_ASK_END)  == 9,   "TRADE_ASK_END 는 9B (proto.js 와 맞출 것)");
-static_assert(sizeof(MSG_S2C_TRADE_STATE)    == 438, "TRADE_STATE 는 438B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_TRADE_STATE)    == 450, "TRADE_STATE 는 450B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_S2C_TRADE_END)      == 9,   "TRADE_END 는 9B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_S2C_TRADE_FAIL)     == 5,   "TRADE_FAIL 은 5B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::C2S_TRADE_REQUEST) == 1065, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
@@ -1664,12 +1675,26 @@ static_assert(static_cast<uint16_t>(MsgType::S2C_TRADE_FAIL)    == 1075, "새 �
 // 언제 오나 — ① 남이 내 화면에 나타날 때 그 CREATE 바로 뒤(같은 송신 큐라 순서대로 닿는다) — 겉모습이 하나라도 있을 때만(맨몸이면 안 온다)
 //             ② 그 사람이 끼우거나 벗은 뒤 주변에(본인 빼고 — 본인은 가방 칸 패킷으로 안다). 벗어서 맨몸이 돼도 온다(0 으로)
 //   받는 쪽은 모르는 액터 번호면 버린다 — 등장보다 먼저 닿아도 등장 뒤에 다시 오는 값(①)이 맞다.
-//   맨몸 = 모든 칸 0. 본인 겉모습은 안 온다(가방 900 칸이 있다).
+//   맨몸 = 모든 칸 0. 본인 겉모습은 안 온다(무기는 가방 900 칸이 있고, 몸은 처음 입장 때 S2C_MY_LOOK 한 장으로 안다).
+// 몸 겉모습 — 고른 외형 번호(LookTable.csv). 캐릭터 서버의 만들기에서 정해져 존에서는 안 바뀐다 · 존은 표 번호를 판정하지 않고 옮기기만 한다.
+//   6B 인 까닭 — 지금 부위 5개 + 빈자리 1. 칸을 늘려도 ActorLook · S2C_MY_LOOK 두 곳의 크기 단언이 알려 준다.
+struct BodyLook
+{
+    uint8_t gender;     // 0 = 외형 없음(소유 표에 없는 옛 행 · 더미) — 웹은 지금까지처럼 해시로 고른 조합을 그린다
+    uint8_t skin;
+    uint8_t hair;
+    uint8_t top;
+    uint8_t bottom;
+    uint8_t reserved;   // 언제나 0
+};
+static_assert(sizeof(BodyLook) == 6, "BodyLook 은 6B (proto.js readBody 와 맞출 것)");
+
 struct ActorLook
 {
     uint16_t weaponItemId;   // 끼운 무기 아이템 번호(ItemTable.csv) · 0 = 맨손. 무엇으로 그리나는 아이템 표 look 칸(웹) — 서버는 번호만
+    BodyLook body;           // 고른 몸 겉모습 · gender 0 = 없음
 };
-static_assert(sizeof(ActorLook) == 2, "ActorLook 은 2B (proto.js readLook 과 맞출 것)");
+static_assert(sizeof(ActorLook) == 8, "ActorLook 은 8B (proto.js readLook 과 맞출 것)");
 
 struct MSG_S2C_ACTOR_LOOK
 {
@@ -1680,7 +1705,7 @@ struct MSG_S2C_ACTOR_LOOK
 
     MSG_S2C_ACTOR_LOOK() : header{ sizeof(*this), TYPE }, actorId(0), look{} {}
 };
-static_assert(sizeof(MSG_S2C_ACTOR_LOOK) == 10, "ACTOR_LOOK 은 10B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_ACTOR_LOOK) == 16, "ACTOR_LOOK 은 16B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_ACTOR_LOOK) == 1076, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 //==================================================
@@ -1731,5 +1756,45 @@ struct MSG_S2C_SKILL_EFFECT
 };
 static_assert(sizeof(MSG_S2C_SKILL_EFFECT) == 14, "SKILL_EFFECT 는 14B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_SKILL_EFFECT) == 1079, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+
+//==================================================
+// 이름 · 몸 겉모습 (토글 없음 — 값은 입장 번호 길로 들어온 캐릭터만 있다)
+//==================================================
+// 이름도 등장 패킷에 안 싣는다 — 까닭은 겉모습 절과 같다(묶음이 패킷 상한에 꼭 차 있다 · 더미 바이트가 그대로여야 한다).
+//   남의 이름 = 등장 → 겉모습 → 이름 순서로 같은 송신 큐에 넣는다. 이름이 없는 사람에게는 안 보낸다.
+//   ★ 사람이 곁에 나타나면 더미도 받는다 — 등록이 빠지면 근처 더미가 전부 떨어진다(ACTOR_LOOK 과 같은 함정).
+//   내 이름·내 몸은 처음 입장 때 한 번뿐이다(존 이동 때 안 온다) — 받는 쪽은 존 이동을 넘어 들고 있을 것.
+struct MSG_S2C_MY_NAME
+{
+    static constexpr MsgType TYPE = MsgType::S2C_MY_NAME;
+    MsgHeader header;
+    ChatChar  name[CHAR_NAME_MAX_LEN];
+
+    MSG_S2C_MY_NAME() : header{ sizeof(*this), TYPE }, name{} {}
+};
+
+struct MSG_S2C_ACTOR_NAME
+{
+    static constexpr MsgType TYPE = MsgType::S2C_ACTOR_NAME;
+    MsgHeader header;
+    int32_t   actorId;
+    ChatChar  name[CHAR_NAME_MAX_LEN];
+
+    MSG_S2C_ACTOR_NAME() : header{ sizeof(*this), TYPE }, actorId(0), name{} {}
+};
+
+struct MSG_S2C_MY_LOOK
+{
+    static constexpr MsgType TYPE = MsgType::S2C_MY_LOOK;
+    MsgHeader header;
+    BodyLook  body;
+
+    MSG_S2C_MY_LOOK() : header{ sizeof(*this), TYPE }, body{} {}
+};
+static_assert(sizeof(MSG_S2C_MY_NAME)    == 16, "MY_NAME 은 16B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_ACTOR_NAME) == 20, "ACTOR_NAME 은 20B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_MY_LOOK)    == 10, "MY_LOOK 은 10B (proto.js 와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::S2C_MY_NAME) == 1080, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::S2C_MY_LOOK) == 1082, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 #pragma pack(pop)

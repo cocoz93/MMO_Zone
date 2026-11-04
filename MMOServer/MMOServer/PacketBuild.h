@@ -100,19 +100,55 @@ namespace PacketBuild
     // 겉모습(Protocol.h ActorLook) — 남의 화면에 그릴 것. 값은 쓸 때 그 자리에서 읽는다(따로 들고 있지 않는다 —
     //   끼운 칸과 두 벌이 되면 어긋난다 · 공격력도 같은 칸을 그때 읽는다 StatSystem.cpp RecalcStats). 사람만 · 몬스터·NPC 는 늘 맨몸.
     //   칸을 늘리면 LookOf · WriteLook 두 함수와 proto.js readLook(Protocol.h 크기 단언이 알려 준다).
+    inline BodyLook BodyLookOf(const CharacterLookBlob::Look& body)
+    {
+        BodyLook out{};
+        out.gender = body.gender;
+        out.skin = body.skin;
+        out.hair = body.hair;
+        out.top = body.top;
+        out.bottom = body.bottom;
+        return out;
+    }
     inline ActorLook LookOf(const CCharacter* ch)
     {
         ActorLook look{};
-#if USE_EQUIP
         if (const CPlayer* p = As<CPlayer>(ch))
+        {
+#if USE_EQUIP
             look.weaponItemId = static_cast<uint16_t>(p->_inventory.At(WornIndexOf(EquipSlot::WEAPON)).itemId);
-#else
-        (void)ch;
 #endif
+            look.body = BodyLookOf(p->_body);
+        }
         return look;
     }
     // 맨몸(모든 칸 0)이면 겉모습 패킷을 안 보낸다 — 무기를 안 든 부하 더미 5,000명의 등장 바이트가 그대로다(Protocol.h 겉모습 절)
-    inline bool HasLook(const ActorLook& look) { return look.weaponItemId != 0; }
+    inline bool HasLook(const ActorLook& look) { return look.weaponItemId != 0 || look.body.gender != 0; }
+
+    // 몸 겉모습 칸 쓰기 — ACTOR_LOOK 의 뒤쪽 · MY_LOOK 의 몸통
+    inline void WriteBodyLook(CSerialBuffer* buf, const BodyLook& body)
+    {
+        *buf << static_cast<uint8_t>(body.gender);
+        *buf << static_cast<uint8_t>(body.skin);
+        *buf << static_cast<uint8_t>(body.hair);
+        *buf << static_cast<uint8_t>(body.top);
+        *buf << static_cast<uint8_t>(body.bottom);
+        *buf << static_cast<uint8_t>(body.reserved);
+    }
+
+    // 이름 칸 쓰기 — 6칸 전부(짧은 이름은 뒤가 0). 와이어는 u16 그대로(ChatChar).
+    inline void WriteNameCells(CSerialBuffer* buf, const char16_t (&name)[CHAR_NAME_MAX_LEN])
+    {
+        for (int i = 0; i < CHAR_NAME_MAX_LEN; ++i)
+            *buf << static_cast<uint16_t>(name[i]);
+    }
+
+    // 이름이 있는 사람이면 그 사람, 아니면 nullptr — 몬스터·NPC·옛 행·더미는 이름 패킷이 안 나간다
+    inline const CPlayer* NamedPlayerOf(const CCharacter* ch)
+    {
+        const CPlayer* p = As<CPlayer>(ch);
+        return (p != nullptr && p->_name[0] != 0) ? p : nullptr;
+    }
 
     // 겉모습 한 장 — 남이 화면에 나타날 때(CSightBroadcaster 의 보이기 함수들) · 끼우기·빼기 뒤 주변(CItemHandler) 둘이 부른다
     inline CSerialBuffer* MakeActorLook(const CCharacter* ch, const ActorLook& look)
@@ -121,8 +157,21 @@ namespace PacketBuild
         BeginPacket(buf, MSG_S2C_ACTOR_LOOK::TYPE);
         *buf << static_cast<int>(ch->_actorId);
         *buf << static_cast<uint16_t>(look.weaponItemId);
+        WriteBodyLook(buf, look.body);
         FinalizePacket(buf);
         assert(buf->GetDataSize() == sizeof(MSG_S2C_ACTOR_LOOK));
+        return buf;
+    }
+
+    // 남의 이름 한 장 — 보이기 함수들이 겉모습 바로 뒤에 넣는다(Protocol.h 이름 절)
+    inline CSerialBuffer* MakeActorName(const CPlayer* p)
+    {
+        CSerialBuffer* buf = CSerialBuffer::Alloc();
+        BeginPacket(buf, MSG_S2C_ACTOR_NAME::TYPE);
+        *buf << static_cast<int>(p->_actorId);
+        WriteNameCells(buf, p->_name);
+        FinalizePacket(buf);
+        assert(buf->GetDataSize() == sizeof(MSG_S2C_ACTOR_NAME));
         return buf;
     }
 
@@ -168,16 +217,18 @@ namespace PacketBuild
 #endif // USE_COMBAT
 
 #if USE_PARTY
-    // 파티원 정보 구조체(Protocol.h PartyPerson 10B) — p 가 nullptr 이면 0 으로 채운다(ASK 의 about 이 없을 때).
+    // 파티원 정보 구조체(Protocol.h PartyPerson 22B) — p 가 nullptr 이면 0 으로 채운다(ASK 의 about 이 없을 때).
     inline void WritePartyPerson(CSerialBuffer* buf, const CPlayer* p)
     {
         *buf << static_cast<int>(p != nullptr ? p->_actorId : NO_ACTOR);
         *buf << static_cast<uint8_t>(p != nullptr ? p->_displayChar : 0);
         *buf << static_cast<uint8_t>(p != nullptr ? p->_colorIndex : 0);
         *buf << static_cast<int>(p != nullptr ? p->_level : 0);
+        for (int i = 0; i < CHAR_NAME_MAX_LEN; ++i)
+            *buf << static_cast<uint16_t>(p != nullptr ? p->_name[i] : 0);
     }
 
-    // 파티원 한 줄(Protocol.h PartyMemberEntry 22B) — INFO 의 줄이자 MEMBER 의 몸통. 줄을 늘리면 여기 한 곳 · proto.js readPartyMember.
+    // 파티원 한 줄(Protocol.h PartyMemberEntry 34B) — INFO 의 줄이자 MEMBER 의 몸통. 줄을 늘리면 여기 한 곳 · proto.js readPartyMember.
     //   체력은 등장 상태 쓰기(WriteSnapshot)와 같은 규칙 — 전투가 꺼진 빌드는 0. 맵은 존 번호를 풀어 싣는다(채널은 안 싣는다).
     inline void WritePartyMember(CSerialBuffer* buf, const CPlayer* p)
     {

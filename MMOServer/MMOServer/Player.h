@@ -1,6 +1,8 @@
 ﻿#pragma once
 
 #include <Identity/GameIds.h>
+#include <Identity/CharacterName.h>        // CHAR_NAME_MAX_LEN
+#include <Identity/CharacterLookBlob.h>    // 몸 겉모습
 #include <cstdint>
 #include <string>
 #include <random>
@@ -111,6 +113,12 @@ public:
     // ── 직업 ── JobTable.csv 번호. 0 = 아직 안 고름(입장은 된다 — 공용 기술만, 스탯은 기본 직업 줄). 정해지면 안 바뀐다(CJobHandler).
     //   CCharacter 에 안 올리는 이유는 레벨과 같다. 직업이 가르는 값은 표에 있고 이 칸은 번호뿐이다(JobTable.h [클래스 없음]).
     int32_t _job = 0;
+
+    // ── 이름 · 몸 겉모습 ── 입장 번호 길로 들어온 캐릭터만 값이 있다(character_roster 를 읽어 세운다 · EntryHandler).
+    //   둘 다 입장 뒤 안 바뀐다. 비어 있으면(첫 칸 0 · gender 0) 이름·몸 패킷을 안 보낸다 — 옛 행과 더미의 바이트가 그대로다.
+    //   와이어 칸(Protocol.h BodyLook)을 직접 안 드는 까닭 — DB 칸을 읽는 형식은 CharacterLookBlob 한 곳이 안다.
+    char16_t _name[CHAR_NAME_MAX_LEN] = {};
+    CharacterLookBlob::Look _body{};
 
 #if USE_PARTY
     // ── 파티 ── 0 = 파티 없음. 쓰는 곳은 CPartySystem 뿐이다(가입·빠짐·해산). 저장하지 않는다(접속마다 0 — 끊기면 파티에서 빠진다).
