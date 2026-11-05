@@ -2554,7 +2554,6 @@ function loadSkills(){
     .catch(e=>console.warn('[skill] 스킬 표를 못 받았다 — 스킬 막대를 안 그린다:', e))
     .then(skillChanged);
 }
-// 직업 표(serve.js 의 /data/JobTable.csv) — 못 받으면 고르는 창이 안 뜬다(서버는 그대로 돈다). 칸 = jobId,name
 // 외형 표(serve.js 의 /data/LookTable.csv) — 캐릭터 창과 같은 표 · 같은 풀이(proto-lobby.js). 못 받아도 멈추지 않는다
 function loadLooks(){
   return fetch('/data/LookTable.csv', {cache:'no-store'})
@@ -2562,6 +2561,7 @@ function loadLooks(){
     .then(text=>{ LOOKS=LobbyProto.parseLookTable(text); })
     .catch(e=>console.warn('[look] 외형 표를 못 받았다 — 번호로 고른 조합을 그린다:', e));
 }
+// 직업 표(serve.js 의 /data/JobTable.csv) — 못 받으면 고르는 창이 안 뜬다(서버는 그대로 돈다). 칸 = jobId,name
 function loadJobs(){
   return fetch('/data/JobTable.csv', {cache:'no-store'})
     .then(r=>r.ok ? r.text() : Promise.reject('HTTP '+r.status))

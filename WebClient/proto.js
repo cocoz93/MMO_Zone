@@ -389,9 +389,8 @@
   const enc = {
     heartbeat(){ return hdr(4, MSG.C2S_HEARTBEAT).b; },
     // C2S_ENTER_GAME: header(4) + int64 devCharacterId + char ticket[64] = 76B.
-    //   티켓은 아직 안 쓴다 — ArrayBuffer 가 0 으로 채워져 나오므로 그대로 둔다.
     //   devCharacterId 0 = "번호를 지정하지 않음" → 서버가 새 번호를 붙인다(새로고침마다 다른 캐릭터).
-    // ticket = 캐릭터 서버가 준 입장 번호(64바이트) — 없으면 0 칸 그대로(시험 입장 길)
+    // ticket = 캐릭터 서버가 준 입장 번호(64바이트) — 없으면 0 칸 그대로(시험 입장 길. ArrayBuffer 가 0 으로 채워져 나온다)
     enterGame(devCharacterId, ticket){ const {b,d}=hdr(76,MSG.C2S_ENTER_GAME); d.setBigInt64(4, BigInt(devCharacterId||0), true); if(ticket) new Uint8Array(d.buffer, d.byteOffset+12, 64).set(ticket.subarray(0,64)); return b; },
     // 바디 없음 — 방향은 서버가 들고 있고, 대상도 서버가 "앞 한 칸"으로 고른다
     attack(){ return hdr(4, MSG.C2S_ATTACK).b; },
