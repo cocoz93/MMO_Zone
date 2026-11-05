@@ -172,6 +172,12 @@ CREATE TABLE IF NOT EXISTS inventory (
 --   deleted_at:   delete is a mark, rows are never removed - the character server has no DELETE grant.
 -- AUTO_INCREMENT starts at 1e12: load-test dummies use small ids (sessions count up from 1)
 -- and the two ranges must never meet.
+--
+-- Accounts (created by hand, password lives in Run/bin/CharacterServerConfig.ini):
+--   character_server@127.0.0.1 : SELECT, INSERT, UPDATE on gamedb.character_roster;
+--                                SELECT, INSERT on gamedb.characters;
+--                                SELECT on gamedb.inventory.
+--                                No DELETE, nothing on accountdb.
 CREATE TABLE IF NOT EXISTS character_roster (
     character_id BIGINT        NOT NULL AUTO_INCREMENT PRIMARY KEY,
     account_id   BIGINT        NOT NULL,
