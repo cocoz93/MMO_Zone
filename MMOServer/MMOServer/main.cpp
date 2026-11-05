@@ -154,6 +154,14 @@ int main()
 
     // DB 저장 파이프라인 초기화 (USE_DB_WORKER=0이면 no-op)
     {
+#if USE_DB_WORKER
+        // 암호를 못 읽었으면 빈 암호로 접속해 보지 않는다 — 「DB init failed」 만으로는 무엇을 고칠지 안 보인다
+        if (!config.dbPasswordError.empty())
+        {
+            SLOG_ERROR("[Error] {}", config.dbPasswordError);
+            return 1;
+        }
+#endif
         DBConfig dbConfig;
         dbConfig.host              = config.dbHost;               // DB 서버 주소 (기본 127.0.0.1)
         dbConfig.port              = config.dbPort;               // DB 포트 (MySQL 기본 3306)

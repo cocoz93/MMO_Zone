@@ -1,9 +1,10 @@
 ﻿#include "LobbyConfig.h"
 
 #include <Common/ErrorLog.h>
+#include <Config/DbPassword.h>
 #include <Config/IniFile.h>
 
-bool LobbyConfig::Read(const CIniFile& ini, std::string& error)
+bool LobbyConfig::Read(const CIniFile& ini, const std::string& iniPath, std::string& error)
 {
     const auto required = [&](const char* section, const char* key, int& value)
     {
@@ -39,7 +40,7 @@ bool LobbyConfig::Read(const CIniFile& ini, std::string& error)
     db.connectTimeoutSec = 3;
     db.rwTimeoutSec = 5;
     if (!text("Host", db.host) || !required("DB", "Port", db.port) || !text("User", db.user)
-        || !text("Password", db.password) || !text("Database", db.database))
+        || !DbPassword::Read(ini, iniPath, db.password, error) || !text("Database", db.database))
         return false;
     return positive("DB", "Workers", dbWorkers) && positive("DB", "QueueMax", dbQueueMax)
         && positive("DB", "ConnectTimeoutSec", db.connectTimeoutSec) && positive("DB", "RwTimeoutSec", db.rwTimeoutSec);

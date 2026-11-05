@@ -29,6 +29,7 @@
 
 #include <Protocol/ServerLinkProtocol.h>   // LINK_WS_ADDR_BYTES — 웹 주소 패킷 칸
 #include <Config/IniFile.h>       // 플랫폼 독립 INI 리더 (GetPrivateProfile* 대체)
+#include <Config/DbPassword.h>    // DB 암호 — 커밋되는 INI 밖의 파일에서 읽는다
 #include "Platform/Platform.h"    // Platform::GetExecutableDir
 #include "EnterGate.h"            // CEnterGate::TTL_SEC_DEFAULT
 #include "Common.h"
@@ -88,6 +89,7 @@ struct ServerConfig
     int         dbPort              = 3306;
     std::string dbUser              = "root";
     std::string dbPassword;
+    std::string dbPasswordError;            // 비어 있지 않으면 암호를 못 읽은 까닭 — DB 를 쓰는 빌드면 main 이 기동을 거절한다
     std::string dbDatabase          = "gamedb";
     int         dbWorkers           = 0;
     int         dbSavePeriodSec     = 0;    // dirty 저장 주기(초)
@@ -180,7 +182,7 @@ struct ServerConfig
         dbHost              = ini.GetString("DB", "Host", dbHost);
         dbPort              = ini.GetInt("DB", "Port", dbPort);
         dbUser              = ini.GetString("DB", "User", dbUser);
-        dbPassword          = ini.GetString("DB", "Password", dbPassword);
+        DbPassword::Read(ini, iniPath, dbPassword, dbPasswordError);
         dbDatabase          = ini.GetString("DB", "Database", dbDatabase);
         dbWorkers           = ini.GetInt("DB", "Workers", dbWorkers);
         dbSavePeriodSec     = ini.GetInt("DB", "SavePeriodSec", dbSavePeriodSec);

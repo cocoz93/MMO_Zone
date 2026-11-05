@@ -143,6 +143,10 @@ Monitoring/*
 !Run/bin/
 Run/bin/*
 !Run/bin/*.ini
+# DB 암호 — 리포에 넣지 않는다. 커밋되는 INI 는 [DB] PasswordFile 로 이 파일을 가리키기만 한다(ServerCommon/Config/DbPassword.h).
+#   예시 파일만 추적한다 — 새 PC 에서는 이걸 보고 만든다.
+Run/bin/*.local.ini
+!Run/bin/DbPassword.local.ini.example
 # 기획 데이터 표(레벨 등) — 코드와 같이 버전이 매겨져야 하는 것이라 추적한다.
 #   이걸 빼면 "파일로 두면 코드와 함께 되돌릴 수 있다"는 전제가 무너지고,
 #   갓 클론한 리포에서 서버가 표를 못 읽어 뜨지도 않는다.

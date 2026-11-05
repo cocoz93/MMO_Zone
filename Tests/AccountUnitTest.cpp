@@ -1,6 +1,7 @@
 ﻿// 계정 서버 부품 시험 — 규칙 · 장부는 서버 없이 돌린다. 시각은 시험이 넘긴다(실제로 2분을 안 기다린다)
 //   인자 <ini> <db> 를 주면 시험 DB 로 같은 새 이름 경쟁까지 본다. 실제 accountdb 에 돌리지 말 것 — 행을 못 지운다
 #include <Identity/SecureRandom.h>
+#include <Config/DbPassword.h>
 #include <Config/IniFile.h>
 #include <Db/DbConnection.h>
 #include <atomic>
@@ -173,7 +174,12 @@ namespace
         out.host = ini.GetString("DB", "Host", "");
         out.port = ini.GetInt("DB", "Port", 0);
         out.user = ini.GetString("DB", "User", "");
-        out.password = ini.GetString("DB", "Password", "");
+        std::string error;
+        if (!DbPassword::Read(ini, iniPath, out.password, error))
+        {
+            std::printf("%s\n", error.c_str());
+            return false;
+        }
         out.database = database;
         out.connectTimeoutSec = 3;
         out.rwTimeoutSec = 5;

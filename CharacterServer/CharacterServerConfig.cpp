@@ -12,7 +12,7 @@ bool CharacterServerConfig::Load(const std::string& path, std::string& error)
         error = "파일을 못 읽음: " + path;
         return false;
     }
-    if (!lobby.Read(ini, error))
+    if (!lobby.Read(ini, path, error))
         return false;
 
     characterSlots = ini.GetInt("Character", "CharacterSlots", characterSlots);

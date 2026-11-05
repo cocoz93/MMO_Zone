@@ -25,8 +25,8 @@ struct LobbyConfig
     int dbQueueMax = 1000;
     DBConfig db;
 
-    // 실패하면 error 에 어느 값이 왜 틀렸는지를 담는다
-    bool Read(const CIniFile& ini, std::string& error);
+    // 실패하면 error 에 어느 값이 왜 틀렸는지를 담는다. iniPath = ini 를 읽은 경로(암호 파일을 그 옆에서 찾는다)
+    bool Read(const CIniFile& ini, const std::string& iniPath, std::string& error);
 
     // 세션 표 = 웹 정원 + 서버 간 여유 칸. 세션 번호에 안 담기면 false
     bool CheckSessionSlots(int reserve, std::string& error) const;

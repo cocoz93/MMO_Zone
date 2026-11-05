@@ -8,7 +8,7 @@
 -- across all worlds, a game DB is one per world. character_roster.account_id has
 -- no foreign key to this table because the two can live on different servers.
 --
--- Accounts (created by hand, passwords live in Run/bin/AccountServerConfig.ini):
+-- Accounts (created by hand, passwords live in Run/bin/DbPassword.local.ini, which git ignores):
 --   account_server@127.0.0.1 : SELECT, INSERT, UPDATE on accountdb.accounts. No DELETE.
 --
 -- No password column yet: it comes with the login server. No status column either

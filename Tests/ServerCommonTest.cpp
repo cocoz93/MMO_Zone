@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include <Config/DbPassword.h>
 #include <Config/IniFile.h>
 #include <Db/DbPipeline.h>
 #include <Identity/SecureRandom.h>
@@ -565,7 +566,12 @@ namespace
         out.host = ini.GetString("DB", "Host", "127.0.0.1");
         out.port = ini.GetInt("DB", "Port", 3306);
         out.user = ini.GetString("DB", "User", "");
-        out.password = ini.GetString("DB", "Password", "");
+        std::string error;
+        if (!DbPassword::Read(ini, path, out.password, error))
+        {
+            std::printf("%s\n", error.c_str());
+            return false;
+        }
         out.database = ini.GetString("DB", "Database", "");
         out.connectTimeoutSec = 3;
         out.rwTimeoutSec = 5;
@@ -639,6 +645,57 @@ namespace
         expectFail("ReplyTimeoutSec 음수", WriteLinkIni("mz_link_t.ini", addrs + "ReplyTimeoutSec=-1\r\n"), "ReplyTimeoutSec");
         expectFail("SessionReserve 0", WriteLinkIni("mz_link_s.ini", addrs + "SessionReserve=0\r\n"), "SessionReserve");
     }
+
+    void TestDbPassword()
+    {
+        std::printf("-- DbPassword\n");
+
+        const std::string mainIni = WriteLinkIni("mz_pw_main.ini", "");
+        const auto read = [&](const std::string& iniPath, const std::string& body, std::string& password, std::string& error)
+        {
+            WriteLinkIni("mz_pw_main.ini", body);
+            CIniFile ini;
+            return ini.Load(iniPath) && DbPassword::Read(ini, iniPath, password, error);
+        };
+        const auto expectValue = [&](const char* what, const std::string& iniPath, const std::string& body, const char* value)
+        {
+            std::string password, error;
+            const bool ok = read(iniPath, body, password, error);
+            Check(ok && password == value, std::string(what) + " → " + error);
+        };
+        const auto expectFail = [&](const char* what, const std::string& body, const char* expected)
+        {
+            std::string password = "untouched", error;
+            const bool ok = read(mainIni, body, password, error);
+            Check(!ok && error.find(expected) != std::string::npos && password == "untouched", std::string(what) + " → " + error);
+            Check(error.find("sekret") == std::string::npos, std::string(what) + " : 오류 문구에 값이 안 실림");
+        };
+
+        // 읽는 길 — 파일 찾는 자리마다 서로 다른 값을 둬서 엉뚱한 파일을 읽으면 걸리게 한다
+        WriteLinkIni("mz_pw_side.local.ini", "[DB]\r\nPassword=side\r\n");
+        const std::string absolutePath = WriteLinkIni("mz_pw_abs.local.ini", "[DB]\r\nPassword=abs\r\n");
+        const std::string besideBody = "[DB]\r\nPasswordFile=mz_pw_side.local.ini\r\n";
+        expectValue("상대 경로 = INI 옆", mainIni, besideBody, "side");
+        expectValue("절대 경로", mainIni, "[DB]\r\nPasswordFile=" + absolutePath + "\r\n", "abs");
+        expectValue("INI 경로가 / 로 나뉨", std::filesystem::path(mainIni).generic_string(), besideBody, "side");
+        {
+            const std::filesystem::path before = std::filesystem::current_path();
+            std::filesystem::current_path(std::filesystem::temp_directory_path());
+            expectValue("INI 경로에 폴더 없음 = 현재 폴더", "mz_pw_main.ini", besideBody, "side");
+            std::filesystem::current_path(before);
+        }
+
+        // 거절하는 길 전부 — 암호 칸은 안 건드린다
+        expectFail("INI 에 옛 키가 남음", "[DB]\r\nPassword=sekret\r\nPasswordFile=mz_pw_side.local.ini\r\n", "Password 는 INI");
+        expectFail("INI 에 옛 키만 있음", "[DB]\r\nPassword=sekret\r\n", "Password 는 INI");
+        expectFail("PasswordFile 키 없음", "[DB]\r\nHost=a\r\n", "PasswordFile 이 없음");
+        expectFail("PasswordFile 값 비어 있음", "[DB]\r\nPasswordFile=\r\n", "PasswordFile 이 없음");
+        expectFail("암호 파일 없음", "[DB]\r\nPasswordFile=mz_pw_none.local.ini\r\n", "mz_pw_none.local.ini");
+        WriteLinkIni("mz_pw_nokey.local.ini", "[DB]\r\nHost=a\r\n[Other]\r\nPassword=sekret\r\n");
+        expectFail("암호 파일 [DB] 에 Password 없음", "[DB]\r\nPasswordFile=mz_pw_nokey.local.ini\r\n", "Password 가 없음");
+        WriteLinkIni("mz_pw_empty.local.ini", "[DB]\r\nPassword=\r\n");
+        expectFail("암호 파일의 Password 비어 있음", "[DB]\r\nPasswordFile=mz_pw_empty.local.ini\r\n", "Password 가 없음");
+    }
 }
 
 int main(int argc, char** argv)
@@ -649,6 +706,7 @@ int main(int argc, char** argv)
     TestLatencyHistogram();
     TestLinkRequests();
     TestServerLinkConfig();
+    TestDbPassword();
 
     if (argc >= 2)
     {

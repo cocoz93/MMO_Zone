@@ -1,5 +1,6 @@
 ﻿// 캐릭터 서버 부품 시험 — 규칙 · 장부 · 외형 표는 서버 없이 돌린다. 시각은 시험이 넘긴다
 //   인자 <ini> <db> 를 주면 시험 DB 로 경쟁까지 본다. 실제 gamedb 에 돌리지 말 것 — 행을 못 지운다
+#include <Config/DbPassword.h>
 #include <Config/IniFile.h>
 #include <Db/DbConnection.h>
 #include <Identity/SecureRandom.h>
@@ -343,7 +344,12 @@ namespace
         out.host = ini.GetString("DB", "Host", "");
         out.port = ini.GetInt("DB", "Port", 0);
         out.user = ini.GetString("DB", "User", "");
-        out.password = ini.GetString("DB", "Password", "");
+        std::string error;
+        if (!DbPassword::Read(ini, iniPath, out.password, error))
+        {
+            std::printf("%s\n", error.c_str());
+            return false;
+        }
         out.database = database;
         out.connectTimeoutSec = ini.GetInt("DB", "ConnectTimeoutSec", 3);
         out.rwTimeoutSec = ini.GetInt("DB", "RwTimeoutSec", 5);
