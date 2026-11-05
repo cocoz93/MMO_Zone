@@ -13,7 +13,7 @@
 //
 // [왕복] 저장도 불러오기도 답이 돌아온다 — 저장은 회신(성공·실패), 불러오기는 결과.
 //        무엇을 다시 실을지·불러오기를 들여보낼지는 받는 쪽(캐릭터 저장소)이 정한다 — 워커는 주인을 모르고 실행·회신만 한다.
-//        가는 길은 「같은 큐」 — 같은 캐릭터은 같은 워커를 타고 큐는 앞에서부터 실행되므로
+//        가는 길은 「같은 큐」 — 같은 캐릭터는 같은 워커를 타고 큐는 앞에서부터 실행되므로
 //        "옛 접속의 마지막 저장 → 새 접속의 불러오기" 차례가 지켜진다(그 저장이 실패했는지는 회신을 먼저 보는 받는 쪽이 가린다).
 //        오는 길은 회신 상자 하나(저장 회신 · 불러오기 결과) — 워커가 넣고, 게임 루프가 틱마다 통째로 꺼낸다.
 // ==========================================================================
@@ -138,7 +138,7 @@ struct DBLoadJob
 
 #if USE_INVENTORY
 // 가방 한 줄 문장의 버퍼 꼴(USE_INVENTORY) — 캐릭터 + 칸 + 아이템 + 개수. 칸 UPSERT 의 파라미터 · 가방 SELECT 의 파라미터·결과 열.
-//   저장 묶음의 칸 줄(DBInvRow)을 실행 직전에 캐릭터과 함께 여기로 옮긴다(RunBundleOnce). 칸 줄은 최종값이라 두 번 써도 같다.
+//   저장 묶음의 칸 줄(DBInvRow)을 실행 직전에 캐릭터와 함께 여기로 옮긴다(RunBundleOnce). 칸 줄은 최종값이라 두 번 써도 같다.
 struct DBInvRowBuf
 {
     int64_t characterId;
@@ -272,7 +272,7 @@ struct DBWorkerSlot
     DBCharRow                bSave{};         // 캐릭터 행 UPSERT 파라미터 버퍼 — execute 직전 묶음 머리의 행을 통째로 복사. 열 표(kCharColumns)가 멤버 자리를 가리킨다
     DBCharRow                bLoad{};         // 캐릭터 행 SELECT — characterId 가 WHERE 파라미터, 나머지 멤버가 결과 열(fetch 가 채운다)
 #if USE_INVENTORY
-    DBInvRowBuf              bItem{};               // 칸 UPSERT 파라미터 버퍼 — 칸 줄을 캐릭터과 함께 복사. 열 표(kInvColumns)가 멤버 자리를 가리킨다
+    DBInvRowBuf              bItem{};               // 칸 UPSERT 파라미터 버퍼 — 칸 줄을 캐릭터와 함께 복사. 열 표(kInvColumns)가 멤버 자리를 가리킨다
     DBInvRowBuf              bInvLoad{};            // 가방 SELECT — characterId 가 WHERE 파라미터, 나머지 멤버가 결과 열(fetch 가 줄마다 채운다)
 #endif
     DBRosterRowBuf           bRoster{};       // 소유 표 SELECT — characterId 가 WHERE 파라미터, 나머지 멤버가 결과

@@ -2,7 +2,7 @@
 // ==========================================================================
 // CDbConnection — MySQL 연결 열기 · 시한 설정 · 연결 유실 판정 (세 서버가 같은 코드를 쓴다)
 //
-//   존의 CDBWorker 는 Open·IsConnectionLostErrno 정적 함수만 쓴다(자기 prepared 문장을 직접 관리한다).
+//   존의 CDBWorker 는 OpenRaw·IsConnectionLostErrno 정적 함수만 쓴다(자기 prepared 문장을 직접 관리한다).
 //   로비 서버는 객체를 워커마다 하나 들고, 문장 캐시와 실패 표시까지 쓴다(CDbPipeline).
 //   mysql.h 를 헤더에 안 넣는 까닭 — 부품 헤더 전부가 MySQL 헤더에 묶이지 않게(CDBWorker 와 같은 void*).
 // ==========================================================================
@@ -10,9 +10,9 @@
 #include <string>
 #include <unordered_map>
 
-// DB 접속 설정 — ServerConfig가 INI [DB] 섹션에서 채워 넘긴다.
+// DB 접속 설정 — 서버마다 INI [DB] 섹션에서 채워 넘긴다(존 = ServerConfig · 계정·캐릭터 서버 = LobbyConfig).
 // (USE_DB_WORKER 토글과 무관하게 정의 — GameServer::InitDB가 값으로 참조)
-//   ★ 기본값을 여기 두지 않는다 — 정본은 ServerConfig 의 db* 멤버이고 main 이 일곱 칸을 전부 채운다(10-08 2차 검사 5번).
+//   ★ 기본값을 여기 두지 않는다 — 존의 정본은 ServerConfig 의 db* 멤버이고 main 이 일곱 칸을 전부 채운다(10-08 2차 검사 5번). 계정·캐릭터 서버는 LobbyConfig 가 채운다.
 //     여기 숫자를 두면 아무도 안 읽는 셋째 벌이 된다. 0·빈 문자열 = 아직 안 채워짐.
 struct DBConfig
 {

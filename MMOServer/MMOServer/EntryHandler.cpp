@@ -520,11 +520,11 @@ void CEntryHandler::OnConnected(SessionId sessionId)
 }
 
 #if USE_LOGIN
-// 같은 캐릭터으로 이미 들어와 있는 세션을 걷어낸다. 걷을 곳이 둘이다 — 게임 중, 그리고 불러오는 중.
+// 같은 캐릭터로 이미 들어와 있는 세션을 걷어낸다. 걷을 곳이 둘이다 — 게임 중, 그리고 불러오는 중.
 //   ★ 맵(캐릭터 → 플레이어)을 안 만들고 훑는 이유: 넣고 빼야 할 표가 둘이라 한쪽이 어긋나면
 //     해제된 주소를 들게 된다. 훑기는 어긋날 표가 없다. 그리고 번호를 안 들고 온 접속은 이 길을
 //     아예 안 타므로(부하 더미가 전부 그렇다) 훑는 횟수가 사람 수준에 머문다.
-//   ※ 모든 캐릭터이 지정 번호로 들어오는 날(로그인 서버가 붙는 날, 또는 부하 더미를 고정 캐릭터으로
+//   ※ 모든 캐릭터가 지정 번호로 들어오는 날(로그인 서버가 붙는 날, 또는 부하 더미를 고정 캐릭터로
 //     바꾸는 날)에는 접속마다 전체를 훑게 된다. 그때 재 보고 캐릭터 → 플레이어 맵으로 바꾼다.
 template <typename PlayerMatch, typename SlotMatch>
 void CEntryHandler::KickDuplicateWhere(SessionId exceptSessionId, PlayerMatch matchPlayer, SlotMatch matchSlot)
@@ -535,7 +535,7 @@ void CEntryHandler::KickDuplicateWhere(SessionId exceptSessionId, PlayerMatch ma
     //    제거). 이 함수는 네트워크 이벤트 구간 한가운데서 플레이어를 지우는데, 같은 틱에
     //    그 플레이어가 MOVE_STOP 으로 그 대기열에 들어가 있을 수 있다 — 새로 짰으면 빠뜨렸을 자리다.
     //    뒤늦게 오는 진짜 끊김 이벤트는 플레이어가 이미 없어 FindPlayer 가 nullptr 이라 무해하다.
-    //    첫 일치 하나만 본다 — 같은 캐릭터이 둘 이상 게임 중일 수는 없다(여기서 막고 있기 때문이다).
+    //    첫 일치 하나만 본다 — 같은 캐릭터가 둘 이상 게임 중일 수는 없다(여기서 막고 있기 때문이다).
     CPlayer* other = _sessionHub.FindPlayerIf([&](const CPlayer* p)
     {
         return matchPlayer(p) && p->_sessionId != exceptSessionId;

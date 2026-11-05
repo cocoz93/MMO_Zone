@@ -742,7 +742,7 @@ CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJo
     case MYSQL_DATA_TRUNCATED:
         // 잘림은 바이트 열(쿨타임·버프)에서만 난다 — 숫자 열은 열 타입과 버퍼 타입이 같아 잘릴 수 없다(BindSelect 주석).
         //   바이트 열이 버퍼보다 길면 len 에 원래 길이가 남아 게임 스레드가 불량으로 버린다(SpawnPlayer) — 쿨타임·버프가 풀릴 뿐
-        //   입장까지 막을 일이 아니다. 실패로 돌리면 그 캐릭터은 행을 고치기 전까지 영영 못 들어온다.
+        //   입장까지 막을 일이 아니다. 실패로 돌리면 그 캐릭터는 행을 고치기 전까지 영영 못 들어온다.
         CopyColumns(&out, &slot.bLoad, kCharColumns, kCharColCount);   // 표의 열을 slot.bLoad 에서 out 으로
         outcome = LoadOutcome::FOUND;
         break;

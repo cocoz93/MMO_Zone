@@ -144,7 +144,7 @@ void CDbPipeline::WorkerThread(Worker& worker)
         }
     }
 
-    worker.connection.Close();   // 만든 스레드가 닫는다
+    worker.connection.Close();   // 쓰던 스레드가 닫는다 — 첫 연결은 Start 가 열었어도 그 뒤로는 이 워커만 쓴다
     mysql_thread_end();
 }
 

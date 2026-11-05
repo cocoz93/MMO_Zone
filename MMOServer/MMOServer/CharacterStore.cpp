@@ -819,7 +819,7 @@ void CCharacterStore::PutLeaveRecord(DBSaveBundle head, std::vector<DBInvRow>&& 
     auto it = _leaveRecords.find(characterId);
     if (it != _leaveRecords.end())
     {
-        // 있을 수 없다 — 확정 전엔 같은 캐릭터 불러오기를 실패로 돌려(ProcessDbResults) 그 캐릭터이 다시 들어와 나갈 수 없다.
+        // 있을 수 없다 — 확정 전엔 같은 캐릭터 불러오기를 실패로 돌려(ProcessDbResults) 그 캐릭터가 다시 들어와 나갈 수 없다.
         //   생기면 새 것으로 덮는다(최종값이라 새 것이 맞다).
         SLOG_ERROR("[DB] leave record overwritten (character={}, old bundle={})", characterId, it->second.head.bundleNo);
     }
@@ -1024,7 +1024,7 @@ void CCharacterStore::LoadInventoryRows(CPlayer* player, const DBResult& result)
 
     // 가진 돈 — 망가진 값(음수 · 상한 초과)은 안 넣는다(0 으로 시작). 서버는 상한 밖을 쓰지 않으므로 DB 를 손으로 고쳤거나 깨졌을 때만 닿고,
     //   그 값은 크기도 믿을 수 없다 — 잘라 넣으면 깨진 큰 값이 1억을 쥐여 준다(npc-shop-plan.md 따라 나온 것 7 · 10-21 사용자 정정).
-    //   다음 저장이 0 으로 덮으므로 캐릭터과 원래 값을 로그에 남긴다 — 되살리기는 그 값으로 손으로. 입장은 안 막는다(쿨타임·버프 칸 불량과 같은 규칙)
+    //   다음 저장이 0 으로 덮으므로 캐릭터와 원래 값을 로그에 남긴다 — 되살리기는 그 값으로 손으로. 입장은 안 막는다(쿨타임·버프 칸 불량과 같은 규칙)
     if (result.money >= 0 && result.money <= MONEY_MAX)
     {
         player->_inventory.LoadMoney(result.money);

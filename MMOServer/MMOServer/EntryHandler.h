@@ -202,7 +202,7 @@ private:
     // 같은 사람으로 이미 들어와 있는 세션을 걷어낸다 (게임 중 / 불러오는 중 양쪽).
     //   입장 번호 길 = 같은 계정(다른 캐릭터로 갈아타도 앞 캐릭터가 나간다) · 시험 입장 길 = 같은 캐릭터.
     //   새 조회를 던지기 "전"에 불러야 한다 — 정리가 넣는 최종 저장이 그 조회보다 큐에서 앞서야
-    //   새 접속이 방금 저장한 자리를 읽는다(같은 캐릭터은 같은 워커를 탄다).
+    //   새 접속이 방금 저장한 자리를 읽는다(같은 캐릭터는 같은 워커를 탄다).
     void KickDuplicateAccount(AccountId accountId, SessionId exceptSessionId);
     void KickDuplicateCharacter(CharacterId characterId, SessionId exceptSessionId);
     template <typename PlayerMatch, typename SlotMatch>

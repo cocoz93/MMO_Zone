@@ -16,7 +16,7 @@ namespace
     std::atomic<bool> g_shutdownComplete{ false };
 }
 
-// 프로세스 전체 종료 컨트롤러이므로 메인문에 빼둔다
+// 프로세스 전체 종료 컨트롤러이므로 어느 서버 객체에도 넣지 않고 따로 둔다(main 이 Wait 로 기다린다)
 //   running 변경은 반드시 mutex 안에서 — 락 없이 바꾸면 main이 wait 술어를 평가한 직후
 //   대기 큐에 등록되기 전 구간에 끼어들어 notify가 유실된다(기상 유실).
 void CShutdownWait::Signal()
