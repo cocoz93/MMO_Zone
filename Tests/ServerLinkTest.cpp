@@ -34,6 +34,7 @@ namespace
     constexpr int PORT_WEB = 16500;
     constexpr int PORT_LINK = 16501;
     constexpr int PORT_CLOSED = 16502;      // 아무도 안 여는 포트
+    constexpr int PORT_LATE = 16503;        // 시험 중간에 여는 포트
     constexpr int NO_HEARTBEAT_SEC = 3600;  // 시험 시간 안에 한 번도 안 나가는 주기
 
     struct Harness
@@ -275,6 +276,32 @@ namespace
         Check(true, "위층이 없어도 Stop 이 끝남");
     }
 
+    // 접속 실패 뒤에도 계속 다시 시도해, 위층이 뜨면 붙는다 — 실패 갈래가 재접속 필요 표시를 되돌리는지 본다
+    void TestUpperLate()
+    {
+        std::printf("-- 위층이 늦게 뜰 때\n");
+        Harness h;
+        Build(h, PORT_LATE, NO_HEARTBEAT_SEC, 1);
+        Begin(h);
+        std::this_thread::sleep_for(std::chrono::milliseconds(2500));   // 재시도 몇 번이 실패할 시간
+        Check(!h.IsUp() && h.registered == 0, "위층이 뜨기 전: 연결 안 됨");
+
+        // 포트만 여는 위층 — accept 를 안 해도 대기열에 들어가면 connect 는 성공한다
+        SOCKET listener = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(static_cast<uint16_t>(PORT_LATE));
+        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        const bool listening = ::bind(listener, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0 && ::listen(listener, 8) == 0;
+        Check(listening, "늦게 뜬 위층이 포트를 엶");
+
+        Check(WaitUntil([&] { return h.IsUp(); }), "위층이 뜨면 다시 시도해 붙음");
+        Check(h.registered == 1, "등록 함수가 한 번 불림");
+        Check(h.connector->ReconnectCount() == 0, "첫 연결이라 재접속으로 안 셈");
+        Shutdown(h);
+        Platform::CloseSocket(listener);
+    }
+
     void TestKeepAlive(int heartbeatSec, int holdSec, bool expectAlive)
     {
         std::printf("-- 하트비트 %d초 · %d초 유지 → %s\n", heartbeatSec, holdSec, expectAlive ? "끊기지 않음" : "끊김(대조군)");
@@ -311,6 +338,7 @@ int main(int argc, char** argv)
     const bool longRun = argc >= 2 && std::strcmp(argv[1], "long") == 0;
     TestFastPaths();
     TestUpperAbsent();
+    TestUpperLate();
     if (longRun)
     {
         TestKeepAlive(20, 70, true);                  // 플랜 값 — HeartbeatSec=20 · 코어 세션 시한 60초

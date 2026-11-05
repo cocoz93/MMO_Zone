@@ -43,16 +43,20 @@ void CLinkConnector::ConnectThread()
     {
         if (_wantConnect)
         {
+            // 끊김 이벤트를 받은 로직 스레드가 다시 세운다 — 그래서 ConnectTo 를 부르기 "전"에 내린다.
+            //   ConnectTo 가 돌아오기 전에 그 연결이 끊겨 로직 스레드가 처리를 끝낼 수 있다. 돌아온 뒤에 내리면
+            //   그 값을 덮어써 아래 wait 에서 영영 못 깬다(세우는 곳이 OnDisconnected 하나뿐이다).
+            _wantConnect = false;
             const int64_t session = _network.ConnectTo(_config.ip.c_str(), _config.port, static_cast<int>(SessionTag::LinkUp));
             if (session != 0)
             {
-                _wantConnect = false;   // 끊김 이벤트를 받은 로직 스레드가 다시 세운다
                 if (_everConnected)
                     _reconnects.fetch_add(1, std::memory_order_relaxed);
                 _everConnected = true;
                 SLOG_INFO("[Link] {} 연결 {}:{}", _config.peerName, _config.ip, _config.port);
                 continue;
             }
+            _wantConnect = true;   // 실패 — 세션이 없으니 끊김 이벤트도 안 온다. 아래에서 RetrySec 뒤 다시
         }
 
         // 연결이 있으면 끊길 때까지, 없으면 RetrySec 뒤 다시 — 어느 쪽이든 깨우는 쪽이 cv 로 알린다
