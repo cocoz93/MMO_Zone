@@ -281,7 +281,7 @@ inline const char* ChatCommandRejectName(ChatCommandReject r)
 //   토글 밖 — 저장 지표는 USE_DB_WORKER=0 이어도 0 으로 노출된다(입장 지표와 같은 이유).
 enum class SaveTrigger : uint8_t
 {
-    PERIOD,     // 60초 주기(판정 참인 전원)
+    PERIOD,     // 주기(INI [DB] SavePeriodSec — 판정 참인 전원)
     TICK_END,   // 틱 끝 요청(가방 · 레벨업 · 다시 필요) — 목록의 사람 중 판정 참
     LEAVE,      // 나갈 때 — 떠난 기록의 첫 묶음 · 그 기록을 다시 실은 묶음
     SHUTDOWN,   // 종료 — 전원 + 확정 안 된 떠난 기록

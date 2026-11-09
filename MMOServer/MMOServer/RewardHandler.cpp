@@ -43,7 +43,7 @@ void CRewardHandler::GrantMonsterExp(CPlayer* killer, int32_t reward)
             //   틱 끝 스탯 알림(CStatSync)이 보낸다 — 막대가 옛 최대치로 남지 않는다.
 
 #if USE_DB_WORKER
-            // 레벨업은 이 틱 끝에 저장한다 — 주기(60초) 전에 서버가 죽어도 오른 레벨이 되돌아가지 않게.
+            // 레벨업은 이 틱 끝에 저장한다 — 다음 주기 저장 전에 서버가 죽어도 오른 레벨이 되돌아가지 않게.
             //   한 행 통째(자리·맵·레벨·경험치·체력·마력)라 그 순간 값이 전부 남고, 같은 틱의 방 보상 칸도 같은 묶음에 실린다.
             if (_characterStore.IsRunning())
                 _characterStore.RequestSave(killer, SaveReason::LEVELUP);
