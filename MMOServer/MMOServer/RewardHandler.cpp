@@ -5,7 +5,6 @@
 #include "SelfNotifier.h"
 #include "CharacterStore.h"   // USE_DB_WORKER — 레벨업 틱 끝 저장 요청
 #include "ItemHandler.h"      // USE_INVENTORY — 바뀐 칸 내보내기 · 땅 아이템 묶음
-#include "PartyHandler.h"     // USE_PARTY — 방 다시 들어가기 잠금 넣기
 #include "StatSystem.h"
 #include "Zone.h"
 #include "Player.h"
@@ -59,7 +58,8 @@ void CRewardHandler::RewardRoom(CZone* zone, CMonster* monster)
 {
     const MapDef* map = _gameDataFiles.Maps().Find(zone->GetMapId());
     assert(map != nullptr && map->kind == MapKind::INSTANCE && "방 맵에서만 부른다 — OnDeath 의 IsRoomMap");
-    const uint64_t lockUntil = _frameCount + static_cast<uint64_t>(map != nullptr ? map->lockoutSec : 0) * FRAME_PER_SEC;
+    const int64_t nowMs = RoomLockoutBlob::NowMs();   // 잠금은 실제 시각이다 — 접속을 끊어도 흐르고 존 서버끼리 같은 값을 본다
+    const int64_t lockUntilMs = nowMs + static_cast<int64_t>(map != nullptr ? map->lockoutSec : 0) * 1000;
 
     // 받는 사람 = 지금 이 존(방)의 캐릭터 중 사람 — 쓰러진 사람도 존에 있다(부활이 옮겨 가기 전까지). 목록을 먼저 떠 둔다 —
     //   보상 중에 존 목록이 바뀌는 길은 없지만(레벨업 방송 · 가방 패킷은 존을 안 바꾼다) 도는 목록의 주인이 존이다
@@ -130,7 +130,13 @@ void CRewardHandler::RewardRoom(CZone* zone, CMonster* monster)
             zone->GetGroundItemManager().Drop(_itemHandler.MakeGroundItemContext(), _roomOverflow, p->_x, p->_y, p->_characterId, _frameCount);
 #endif
 
-        _partyHandler.LockRoomReentry(p->_characterId, zone->GetMapId(), lockUntil);   // 표 크기 게이지도 거기서(게임 서버 나누기 7 단계)
+        // 잠금은 캐릭터 데이터다 — 이 틱 끝 묶음에 보상과 같이 실린다. 서버가 죽어도 「보상은 받았는데 잠금은 없는」 상태가 안 남는다(world-server-plan.md 5.10)
+        LockRoom(p, zone->GetMapId(), lockUntilMs, nowMs);
+#if USE_DB_WORKER
+        p->_dbDirty = true;
+        if (_characterStore.IsRunning())
+            _characterStore.RequestSave(p, SaveReason::ROOM_LOCK);
+#endif
         _gameMonitor._room._rewards.Inc();
     }
 

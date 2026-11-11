@@ -11,6 +11,7 @@
 #include "CharacterComponents.h"   // 컴포넌트를 값으로 든다
 #include "SkillTable.h"  // USE_SKILL — MAX_SKILL_BOOK(저장 사본 칸 수). 헤더 안에서 스스로 토글을 본다
 #include "Inventory.h"   // USE_INVENTORY — 헤더 안에서 스스로 토글을 본다
+#include "RoomLockoutBlob.h"   // 보스방 잠금 목록의 칸 꼴
 
 // CPlayer — 사람이 조종하는 캐릭터.
 //   좌표·섹터·이동은 CActor 에, HP·표시는 CCharacter 에 있다.
@@ -107,6 +108,10 @@ public:
     // USE_DB_WORKER: 주인 열 둘 — 불러올 때 받은 값을 들고 있다가 저장 묶음마다 싣는다. DB 의 값과 다르면 저장이 거절된다(펜스 · CDBWorker::RunBundleOnce)
     int32_t  _ownerZone = 0;
     uint64_t _ownerSeq  = 0;
+
+    // 보스방 다시 들어가기 잠금 — 캐릭터 데이터다. 존 서버 메모리에 두면 다른 존 서버로 옮겨 피한다(world-server-plan.md 5.10).
+    //   넣기·판정은 Room.h, 저장·불러오기는 CCharacterStore. 칸은 많아야 RoomLockoutBlob::MAX_SLOTS
+    std::vector<RoomLockoutBlob::Lockout> _roomLockouts;
 
     // ── 레벨과 경험치 ──
     // 사람만 쌓는다. CCharacter 에 안 올리는 이유 — 몬스터가 레벨을 쓸 자리가 아직 없고,

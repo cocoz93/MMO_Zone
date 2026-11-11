@@ -242,6 +242,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/MonsterSkillTable.cpp
     ${SRV_DIR}/DB/DBWorker.cpp
     ${SRV_DIR}/CooldownBuffBlob.cpp
+    ${SRV_DIR}/RoomLockoutBlob.cpp
 )
 
 if(WIN32)
@@ -470,6 +471,11 @@ target_link_libraries(server_link_test PRIVATE ServerCommonLib)
 add_executable(enter_gate_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/EnterGateTest.cpp ${SRV_DIR}/EnterGate.cpp)
 target_include_directories(enter_gate_test PRIVATE ${SRV_DIR})
 target_link_libraries(enter_gate_test PRIVATE ServerCommonLib)
+
+# 보스방 잠금 열의 바이트 형식 — 게임 없이 그 파일만 같이 빌드한다
+add_executable(room_lockout_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/RoomLockoutTest.cpp ${SRV_DIR}/RoomLockoutBlob.cpp)
+target_include_directories(room_lockout_test PRIVATE ${SRV_DIR})
+target_link_libraries(room_lockout_test PRIVATE ServerCommonLib)
 
 # 계정 서버의 규칙 · 장부 · DB 문장 — 서버를 안 띄운다. 인자 <ini> <db> 를 주면 시험 DB 경쟁까지 본다
 add_executable(account_unit_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/AccountUnitTest.cpp ${ACCOUNT_LOGIC_SOURCES})

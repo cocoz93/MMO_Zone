@@ -319,7 +319,7 @@ private:
 
 #if USE_COMBAT && USE_MONSTER
     // 처치 보상 — 몬스터 경험치 · 드랍 굴림 · 방 보상(RewardHandler.h). 처치 알림(OnDeath)이 부른다.
-    //   ★ _selfNotifier · _characterStore · _itemHandler · _partyHandler · _statSystem · _gameMonitor · _gameDataFiles · _frameCount
+    //   ★ _selfNotifier · _characterStore · _itemHandler · _statSystem · _gameMonitor · _gameDataFiles · _frameCount
     //     보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
     CRewardHandler _rewardHandler{ _selfNotifier,
 #if USE_DB_WORKER
@@ -327,9 +327,6 @@ private:
 #endif
 #if USE_DROP
                                    _itemHandler,
-#endif
-#if USE_PARTY
-                                   _partyHandler,
 #endif
                                    _statSystem, _gameMonitor, _gameDataFiles, _frameCount };
 #endif

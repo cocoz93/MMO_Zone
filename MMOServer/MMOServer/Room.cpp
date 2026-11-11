@@ -2,31 +2,41 @@
 
 #if USE_PARTY
 
-#include "Player.h"   // _zoneId · 체력 컴포넌트(생사) · _characterId
+#include "Player.h"   // _zoneId · 체력 컴포넌트(생사) · _roomLockouts
 
-void CRoomLocks::Lock(CharacterId characterId, MapId mapId, uint64_t untilFrame)
-{
-    _untilFrame[Key{ characterId, mapId }] = untilFrame;
-}
+#include <algorithm>
 
-bool CRoomLocks::IsLocked(CharacterId characterId, MapId mapId, uint64_t frame) const
+void LockRoom(CPlayer* player, MapId mapId, int64_t untilMs, int64_t nowMs)
 {
-    auto it = _untilFrame.find(Key{ characterId, mapId });
-    return it != _untilFrame.end() && frame < it->second;
-}
-
-void CRoomLocks::Sweep(uint64_t frame)
-{
-    for (auto it = _untilFrame.begin(); it != _untilFrame.end(); )
+    std::vector<RoomLockoutBlob::Lockout>& book = player->_roomLockouts;
+    book.erase(std::remove_if(book.begin(), book.end(),
+                              [nowMs](const RoomLockoutBlob::Lockout& l) { return l.untilMs <= nowMs; }), book.end());
+    for (RoomLockoutBlob::Lockout& l : book)
     {
-        if (frame >= it->second)
-            it = _untilFrame.erase(it);
-        else
-            ++it;
+        if (l.mapId == ToInt(mapId))
+        {
+            l.untilMs = untilMs;
+            return;
+        }
     }
+    // 방 맵 수는 상한 안이다(CMapTable::Load). 맵 표에서 빠진 맵의 옛 잠금이 남아 꽉 찼다면 가장 먼저 끝나는 칸을 비운다
+    if (book.size() >= static_cast<size_t>(RoomLockoutBlob::MAX_SLOTS))
+        book.erase(std::min_element(book.begin(), book.end(),
+                                    [](const RoomLockoutBlob::Lockout& a, const RoomLockoutBlob::Lockout& b) { return a.untilMs < b.untilMs; }));
+    book.push_back(RoomLockoutBlob::Lockout{ ToInt(mapId), untilMs });
 }
 
-RoomEntryResult CheckRoomEntry(const CPlayer* me, const Party* party, const CRoomLocks& locks, MapId roomMapId, uint64_t frame)
+bool IsRoomLocked(const CPlayer* player, MapId mapId, int64_t nowMs)
+{
+    for (const RoomLockoutBlob::Lockout& l : player->_roomLockouts)
+    {
+        if (l.mapId == ToInt(mapId))
+            return nowMs < l.untilMs;
+    }
+    return false;
+}
+
+RoomEntryResult CheckRoomEntry(const CPlayer* me, const Party* party, MapId roomMapId, int64_t nowMs)
 {
     if (party == nullptr)
         return { RoomEntryReject::NOT_IN_PARTY, nullptr };
@@ -48,7 +58,7 @@ RoomEntryResult CheckRoomEntry(const CPlayer* me, const Party* party, const CRoo
     // 잠금 — 캐릭터마다(다시 접속해도 이어진다)
     for (const Party::Member& m : party->members)
     {
-        if (locks.IsLocked(m.player->_characterId, roomMapId, frame))
+        if (IsRoomLocked(m.player, roomMapId, nowMs))
             return { RoomEntryReject::LOCKED, m.player };
     }
     return { RoomEntryReject::NONE, nullptr };

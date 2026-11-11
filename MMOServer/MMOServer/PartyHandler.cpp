@@ -121,7 +121,7 @@ void CPartyHandler::EnterRoom(CPlayer* leader, CZone* oldZone, const PortalDef& 
     auto& rc = _gameMonitor._room;
 
     const Party* party = _partySystem.FindParty(leader);
-    RoomEntryResult result = CheckRoomEntry(leader, party, _roomLocks, portal.targetMapId, _frameCount);
+    RoomEntryResult result = CheckRoomEntry(leader, party, portal.targetMapId, RoomLockoutBlob::NowMs());
 
     CZone* room = nullptr;
     if (result.reject == RoomEntryReject::NONE)
@@ -178,24 +178,6 @@ void CPartyHandler::SendRoomReject(CPlayer* leader, const RoomEntryResult& resul
     case RoomEntryReject::COUNT:        break;
     }
     assert(false && "SendRoomReject 는 거절만 받는다");
-}
-
-// 방 다시 들어가기 잠금 넣기(PartyHandler.h 선언 주석) — 방 보상(RewardRoom)이 사람마다 부르던 Lock 과 그 뒤 게이지 한 줄을 여기 한 곳으로(게임 서버 나누기 7 단계)
-void CPartyHandler::LockRoomReentry(CharacterId characterId, MapId mapId, uint64_t untilFrame)
-{
-    _roomLocks.Lock(characterId, mapId, untilFrame);
-    _gameMonitor._room._locks.Store(static_cast<int64_t>(_roomLocks.Size()));
-}
-
-// 게임 루프 3-2c(파티 규칙의 틱 뒤)에 있던 몸 그대로(게임 서버 나누기 7 단계)
-void CPartyHandler::TickRoomLocks()
-{
-    // 방 다시 들어가기 잠금 — 풀린 것 빼기(초마다). 판정은 풀리는 틱을 직접 보므로 빼기가 늦어도 결과는 같다 — 표 크기만 묶는다
-    if (_frameCount % FRAME_PER_SEC == 0)
-    {
-        _roomLocks.Sweep(_frameCount);
-        _gameMonitor._room._locks.Store(static_cast<int64_t>(_roomLocks.Size()));
-    }
 }
 
 // 게임 루프 5(빈 채널 정리)의 콜백에 있던 몸 그대로(게임 서버 나누기 14 단계)

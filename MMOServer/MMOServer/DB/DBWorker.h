@@ -61,6 +61,7 @@ struct DBBytes
 //   기술 목록 상한·버프 표 상한을 늘려 형식이 커지면 CharacterStore.cpp 의 static_assert 가 여기를 올리라고 막는다. 열 자체는 VARBINARY(255).
 constexpr size_t DB_SKILL_COOLDOWNS_BYTES = 242;
 constexpr size_t DB_BUFFS_BYTES           = 162;
+constexpr size_t DB_ROOM_LOCKOUTS_BYTES   = 194;   // RoomLockoutBlob::MAX_BYTES 와 같다(CharacterStore.cpp static_assert)
 
 // 캐릭터 행 값 = 값 스냅샷 (포인터 없음 → 플레이어가 사라져도 안전). 저장 묶음의 머리(DBSaveBundle::row)이자 행 문장의 버퍼 꼴.
 //   ※ level·exp 는 USE_EXP 로, hp·mp 는 USE_COMBAT·USE_SKILL 로 안 가른다 — 열은 테이블에 늘 있고, 숫자 넷을 싣는 값이
@@ -81,6 +82,7 @@ struct DBCharRow
     DBBytes<DB_SKILL_COOLDOWNS_BYTES> skillCooldowns;   // 돌고 있는 스킬 쿨타임 묶음 — 빈 값 = 없음(스킬을 끈 빌드도 빈 값)
     DBBytes<DB_BUFFS_BYTES>           buffs;            // 걸려 있는 버프 묶음 — 같은 규칙(전투를 끈 빌드도 빈 값)
     int32_t job;     // 직업(JobTable.csv) — 0 = 아직 안 고름
+    DBBytes<DB_ROOM_LOCKOUTS_BYTES> roomLockouts;   // 보스방 다시 들어가기 잠금 묶음 — 빈 값 = 없음(형식은 RoomLockoutBlob.h)
     int64_t money;   // 가진 돈(전) — 열은 가방을 켠 빌드만 쓴다(DBWorker.cpp kCharColumns). 칸은 늘 있어 열 표의 offsetof 가 빌드마다 같다
 };
 
@@ -263,6 +265,7 @@ struct DBResult
     int32_t      mp;
     DBBytes<DB_SKILL_COOLDOWNS_BYTES> skillCooldowns;   // 바이트 그대로 — 검사·풀기는 게임 스레드(SpawnPlayer). len > 버퍼 = 잘림(불량)
     DBBytes<DB_BUFFS_BYTES>           buffs;
+    DBBytes<DB_ROOM_LOCKOUTS_BYTES>   roomLockouts;   // 바이트 그대로 — 풀기는 게임 스레드(RestoreRoomLockouts)
     int32_t      job;         // DB 값 그대로 — 표에 있는 번호인지는 게임 스레드(OnCharacterLoaded)가 본다
     // ↓ FOUND·NOT_FOUND 둘 다 유효 — 이 값을 들고 있다가 저장 묶음마다 싣는다(펜스). 행이 없으면 (내 존 서버 번호, 0)
     int32_t      ownerZone;

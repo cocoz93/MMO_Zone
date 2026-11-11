@@ -38,9 +38,6 @@ class CCharacterStore;
 #if USE_DROP
 class CItemHandler;
 #endif
-#if USE_PARTY
-class CPartyHandler;
-#endif
 
 class CRewardHandler
 {
@@ -54,9 +51,6 @@ public:
 #if USE_DROP
                    CItemHandler& itemHandler,
 #endif
-#if USE_PARTY
-                   CPartyHandler& partyHandler,
-#endif
                    CStatSystem& statSystem, CGameMonitor& gameMonitor, const CGameDataFiles& gameDataFiles, const uint64_t& frameCount)
         : _selfNotifier(selfNotifier)
 #if USE_DB_WORKER
@@ -64,9 +58,6 @@ public:
 #endif
 #if USE_DROP
         , _itemHandler(itemHandler)
-#endif
-#if USE_PARTY
-        , _partyHandler(partyHandler)
 #endif
         , _statSystem(statSystem), _gameMonitor(gameMonitor), _gameDataFiles(gameDataFiles), _frameCount(frameCount) {}
 
@@ -96,9 +87,6 @@ private:
 #endif
 #if USE_DROP
     CItemHandler&         _itemHandler;        // 바뀐 칸 내보내기 · 땅 아이템 묶음
-#endif
-#if USE_PARTY
-    CPartyHandler&        _partyHandler;       // 방 다시 들어가기 잠금 넣기
 #endif
     CStatSystem&          _statSystem;         // 경험치·레벨 규칙
     CGameMonitor&         _gameMonitor;        // 경험치 · 드랍 · 가방 · 방 지표

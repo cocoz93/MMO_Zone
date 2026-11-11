@@ -467,6 +467,7 @@ static constexpr DbColumn kCharColumns[] = {
     DB_COL(DBCharRow, DBResult, skill_cooldowns, skillCooldowns, false),   // 바이트 열 — 형식은 CooldownBuffBlob.h
     DB_COL(DBCharRow, DBResult, buffs,           buffs,          false),
     DB_COL(DBCharRow, DBResult, job,             job,            false),   // 토글 없음 — 직업 칸이 늘 있다
+    DB_COL(DBCharRow, DBResult, room_lockouts,   roomLockouts,   false),   // 바이트 열 — 형식은 RoomLockoutBlob.h. 토글 없음
 #if USE_INVENTORY
     // 가진 돈 — 가방 토글 안(아래 가방 열 표와 같은 토글). 가방을 끈 빌드는 이 열을 쓰지도 읽지도 않는다 — 0 으로 덮지 않게
     //   (체력·마력의 「모름」 값 같은 장치가 돈엔 없다 · npc-shop-plan.md 「DB」)
@@ -476,7 +477,7 @@ static constexpr DbColumn kCharColumns[] = {
 static constexpr int kCharColCount = static_cast<int>(sizeof(kCharColumns) / sizeof(kCharColumns[0]));
 // 열을 늘리면 여기서 멈춘다 — 저장소가 안 바뀐 행을 빼므로(save-skip-row-plan.md), 새 열은 그 열만 바뀐 변경을 놓치지 않게
 //   행 판정(CCharacterStore::CharRowChanged)·사본(RecordSaved · Player.h DbSavedValues)에도 넣고 이 수를 고칠 것.
-static_assert(kCharColCount == 10 + USE_INVENTORY,
+static_assert(kCharColCount == 11 + USE_INVENTORY,
               "characters 열이 바뀌었다 — CCharacterStore::CharRowChanged 의 판정·RecordSaved 사본에 새 열을 넣었는지 보고 이 수를 고칠 것");
 
 #if USE_INVENTORY
@@ -497,7 +498,7 @@ static constexpr DbColumn kRosterColumns[] = {
 static constexpr int kRosterColCount = static_cast<int>(sizeof(kRosterColumns) / sizeof(kRosterColumns[0]));
 #undef DB_COL
 
-static constexpr int kMaxCols = 11;  // 바인딩 배열 크기 — 표가 이보다 길어지면 아래 static_assert 가 막는다(10-21 돈 열로 9 → 10 · 11-02 직업 열로 10 → 11)
+static constexpr int kMaxCols = 12;  // 바인딩 배열 크기 — 표가 이보다 길어지면 아래 static_assert 가 막는다(10-21 돈 열로 9 → 10 · 11-02 직업 열로 10 → 11)
 static_assert(kCharColCount <= kMaxCols, "kCharColumns 가 kMaxCols 를 넘었다");
 #if USE_INVENTORY
 static_assert(kInvColCount <= kMaxCols, "kInvColumns 가 kMaxCols 를 넘었다");
@@ -1057,6 +1058,7 @@ void CDBWorker::ExecLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out
     out.mp        = DB_HP_MP_UNSAVED;
     out.skillCooldowns.len = 0;   // 새 캐릭터·못 읽음 = 돌고 있는 것 없음
     out.buffs.len          = 0;
+    out.roomLockouts.len   = 0;
     out.job                = 0;   // 새 캐릭터·못 읽음 = 아직 안 고름
     out.ownerZone          = 0;   // RunLoadBody 가 채운다(실패면 code 가 FAILED 라 안 쓰인다)
     out.ownerSeq           = 0;

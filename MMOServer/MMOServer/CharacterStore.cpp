@@ -77,6 +77,8 @@ static_assert(MAX_SKILL_ID <= 0xFFFF, "스킬 번호를 2바이트에 싣는다(
 #if USE_COMBAT
 static_assert(CooldownBuffBlob::BuffsMaxBytes(MAX_BUFF_ROWS) <= DB_BUFFS_BYTES, "버프 표 상한을 늘렸으면 DBWorker.h 의 DB_BUFFS_BYTES 를 올릴 것");
 static_assert(DB_BUFFS_BYTES <= 255, "buffs 열은 VARBINARY(255) 다(schema.sql)");
+static_assert(RoomLockoutBlob::MAX_BYTES <= DB_ROOM_LOCKOUTS_BYTES, "잠금 칸 상한을 늘렸으면 DBWorker.h 의 버퍼도 늘릴 것");
+static_assert(DB_ROOM_LOCKOUTS_BYTES <= 255, "room_lockouts 열은 VARBINARY(255) 다(schema.sql)");
 static_assert(MAX_BUFF_ROWS <= 255, "묶음의 개수 칸이 1바이트다(CooldownBuffBlob)");
 static_assert(MAX_BUFF_ID <= 0xFFFF, "버프 번호를 2바이트에 싣는다(CooldownBuffBlob 판 2)");
 #endif
@@ -98,6 +100,7 @@ bool CCharacterStore::CharRowChanged(const CPlayer* player) const
     //   x · y · map_id                   = MOVING(위치가 계속 변하는 중 → 저장 후 dirty가 리셋돼도 매 주기 재저장) · _dbDirty(정지/접속/존변경/클램프 — 일회성, 저장 후 리셋)
     //   level · exp · hp · mp · money    = 값 비교 — 마지막으로 실은 값(_dbSaved)과 다름. 바뀌는 자리마다 켜지 않고 여기서 본다(Player.h)
     //   skill_cooldowns                  = 틱 비교(CooldownsChanged — 바이트는 저장마다 흔들려 못 견준다)
+    //   room_lockouts                    = _dbDirty — 잠금을 넣는 자리(방 보상)가 켠다. 끝나서 빠지는 것은 저장 이유가 아니다
     //   buffs                            = 안 본다 — 버프만 바뀌었다고 저장하지 않는다(11-02 사용자 결정 — 서버가 죽으면 날아가도 되는 값이다).
     //                                      행이 실릴 때 그때까지 걸려 있으면 같이 실리고, 나갈 때·종료는 이 판정 없이 쓴다
     //   ★ 열을 늘리면 여기에도 — 안 넣으면 그 열만 바뀐 변경은 행이 안 실린다(열 수 static_assert 가 DBWorker.cpp kCharColumns 옆에서 부른다)
@@ -136,6 +139,8 @@ DBCharRow CCharacterStore::MakeCharRow(const CPlayer* player) const
     row.mp        = DB_HP_MP_UNSAVED;
 #endif
     PackCooldownsAndBuffs(player, row);   // 쿨타임·버프 — 토글을 끈 빌드는 빈 값
+    row.roomLockouts.len = static_cast<unsigned long>(RoomLockoutBlob::PackLockouts(
+        player->_roomLockouts.data(), static_cast<int>(player->_roomLockouts.size()), row.roomLockouts.data, sizeof(row.roomLockouts.data)));
 #if USE_INVENTORY
     row.money     = player->_inventory.Money();
 #else
@@ -239,6 +244,42 @@ void CCharacterStore::RecordSavedCooldowns(CPlayer* player)
 //   어느 검사에 걸려도 입장은 막지 않는다 — 그 칸이 풀릴 뿐이다. 세는 곳은 여기 한 곳(GameMonitor.h EnterCounters).
 //   불량·건너뜀이 있었으면 다음 주기에 한 번 다시 써 행을 정리한다(_dbDirty) — 안 쓰면 칸이 바뀌기 전까지 입장마다 같은 불량을 다시 만난다
 //   (형식 불량은 경고 로그 · 건너뜀은 지표만).
+void CCharacterStore::RestoreRoomLockouts(CPlayer* player, const DBResult* loaded)
+{
+    player->_roomLockouts.clear();
+    if (loaded == nullptr)
+        return;   // 새 캐릭터 — 잠금 없음
+
+    RoomLockoutBlob::Lockout items[RoomLockoutBlob::MAX_SLOTS];
+    int n = 0;
+    const unsigned long len = loaded->roomLockouts.len;
+    const RoomLockoutBlob::Unpack r = (len > DB_ROOM_LOCKOUTS_BYTES)
+        ? RoomLockoutBlob::Unpack::BAD
+        : RoomLockoutBlob::UnpackLockouts(loaded->roomLockouts.data, len, items, RoomLockoutBlob::MAX_SLOTS, n);
+    static_assert(static_cast<int>(RoomLockoutBlob::Unpack::COUNT) == 3, "Unpack 을 늘렸으면 아래 switch 에도 갈래를 넣을 것");
+    switch (r)
+    {
+    case RoomLockoutBlob::Unpack::EMPTY:
+        return;
+    case RoomLockoutBlob::Unpack::OK:
+        break;
+    case RoomLockoutBlob::Unpack::BAD:
+    case RoomLockoutBlob::Unpack::COUNT:
+        _gameMonitor._enter._timerBad.Inc();
+        player->_dbDirty = true;   // 다음 저장이 빈 값으로 고쳐 쓴다
+        SLOG_WARN("[DB] room_lockouts unreadable -> dropped (character={}, len={})", loaded->characterId, len);
+        return;
+    }
+
+    // 지난 칸은 뺀다 — 접속을 끊은 동안 흐른 시간도 여기서 반영된다
+    const int64_t nowMs = RoomLockoutBlob::NowMs();
+    for (int i = 0; i < n; ++i)
+    {
+        if (items[i].untilMs > nowMs)
+            player->_roomLockouts.push_back(items[i]);
+    }
+}
+
 void CCharacterStore::RestoreCooldownsAndBuffs(CPlayer* player, const DBResult* cooldownsAndBuffs, bool dropBuffs)
 {
 #if USE_SKILL || USE_COMBAT

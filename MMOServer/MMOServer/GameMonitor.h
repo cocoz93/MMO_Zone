@@ -334,18 +334,20 @@ enum class SaveReason : uint8_t
     BAG,       // 가방이 바뀌었다(FlushInventory)
     LEVELUP,   // 레벨이 올랐다(GrantMonsterExp)
     JOB,       // 직업을 골랐다(CJobHandler)
+    ROOM_LOCK, // 보스방 보상과 잠금 — 같은 틱 끝 묶음에 실려 「보상은 받았는데 잠금은 없는」 상태가 안 남는다
     AGAIN,     // 비행 중에 계기가 와서 다시 필요가 섰다 — 성공 회신 때
     COUNT
 };
 
 inline const char* SaveReasonName(SaveReason r)
 {
-    static_assert(static_cast<int>(SaveReason::COUNT) == 4, "SaveReason 을 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(SaveReason::COUNT) == 5, "SaveReason 을 늘렸으면 이름도 붙일 것");
     switch (r)
     {
     case SaveReason::BAG:     return "bag";
     case SaveReason::LEVELUP: return "levelup";
     case SaveReason::JOB:     return "job";
+    case SaveReason::ROOM_LOCK: return "room_lock";
     case SaveReason::AGAIN:   return "again";
     case SaveReason::COUNT:   break;
     }
@@ -984,7 +986,6 @@ public:
         Counter _rewards;                                                 // 방 보상을 받은 사람 수 — 보스 한 마리에 방 안 사람 수만큼(RewardRoom)
         Counter _rewardItemsBag;                                          // 방 보상으로 가방에 바로 들어간 아이템 개수(돈은 빼고 — 금액은 _inventory._moneyIn)
         Counter _rewardItemsGround;                                       // 가방이 차서 그 사람 발밑 땅으로 간 개수(땅 계수 _drop._dropped 에도 들어간다 · 돈은 빼고)
-        Counter _locks;                                                   // [게이지] 다시 들어가기 잠금 표 크기(넣을 때 · 초마다 훑은 뒤)
         Counter _cleared;                                                 // 클리어된 방 = 방에서 죽은 보스 수(OnDeath 의 방 분기 — 몬스터 표 boss)
         Counter _minionsCleared;                                          // 클리어로 사라진 몬스터 수(OnMonsterVanish — 방에서 깐 수 = 잡힌 수 + 이것 + 방이 닫힐 때 남은 수)
     } _room;

@@ -267,9 +267,6 @@ void CGameServer::GameLoopThread()
         // 3-2c) 파티 — 요청 시간 지남 · 파티원 상태 비교(약 0.5초마다). 파티·요청이 없으면 바로 끝난다(부하 시험엔 파티가 없다).
         //   존마다 돌지 않는다 — 파티는 존을 넘는다(목록이 게임 서버에 하나, PartySystem.h [왜 따로인가]).
         _partySystem.Tick(_frameCount);
-
-        // 방 다시 들어가기 잠금 — 초마다 풀린 것 빼기는 CPartyHandler::TickRoomLocks(게임 서버 나누기 7 단계)
-        _partyHandler.TickRoomLocks();
 #endif
 
 #if USE_TRADE

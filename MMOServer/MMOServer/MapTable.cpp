@@ -1,4 +1,7 @@
 ﻿#include "MapTable.h"
+#include "RoomLockoutBlob.h"   // 방 맵 수 상한
+
+#include <algorithm>
 
 #include <Common/ErrorLog.h>
 
@@ -182,6 +185,14 @@ bool CMapTable::Load(const std::string& path)
     {
         SLOG_ERROR("[MapTable] {}줄: 첫 줄(맵 {})은 마을(town)이어야 합니다 — 새 캐릭터가 들어가고 죽으면 돌아오는 맵이다",
                    _rows.front().fileLine, _rows.front().mapId);
+        return false;
+    }
+
+    // ⑺ 방 맵 수 — 캐릭터마다 맵별로 잠금 칸을 든다. 칸 상한을 넘으면 저장 열에 안 들어간다(RoomLockoutBlob.h)
+    const auto roomMaps = std::count_if(_rows.begin(), _rows.end(), [](const MapDef& d) { return d.kind == MapKind::INSTANCE; });
+    if (roomMaps > RoomLockoutBlob::MAX_SLOTS)
+    {
+        SLOG_ERROR("[MapTable] 방 맵(instance)이 {}개입니다 — 많아야 {}개입니다", roomMaps, RoomLockoutBlob::MAX_SLOTS);
         return false;
     }
 

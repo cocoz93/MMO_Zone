@@ -107,6 +107,7 @@ public:
     //   cooldownsAndBuffs = 불러온 행(찾음 분기에서만 — nullptr 이면 되살릴 것 없음) · dropBuffs = 죽은 채 저장된 행이라 버프는 버린다
     //   (전에는 입장 배치 구조체(지금 CEntryHandler::EnterPlacement)를 통째로 받았다 — 저장소가 입장 구조체를 모르게 쓰는 두 칸만 받는다, 4 단계).
     void RestoreCooldownsAndBuffs(CPlayer* player, const DBResult* cooldownsAndBuffs, bool dropBuffs);
+    void RestoreRoomLockouts(CPlayer* player, const DBResult* loaded);   // 입장 — 보스방 잠금을 풀어 캐릭터에 담는다(지난 칸은 뺀다)
 
     // DB 왕복 — 캐릭터 불러오기 (요청은 워커 큐로, 결과는 회신 큐로 돌아와 다음 틱에 꺼낸다)
     bool RequestCharacterLoad(SessionId sessionId, CharacterId characterId, bool readRoster);   // 조회 1건 투입 + 계수. false = 거절됨(결과가 안 온다)
