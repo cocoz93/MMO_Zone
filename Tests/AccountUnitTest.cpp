@@ -73,6 +73,22 @@ namespace
         for (int i = 0; i < TOKEN_CHECK_RESULT_COUNT; ++i)
             tokens.insert(CAccountRules::TokenResultName(static_cast<TokenCheckResult>(i)));
         Check(tokens.size() == 4 && tokens.count("unknown") == 0, "토큰 결과 4갈래 이름이 전부 다름");
+
+        // 계정 우편 지표는 종류 × 결과 48칸이다 — 이름이 겹치면 두 칸이 한 줄로 합쳐져 수가 틀린다
+        std::set<std::string> mailOps;
+        for (int i = 0; i < ACC_MAIL_OP_COUNT; ++i)
+            mailOps.insert(CAccountRules::MailOpName(static_cast<AccMailOp>(i)));
+        Check(mailOps.size() == 8 && mailOps.count("unknown") == 0, "계정 우편 요청 8종류 이름이 전부 다름");
+
+        std::set<std::string> mailResults;
+        for (int i = 0; i < LINK_MAIL_RESULT_COUNT; ++i)
+            mailResults.insert(CAccountRules::MailResultName(static_cast<LinkMailResult>(i)));
+        Check(mailResults.size() == 6 && mailResults.count("unknown") == 0, "계정 우편 결과 6갈래 이름이 전부 다름");
+
+        std::set<std::string> dbOps;
+        for (int i = 0; i < CAccountDb::OP_COUNT; ++i)
+            dbOps.insert(CAccountDb::OpName(static_cast<CAccountDb::Op>(i)));
+        Check(dbOps.size() == 10 && dbOps.count("unknown") == 0, "DB 문장 10개(로그인 + 우편 아홉) 이름이 전부 다름");
     }
 
     void TestLedgerConsume()

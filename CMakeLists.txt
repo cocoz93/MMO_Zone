@@ -355,6 +355,7 @@ set(ACCOUNT_SOURCES
     ${ACCOUNT_DIR}/AccountServerConfig.cpp
     ${ACCOUNT_DIR}/AccountLoginFlow.cpp
     ${ACCOUNT_DIR}/TokenCheckFlow.cpp
+    ${ACCOUNT_DIR}/AccountMailFlow.cpp
     ${ACCOUNT_DIR}/AccountMetrics.cpp
 )
 

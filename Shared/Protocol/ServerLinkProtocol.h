@@ -138,6 +138,205 @@ struct LINK_ZONE_CHAR_LEAVE
     int64_t   characterId;
 };
 
+// ── 계정 우편 (존 서버 → 월드 서버 → 계정 서버 · mail-plan.md 6절 · 9절 「서버 간」) ──
+//   월드 서버는 요청 번호만 바꿔 넘긴다. 계정 서버는 첨부 바이트의 뜻을 모른다 — 존 서버가 만든 것(MailAttach)을 그대로 담아 둔다.
+//   글자 칸은 char16_t 이고 끝나면 0(TextUtf.h). 칸 크기는 존 서버의 MAIL_TITLE_MAX · MAIL_BODY_MAX 와 같아야 한다(존 서버가 static_assert 로 맞춘다).
+//   3020~3038 은 월드 서버 플랜이 쓴다 — 11-10 에 더한 셋(풀기 · 지우기)은 그 뒤 3039 부터다
+inline constexpr int LINK_MAIL_TITLE_CHARS  = 20;
+inline constexpr int LINK_MAIL_BODY_CHARS   = 200;
+inline constexpr int LINK_MAIL_ATTACH_BYTES = 66;   // 판 번호 1 + 칸 수 1 + (item_id, count) 8바이트 × 8칸 — MailAttach.h 의 최대
+inline constexpr int LINK_ACCMAIL_LIST_ROWS = 10;   // 목록 한 장의 줄 수 — 더 있으면 존 서버가 beforeMailId 로 다음 장을 묻는다(9절 「여러 장 답을 안 쓰고 장마다 요청한다」)
+
+enum class LinkMailResult : uint8_t
+{
+    OK = 0,
+    GONE = 1,            // 없음 · 받음 · 지움 · 기한 지남(「받는 중」은 기한과 무관하게 있다)
+    BUSY = 2,            // 계정 서버 DB 큐가 찼다
+    DB_ERROR = 3,
+    NO_ACCOUNT = 4,      // 한 계정 지급의 대상 계정이 없다
+    CANNOT_DELETE = 5,   // 첨부 · 돈이 남았거나 받는 중이거나 이미 없다
+};
+inline constexpr int LINK_MAIL_RESULT_COUNT = 6;
+
+// account_mail.state 와 같은 값이다
+enum class AccMailState : uint8_t
+{
+    NOT_TAKEN = 0,
+    CLAIMING = 1,   // claimCharacterId 가 받는 중 — 그 캐릭터만 끝낸다(6절 「받는 중 + C 표시가 필요한 까닭」)
+    TAKEN = 2,
+    ERASED = 3,
+};
+
+// 붉은 수와 「이 캐릭터가 받는 중인 행」 하나(입장 때 다시 처리 · 6절)
+struct LINK_ACCMAIL_COUNT_REQ
+{
+    static constexpr uint16_t TYPE = 3009;
+    MsgHeader header;
+    uint64_t  requestId;
+    int64_t   accountId;
+    int64_t   characterId;   // 「받는 중」 행은 이 캐릭터 것만 돌려준다
+};
+
+struct LINK_ACCMAIL_COUNT_ACK
+{
+    static constexpr uint16_t TYPE = 3010;
+    MsgHeader header;
+    uint64_t  requestId;
+    uint8_t   result;        // LinkMailResult
+    uint16_t  count;         // 안 받았고 (안 읽었거나 첨부 · 돈이 남은) 기한 안의 우편 수 — 65535 에서 멈춘다
+    int64_t   claimMailId;   // 이 캐릭터가 받는 중인 가장 작은 번호 · 0 = 없음
+};
+
+struct LINK_ACCMAIL_LIST_REQ
+{
+    static constexpr uint16_t TYPE = 3011;
+    MsgHeader header;
+    uint64_t  requestId;
+    int64_t   accountId;
+    int64_t   beforeMailId;   // 0 = 처음부터 · 아니면 이 번호보다 작은 것부터(큰 번호 = 새 우편이 먼저)
+};
+
+// 목록 한 줄 — 본문 없음 · 보낸 사람은 늘 운영자(웹이 「운영자」로 그린다)
+struct LinkAccMailLine
+{
+    int64_t  mailId;
+    int64_t  money;
+    char16_t title[LINK_MAIL_TITLE_CHARS];
+    uint32_t remainSec;          // 기한까지 남은 초 · 지났으면 0(「받는 중」 줄은 기한이 지나도 보인다)
+    uint8_t  state;              // AccMailState — 목록에는 NOT_TAKEN · CLAIMING 만 나온다
+    uint8_t  read;               // 1 = 읽은 적 있음(read_at)
+    int64_t  claimCharacterId;   // CLAIMING 일 때 받는 중인 캐릭터 · 아니면 0
+    uint8_t  attachLen;          // 0 = 첨부 없음
+    uint8_t  attach[LINK_MAIL_ATTACH_BYTES];
+};
+
+struct LINK_ACCMAIL_LIST_ACK
+{
+    static constexpr uint16_t TYPE = 3012;
+    MsgHeader header;
+    uint64_t  requestId;
+    uint8_t   result;   // LinkMailResult
+    uint8_t   more;     // 1 = 이 장 뒤에 더 있다
+    uint8_t   count;    // lines 중 쓰는 줄 수(0 ~ LINK_ACCMAIL_LIST_ROWS)
+    LinkAccMailLine lines[LINK_ACCMAIL_LIST_ROWS];
+};
+
+struct LINK_ACCMAIL_READ_REQ
+{
+    static constexpr uint16_t TYPE = 3013;
+    MsgHeader header;
+    uint64_t  requestId;
+    int64_t   accountId;
+    int64_t   mailId;
+};
+
+// 한 통 전부 — 읽기(3014)와 받는 중 표시(3016)의 답이 같은 꼴이다
+struct LinkAccMailFull
+{
+    uint8_t  state;              // AccMailState
+    int64_t  mailId;
+    int64_t  claimCharacterId;   // CLAIMING 이면 받는 중인 캐릭터 — 받는 중 표시의 답에서는 「적혀 있는 캐릭터」(내가 아닐 수 있다)
+    int64_t  money;
+    uint32_t remainSec;
+    char16_t title[LINK_MAIL_TITLE_CHARS];
+    char16_t body[LINK_MAIL_BODY_CHARS];
+    uint8_t  attachLen;
+    uint8_t  attach[LINK_MAIL_ATTACH_BYTES];
+};
+
+// 읽기 — 계정 서버가 read_at 을 처음 한 번만 적고 본문을 돌려준다. 받기 판정도 이 답으로 한다(6절 받기 1번)
+struct LINK_ACCMAIL_READ_ACK
+{
+    static constexpr uint16_t TYPE = 3014;
+    MsgHeader header;
+    uint64_t  requestId;
+    uint8_t   result;   // LinkMailResult — OK 가 아니면 mail 은 0
+    LinkAccMailFull mail;
+};
+
+// 받는 중 표시 — 「안 받음」이면 이 캐릭터로 표시한다. 이미 받는 중이면 표시를 안 바꾸고 적혀 있는 캐릭터와 내용을 돌려준다(6절 받기 4번)
+struct LINK_ACCMAIL_CLAIM_REQ
+{
+    static constexpr uint16_t TYPE = 3015;
+    MsgHeader header;
+    uint64_t  requestId;
+    int64_t   accountId;
+    int64_t   mailId;
+    int64_t   characterId;
+};
+
+struct LINK_ACCMAIL_CLAIM_ACK
+{
+    static constexpr uint16_t TYPE = 3016;
+    MsgHeader header;
+    uint64_t  requestId;
+    uint8_t   result;   // LinkMailResult — OK = 지금 받는 중(mail.claimCharacterId 가 누구인지는 존 서버가 본다) · GONE = 그 밖
+    LinkAccMailFull mail;
+};
+
+// 받음 — 존 서버의 저장 묶음이 확정된 뒤. 답이 없다(안 닿으면 입장 때 다시 처리가 다시 보낸다)
+struct LINK_ACCMAIL_DONE
+{
+    static constexpr uint16_t TYPE = 3017;
+    MsgHeader header;
+    int64_t   accountId;
+    int64_t   mailId;
+    int64_t   characterId;   // 받는 중으로 적힌 캐릭터만 끝낸다
+};
+
+// 운영자 지급 — targetAccount 0 = 전 계정(batchId 로 두 번 안 들어간다) · 아니면 그 계정 하나(batchId 0 = 없음)
+struct LINK_ACCMAIL_SEND_REQ
+{
+    static constexpr uint16_t TYPE = 3018;
+    MsgHeader header;
+    uint64_t  requestId;
+    int64_t   targetAccount;
+    int64_t   batchId;
+    int64_t   sentBy;   // 보낸 운영자의 캐릭터 번호
+    int64_t   money;
+    char16_t  title[LINK_MAIL_TITLE_CHARS];
+    char16_t  body[LINK_MAIL_BODY_CHARS];
+    uint8_t   attachLen;
+    uint8_t   attach[LINK_MAIL_ATTACH_BYTES];
+};
+
+struct LINK_ACCMAIL_SEND_ACK
+{
+    static constexpr uint16_t TYPE = 3019;
+    MsgHeader header;
+    uint64_t  requestId;
+    uint8_t   result;   // LinkMailResult
+    int64_t   rows;     // 넣은 행 수 — 같은 batchId 를 다시 보내면 0
+};
+
+// 받는 중 풀기 — 존 서버의 다시 판정이 거절했을 때(가방이 모자람 등). 답이 없다(안 닿으면 입장 때 다시 처리가 다시 판정한다)
+struct LINK_ACCMAIL_UNCLAIM
+{
+    static constexpr uint16_t TYPE = 3039;
+    MsgHeader header;
+    int64_t   accountId;
+    int64_t   mailId;
+    int64_t   characterId;   // 받는 중으로 적힌 캐릭터만 푼다
+};
+
+// 지우기 — 첨부도 돈도 없고 안 받은 우편만(6절 「지우기 — 계정 우편」)
+struct LINK_ACCMAIL_ERASE_REQ
+{
+    static constexpr uint16_t TYPE = 3040;
+    MsgHeader header;
+    uint64_t  requestId;
+    int64_t   accountId;
+    int64_t   mailId;
+};
+
+struct LINK_ACCMAIL_ERASE_ACK
+{
+    static constexpr uint16_t TYPE = 3041;
+    MsgHeader header;
+    uint64_t  requestId;
+    uint8_t   result;   // LinkMailResult
+};
+
 // ── 월드 서버 등록 (월드 서버 → 계정 서버) ──
 //   계정 서버의 서버 간 포트에는 캐릭터 서버도 붙는다. 이 패킷을 보낸 연결이 월드 서버다
 struct LINK_WORLD_REGISTER
@@ -388,6 +587,24 @@ static_assert(sizeof(LINK_ZONE_REGISTER) == 4 + 4 + 4 + 64);
 static_assert(sizeof(LINK_ZONE_ONLINE_LIST) == 4 + 2);
 static_assert(sizeof(LINK_ENTER_NOTICE_REQ) == 4 + 8 + 8 + 8 + 64 + 4);
 static_assert(sizeof(LINK_ENTER_NOTICE_ACK) == 4 + 8 + 1 + 4);
+// 계정 우편 — 크기는 mail-plan.md 9절 「서버 간」 표와 같다
+static_assert(sizeof(LINK_ACCMAIL_COUNT_REQ) == 28);
+static_assert(sizeof(LINK_ACCMAIL_COUNT_ACK) == 23);
+static_assert(sizeof(LINK_ACCMAIL_LIST_REQ) == 28);
+static_assert(sizeof(LinkAccMailLine) == 137);
+static_assert(sizeof(LINK_ACCMAIL_LIST_ACK) == 1385);
+static_assert(sizeof(LINK_ACCMAIL_READ_REQ) == 28);
+static_assert(sizeof(LinkAccMailFull) == 1 + 8 + 8 + 8 + 4 + 40 + 400 + 1 + 66);
+static_assert(sizeof(LINK_ACCMAIL_READ_ACK) == 549);
+static_assert(sizeof(LINK_ACCMAIL_CLAIM_REQ) == 36);
+static_assert(sizeof(LINK_ACCMAIL_CLAIM_ACK) == 549);
+static_assert(sizeof(LINK_ACCMAIL_DONE) == 28);
+static_assert(sizeof(LINK_ACCMAIL_SEND_REQ) == 551);
+static_assert(sizeof(LINK_ACCMAIL_SEND_ACK) == 21);
+static_assert(sizeof(LINK_ACCMAIL_UNCLAIM) == 28);
+static_assert(sizeof(LINK_ACCMAIL_ERASE_REQ) == 28);
+static_assert(sizeof(LINK_ACCMAIL_ERASE_ACK) == 13);
+static_assert(sizeof(LINK_ACCMAIL_LIST_ACK) <= 1458, "코어 패킷 상한(IOCPServer.h)");
 static_assert(sizeof(LINK_WORLD_REGISTER) == 4 + 4);
 static_assert(sizeof(LINK_ZONE_KICK_ACCOUNT) == 4 + 8);
 static_assert(sizeof(LinkPartyPerson) == 8 + 1 + 1 + 4 + 12);

@@ -3,7 +3,7 @@
 // CAccountServer — 계정 서버: 조립과 수명만 맡는다
 //
 //   코어 · 부품을 값으로 들고 처리표를 등록한다. 판정은 CAccountRules, 토큰은 CAuthTokenLedger,
-//   SQL 은 CAccountDb, 흐름은 CAccountLoginFlow · CTokenCheckFlow 다.
+//   SQL 은 CAccountDb, 흐름은 CAccountLoginFlow · CTokenCheckFlow · CAccountMailFlow 다.
 //   상태는 로직 스레드(CLobbyLoop) 하나만 만진다 — 부품에 락이 없다.
 //
 //   포트: 웹(모든 주소) · 서버 간(ServerLink.ini [Account] 주소에서만) · 지표
@@ -21,6 +21,7 @@
 #include <Monitoring/MetricsEndpoint.h>
 
 #include "AccountLoginFlow.h"
+#include "AccountMailFlow.h"
 #include "AccountMetrics.h"
 #include "AccountServerConfig.h"
 #include "AuthTokenLedger.h"
@@ -52,15 +53,16 @@ private:
     CLobbyLoop      _loop;
     CLinkPeers      _peers;
 
+    SessionId _worldSession = NO_SESSION;   // 월드 서버 연결 — 신호는 이 연결로만 보낸다 · 계정 우편 요청은 이 연결에서만 받는다(_mailFlow 가 참조로 본다 — 그래서 앞에 둔다)
+
     CAccountMetrics   _metrics;
     CAuthTokenLedger  _ledger;
     CAccountLoginFlow _loginFlow;
     CTokenCheckFlow   _tokenFlow;
+    CAccountMailFlow  _mailFlow;
 
     CPacketTable _webTable;
     CPacketTable _linkTable;
-
-    SessionId _worldSession = NO_SESSION;   // 월드 서버 연결 — 신호는 이 연결로만 보낸다
 
     int64_t _nextSweepMs = 0;
     bool    _started = false;

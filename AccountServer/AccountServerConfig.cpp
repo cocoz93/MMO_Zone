@@ -21,6 +21,13 @@ bool AccountServerConfig::Load(const std::string& path, std::string& error)
         return false;
     }
     allowDevLogin = (ini.GetInt("Account", "AllowDevLogin", allowDevLogin ? 1 : 0) != 0);
+
+    mailExpireDays = ini.GetInt("Mail", "MailExpireDays", mailExpireDays);
+    if (mailExpireDays < 1 || mailExpireDays > 365)   // 존 서버와 같은 범위(ServerConfig.h mailExpireDays)
+    {
+        error = "[Mail] MailExpireDays 는 1 ~ 365 여야 함: " + std::to_string(mailExpireDays);
+        return false;
+    }
     return true;
 }
 
@@ -28,4 +35,5 @@ void AccountServerConfig::Print() const
 {
     lobby.Print();
     SLOG_INFO("  Account: token ttl {}s · dev login {}", authTokenTtlSec, allowDevLogin ? "on" : "off");
+    SLOG_INFO("  Mail: account mail expires in {} days", mailExpireDays);
 }

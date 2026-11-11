@@ -26,4 +26,19 @@ void CAccountMetrics::Write(std::ostringstream& ss) const
     ss << "\n";
 
     MetricsText::WriteGauge(ss, "mmo_auth_token_pending", "Unexpired login tokens not yet used", _pending.load(std::memory_order_relaxed));
+
+    MetricsText::WriteHead(ss, "mmo_account_mail_total", "Account mail requests by op and result", "counter");
+    for (int op = 0; op < ACC_MAIL_OP_COUNT; ++op)
+    {
+        for (int result = 0; result < LINK_MAIL_RESULT_COUNT; ++result)
+        {
+            ss << "mmo_account_mail_total{op=\"" << CAccountRules::MailOpName(static_cast<AccMailOp>(op))
+               << "\",result=\"" << CAccountRules::MailResultName(static_cast<LinkMailResult>(result)) << "\"} "
+               << _mail[op][result].load(std::memory_order_relaxed) << "\n";
+        }
+    }
+    ss << "\n";
+
+    MetricsText::WriteCounter(ss, "mmo_account_mail_sent_rows_total", "Account mail rows inserted by operator sends",
+                              _mailSentRows.load(std::memory_order_relaxed));
 }

@@ -53,3 +53,33 @@ const char* CAccountRules::TokenResultName(TokenCheckResult result)
     }
     return "unknown";
 }
+
+const char* CAccountRules::MailOpName(AccMailOp op)
+{
+    switch (op)
+    {
+    case AccMailOp::Count:   return "count";
+    case AccMailOp::List:    return "list";
+    case AccMailOp::Read:    return "read";
+    case AccMailOp::Claim:   return "claim";
+    case AccMailOp::Done:    return "done";
+    case AccMailOp::Unclaim: return "unclaim";
+    case AccMailOp::Erase:   return "erase";
+    case AccMailOp::Send:    return "send";
+    }
+    return "unknown";
+}
+
+const char* CAccountRules::MailResultName(LinkMailResult result)
+{
+    switch (result)
+    {
+    case LinkMailResult::OK:            return "ok";
+    case LinkMailResult::GONE:          return "gone";
+    case LinkMailResult::BUSY:          return "busy";
+    case LinkMailResult::DB_ERROR:      return "db_error";
+    case LinkMailResult::NO_ACCOUNT:    return "no_account";
+    case LinkMailResult::CANNOT_DELETE: return "cannot_delete";
+    }
+    return "unknown";
+}

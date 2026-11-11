@@ -14,6 +14,8 @@
 #include <Protocol/AccountProtocol.h>
 #include <Protocol/ServerLinkProtocol.h>
 
+#include "AccountRules.h"
+
 class CAccountMetrics
 {
 public:
@@ -22,6 +24,13 @@ public:
     void CountCreated() { _created.fetch_add(1, std::memory_order_relaxed); }
     void CountIssued() { _issued.fetch_add(1, std::memory_order_relaxed); }
     void SetPending(int count) { _pending.store(count, std::memory_order_relaxed); }
+
+    // 계정 우편 — 답이 없는 받음 · 풀기도 DB 결과로 센다(0행 = gone)
+    void CountMail(AccMailOp op, LinkMailResult result)
+    {
+        _mail[static_cast<int>(op)][static_cast<int>(result)].fetch_add(1, std::memory_order_relaxed);
+    }
+    void AddMailSentRows(int64_t rows) { _mailSentRows.fetch_add(rows, std::memory_order_relaxed); }
 
     void Write(std::ostringstream& ss) const;
 
@@ -33,4 +42,6 @@ private:
     std::atomic<int64_t> _created{ 0 };
     std::atomic<int64_t> _issued{ 0 };
     std::atomic<int64_t> _pending{ 0 };
+    std::atomic<int64_t> _mail[ACC_MAIL_OP_COUNT][LINK_MAIL_RESULT_COUNT]{};
+    std::atomic<int64_t> _mailSentRows{ 0 };
 };

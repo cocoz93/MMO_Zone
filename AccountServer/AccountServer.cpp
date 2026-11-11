@@ -38,6 +38,7 @@ CAccountServer::CAccountServer(const AccountServerConfig& config, const ServerLi
     , _ledger(config.authTokenTtlSec)
     , _loginFlow(_network, _monitor, _db, _ledger, _metrics, config.allowDevLogin)
     , _tokenFlow(_peers, _monitor, _ledger, _metrics)
+    , _mailFlow(_peers, _monitor, _db, _metrics, _worldSession, config.mailExpireDays)
     , _webTable(ACCOUNT_PACKET_FIRST, ACCOUNT_PACKET_LAST)
     , _linkTable(LINK_PACKET_FIRST, LINK_PACKET_LAST)
     , _coreMetrics(_monitor)
@@ -51,6 +52,15 @@ bool CAccountServer::RegisterRoutes()
     ok = _linkTable.Register<LINK_HEARTBEAT>([](SessionId, CSerialBuffer*) {}) && ok;   // 받는 것만으로 코어가 세션 시한을 늘린다
     ok = _linkTable.Register<LINK_TOKEN_CHECK_REQ>([this](SessionId id, CSerialBuffer* msg) { _tokenFlow.OnCheck(id, msg); }) && ok;
     ok = _linkTable.Register<LINK_WORLD_REGISTER>([this](SessionId id, CSerialBuffer* msg) { OnWorldRegister(id, msg); }) && ok;
+    // 계정 우편 — 월드 서버가 존 서버의 요청을 번호만 바꿔 넘긴다(mail-plan.md 9절)
+    ok = _linkTable.Register<LINK_ACCMAIL_COUNT_REQ>([this](SessionId id, CSerialBuffer* msg) { _mailFlow.OnCount(id, msg); }) && ok;
+    ok = _linkTable.Register<LINK_ACCMAIL_LIST_REQ>([this](SessionId id, CSerialBuffer* msg) { _mailFlow.OnList(id, msg); }) && ok;
+    ok = _linkTable.Register<LINK_ACCMAIL_READ_REQ>([this](SessionId id, CSerialBuffer* msg) { _mailFlow.OnRead(id, msg); }) && ok;
+    ok = _linkTable.Register<LINK_ACCMAIL_CLAIM_REQ>([this](SessionId id, CSerialBuffer* msg) { _mailFlow.OnClaim(id, msg); }) && ok;
+    ok = _linkTable.Register<LINK_ACCMAIL_DONE>([this](SessionId id, CSerialBuffer* msg) { _mailFlow.OnDone(id, msg); }) && ok;
+    ok = _linkTable.Register<LINK_ACCMAIL_UNCLAIM>([this](SessionId id, CSerialBuffer* msg) { _mailFlow.OnUnclaim(id, msg); }) && ok;
+    ok = _linkTable.Register<LINK_ACCMAIL_ERASE_REQ>([this](SessionId id, CSerialBuffer* msg) { _mailFlow.OnErase(id, msg); }) && ok;
+    ok = _linkTable.Register<LINK_ACCMAIL_SEND_REQ>([this](SessionId id, CSerialBuffer* msg) { _mailFlow.OnSend(id, msg); }) && ok;
     return ok;
 }
 
