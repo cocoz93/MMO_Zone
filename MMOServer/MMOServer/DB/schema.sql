@@ -190,3 +190,63 @@ CREATE TABLE IF NOT EXISTS character_roster (
     UNIQUE KEY uq_roster_slot (account_id, slot),
     KEY ix_roster_account (account_id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1000000000000;
+
+-- ==========================================================================
+-- World server: owner columns and boss room lockouts on characters.
+--   owner_zone = the zone server (ZoneServerId) that loaded this character last. 0 = no zone server yet.
+--   owner_seq  = how many times the owner changed. A zone server raises it only when it takes the row over,
+--                so reloading on the same zone server does not fence its own unconfirmed saves.
+--   Every save bundle reads both with SELECT ... FOR UPDATE and rolls back when they are not its own.
+--   Neither is in kCharColumns: the UPSERT would then overwrite the owner on every save.
+--   room_lockouts = packed bytes (RoomLockoutBlob.h, version byte first): map_id + end time in UTC milliseconds.
+--                The time keeps running while the player is offline. Empty = no lockout.
+-- ==========================================================================
+SET @add_owner_zone := (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE characters ADD COLUMN owner_zone INT NOT NULL DEFAULT 0 AFTER job',
+    'DO 0')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = 'gamedb' AND TABLE_NAME = 'characters' AND COLUMN_NAME = 'owner_zone');
+PREPARE s FROM @add_owner_zone; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @add_owner_seq := (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE characters ADD COLUMN owner_seq BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER owner_zone',
+    'DO 0')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = 'gamedb' AND TABLE_NAME = 'characters' AND COLUMN_NAME = 'owner_seq');
+PREPARE s FROM @add_owner_seq; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @add_room_lockouts := (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE characters ADD COLUMN room_lockouts VARBINARY(255) NOT NULL DEFAULT '''' AFTER owner_seq',
+    'DO 0')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = 'gamedb' AND TABLE_NAME = 'characters' AND COLUMN_NAME = 'room_lockouts');
+PREPARE s FROM @add_room_lockouts; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- ==========================================================================
+-- Character mail - mail between players. Only the zone server writes it.
+--   attach = version byte + slot count + (item_id, count) x slots (MailAttach.h). Empty = no attachment.
+--   send_key = random bytes per sent mail: COMMIT can fail after it succeeded, and the bundle is written again.
+--   from_account_mail_id = the account mail this row came from. Its UNIQUE key stops one account mail from
+--   being taken twice, so rows here must stay as long as the account mail row says "taken".
+--   Rows are never deleted - the game account has no DELETE privilege. deleted_at marks them.
+-- ==========================================================================
+CREATE TABLE IF NOT EXISTS character_mail (
+    mail_id              BIGINT         NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    character_id         BIGINT         NOT NULL,
+    from_character_id    BIGINT         NOT NULL DEFAULT 0,
+    from_name            VARCHAR(6)     NOT NULL DEFAULT '',
+    title                VARCHAR(20)    NOT NULL,
+    body                 VARCHAR(200)   NOT NULL,
+    money                BIGINT         NOT NULL DEFAULT 0,
+    attach               VARBINARY(255) NOT NULL DEFAULT '',
+    send_key             BINARY(16)     NULL,
+    from_account_mail_id BIGINT         NULL,
+    created_at           DATETIME(3)    NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    read_at              DATETIME(3)    NULL,
+    expires_at           DATETIME(3)    NOT NULL,
+    taken_at             DATETIME(3)    NULL,
+    deleted_at           DATETIME(3)    NULL,
+    UNIQUE KEY uq_send_key (send_key),
+    UNIQUE KEY uq_from_account (from_account_mail_id),
+    KEY ix_mailbox (character_id, taken_at, deleted_at)
+) ENGINE=InnoDB;
