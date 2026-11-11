@@ -80,6 +80,12 @@ private:
             ss << "mmo_portal_rejected_total{reason=\"" << PortalRejectName(static_cast<PortalReject>(i)) << "\"} "
                << _gameMonitor._portal._rejected[i] << "\n";
         ss << "\n";
+        ss << "# HELP mmo_channel_move_total Channel moves to another zone server, split by result\n";
+        ss << "# TYPE mmo_channel_move_total counter\n";
+        for (int i = 0; i < CHANNEL_MOVE_RESULT_COUNT; ++i)
+            ss << "mmo_channel_move_total{result=\"" << ChannelMoveResultName(static_cast<ChannelMoveResult>(i)) << "\"} "
+               << _gameMonitor._channelMove._result[i] << "\n";
+        ss << "\n";
         // 직업 고르기 — 토글 없음. 결과 표를 돈다(늘린 결과가 자동으로 나온다)
         ss << "# HELP mmo_job_choose_total C2S_CHOOSE_JOB received, split by result (one job per character, once)\n";
         ss << "# TYPE mmo_job_choose_total counter\n";

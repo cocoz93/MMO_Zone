@@ -39,6 +39,9 @@ public:
 
     bool IsRegistered(SessionId session) const;
 
+    // 존 서버 번호로 찾는다 — 없으면 nullptr. 다음 등록 · 끊김까지만 유효하다
+    const Zone* FindById(ZoneServerId id) const;
+
     // 접속 통지 · 재등록 명단. 입장 대기였다면 접속 중으로 바뀐다
     //   accountId 가 NO_ACCOUNT 면 시험 입장 길의 사람이다 — 계정으로 찾는 표에 안 넣는다(중복 판정 밖)
     void Enter(SessionId session, CharacterId characterId, AccountId accountId);

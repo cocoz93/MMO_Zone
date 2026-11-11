@@ -585,7 +585,9 @@ struct MSG_S2C_ZONE_CHANGE_FAIL
     static constexpr MsgType TYPE = MsgType::S2C_ZONE_CHANGE_FAIL;
     MsgHeader header;
     uint8_t reason;  // 0: 존재하지 않는 맵/채널, 1: 모든 채널 가득 참, 2: 이미 해당 채널, 3: 다른 맵 지정은 운영자만,
-                     // 4: 포털에서 멂(반경 밖), 5: 포털 없음(없는 번호 · 지금 맵의 포털이 아님)
+                     // 4: 포털에서 멂(반경 밖), 5: 포털 없음(없는 번호 · 지금 맵의 포털이 아님),
+                     // 다른 존 서버로 채널 바꾸기(C2S_CHANNEL_MOVE_REQ)만 — 6: 진행 중인 동작이 있음, 7: 쓰러져 있음,
+                     // 8: 방 맵에서는 못 바꿈, 9: 저장 실패 · 시한, 10: 목적지 존 서버에 닿지 못함
 
     MSG_S2C_ZONE_CHANGE_FAIL() : header{ sizeof(*this), TYPE }, reason(0) {}
 };

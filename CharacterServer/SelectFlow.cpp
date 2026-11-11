@@ -104,6 +104,7 @@ void CSelectFlow::SendNextNotice(Pending pending)
         notice.characterId = ToInt(pending.characterId);
         notice.accountId = ToInt(pending.accountId);
         std::memcpy(notice.enterCode, pending.enterCode, sizeof(notice.enterCode));
+        notice.targetChannelIndex = -1;   // 일반 입장 — 존 서버가 자동 배정한다
 
         notice.requestId = _requests.Begin(LinkRequestKind::EnterNotice, CLobbyLoop::NowMs(),
             [this, pending](const void* reply) { OnNoticeReply(pending, static_cast<const LINK_ENTER_NOTICE_ACK*>(reply)); });

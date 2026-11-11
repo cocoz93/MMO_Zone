@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
+#include <functional>
 #include <vector>
 
 #include "BuildConfig.h"   // USE_DB_WORKER · USE_COMBAT · USE_INVENTORY — 안 읽으면 아래 #if 가 조용히 0 이 된다
@@ -109,11 +110,19 @@ public:
     void RestoreCooldownsAndBuffs(CPlayer* player, const DBResult* cooldownsAndBuffs, bool dropBuffs);
     void RestoreRoomLockouts(CPlayer* player, const DBResult* loaded);   // 입장 — 보스방 잠금을 풀어 캐릭터에 담는다(지난 칸은 뺀다)
 
+    // ── 다른 존 서버로 넘기기 ──
+    //   넘김 저장의 회신을 받을 곳 — 메인 스레드, Start 전. 인자 = 그 사람 · 확정이면 true
+    void SetHandoffSaved(std::function<void(CPlayer*, bool)> handoffSaved) { _handoffSaved = std::move(handoffSaved); }
+    //   저장 없이 나갈 때 — 비행 중 묶음의 게이지만 내린다. 회신은 주인 없음으로 떨어진다. 값은 넘김 저장이 이미 확정했다
+    void LeaveWithoutSave(CPlayer* player);
+
     // DB 왕복 — 캐릭터 불러오기 (요청은 워커 큐로, 결과는 회신 큐로 돌아와 다음 틱에 꺼낸다)
     bool RequestCharacterLoad(SessionId sessionId, CharacterId characterId, bool readRoster);   // 조회 1건 투입 + 계수. false = 거절됨(결과가 안 온다)
     void ProcessDbResults();                                           // 틱마다: 회신 큐를 통째로 꺼내 종류별로 넘긴다(불러오기 → _loadEvents)
 
 private:
+    std::function<void(CPlayer*, bool)> _handoffSaved;   // 넘김 저장 회신을 받는 쪽(CChannelMoveFlow)
+
     bool ShouldSave(const CPlayer* player) const;        // 저장 대상 판정(CharRowChanged||저장 안 된 가방 칸) — 주기·틱 끝
     bool CharRowChanged(const CPlayer* player) const;    // 캐릭터 행 판정(MOVING||dirty||레벨·경험치·체력·마력·돈·쿨타임 칸이 _dbSaved 와 다름 — 버프는 안 본다)
     DBCharRow MakeCharRow(const CPlayer* player) const;  // 캐릭터 행 값 — 위치·레벨·경험치·체력·마력·쿨타임·버프·돈 스냅샷(묶음 머리 · 판정 공용)

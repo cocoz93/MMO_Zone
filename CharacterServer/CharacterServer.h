@@ -31,6 +31,7 @@
 #include "LookTable.h"
 #include "RosterFlow.h"
 #include "SelectFlow.h"
+#include "HandoffFlow.h"
 #include "ZoneDirectory.h"
 #include "ZoneLinkFlow.h"
 
@@ -72,6 +73,7 @@ private:
     CCharLoginFlow    _loginFlow;
     CRosterFlow       _rosterFlow;
     CSelectFlow       _selectFlow;
+    CHandoffFlow      _handoffFlow;
     CZoneLinkFlow     _zoneFlow;
 
     CPacketTable _webTable;

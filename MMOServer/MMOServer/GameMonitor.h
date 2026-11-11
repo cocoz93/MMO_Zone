@@ -329,11 +329,51 @@ inline const char* JobChooseName(JobChoose r)
     return "unknown";
 }
 
+// 다른 존 서버로 채널 바꾸기의 결과 — 이 갈래가 곧 지표 mmo_channel_move_total{result} 의 줄이다
+enum class ChannelMoveResult : uint8_t
+{
+    OK,            // 입장 번호를 받아 내보냈다
+    BUSY,          // 거래 · 거래 짝 고리 · 우편
+    DEAD,
+    NOT_HERE,      // 방 맵
+    NOT_FOUND,     // 모르는 번호
+    SAME_ZONE,     // 같은 존 서버 — 그 길은 C2S_ZONE_CHANGE 다
+    NOT_ALLOWED,   // 시험 입장 길 — 입장 번호를 받을 계정이 없다
+    SAVE_FAILED,
+    TIMEOUT,       // 저장 확정이 시한 안에 안 왔다
+    FULL,          // 목적지 존 서버 정원
+    ZONE_DOWN,     // 캐릭터 서버 · 목적지 존 서버에 닿지 못함
+    COUNT
+};
+inline constexpr int CHANNEL_MOVE_RESULT_COUNT = static_cast<int>(ChannelMoveResult::COUNT);
+
+inline const char* ChannelMoveResultName(ChannelMoveResult r)
+{
+    static_assert(CHANNEL_MOVE_RESULT_COUNT == 11, "ChannelMoveResult 를 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case ChannelMoveResult::OK:          return "ok";
+    case ChannelMoveResult::BUSY:        return "busy";
+    case ChannelMoveResult::DEAD:        return "dead";
+    case ChannelMoveResult::NOT_HERE:    return "not_here";
+    case ChannelMoveResult::NOT_FOUND:   return "not_found";
+    case ChannelMoveResult::SAME_ZONE:   return "same_zone";
+    case ChannelMoveResult::NOT_ALLOWED: return "not_allowed";
+    case ChannelMoveResult::SAVE_FAILED: return "save_failed";
+    case ChannelMoveResult::TIMEOUT:     return "timeout";
+    case ChannelMoveResult::FULL:        return "full";
+    case ChannelMoveResult::ZONE_DOWN:   return "zone_down";
+    case ChannelMoveResult::COUNT:       break;
+    }
+    return "unknown";
+}
+
 enum class SaveReason : uint8_t
 {
     BAG,       // 가방이 바뀌었다(FlushInventory)
     LEVELUP,   // 레벨이 올랐다(GrantMonsterExp)
     JOB,       // 직업을 골랐다(CJobHandler)
+    HANDOFF,   // 다른 존 서버로 넘어가기 전 확정 저장(CChannelMoveFlow)
     ROOM_LOCK, // 보스방 보상과 잠금 — 같은 틱 끝 묶음에 실려 「보상은 받았는데 잠금은 없는」 상태가 안 남는다
     AGAIN,     // 비행 중에 계기가 와서 다시 필요가 섰다 — 성공 회신 때
     COUNT
@@ -341,13 +381,14 @@ enum class SaveReason : uint8_t
 
 inline const char* SaveReasonName(SaveReason r)
 {
-    static_assert(static_cast<int>(SaveReason::COUNT) == 5, "SaveReason 을 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(SaveReason::COUNT) == 6, "SaveReason 을 늘렸으면 이름도 붙일 것");
     switch (r)
     {
     case SaveReason::BAG:     return "bag";
     case SaveReason::LEVELUP: return "levelup";
     case SaveReason::JOB:     return "job";
     case SaveReason::ROOM_LOCK: return "room_lock";
+    case SaveReason::HANDOFF: return "handoff";
     case SaveReason::AGAIN:   return "again";
     case SaveReason::COUNT:   break;
     }
@@ -924,6 +965,12 @@ public:
         Counter _used;                              // 포털로 옮겨 감
         Counter _rejected[PORTAL_REJECT_COUNT];     // 거절, 사유별(PortalReject)
     } _portal;
+
+    // 다른 존 서버로 채널 바꾸기 — 받은 요청 하나가 결과 하나로 끝난다(CChannelMoveFlow 한 곳이 센다)
+    struct alignas(64) ChannelMoveCounters
+    {
+        Counter _result[CHANNEL_MOVE_RESULT_COUNT];
+    } _channelMove;
 
     // ═════════════════════════════════════════
     // 직업 고르기 — 세는 곳은 CJobHandler::RecvChooseJob 한 곳. 칸의 합 = 받은 C2S_CHOOSE_JOB 수. 토글 없음(직업 칸이 늘 있다)

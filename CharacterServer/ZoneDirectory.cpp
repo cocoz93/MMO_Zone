@@ -78,6 +78,16 @@ void CZoneDirectory::Leave(SessionId session, CharacterId characterId)
     state.online.erase(row);
 }
 
+const CZoneDirectory::Zone* CZoneDirectory::FindById(ZoneServerId id) const
+{
+    for (const auto& entry : _zones)
+    {
+        if (entry.second.zone.id == id)
+            return &entry.second.zone;
+    }
+    return nullptr;
+}
+
 std::vector<CZoneDirectory::Zone> CZoneDirectory::Candidates(ZoneServerId owner) const
 {
     std::vector<Zone> ordered;

@@ -181,7 +181,7 @@ void CEntryHandler::SetPendingEnter(SessionId sessionId, CharacterId characterId
 //   정말 [입장 대기]였나"를 보는 이 함수의 전제다. 이 줄이 없으면 [불러오는 중]에 또 불렸을 때
 //   입장 대기 수가 음수로 내려간다(돌연변이로 확인: 요청 셋에 입장 대기 -2 · 불러오는 중 2).
 //   ※ 지금은 앞 문턱이 먼저 막아서 이 검사에 도달하는 길이 없다 — 시험으로는 못 태운다.
-bool CEntryHandler::PromotePendingEnter(SessionId sessionId, CharacterId characterId, AccountId accountId, ActorId actorId)
+bool CEntryHandler::PromotePendingEnter(SessionId sessionId, CharacterId characterId, AccountId accountId, ActorId actorId, int32_t targetChannelIndex)
 {
     const uint16_t idx = CSession::ExtractIndex(ToInt(sessionId));
     assert(idx < _pendingEnter.size());
@@ -194,6 +194,7 @@ bool CEntryHandler::PromotePendingEnter(SessionId sessionId, CharacterId charact
     slot.characterId = characterId;
     slot.actorId   = actorId;
     slot.accountId = accountId;
+    slot.targetChannelIndex = targetChannelIndex;
     slot.state     = EnterState::LOADING;
     AdjustPendingCount(EnterState::LOADING, +1);
     return true;
@@ -288,7 +289,13 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
 
         // 존 먼저, 좌표는 그 존의 크기로 본다. 저장된 맵이 없으면 zone 이 nullptr 로 남아 아래에서 기본 맵을 구한다.
         if (!toTown && !firstEnter)
-            zone = _mapManager.FindOrCreateChannel(MapId{ result.mapId });
+        {
+            // 다른 존 서버에서 넘어온 사람 — 고른 채널이 있고 자리가 있으면 거기, 아니면 자동 배정(world-server-plan.md 5.7)
+            if (pending.targetChannelIndex >= 0)
+                zone = _mapManager.FindOpenChannel(MapId{ result.mapId }, pending.targetChannelIndex);
+            if (zone == nullptr)
+                zone = _mapManager.FindOrCreateChannel(MapId{ result.mapId });
+        }
 
         if (firstEnter)
         {
@@ -604,6 +611,7 @@ bool CEntryHandler::ResolveEnterCode(const char (&ticket)[CEnterGate::CODE_BYTES
     case EnterCodeResult::Ok:
         out.characterId = passed.characterId;
         out.accountId   = passed.accountId;
+        out.targetChannelIndex = passed.targetChannelIndex;
         return true;
     case EnterCodeResult::BadSize:
     case EnterCodeResult::NotFound:
@@ -708,7 +716,7 @@ void CEntryHandler::RecvEnterGame(SessionId sessionId, CSerialBuffer* pMsg)
     //      것은 ⑶ 뿐인데 거기서 내 세션을 명시적으로 제외한다. 실패하면 조회는 던져 놓고 대기표가 없어
     //      결과가 주인을 못 찾고, 그 세션은 스폰도 끊김도 없이 영영 매달린다(클라가 하트비트를 보내
     //      유휴 타임아웃도 안 걸린다). 그래서 조용히 넘기지 않고 단언으로 잡는다.
-    const bool promoted = PromotePendingEnter(sessionId, characterId, who.accountId, actorId);
+    const bool promoted = PromotePendingEnter(sessionId, characterId, who.accountId, actorId, who.targetChannelIndex);
     assert(promoted);
     (void)promoted;   // 릴리즈(NDEBUG) 미사용 경고 억제
 }

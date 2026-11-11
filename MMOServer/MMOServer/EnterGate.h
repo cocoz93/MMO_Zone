@@ -59,6 +59,7 @@ public:
     {
         CharacterId characterId = NO_CHARACTER;
         AccountId   accountId   = NO_ACCOUNT;
+        int32_t     targetChannelIndex = -1;   // 다른 존 서버에서 넘어올 때 목적 채널 · -1 = 자동 배정
     };
 
     // 코드 이곳저곳이 같은 시계를 쓰게 한 자리에 둔다 — 벽시계가 아니라 단조 시계다(시간을 고쳐도 만료가 안 흔들린다)
@@ -74,7 +75,7 @@ public:
     //   onlineCount = 지금 접속자 수(게임 중 + 불러오는 중 + 입장 대기) · maxClients = 웹 정원.
     //   칸 모양은 안 본다 — 캐릭터 서버가 SecureRandom::MakeCode 로 만든 값이다(서버 간 연결은 내부망 전제).
     bool AddNotice(const char (&code)[CODE_BYTES], CharacterId characterId, AccountId accountId,
-                   int onlineCount, int maxClients, int64_t nowMs);
+                   int onlineCount, int maxClients, int64_t nowMs, int32_t targetChannelIndex = -1);
 
     // 입장 — Ok 면 out 을 채우고 그 번호를 지운다(일회용). 빈 칸은 BadSize 다: 빈 번호를 받아 줄지는 부르는 쪽이 먼저 정한다.
     EnterCodeResult Consume(const char (&code)[CODE_BYTES], int64_t nowMs, Ticket& out);
@@ -95,6 +96,7 @@ private:
         CharacterId characterId;
         AccountId   accountId;
         int64_t     expireMs;
+        int32_t     targetChannelIndex;
         bool        live;       // 아직 _liveCount 에 들어 있나 — Sweep 이 시간이 지난 것을 빼며 내린다
     };
 

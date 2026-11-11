@@ -56,6 +56,12 @@ namespace
         CEnterGate::Ticket second;
         Check(gate.Consume(code.bytes, 1000, second) == EnterCodeResult::NotFound, "같은 번호 두 번 → NotFound");
         Check(second.characterId == NO_CHARACTER, "NotFound 면 결과를 안 채움");
+
+        Check(ticket.targetChannelIndex == -1, "목적 채널을 안 주면 자동 배정");
+        const Code moved = MakeCode('m');
+        Check(gate.AddNotice(moved.bytes, CHAR_A, ACC_A, 0, MAX_CLIENTS, 1000, 7), "목적 채널을 든 예고");
+        CEnterGate::Ticket landed;
+        Check(gate.Consume(moved.bytes, 1000, landed) == EnterCodeResult::Ok && landed.targetChannelIndex == 7, "목적 채널이 그대로 나온다");
     }
 
     void TestShape()

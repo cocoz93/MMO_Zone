@@ -196,6 +196,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/EnterGate.cpp
     ${SRV_DIR}/ZoneLink.cpp
     ${SRV_DIR}/ChannelListFlow.cpp
+    ${SRV_DIR}/ChannelMoveFlow.cpp
     ${SRV_DIR}/WorldLink.cpp
     ${SRV_DIR}/LinkOnlineList.cpp
     ${SRV_DIR}/EntryHandler.cpp
@@ -396,6 +397,7 @@ set(CHAR_SOURCES
     ${CHAR_DIR}/CharLoginFlow.cpp
     ${CHAR_DIR}/RosterFlow.cpp
     ${CHAR_DIR}/SelectFlow.cpp
+    ${CHAR_DIR}/HandoffFlow.cpp
     ${CHAR_DIR}/ZoneLinkFlow.cpp
     ${CHAR_DIR}/CharacterMetrics.cpp
 )

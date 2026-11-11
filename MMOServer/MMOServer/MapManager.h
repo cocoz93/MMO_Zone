@@ -283,6 +283,7 @@ public:
 
     // 존 조회 (zoneId로 직접 접근)
     CZone* GetZone(ZoneId zoneId);
+    CZone* FindOpenChannel(MapId mapId, int32_t channelIndex);   // 일반 맵의 그 채널이 있고 자리가 있으면 돌려준다 · 없으면 nullptr
 
     // 전체 존 Tick — 섹터 변경은 존마다 대기열에 쌓인다(CZone::GetSectorChanges). 걷기·멈춤 알림은 events 로 건네기만
     void TickAll(float deltaTime, IZoneEvents& events);

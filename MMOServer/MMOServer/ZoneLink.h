@@ -35,6 +35,7 @@ class CMonitorManager;
 class CPlayer;
 class CSerialBuffer;
 class CSessionHub;
+struct LINK_HANDOFF_ACK;
 
 class CZoneLink
 {
@@ -59,6 +60,13 @@ public:
     // 내보내기 처리 — 메인 스레드, Start 전. 이 클래스는 CEntryHandler 를 들지 않는다(그쪽이 이쪽 참조를 받는다)
     void SetKickAccount(std::function<void(AccountId)> kickAccount) { _kickAccount = std::move(kickAccount); }
 
+    // 넘기기 답 · 끊김을 받을 곳 — 메인 스레드, Start 전. 요청 표는 CChannelMoveFlow 가 든다
+    void SetHandoffCallbacks(std::function<void()> onDown, std::function<void(const LINK_HANDOFF_ACK&)> onAck)
+    {
+        _onHandoffDown = std::move(onDown);
+        _onHandoffAck = std::move(onAck);
+    }
+
     void Start(NetIoModel& network);
     void Stop();
 
@@ -70,6 +78,7 @@ public:
 
     void NotifyEnter(const CPlayer& player);
     void NotifyLeave(CharacterId characterId);
+    bool SendHandoff(uint64_t requestId, CharacterId characterId, AccountId accountId, int destZone, int destChannel);   // false = 연결 없음
 
     // 꺼져 있으면 nullptr — 지표는 CLinkConnector::WriteMetrics 가 연결 여럿을 한 번에 쓴다
     const CLinkConnector* Connector() const { return _connector.get(); }
@@ -78,6 +87,7 @@ private:
     void SendRegister();
     void RecvEnterNotice(CSerialBuffer* msg);
     void RecvKickAccount(CSerialBuffer* msg);
+    void RecvHandoffAck(CSerialBuffer* msg);
 
     CMonitorManager& _monitor;
     CEnterGate&      _enterGate;
@@ -90,4 +100,6 @@ private:
     bool   _enabled = false;
     std::unique_ptr<CLinkConnector> _connector;   // Start 가 만든다 — 끄면 없다
     std::function<void(AccountId)>  _kickAccount;
+    std::function<void()>           _onHandoffDown;
+    std::function<void(const LINK_HANDOFF_ACK&)> _onHandoffAck;
 };

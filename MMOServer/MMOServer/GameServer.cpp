@@ -134,6 +134,13 @@ bool CGameServer::Start()
             [this](const LINK_CHANNEL_LIST_ACK& head, const char* rows) { _channelListFlow.OnListAck(head, rows, CEnterGate::NowMs()); },
         });
 
+#if USE_DB_WORKER
+        _zoneLink.SetHandoffCallbacks(
+            [this]() { _channelMoveFlow.OnCharacterDown(); },
+            [this](const LINK_HANDOFF_ACK& ack) { _channelMoveFlow.OnHandoffAck(ack, CEnterGate::NowMs()); });
+        _characterStore.SetHandoffSaved([this](CPlayer* player, bool ok) { _channelMoveFlow.OnSaved(player, ok); });
+#endif
+
         // 게임 스레드보다 먼저 — 게임 스레드가 틱마다 보는 연결 객체를 여기서 만든다. 접속이 먼저 돼도 사건은 큐에서 기다린다.
         _zoneLink.Start(*_network);
         _worldLink.Start(*_network);
@@ -304,6 +311,9 @@ void CGameServer::GameLoopThread()
             const int64_t linkNowMs = CEnterGate::NowMs();
             _linkRequests.ExpireDue(linkNowMs);
             _channelListFlow.Tick(linkNowMs);
+#if USE_DB_WORKER
+            _channelMoveFlow.Tick(linkNowMs);
+#endif
         }
 
         // 이번 틱 보류물 비우기 — digest(USE_BROADCAST_BUNDLE) 또는 섹터 묶음(USE_SECTOR_AGGREGATION). 아래 flush가 묶어 보냄
@@ -555,6 +565,13 @@ void CGameServer::OnReceived(SessionId sessionId, CSerialBuffer* pMsg)
         return;
     }
 
+    // 다른 존 서버로 넘어가는 중 — 저장 뒤에 바뀐 값은 사라지므로 입력을 안 받는다(CChannelMoveFlow)
+    if (player->_moveOp != CPlayer::ChannelMoveOp::IDLE)
+    {
+        pMsg->SubRef();
+        return;
+    }
+
     // 처리기가 없는 줄 — C2S_HEARTBEAT 등 — 게임 로직 처리 불필요 (타임아웃 갱신은 IOCPServer 수신 시점에서 처리)
     if (route->onPlayer)
         route->onPlayer(player, pMsg);
@@ -577,6 +594,9 @@ bool CGameServer::RegisterRoutes()
     ok &= _entryHandler.RegisterRoutes(_routes);
     // 채널 목록 — CChannelListFlow 가 자기 줄을 등록한다
     ok &= _channelListFlow.RegisterRoutes(_routes);
+#if USE_DB_WORKER
+    ok &= _channelMoveFlow.RegisterRoutes(_routes);
+#endif
     // 직업 고르기 — CJobHandler 가 자기 줄을 등록한다
     ok &= _jobHandler.RegisterRoutes(_routes);
     ok &= _routes.Size(MsgType::C2S_HEARTBEAT, sizeof(MSG_C2S_HEARTBEAT));   // 처리기 없음 — 타임아웃 갱신은 IOCPServer 수신 시점

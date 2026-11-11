@@ -20,6 +20,7 @@ CZoneLink::CZoneLink(CMonitorManager& monitor, CEnterGate& enterGate, CSessionHu
     _routesOk = _table.Register<LINK_HEARTBEAT>([](SessionId, CSerialBuffer*) {});
     _routesOk = _table.Register<LINK_ENTER_NOTICE_REQ>([this](SessionId, CSerialBuffer* msg) { RecvEnterNotice(msg); }) && _routesOk;
     _routesOk = _table.Register<LINK_ZONE_KICK_ACCOUNT>([this](SessionId, CSerialBuffer* msg) { RecvKickAccount(msg); }) && _routesOk;
+    _routesOk = _table.Register<LINK_HANDOFF_ACK>([this](SessionId, CSerialBuffer* msg) { RecvHandoffAck(msg); }) && _routesOk;
 }
 
 bool CZoneLink::Configure(const Config& config)
@@ -54,7 +55,12 @@ void CZoneLink::Start(NetIoModel& network)
     _connector = std::make_unique<CLinkConnector>(network, _monitor, connector);
     _connector->SetHandlers(
         [this](SessionId) { SendRegister(); },
-        []() { SLOG_WARN("[ZoneLink] 캐릭터 서버 연결 끊김 — 게임은 그대로 돌고 다시 접속한다"); });
+        [this]()
+        {
+            SLOG_WARN("[ZoneLink] 캐릭터 서버 연결 끊김 — 게임은 그대로 돌고 다시 접속한다");
+            if (_onHandoffDown)
+                _onHandoffDown();   // 시한까지 기다리지 않고 실패로 끝낸다
+        });
     _connector->Start();
     SLOG_INFO("[ZoneLink] 캐릭터 서버에 접속 시작 ({}:{})", _config.characterIp, _config.characterPort);
 }
@@ -126,7 +132,7 @@ void CZoneLink::RecvEnterNotice(CSerialBuffer* msg)
     // 정원의 접속자 수 = 웹 세션 전부(게임 중 + 불러오는 중 + 입장 대기). 구분 값이 있는 서버 간 연결은 코어가 따로 센다
     const int online = static_cast<int>(_monitor._sessionCount.Load());
     const bool accepted = _enterGate.AddNotice(request.enterCode, CharacterId{ request.characterId }, AccountId{ request.accountId },
-                                               online, _config.maxClients, CEnterGate::NowMs());
+                                               online, _config.maxClients, CEnterGate::NowMs(), request.targetChannelIndex);
     if (!accepted)
         SLOG_WARN("[ZoneLink] 입장 예고 거절: 정원 (character={}, online={}, codes={}, max={})",
                   request.characterId, online, _enterGate.LiveCount(), _config.maxClients);
@@ -148,6 +154,31 @@ void CZoneLink::RecvKickAccount(CSerialBuffer* msg)
     }
     if (_kickAccount)
         _kickAccount(AccountId{ packet.accountId });
+}
+
+void CZoneLink::RecvHandoffAck(CSerialBuffer* msg)
+{
+    LINK_HANDOFF_ACK ack;
+    if (!PacketSend::Read(msg, ack))
+    {
+        _monitor._packetErrors.Inc();
+        return;
+    }
+    if (_onHandoffAck)
+        _onHandoffAck(ack);
+}
+
+bool CZoneLink::SendHandoff(uint64_t requestId, CharacterId characterId, AccountId accountId, int destZone, int destChannel)
+{
+    if (!_connector || !_connector->IsUp())
+        return false;
+    LINK_HANDOFF_REQ packet{};
+    packet.requestId = requestId;
+    packet.characterId = ToInt(characterId);
+    packet.accountId = ToInt(accountId);
+    packet.destZone = destZone;
+    packet.destChannel = destChannel;
+    return _connector->Send(packet);
 }
 
 void CZoneLink::NotifyEnter(const CPlayer& player)

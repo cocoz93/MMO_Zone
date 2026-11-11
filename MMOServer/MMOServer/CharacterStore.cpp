@@ -740,6 +740,12 @@ void CCharacterStore::CommitBundle(CPlayer* player, const DBSaveBundle& head, Sa
     CPlayer::DbFlight& f = player->_dbFlight;
     f.bundleNo = head.bundleNo;
     f.again    = false;
+    if (f.handoffWanted)
+    {
+        // 표시를 켠 뒤 처음 낸 묶음이 넘김 저장이다 — 앞 묶음이 비행 중이었으면 again 으로 다음 묶음이 여기 온다
+        f.handoffWanted   = false;
+        f.handoffBundleNo = head.bundleNo;
+    }
     SetInflight(+1);
     _gameMonitor._save._txn[static_cast<int>(trigger)].Inc();
 }
@@ -925,6 +931,16 @@ void CCharacterStore::SaveOnLeave(CPlayer* player)
     LeaveFinal(player, SaveTrigger::LEAVE);
 }
 
+void CCharacterStore::LeaveWithoutSave(CPlayer* player)
+{
+    CPlayer::DbFlight& f = player->_dbFlight;
+    if (f.bundleNo != 0)
+    {
+        f.bundleNo = 0;
+        SetInflight(-1);
+    }
+}
+
 void CCharacterStore::LeaveFinal(CPlayer* player, SaveTrigger trigger)
 {
     DBSaveBundle head{};
@@ -1018,6 +1034,9 @@ void CCharacterStore::OnSaveReply(const DBSaveReply& reply)
         CPlayer::DbFlight& f = player->_dbFlight;
         f.bundleNo = 0;
         SetInflight(-1);
+        const bool handoffReply = f.handoffBundleNo != 0 && f.handoffBundleNo == reply.bundleNo;
+        if (handoffReply)
+            f.handoffBundleNo = 0;
         static_assert(static_cast<int>(DBSaveResult::COUNT) == 3, "DBSaveResult 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
         switch (reply.result)
         {
@@ -1053,6 +1072,8 @@ void CCharacterStore::OnSaveReply(const DBSaveReply& reply)
         case DBSaveResult::COUNT:
             break;   // 값이 아니라 개수 표시
         }
+        if (handoffReply && _handoffSaved)
+            _handoffSaved(player, reply.result == DBSaveResult::OK);
         return;
     }
 

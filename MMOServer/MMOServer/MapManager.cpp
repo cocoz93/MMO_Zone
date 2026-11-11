@@ -182,6 +182,17 @@ CZone* CMapManager::FindOrCreateChannel(MapId mapId, bool isAdmin)
     return zone;
 }
 
+CZone* CMapManager::FindOpenChannel(MapId mapId, int32_t channelIndex)
+{
+    auto it = _fieldMaps.find(mapId);
+    if (it == _fieldMaps.end())
+        return nullptr;
+    CZone* zone = it->second.FindChannel(channelIndex);
+    if (zone == nullptr || it->second.IsChannelFull(zone, false))
+        return nullptr;
+    return zone;
+}
+
 CZone* CMapManager::CreateRoom(MapId mapId)
 {
     // 방 표에서만 — 일반 맵 번호면 없음(nullptr)

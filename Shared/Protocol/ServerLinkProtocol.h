@@ -110,6 +110,7 @@ struct LINK_ENTER_NOTICE_REQ
     int64_t   characterId;
     int64_t   accountId;
     char      enterCode[LINK_CODE_BYTES];
+    int32_t   targetChannelIndex;   // 다른 존 서버로 채널을 바꿀 때 목적 채널 · -1 = 자동 배정(일반 입장)
 };
 
 struct LINK_ENTER_NOTICE_ACK
@@ -187,6 +188,38 @@ struct LINK_CHANNEL_LIST_ACK
     // LinkChannelListRow rows[count];
 };
 
+// ── 다른 존 서버로 채널 바꾸기 (존 서버 ↔ 캐릭터 서버) ──
+//   존 서버는 저장이 확정된 뒤에 묻는다. 캐릭터 서버가 목적지에 입장 예고를 넣고 입장 번호를 돌려준다
+enum class LinkHandoffResult : uint8_t
+{
+    Ok = 0,
+    Full = 1,      // 목적지 존 서버의 정원이 찼다
+    Down = 2,      // 목적지가 답하지 않았다(끊김 · 시한)
+    Unknown = 3,   // 그 번호로 등록된 존 서버가 없다
+};
+
+struct LINK_HANDOFF_REQ
+{
+    static constexpr uint16_t TYPE = 3037;
+    MsgHeader header;
+    uint64_t  requestId;
+    int64_t   characterId;
+    int64_t   accountId;
+    int32_t   destZone;
+    int32_t   destChannel;
+};
+
+struct LINK_HANDOFF_ACK
+{
+    static constexpr uint16_t TYPE = 3038;
+    MsgHeader header;
+    uint64_t  requestId;
+    uint8_t   result;     // LinkHandoffResult
+    char      enterCode[LINK_CODE_BYTES];
+    char      wsAddr[LINK_WS_ADDR_BYTES];
+    int32_t   ttlSec;
+};
+
 // ── 내보내기 (캐릭터 서버 → 존 서버) ──
 //   같은 계정이 다시 고르면 줄이 있는 존 서버마다 보낸다. 회신이 없다
 struct LINK_ZONE_KICK_ACCOUNT
@@ -203,7 +236,7 @@ static_assert(sizeof(LINK_TOKEN_CHECK_REQ) == 4 + 8 + 64);
 static_assert(sizeof(LINK_TOKEN_CHECK_ACK) == 4 + 8 + 1 + 8);
 static_assert(sizeof(LINK_ZONE_REGISTER) == 4 + 4 + 4 + 64);
 static_assert(sizeof(LINK_ZONE_ONLINE_LIST) == 4 + 2);
-static_assert(sizeof(LINK_ENTER_NOTICE_REQ) == 4 + 8 + 8 + 8 + 64);
+static_assert(sizeof(LINK_ENTER_NOTICE_REQ) == 4 + 8 + 8 + 8 + 64 + 4);
 static_assert(sizeof(LINK_ENTER_NOTICE_ACK) == 4 + 8 + 1 + 4);
 static_assert(sizeof(LINK_WORLD_REGISTER) == 4 + 4);
 static_assert(sizeof(LINK_ZONE_KICK_ACCOUNT) == 4 + 8);
@@ -215,5 +248,7 @@ static_assert(sizeof(LINK_ZONE_CHANNELS) == 4 + 4 + 2);
 static_assert(sizeof(LINK_CHANNEL_LIST_REQ) == 4 + 8 + 4);
 static_assert(sizeof(LinkChannelListRow) == 6);
 static_assert(sizeof(LINK_CHANNEL_LIST_ACK) == 4 + 8 + 2);
+static_assert(sizeof(LINK_HANDOFF_REQ) == 4 + 8 + 8 + 8 + 4 + 4);
+static_assert(sizeof(LINK_HANDOFF_ACK) == 4 + 8 + 1 + 64 + 64 + 4);
 static_assert(sizeof(LINK_ZONE_CHANNELS) + LINK_ZONE_CHANNELS_MAX * sizeof(LinkZoneChannelRow) <= 1458, "코어 패킷 상한");
 static_assert(sizeof(LINK_CHANNEL_LIST_ACK) + LINK_CHANNEL_LIST_MAX * sizeof(LinkChannelListRow) <= 1458, "코어 패킷 상한");

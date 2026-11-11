@@ -97,6 +97,20 @@ void CPlayerPlacement::LeaveGame(CPlayer* player)
     ReleasePlayer(player);
 }
 
+void CPlayerPlacement::HandOffGame(CPlayer* player)
+{
+    CZone* zone = _mapManager.GetZone(player->_zoneId);
+    if (zone != nullptr)
+        RemoveFromZone(zone, player);
+
+#if USE_DB_WORKER
+    if (_characterStore.IsRunning())
+        _characterStore.LeaveWithoutSave(player);
+#endif
+    _events.OnLeavingGame(player);
+    _sessionHub.RemovePlayer(player);
+}
+
 void CPlayerPlacement::ReleasePlayer(CPlayer* player)
 {
 #if USE_DB_WORKER

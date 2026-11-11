@@ -73,6 +73,7 @@
 #include "TradeHandler.h"     // 거래(거래 요청 여섯 · 거래 알림 · 짝 저장 — USE_TRADE) — trade-plan.md
 #include "MoveHandler.h"      // 이동(이동 시작·멈춤 요청 · 좌표 수용 예산 — 토글 없음) — 게임 서버 나누기 11 단계(C2)
 #include "ChannelListFlow.h"  // 채널 목록 — 월드 서버에 채널 줄 알리기 · 목록 요청 답하기
+#include "ChannelMoveFlow.h"  // 다른 존 서버로 채널 바꾸기
 #include "ZoneLink.h"         // 캐릭터 서버 연결 — 입장 예고 · 입장 퇴장 알림
 #include "WorldLink.h"        // 월드 서버 연결
 #include "EntryHandler.h"     // 입장·존 이동 요청(접속 · 대기표 · 불러온 캐릭터 세우기 · 중복 접속 · 포털) — 게임 서버 나누기 12 단계(C1)
@@ -126,8 +127,20 @@ public:
     }
     bool ConfigureZoneLink(const CZoneLink::Config& config) { return _zoneLink.Configure(config); }
     bool ConfigureWorldLink(const CWorldLink::Config& config) { return _worldLink.Configure(config); }
-    void ConfigureChannels(int zoneServerId, int channelBlock) { _channelListFlow.Configure(zoneServerId, channelBlock); }
-    void SetLinkReplyTimeoutSec(int replyTimeoutSec) { _linkRequests.SetTimeoutSec(replyTimeoutSec); }
+    void ConfigureChannels(int zoneServerId, int channelBlock)
+    {
+        _channelListFlow.Configure(zoneServerId, channelBlock);
+#if USE_DB_WORKER
+        _channelMoveFlow.Configure(zoneServerId, channelBlock);
+#endif
+    }
+    void SetLinkReplyTimeoutSec(int replyTimeoutSec)
+    {
+        _linkRequests.SetTimeoutSec(replyTimeoutSec);
+#if USE_DB_WORKER
+        _channelMoveFlow.SetTimeoutSec(replyTimeoutSec);
+#endif
+    }
     void WriteLinkMetrics(std::ostringstream& ss) const   // 지표 스레드 — 꺼져 있으면 줄이 없다
     {
         CLinkConnector::WriteMetrics(ss, { _zoneLink.Connector(), _worldLink.Connector() });
@@ -399,6 +412,13 @@ private:
     // 서버 간 요청의 응답 대기 — 시한은 main 이 ServerLink.ini 값으로 고쳐 넣는다(3 = 그 기본값)
     CLinkRequests _linkRequests{ 3 };
     CChannelListFlow _channelListFlow{ _sessionHub, _mapManager, _worldLink, _linkRequests };
+#if USE_DB_WORKER
+    CChannelMoveFlow _channelMoveFlow{ _sessionHub, _mapManager, _characterStore, _zoneLink, _linkRequests, _placement, _sightBroadcaster,
+#if USE_TRADE
+                                       _tradeSystem,
+#endif
+                                       _gameMonitor };
+#endif
 
     CEntryHandler _entryHandler{ _sessionHub, _placement,
 #if USE_DB_WORKER

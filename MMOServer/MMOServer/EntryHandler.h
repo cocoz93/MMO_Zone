@@ -180,11 +180,12 @@ private:
         ActorId     actorId     = NO_ACTOR;   // 같음. 액터 번호도 입장 요청 때 뽑는다
         AccountId   accountId   = NO_ACCOUNT; // 같음. 입장 번호로 들어온 사람만 값이 있다(같은 계정 걷어내기가 불러오는 중인 자리도 본다)
         EnterState  state       = EnterState::WAITING_ENTER;
+        int32_t     targetChannelIndex = -1;  // 다른 존 서버에서 넘어온 사람의 목적 채널 · -1 = 자동 배정
     };
     // 대기표를 바꾸는 자리는 이 셋뿐이다 — 게이지 둘(mmo_enter_waiting·mmo_enter_pending)도 여기서만 움직인다.
     //   접속·입장요청·결과·끊김 네 곳이 제각기 올리고 내리면 한 곳만 빠져도 게이지가 영영 안 맞는다.
     void SetPendingEnter(SessionId sessionId, CharacterId characterId, ActorId actorId, EnterState state);
-    bool PromotePendingEnter(SessionId sessionId, CharacterId characterId, AccountId accountId, ActorId actorId);  // [입장 대기] → [불러오는 중]
+    bool PromotePendingEnter(SessionId sessionId, CharacterId characterId, AccountId accountId, ActorId actorId, int32_t targetChannelIndex);  // [입장 대기] → [불러오는 중]
     bool TakePendingEnter(SessionId sessionId, PendingEnter& out);                      // 세션 번호 전체가 같으면 꺼내고 비운다
     void AdjustPendingCount(EnterState state, int delta);                             // 상태별 수 + 게이지를 한 자리에서 움직인다
 #endif
@@ -200,6 +201,7 @@ private:
     {
         CharacterId characterId = NO_CHARACTER;
         AccountId   accountId   = NO_ACCOUNT;
+        int32_t     targetChannelIndex = -1;
     };
     // 판정 — false 면 부르는 쪽이 끊는다(갈래 지표·로그는 안에서 남긴다). 입장 번호가 비었고 시험 입장 길이 켜져 있을 때만 시험 입장 길이다.
     bool ResolveEnterCode(const char (&ticket)[CEnterGate::CODE_BYTES], SessionId sessionId, EnterIdentity& out);

@@ -26,6 +26,7 @@ class CPlayer : public CCharacter
     friend class CEntryHandler; // 접속 세션 → 플레이어 관문 — 같은 캐릭터 걷어내기가 옛 세션을 읽어 끊고, 존 이동 요청이 세션 없는 플레이어를 거른다(게임 서버 나누기 12 단계)
     friend class CCharacterStore; // 캐릭터 저장소 — 저장 묶음에 주인(세션)을 적고, 회신과 틱 끝 목록이 그 세션으로 주인을 찾는다(저장 플랜 C)
     friend class CChannelListFlow; // 채널 목록 — 월드 서버의 답이 올 때 세션으로 다시 찾으려고 세션 번호를 적어 둔다
+    friend class CChannelMoveFlow; // 다른 존 서버로 채널 바꾸기 — 저장·답을 기다리는 동안 세션 번호로 사람을 다시 찾는다
 
 public:
     CPlayer();
@@ -98,6 +99,8 @@ public:
         bool          retryListed = false;   // 재시도 목록에 올라 있다(되살린 묶음 — 목록 중복 막기)
         bool          posDirty    = false;   // 실을 때의 _dbDirty — 실패면 되살린다
         bool          fenced      = false;   // 펜스를 받았다 — 이 메모리는 진실이 아니다. 끊길 때까지 저장을 안 내고, 나갈 때 기록도 안 남긴다
+        bool          handoffWanted = false; // 다른 존 서버로 넘어가려 한다 — 다음에 내는 묶음의 번호를 handoffBundleNo 에 적는다
+        uint32_t      handoffBundleNo = 0;   // 그 묶음의 번호 · 이 회신이 넘김 저장의 확정이다. 켜기 전에 떠난 묶음은 입력을 막기 전 값이라 안 친다
         bool          paired      = false;   // 짝 고리(거래)가 걸려 있다 — 짝 묶음이 확정될 때까지 혼자 묶음을 안 낸다(CCharacterStore 「짝 저장」)
         DbSavedValues savedBefore;           // 실을 때의 _dbSaved(싣기 전 값) — 실패면 되돌린다
 #if USE_INVENTORY
@@ -106,6 +109,16 @@ public:
     };
     DbFlight _dbFlight;
     bool     _channelListAsking = false;   // 채널 목록을 월드 서버에 묻는 중 — CChannelListFlow 만 쓴다
+
+    // 다른 존 서버로 채널 바꾸는 중 — IDLE 이 아니면 CGameServer::OnReceived 가 이 사람의 입력을 버린다.
+    //   저장 뒤에 값이 바뀌면 그 값은 사라지므로 막는다(world-server-plan.md 5.7)
+    enum class ChannelMoveOp : uint8_t
+    {
+        IDLE,
+        SAVING,   // 확정 저장을 기다린다
+        ASKING,   // 캐릭터 서버의 입장 번호를 기다린다
+    };
+    ChannelMoveOp _moveOp = ChannelMoveOp::IDLE;
 
     // USE_DB_WORKER: 주인 열 둘 — 불러올 때 받은 값을 들고 있다가 저장 묶음마다 싣는다. DB 의 값과 다르면 저장이 거절된다(펜스 · CDBWorker::RunBundleOnce)
     int32_t  _ownerZone = 0;

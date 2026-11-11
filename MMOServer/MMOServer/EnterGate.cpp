@@ -33,7 +33,7 @@ void CEnterGate::Erase(EntryMap::iterator it)
 }
 
 bool CEnterGate::AddNotice(const char (&code)[CODE_BYTES], CharacterId characterId, AccountId accountId,
-                           int onlineCount, int maxClients, int64_t nowMs)
+                           int onlineCount, int maxClients, int64_t nowMs, int32_t targetChannelIndex)
 {
     Sweep(nowMs);
 
@@ -51,7 +51,7 @@ bool CEnterGate::AddNotice(const char (&code)[CODE_BYTES], CharacterId character
         Erase(previous);
 
     const std::string key = KeyOf(code);
-    _byCode[key] = Entry{ characterId, accountId, nowMs + _ttlMs, true };
+    _byCode[key] = Entry{ characterId, accountId, nowMs + _ttlMs, targetChannelIndex, true };
     _codeByAccount[ToInt(accountId)] = key;
     ++_liveCount;
     return true;
@@ -86,6 +86,7 @@ EnterCodeResult CEnterGate::Consume(const char (&code)[CODE_BYTES], int64_t nowM
 
     out.characterId = it->second.characterId;
     out.accountId   = it->second.accountId;
+    out.targetChannelIndex = it->second.targetChannelIndex;
     Erase(it);
     return EnterCodeResult::Ok;
 }

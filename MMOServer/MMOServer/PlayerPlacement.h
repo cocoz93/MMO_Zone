@@ -104,6 +104,10 @@ public:
     //   끊김(OnDisconnected)과 같은 캐릭터 재접속(KickDuplicateAccount)이 같이 부른다. 부른 뒤에는 player 를 쓰지 말 것.
     void LeaveGame(CPlayer* player);
 
+    // 넘겨 보내기 — 떠나보내기와 같되 최종 저장을 안 낸다. 다른 존 서버로 넘어가는 사람이라 저장은 이미 확정됐고,
+    //   내더라도 목적지의 불러오기 뒤에 닿으면 펜스로 버려진다(world-server-plan.md 5.7). 부른 뒤에는 player 를 쓰지 말 것
+    void HandOffGame(CPlayer* player);
+
     // 존 이동 실패 통보(S2C_ZONE_CHANGE_FAIL) — 존 이동 요청·포털·방 입장 거절이 부른다. reason 은 와이어 값 그대로(Protocol.h 의 그 구조체 — 고르는 것은 부르는 쪽).
     void SendZoneChangeFail(CPlayer* target, uint8_t reason);
 

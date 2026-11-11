@@ -52,6 +52,7 @@ CCharacterServer::CCharacterServer(const CharacterServerConfig& config, const Se
     , _loginFlow(_network, _monitor, _db, _sessions, _account, _requests, _metrics, config.deleteGraceDays)
     , _rosterFlow(_network, _monitor, _db, _sessions, _zones, _jobs, _looks, _metrics, config.characterSlots, config.deleteGraceDays)
     , _selectFlow(_network, _monitor, _db, _sessions, _zones, _peers, _requests, _metrics)
+    , _handoffFlow(_monitor, _peers, _zones, _requests)
     , _zoneFlow(_monitor, _peers, _zones, _requests)
     , _webTable(CHAR_PACKET_FIRST, CHAR_PACKET_LAST)
     , _accountTable(LINK_PACKET_FIRST, LINK_PACKET_LAST)
@@ -122,6 +123,7 @@ bool CCharacterServer::RegisterRoutes()
     ok = _zoneTable.Register<LINK_ENTER_NOTICE_ACK>([this](SessionId id, CSerialBuffer* msg) { _zoneFlow.OnNoticeAck(id, msg); }) && ok;
     ok = _zoneTable.Register<LINK_ZONE_CHAR_ENTER>([this](SessionId id, CSerialBuffer* msg) { _zoneFlow.OnCharEnter(id, msg); }) && ok;
     ok = _zoneTable.Register<LINK_ZONE_CHAR_LEAVE>([this](SessionId id, CSerialBuffer* msg) { _zoneFlow.OnCharLeave(id, msg); }) && ok;
+    ok = _zoneTable.Register<LINK_HANDOFF_REQ>([this](SessionId id, CSerialBuffer* msg) { _handoffFlow.OnRequest(id, msg); }) && ok;
     return ok;
 }
 
