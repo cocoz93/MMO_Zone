@@ -447,9 +447,9 @@ private:
     CAccountMailClient _accountMailClient{ _worldLink, _linkRequests };
 
     // 우편 — 우편 요청 · 저장소의 우편 회신(IMailStoreEvents) · 결과 패킷 · 입장 때 수(MailHandler.h).
-    //   ★ _sessionHub · _itemHandler · _characterStore · _mailSystem · _accountMailClient · _gameMonitor 보다 뒤에 선언 — 그 참조를 받는다.
-    //     저장소(_characterStore)는 거꾸로 이것의 참조를 받는다 — 묶기만 한다. _entryHandler 가 이것의 참조를 받으므로 그보다 앞이다.
-    CMailHandler _mailHandler{ _sessionHub, _itemHandler, _characterStore, _mailSystem, _accountMailClient, _gameMonitor };
+    //   ★ _sessionHub · _selfNotifier · _itemHandler · _characterStore · _mailSystem · _accountMailClient · _gameMonitor 보다 뒤에 선언 — 그 참조를 받는다.
+    //     저장소(_characterStore)는 거꾸로 이것의 참조를 받는다 — 묶기만 한다. _entryHandler · _commandHandler(/accmail)가 이것의 참조를 받으므로 그보다 앞이다.
+    CMailHandler _mailHandler{ _sessionHub, _selfNotifier, _itemHandler, _characterStore, _mailSystem, _accountMailClient, _gameMonitor };
 #endif
 
     CEntryHandler _entryHandler{ _sessionHub, _placement,
@@ -468,8 +468,8 @@ private:
                                  _mapManager, _gameMonitor, _gameDataFiles, _enterGate, _zoneLink, _worldLink };
 
     // 채팅 명령 — '/' 채팅의 명령 표 · 운영자 권한 · /item(USE_INVENTORY) · /gm · /die(USE_COMBAT)(CommandHandler.h · 10-26 CChatHandler 에서 떼어 냄).
-    //   ★ _sightBroadcaster · _selfNotifier · _gameMonitor · _mapManager 와 명령이 쓰는 _statSystem · _combatSystem · _frameCount · _itemHandler · _gameDataFiles
-    //     보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
+    //   ★ _sightBroadcaster · _selfNotifier · _gameMonitor · _mapManager 와 명령이 쓰는 _statSystem · _combatSystem · _frameCount · _itemHandler · _gameDataFiles ·
+    //     _partyHandler · _mailHandler 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
     CCommandHandler _commandHandler{ _sightBroadcaster, _selfNotifier, _gameMonitor,
 #if USE_COMBAT
                                      _statSystem, _combatSystem, _frameCount,
@@ -479,6 +479,9 @@ private:
 #endif
 #if USE_PARTY
                                      _partyHandler,
+#endif
+#if USE_MAIL
+                                     _mailHandler,
 #endif
                                      _mapManager };
 

@@ -8,6 +8,7 @@
 #include "SerialBuffer.h"
 #include <Protocol/Protocol.h>
 #include <Common/ErrorLog.h>  // SLOG_INFO — /item · /gm · /die 기록
+#include <Text/TextUtf.h>     // 대리쌍 가르기(낱말 나누기)
 #include <cassert>            // 직렬화 크기 검증
 #include "SelfNotifier.h"     // 명령 답(알림 한 줄)
 #include "GameMonitor.h"      // 명령 거절 · /gm 켜고 끈 수(_chat)
@@ -18,6 +19,9 @@
 #if USE_PARTY
 #include "PartyHandler.h"     // /party
 #include <Identity/CharacterName.h>
+#endif
+#if USE_MAIL
+#include "MailHandler.h"      // /accmail — 운영자 지급
 #endif
 #if USE_INVENTORY
 #include "ItemHandler.h"
@@ -35,9 +39,11 @@ using namespace PacketBuild;   // 아래 조립 함수(MakeActorSpeed)가 머리
 
 namespace
 {
-    // 채팅(UTF-16) → 낱말들(UTF-8). 한글 인자는 /party 이름이 쓴다.
+    // 채팅(UTF-16) → 낱말들(UTF-8). 한글 인자는 /party 이름 · /accmail 제목 · 본문이 쓴다.
     //   ★ NUL 에서 멈춘다 — 웹·콘솔 클라는 끝에 NUL 을 붙여 보내고(proto.js chat()), RecvChat 의
     //     글자 수는 헤더 크기로 역산해 그 NUL 까지 센다. 안 멈추면 마지막 낱말이 "5\0" 이 되어 숫자로 안 읽힌다.
+    //   대리쌍(이모지 같은 BMP 밖 글자 — 두 칸)은 4바이트 한 글자로 옮긴다(/accmail 본문 · mail-plan.md 6절 보내기).
+    //   짝 없는 칸은 그 칸 하나를 3바이트로 그대로 둔다 — 받는 쪽(TextUtf::FromUtf8 · CharacterName::FromUtf8)이 대리쌍 영역이라 거절한다.
     void SplitCommandWords(const ChatChar* msg, uint16_t len, std::vector<std::string>& out)
     {
         out.clear();
@@ -64,6 +70,15 @@ namespace
             {
                 cur += static_cast<char>(0xC0 | (c >> 6));
                 cur += static_cast<char>(0x80 | (c & 0x3F));
+            }
+            else if (TextUtf::IsHighSurrogate(c) && i + 1 < len && TextUtf::IsLowSurrogate(msg[i + 1]))
+            {
+                const uint32_t cp = 0x10000 + ((static_cast<uint32_t>(c) - 0xD800) << 10) + (static_cast<uint32_t>(msg[i + 1]) - 0xDC00);
+                cur += static_cast<char>(0xF0 | (cp >> 18));
+                cur += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+                cur += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                cur += static_cast<char>(0x80 | (cp & 0x3F));
+                ++i;
             }
             else
             {
@@ -118,6 +133,9 @@ void CCommandHandler::Handle(CPlayer* player, const ChatChar* msg, uint16_t len)
 #if USE_PARTY
         { "/party", &CCommandHandler::RunPartyCommand },   // /party <이름> — 다른 존 서버의 사람도 부른다
 #endif
+#if USE_MAIL
+        { "/accmail", &CCommandHandler::RunAccMailCommand },   // /accmail <계정번호|all> <돈> <아이템:개수,…|-> <제목> <본문…> · /accmail confirm
+#endif
         { nullptr, nullptr },   // 빈 줄 — 명령이 하나도 없는 빌드(전투를 끈 빌드)에서도 표가 크기 0 이 되지 않게(C++ 는 크기 0 배열을 못 둔다)
     };
 
@@ -161,6 +179,16 @@ void CCommandHandler::RunPartyCommand(CPlayer* player, const std::vector<std::st
     }
     _partyHandler.InviteByName(player, name);
     SLOG_INFO("[CMD] /party {} (character={})", words[1], player->_characterId);
+}
+#endif
+
+#if USE_MAIL
+// /accmail — 운영자의 계정 우편 지급(mail-plan.md 6절 보내기). 인자 검사 · 전 계정 대기 · 보내기 · 답은 우편 처리기 몫이다
+//   (답이 서버 간 왕복 뒤에 와서 그때 운영자를 다시 찾아야 하고, 30초 대기도 우편 처리기가 든다). 여기는 표의 입구다.
+void CCommandHandler::RunAccMailCommand(CPlayer* player, const std::vector<std::string>& words)
+{
+    if (!_mailHandler.RunAdminSend(player, words))
+        _gameMonitor._chat._commandRejected[static_cast<int>(ChatCommandReject::BAD_ARGS)].Inc();
 }
 #endif
 

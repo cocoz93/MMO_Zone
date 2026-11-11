@@ -5,6 +5,7 @@
 // [책임]
 //  - 명령 틀 — 낱말 나누기 · 이름 → 처리 함수 표 · 운영자 권한 · 거절 지표(_chat — 지표 이름은 떼기 전 그대로)
 //  - /item(가방에 바로 넣기 — USE_INVENTORY) · /gm(GM 모드 켜고 끄기 — USE_COMBAT) · /die(그 자리에서 쓰러지기 — USE_COMBAT)
+//  - /party(파티에 부르기 — USE_PARTY) · /accmail(계정 우편 지급의 입구 — USE_MAIL · 검사 · 대기 · 보내기는 CMailHandler)
 //
 // [경계]
 //  '/' 가로채기(방송 안 함)는 CChatHandler::RecvChat 이 하고 여기로 넘긴다. 운영자 표시(_isAdmin)를 세우는 곳은 /test 한 곳이다 — 나머지 명령은
@@ -40,6 +41,7 @@ class CGameDataFiles;
 #endif
 
 class CPartyHandler;
+class CMailHandler;
 
 class CCommandHandler
 {
@@ -57,6 +59,9 @@ public:
 #if USE_PARTY
                     CPartyHandler& partyHandler,
 #endif
+#if USE_MAIL
+                    CMailHandler& mailHandler,
+#endif
                     CMapManager& mapManager)
         : _sightBroadcaster(sightBroadcaster), _selfNotifier(selfNotifier), _gameMonitor(gameMonitor),
 #if USE_COMBAT
@@ -67,6 +72,9 @@ public:
 #endif
 #if USE_PARTY
           _partyHandler(partyHandler),
+#endif
+#if USE_MAIL
+          _mailHandler(mailHandler),
 #endif
           _mapManager(mapManager) {}
 
@@ -81,6 +89,9 @@ public:
 private:
 #if USE_PARTY
     void RunPartyCommand(CPlayer* player, const std::vector<std::string>& words);  // /party <이름> — 파티에 부르기
+#endif
+#if USE_MAIL
+    void RunAccMailCommand(CPlayer* player, const std::vector<std::string>& words);   // /accmail — 계정 우편 지급(CMailHandler::RunAdminSend)
 #endif
 #if USE_INVENTORY
     void RunItemCommand(CPlayer* player, const std::vector<std::string>& words);   // /item <아이템번호> [개수] — 가방에 바로 넣기
@@ -104,6 +115,9 @@ private:
 #endif
 #if USE_PARTY
     CPartyHandler&         _partyHandler;       // /party 이름
+#endif
+#if USE_MAIL
+    CMailHandler&          _mailHandler;        // /accmail
 #endif
     CMapManager&           _mapManager;         // 존 찾기(/gm · /die)
     bool                   _allowDevAdmin = false;   // SetAllowDevAdmin

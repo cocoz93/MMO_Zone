@@ -18,6 +18,7 @@
 #endif
 #include <Identity/CharacterName.h>    // 받는 이름 검사 · 이름 UTF-8
 #include <Text/TextUtf.h>              // 제목 · 본문 검사와 UTF-8
+#include <Data/GameDataCsv.h>          // /accmail 인자를 숫자로 읽는다(/item 과 같은 규칙)
 #include <Protocol/ServerLinkProtocol.h>   // LinkAccMailFull · AccMailState — 계정 우편 한 통(읽기만)
 #include <Common/ErrorLog.h>
 
@@ -728,6 +729,104 @@ AccTakeDecision CMailSystem::AfterAccClaim(CPlayer* p, const LinkAccMailFull& ma
     SLOG_INFO("[MAIL] take character={} mail={} items=[{}] money {} account_mail={}",
               s.characterId, 0, ItemsText(attach), money, mail.mailId);
     return AccNext(AccTakeStep::SAVE);
+}
+
+// ==========================================================================
+// 운영자 지급 — /accmail 인자 (mail-plan.md 6절 보내기)
+// ==========================================================================
+std::string CMailSystem::ParseAdminMail(const std::vector<std::string>& words, AdminMailForm& out) const
+{
+    out = AdminMailForm{};
+    if (words.size() < 6)
+        return "쓰는 법: /accmail <계정번호|all> <돈> <아이템:개수,…|-> <제목> <본문…>";
+
+    // 계정 번호 — all 이거나 1 이상
+    if (words[1] == "all")
+    {
+        out.all = true;
+    }
+    else if (!GameDataCsv::ParseInt(words[1], out.targetAccount) || out.targetAccount < 1)
+    {
+        return "계정 번호가 틀렸습니다(1 이상 또는 all): " + words[1];
+    }
+
+    // 돈 — 0 ~ 들 수 있는 상한(받는 사람이 넘으면 받기가 MONEY_FULL 로 막고 우편은 남는다)
+    if (!GameDataCsv::ParseInt(words[2], out.money) || out.money < 0 || out.money > MONEY_MAX)
+        return "돈은 0 ~ " + std::to_string(MONEY_MAX) + " 전입니다: " + words[2];
+
+    // 아이템 — 「-」 = 없음 · 아니면 번호:개수 를 쉼표로. 칸 수를 먼저 센다(표의 아이템 종류 수와 상관없이 8칸 상한이 먼저 걸리게)
+    if (words[3] != "-")
+    {
+        std::vector<std::string> pieces;
+        const std::string& list = words[3];
+        size_t start = 0;
+        for (;;)
+        {
+            const size_t comma = list.find(',', start);
+            pieces.push_back(list.substr(start, comma == std::string::npos ? std::string::npos : comma - start));
+            if (comma == std::string::npos)
+                break;
+            start = comma + 1;
+        }
+        if (pieces.size() > static_cast<size_t>(MAIL_MAX_ITEMS))
+            return "아이템은 " + std::to_string(MAIL_MAX_ITEMS) + "칸까지입니다";
+
+        for (const std::string& piece : pieces)
+        {
+            const size_t colon = piece.find(':');
+            int64_t itemId = 0;
+            int64_t count = 0;
+            if (colon == std::string::npos || !GameDataCsv::ParseInt(piece.substr(0, colon), itemId) ||
+                !GameDataCsv::ParseInt(piece.substr(colon + 1), count))
+                return "아이템은 번호:개수,… 또는 - 입니다: " + piece;
+            // 번호 범위를 먼저 본다 — int32 로 줄이기 전에 걸러야 큰 값이 엉뚱한 번호로 접히지 않는다(/item 과 같은 순서)
+            const ItemDef* def = (itemId > 0 && itemId <= CItemTable::MAX_ITEM_ID)
+                               ? _tables.Item().Find(static_cast<int32_t>(itemId))
+                               : nullptr;
+            if (def == nullptr)
+                return "없는 아이템 번호입니다: " + piece.substr(0, colon);
+            // 돈 아이템은 첨부로 안 받는다 — 돈은 돈 칸에. 첨부로 들어가면 받을 때 가방의 돈은 늘지만
+            //   돈 들어옴 지표(mmo_money_in_total{source="mail"})는 돈 칸만 센다(ApplyTake · AfterAccClaim 의 _moneyIn)
+            if (def->store == ItemStore::MONEY)
+                return "돈은 아이템이 아니라 돈 칸에 적습니다: " + piece.substr(0, colon);
+            if (count < 1 || count > def->maxStack)
+                return def->name + " 개수는 1 ~ " + std::to_string(def->maxStack) + " 입니다: " + piece.substr(colon + 1);
+            for (int i = 0; i < out.items.count; ++i)
+            {
+                if (out.items.items[i].itemId == def->itemId)
+                    return "같은 아이템을 두 번 적었습니다: " + piece.substr(0, colon);
+            }
+            out.items.items[out.items.count++] = MailItemEntry{ def->itemId, static_cast<int32_t>(count) };
+        }
+    }
+
+    // 제목 — 낱말 하나라 공백을 못 넣는다 · '_' 를 공백으로(2절 12번 「/accmail 제목」)
+    std::string title = words[4];
+    std::replace(title.begin(), title.end(), '_', ' ');
+    const bool titleCells = TextUtf::FromUtf8(title.data(), title.size(), out.title, MAIL_TITLE_MAX);
+    const int titleLen = titleCells ? TextUtf::CellLength(out.title, MAIL_TITLE_MAX) : 0;
+    if (titleLen < 1 || TextUtf::HasControl(out.title, titleLen, false) || OnlySpaces(out.title, titleLen))
+        return "제목은 1 ~ " + std::to_string(MAIL_TITLE_MAX) + "자입니다(공백은 _ · 공백만은 안 됨): " + words[4];
+
+    // 본문 — 제목 뒤 낱말을 공백 하나로 잇는다(채팅창 200자 안 · 2절 13번 「/accmail 길이」)
+    std::string body = words[5];
+    for (size_t i = 6; i < words.size(); ++i)
+        body += ' ' + words[i];
+    if (!TextUtf::FromUtf8(body.data(), body.size(), out.body, MAIL_BODY_MAX) ||
+        TextUtf::HasControl(out.body, TextUtf::CellLength(out.body, MAIL_BODY_MAX), true))
+        return "본문은 " + std::to_string(MAIL_BODY_MAX) + "자까지입니다(깨진 글자 · 제어 문자 안 됨)";
+    return std::string();
+}
+
+bool CMailSystem::MakeBatchId(int64_t& out)
+{
+    uint64_t raw = 0;
+    out = 0;
+    if (!SecureRandom::Fill(&raw, sizeof(raw)))
+        return false;
+    raw &= 0x7FFFFFFFFFFFFFFFull;   // 63비트 — batch_id 열은 BIGINT(부호 있음)이고 0 은 「일괄 아님」이다
+    out = (raw == 0) ? 1 : static_cast<int64_t>(raw);
+    return true;
 }
 
 #endif // USE_MAIL

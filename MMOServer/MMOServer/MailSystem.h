@@ -7,6 +7,7 @@
 //    가방에서 빼고 문장을 대기로 올린다(FinishSend)
 //  - 받기 — 복사본에 넣어 보고(CheckTake) 가방에 넣고 문장을 대기로 올린다(ApplyTake · FinishTake)
 //  - 계정 우편 받기 — 서버 간 답과 DB 회신마다 다음 걸음을 정한다(AfterAccRead · AfterAccMoved · AfterAccClaim · mail-plan.md 6절)
+//  - 운영자 지급(/accmail) — 낱말을 읽어 검사하고(ParseAdminMail) 전 계정 일괄 번호를 만든다(MakeBatchId)
 //  - 사람별 우편 상태(CPlayer::_mailOp)의 전이 — 여는 곳(Begin*) · 닫는 곳(End · Confirm)이 전부 여기다
 //  - 성사 로그 [MAIL] 한 줄 · 돈 지표 · 성사 수
 //
@@ -26,6 +27,8 @@
 #if USE_MAIL
 
 #include <cstdint>
+#include <string>
+#include <vector>
 #include <Protocol/Protocol.h>   // MailResult · MSG_C2S_MAIL_SEND
 #include "MapTable.h"            // MapKind — 우편이 되는 맵 종류
 #include "MailAttach.h"          // MailAttach::Items
@@ -58,6 +61,17 @@ struct AccTakeDecision
     AccTakeStep step;
     MailResult  result;              // CLOSE · UNCLAIM_CLOSE 의 사유(나머지는 OK)
     int64_t     otherCharacterId;    // OTHER_NAME — 이름을 읽을 캐릭터
+};
+
+// 운영자 지급(/accmail)의 내용 — 채팅 낱말에서 읽고 검사를 지난 것(ParseAdminMail · mail-plan.md 6절 보내기)
+struct AdminMailForm
+{
+    bool              all = false;            // 전 계정 — targetAccount 0 · 일괄 번호를 단다(CMailHandler 가 30초 들고 있다)
+    int64_t           targetAccount = 0;      // 한 계정이면 그 번호(1 이상)
+    int64_t           money = 0;              // 0 ~ MONEY_MAX
+    MailAttach::Items items;                  // 0 ~ MAIL_MAX_ITEMS 칸 — 표에 있는 아이템(돈 아이템 아님) · 개수 1 ~ maxStack · 같은 아이템 한 번
+    char16_t          title[MAIL_TITLE_MAX]{};   // 1 ~ 20자 · '_' 를 공백으로 바꾼 뒤
+    char16_t          body[MAIL_BODY_MAX]{};     // 0 ~ 200자 · 제목 뒤 낱말을 공백 하나로 이은 것
 };
 
 // 운영 값 — ServerConfig [Mail]. 기본값은 사용자 결정(mail-plan.md 1절 · 11-05) 그대로다
@@ -132,6 +146,15 @@ public:
     bool Waiting(const CPlayer* p, DBMailOp op) const;
     // 우편 문장이 든 묶음이 확정됐다 — 상태가 그 문장을 기다리던 *_SAVE 면 IDLE 로 두고(_mailResume 도 끈다) true
     bool Confirm(CPlayer* p, DBMailStmtKind kind);
+
+    // ── 운영자 지급 (/accmail · mail-plan.md 6절 보내기) — 사람별 우편 상태를 안 쓴다(운영자의 가방이 안 바뀐다) ──
+    // words = 채팅 낱말(0번이 "/accmail"). 「/accmail <계정번호|all> <돈> <아이템:개수,…|-> <제목> <본문…>」 을 읽어
+    //   계정 번호 → 돈 → 아이템(8칸 → 꼴 · 표 · 돈 아이템 아님 · 개수 1 ~ maxStack · 같은 아이템) → 제목 → 본문 차례로 본다.
+    //   통과하면 빈 문자열 · 아니면 운영자에게 보일 거절 한 줄(UTF-8). 첨부와 돈이 둘 다 없어도 된다(글만 있는 공지 · 2절 8번).
+    //   아이템 검사가 여기 있는 까닭 — 아이템 표가 존 서버에만 있다(6절 「단, 아이템 검사는 존 서버에 있다」)
+    std::string ParseAdminMail(const std::vector<std::string>& words, AdminMailForm& out) const;
+    // 전 계정 일괄 번호 — 63비트 난수(1 이상). false = 난수를 못 얻음(그 값을 쓰면 안 된다)
+    static bool MakeBatchId(int64_t& out);
 
 private:
     // 받기 공통 판정 — NO_ATTACH → ITEM_UNKNOWN(바이트 깨짐 · 돈 음수 · 표에 없음) → BAG_FULL·MONEY_FULL. 아무것도 안 바꾼다.

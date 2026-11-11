@@ -11,6 +11,8 @@
 #include "MailSystem.h"
 #include "MailDraft.h"
 #include "SessionHub.h"
+#include "SelfNotifier.h"    // 운영자 지급의 알림 한 줄
+#include "EnterGate.h"       // NowMs — 전 계정 지급 대기 30초
 #include "ItemHandler.h"
 #include "Player.h"
 #include "GameMonitor.h"
@@ -914,6 +916,172 @@ void CMailHandler::SendList(CPlayer* player, const std::vector<DBMailBrief>& lin
         _gameMonitor._mail._listPagesSent.Inc();
         sent += count;
     } while (sent < total);
+}
+
+// ==========================================================================
+// 운영자 지급 — /accmail (mail-plan.md 6절 보내기)
+// ==========================================================================
+namespace
+{
+    // 1,000 처럼 세 자리마다 쉼표 — 미리 보기 줄의 돈(6절 「전 계정 지급 대기 — 돈 1,000 · …」)
+    std::string WithCommas(int64_t v)
+    {
+        std::string digits = std::to_string(v);
+        const size_t start = (!digits.empty() && digits[0] == '-') ? 1 : 0;
+        for (size_t i = digits.size(); i > start + 3; i -= 3)
+            digits.insert(i - 3, 1, ',');
+        return digits;
+    }
+
+    std::string CellsText(const char16_t* cells, int capacity)
+    {
+        std::string out;
+        const int len = TextUtf::CellLength(cells, capacity);
+        if (len < 0 || !TextUtf::ToUtf8(cells, len, out))
+            out = "?";   // ParseAdminMail 이 검사한 칸이라 나올 수 없다 — 로그 · 알림 한 줄만 망가진다
+        return out;
+    }
+
+    std::string AdminItemsText(const MailAttach::Items& items)
+    {
+        std::string s;
+        for (int i = 0; i < items.count; ++i)
+        {
+            if (i > 0)
+                s += ", ";
+            s += std::to_string(items.items[i].itemId) + " x " + std::to_string(items.items[i].count);
+        }
+        return s;
+    }
+
+    std::string AdminTargetText(int64_t target)
+    {
+        return target == 0 ? std::string("all") : std::to_string(target);
+    }
+}
+
+bool CMailHandler::RunAdminSend(CPlayer* player, const std::vector<std::string>& words)
+{
+    const uint64_t now = CEnterGate::NowMs();
+    const bool held = _adminBatch.active && now - _adminBatch.createdMs <= ADMIN_BATCH_HOLD_MS;
+
+    // confirm — 같은 운영자의 대기만 보낸다(6절 「같은 운영자의 /accmail confirm만 그 번호로 요청을 보낸다」)
+    if (words.size() == 2 && words[1] == "confirm")
+    {
+        if (!held || _adminBatch.operatorId != player->_characterId)
+        {
+            _selfNotifier.SendSystemMessage(player, "보낼 전 계정 지급이 없습니다 — /accmail all … 을 친 뒤 30초 안에 confirm");
+            return false;
+        }
+        SendAdminMail(player, _adminBatch.form, _adminBatch.batchId);
+        return true;
+    }
+
+    AdminMailForm form;
+    const std::string reject = _mailSystem.ParseAdminMail(words, form);
+    if (!reject.empty())
+    {
+        _selfNotifier.SendSystemMessage(player, reject);
+        return false;
+    }
+
+    if (!form.all)
+    {
+        SendAdminMail(player, form, 0);   // 한 계정 — 번호가 없다. 답을 못 받으면 운영자가 account_mail 을 보고 다시 보낸다(6절)
+        return true;
+    }
+
+    // 전 계정 — 번호를 만들어 들고 미리 보여 준다. 다시 치면 새 내용 · 새 번호
+    int64_t batchId = 0;
+    if (!CMailSystem::MakeBatchId(batchId))
+    {
+        SLOG_ERROR("[MAIL] accmail batch id not made (character={}) — 난수를 못 얻음", player->_characterId);
+        _selfNotifier.SendSystemMessage(player, "일괄 번호를 만들지 못했습니다 — 다시 쳐 주십시오");
+        return true;
+    }
+    _adminBatch.active = true;
+    _adminBatch.operatorId = player->_characterId;
+    _adminBatch.batchId = batchId;
+    _adminBatch.createdMs = now;
+    _adminBatch.form = form;
+    SLOG_INFO("[MAIL] accmail batch held by={} batch={} money {} items=[{}] title=\"{}\"",
+              player->_characterId, batchId, form.money, AdminItemsText(form.items), CellsText(form.title, MAIL_TITLE_MAX));
+    _selfNotifier.SendSystemMessage(player, "전 계정 지급 대기 — 돈 " + WithCommas(form.money) + " · 아이템 " + std::to_string(form.items.count)
+                                          + "칸 · 제목 " + CellsText(form.title, MAIL_TITLE_MAX));
+    _selfNotifier.SendSystemMessage(player, "30초 안에 /accmail confirm");
+    return true;
+}
+
+void CMailHandler::SendAdminMail(CPlayer* player, const AdminMailForm& form, int64_t batchId)
+{
+    LINK_ACCMAIL_SEND_REQ request{};
+    request.targetAccount = form.all ? 0 : form.targetAccount;
+    request.batchId = batchId;
+    request.sentBy = ToInt(player->_characterId);
+    request.money = form.money;
+    static_assert(sizeof(request.title) == sizeof(form.title) && sizeof(request.body) == sizeof(form.body),
+                  "서버 간 글자 칸 = 존 서버 우편 칸 — 칸 그대로 옮긴다");
+    std::memcpy(request.title, form.title, sizeof(form.title));
+    std::memcpy(request.body, form.body, sizeof(form.body));
+    uint8_t attach[MailAttach::MAX_BYTES] = {};
+    const int len = MailAttach::Write(form.items, attach);   // ParseAdminMail 이 칸 수를 0 ~ 8 로 묶었다 — -1 은 나올 수 없다
+    static_assert(MailAttach::MAX_BYTES == LINK_MAIL_ATTACH_BYTES, "첨부 바이트 상한 = 서버 간 첨부 칸");
+    request.attachLen = static_cast<uint8_t>(len < 0 ? 0 : len);
+    std::memcpy(request.attach, attach, sizeof(attach));
+
+    const SessionId sessionId = player->_sessionId;
+    const CharacterId characterId = player->_characterId;
+    const int64_t target = request.targetAccount;
+    // 누가 · 무엇을 · 누구에게(6절 보내기 끝 줄) — 계정 서버 로그 · account_mail.sent_by · batch_id 에도 남는다
+    SLOG_INFO("[MAIL] accmail send by={} target={} batch={} money {} items=[{}] title=\"{}\"",
+              characterId, AdminTargetText(target), batchId, form.money, AdminItemsText(form.items), CellsText(form.title, MAIL_TITLE_MAX));
+    const bool sent = _accountMailClient.Send(request,
+        [this, sessionId, characterId, target, batchId](const LINK_ACCMAIL_SEND_ACK* ack) { OnAdminSendAck(sessionId, characterId, target, batchId, ack); });
+    if (!sent)
+    {
+        SLOG_WARN("[MAIL] accmail not sent (by={}, target={}, batch={}) — 월드 서버 연결 없음", characterId, AdminTargetText(target), batchId);
+        _selfNotifier.SendSystemMessage(player, "월드 서버와 연결이 없어 지급하지 못했습니다");
+    }
+}
+
+void CMailHandler::OnAdminSendAck(SessionId sessionId, CharacterId characterId, int64_t target, int64_t batchId, const LINK_ACCMAIL_SEND_ACK* ack)
+{
+    // 로그는 운영자가 나갔어도 남긴다 — 무엇이 들어갔는지의 기록이다
+    const bool answered = (ack != nullptr);
+    const LinkMailResult result = answered ? static_cast<LinkMailResult>(ack->result) : LinkMailResult::OK;
+    const int64_t rows = answered ? ack->rows : 0;
+    if (!answered)
+        SLOG_WARN("[MAIL] accmail no answer (by={}, target={}, batch={}) — 다시 보내지 않는다", characterId, AdminTargetText(target), batchId);
+    else
+        SLOG_INFO("[MAIL] accmail result {} rows={} (by={}, target={}, batch={})",
+                  static_cast<int>(ack->result), rows, characterId, AdminTargetText(target), batchId);
+
+    CPlayer* player = FindLinkOwner(_sessionHub, _gameMonitor, sessionId, characterId);
+    if (player == nullptr)
+        return;
+
+    std::string line;
+    if (!answered)
+    {
+        line = (target == 0)
+             ? "결과를 못 받았습니다 — 30초 안에 /accmail confirm 을 다시 쳐도 같은 번호라 두 번 안 들어갑니다"
+             : "결과를 못 받았습니다 — account_mail 을 확인한 뒤 다시 보내십시오";
+    }
+    else if (result == LinkMailResult::OK)
+    {
+        line = (target == 0)
+             ? (rows > 0 ? "전 계정 지급했습니다 — " + WithCommas(rows) + "행" : std::string("이미 들어간 일괄입니다 — 0행"))
+             : "계정 " + std::to_string(target) + " 에 지급했습니다";
+    }
+    else if (result == LinkMailResult::NO_ACCOUNT)
+    {
+        line = "없는 계정입니다: " + std::to_string(target);
+    }
+    else
+    {
+        line = std::string("지급하지 못했습니다 — ") + MailResultName(FromLink(ack->result));
+    }
+    _selfNotifier.SendSystemMessage(player, line);
 }
 
 #endif // USE_MAIL
