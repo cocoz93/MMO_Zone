@@ -100,7 +100,7 @@ public:
               int rioWorkers = 0, int completionBatch = 0, int sendDepth = 1);
 
     // DB 저장 파이프라인 초기화 (USE_DB_WORKER=0이면 no-op). Start() 전에 호출. 몸은 캐릭터 저장소(CCharacterStore::Init).
-    bool InitDB(const DBConfig& dbConfig, int savePeriodSec, int workerCount, int queueMax, ZoneServerId zoneServerId);
+    bool InitDB(const DBConfig& dbConfig, int savePeriodSec, int retrySec, int reconnectMinSec, int workerCount, int queueMax, ZoneServerId zoneServerId);
 
     // 이벤트 큐 과부하 시 신규 accept 차단 임계 (0=끄기). Init() 뒤, Start() 전에 호출.
     void SetEventQueueAcceptLimit(int limit)

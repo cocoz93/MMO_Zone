@@ -93,6 +93,8 @@ struct ServerConfig
     std::string dbDatabase          = "gamedb";
     int         dbWorkers           = 0;
     int         dbSavePeriodSec     = 0;    // dirty 저장 주기(초)
+    int         dbRetrySec          = 60;   // 실패한 저장을 다시 싣는 간격(초) — 60 = 주기를 5분으로 늘리기 전의 값이라 재시도 간격이 그대로다
+    int         dbReconnectMinSec   = 5;    // 재연결 실패 뒤 다시 해 보기까지(초) — DB 가 돌아오면 늦어도 5초 안에 붙고, 죽은 DB 는 분당 12회로 묶인다
     int         dbConnectTimeoutSec = 3;
     int         dbRwTimeoutSec      = 5;    // 읽기/쓰기 소켓 타임아웃(초) — DB 무응답 시 재연결 판단
     int         dbQueueMax          = 0;    // 백프레셔: 워커당 큐 상한(초과분 드롭)
@@ -186,6 +188,8 @@ struct ServerConfig
         dbDatabase          = ini.GetString("DB", "Database", dbDatabase);
         dbWorkers           = ini.GetInt("DB", "Workers", dbWorkers);
         dbSavePeriodSec     = ini.GetInt("DB", "SavePeriodSec", dbSavePeriodSec);
+        dbRetrySec          = ini.GetInt("DB", "RetrySec", dbRetrySec);
+        dbReconnectMinSec   = ini.GetInt("DB", "ReconnectMinSec", dbReconnectMinSec);
         dbConnectTimeoutSec = ini.GetInt("DB", "ConnectTimeoutSec", dbConnectTimeoutSec);
         dbRwTimeoutSec      = ini.GetInt("DB", "RwTimeoutSec", dbRwTimeoutSec);
         dbQueueMax          = ini.GetInt("DB", "QueueMax", dbQueueMax);

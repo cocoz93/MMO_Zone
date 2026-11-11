@@ -159,6 +159,8 @@ private:
             ss << "# HELP mmo_db_save_pending_leave Leave records not yet confirmed by the DB (0 when quiet)\n";
             ss << "# TYPE mmo_db_save_pending_leave gauge\n";
             ss << "mmo_db_save_pending_leave " << sv._pendingLeave << "\n\n";
+            WriteCounter(ss, "mmo_db_save_retry_total",
+                         "Saves sent again by the retry timer (revived bundles, leave records, trade pairs)", sv._retry);
             WriteCounter(ss, "mmo_db_save_lost_total",
                          "Save bundles still unconfirmed after the shutdown drain (0 expected)", sv._lost);
         }

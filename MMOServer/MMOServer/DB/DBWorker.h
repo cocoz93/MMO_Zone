@@ -37,6 +37,7 @@ constexpr int32_t DB_HP_MP_UNSAVED = -1;
 
 #include <thread>
 #include <mutex>
+#include <chrono>
 #include <condition_variable>
 #include <vector>
 #include <atomic>
@@ -294,6 +295,7 @@ struct DBWorkerSlot
     size_t                   loadCount = 0;   // queue 안의 불러오기 수(mutex 보호) — 저장 상한과 따로 센다
     size_t                   bundleCount = 0; // queue 안의 저장 묶음 수(mutex 보호) — 묶음끼리 센 상한(EnqueueSave)
     void*                    mysql = nullptr; // 실제 MYSQL* (헤더 오염 차단 위해 void*)
+    std::chrono::steady_clock::time_point lastFailedConnect{};   // 마지막 재연결 실패 시각 — 기본값이면 실패 기록 없음(ReconnectDue)
     void*                    stmt[DB_STMT_COUNT] = {};   // MYSQL_STMT* — 문장별 prepared 핸들 (커넥션 종속, DBStmt 순서)
     DBCharRow                bSave{};         // 캐릭터 행 UPSERT 파라미터 버퍼 — execute 직전 묶음 머리의 행을 통째로 복사. 열 표(kCharColumns)가 멤버 자리를 가리킨다
     DBCharRow                bLoad{};         // 캐릭터 행 SELECT — characterId 가 WHERE 파라미터, 나머지 멤버가 결과 열(fetch 가 채운다)
@@ -320,7 +322,8 @@ public:
 
     // K 커넥션 + K 워커 스레드 시작. 하나라도 접속 실패 시 전체 롤백 후 false (fail-fast).
     //   zoneServerId = 이 존 서버의 번호 — 불러올 때 주인으로 적는다(펜스).
-    bool Start(const DBConfig& config, int workerCount, int queueMax, ZoneServerId zoneServerId);
+    //   reconnectMinSec = 재연결이 실패한 뒤 다시 해 보기까지의 최소 간격.
+    bool Start(const DBConfig& config, int workerCount, int queueMax, int reconnectMinSec, ZoneServerId zoneServerId);
 
     // 게임루프 전용 — 불러오기 1건. 저장과 같은 슬롯 큐(characterId%K)에 넣어 캐릭터별 순서를 지킨다.
     //   저장 상한(queueMax)은 건너뛴다 — 저장은 버려도 다음 주기가 덮지만, 불러오기는 버리면 그 사람이
@@ -380,6 +383,7 @@ private:
     // 가방·소유 표 문장의 오류 분류(유실 / 그 밖). stmt 는 MYSQL_STMT* — 헤더를 mysql.h 로 더럽히지 않으려고 void*
     static LoadOutcome ClassifyStmtError(void* stmt, const char* what, CharacterId characterId);
     // 불러오기용 재연결 — 이 묶음에서 이미 실패했으면 시도하지 않는다(죽은 DB 에 불러오기마다 접속 제한 시간을 쓰지 않게).
+    bool ReconnectDue(const DBWorkerSlot& slot) const;   // 마지막 실패에서 최소 간격이 지났나 — 재연결을 부르는 자리 둘이 같이 본다
     bool TryReconnectForLoad(DBWorkerSlot& slot, bool& reconnectFailedThisBatch);
     void PushResult(const DBResult& result);  // 워커 스레드 → 회신 큐
 
@@ -417,6 +421,7 @@ private:
     int              _workerCount = 0;   // Start 가 넣는다
     int              _queueMax    = 0;
     ZoneServerId     _zoneServerId{ 0 };   // Start 가 넣는다 — 불러올 때 주인으로 적는 번호
+    std::chrono::seconds _reconnectMin{ 5 };   // Start 가 넣는다 — ReconnectDue 의 간격
 
     std::vector<std::unique_ptr<DBWorkerSlot>> _workers;
     std::atomic<bool> _stop{ false };

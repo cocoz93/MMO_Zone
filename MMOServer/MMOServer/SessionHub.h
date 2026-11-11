@@ -56,6 +56,9 @@ public:
     // 칸 수(= maxClients) — 전원 저장이 배치를 미리 잡는 데 쓴다
     size_t SlotCount() const { return _slots.size(); }
 
+    // 칸 번호로 보기 — 주기 저장이 칸을 나눠 돈다. 빈 칸이면 nullptr. idx < SlotCount() 는 부르는 쪽이 지킨다
+    CPlayer* PlayerAtSlot(size_t idx) const { return _slots[idx].get(); }
+
     // 슬롯 조회 + 재사용 가드 — 등록된 세션이 아니면 nullptr
     CPlayer* FindPlayer(SessionId sessionId) const
     {

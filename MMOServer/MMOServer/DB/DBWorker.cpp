@@ -32,7 +32,7 @@ CDBWorker::~CDBWorker()
     Shutdown(0);
 }
 
-bool CDBWorker::Start(const DBConfig& config, int workerCount, int queueMax, ZoneServerId zoneServerId)
+bool CDBWorker::Start(const DBConfig& config, int workerCount, int queueMax, int reconnectMinSec, ZoneServerId zoneServerId)
 {
     assert(workerCount > 0 && queueMax > 0);   // 1 이상인지는 CCharacterStore::Init 이 봤다(CGameServer::InitDB 가 넘긴다) — 여기에 기본값을 두지 않는다
     _config      = config;
@@ -41,6 +41,7 @@ bool CDBWorker::Start(const DBConfig& config, int workerCount, int queueMax, Zon
         _workerCount = DBSaveCounters::MAX_WORKERS;   // 큐 깊이 게이지 배열 상한에 맞춤
     _queueMax    = queueMax;
     _zoneServerId = zoneServerId;
+    _reconnectMin = std::chrono::seconds(reconnectMinSec);
 #if USE_DB_FAULT_INJECT
     LoadFaultPlan();   // 시험 빌드 — 워커 스레드가 뜨기 전에 한 번
 #endif
@@ -280,22 +281,28 @@ void CDBWorker::WorkerThread(int idx)
         }
 
         // 배치 처리 전 — 커넥션이 끊겨 있으면 재연결 1회 시도.
-        //   배치=저장 주기 단위라, 죽은 DB엔 주기마다 한 번만 재시도(자연스러운 백오프).
-        if (slot.mysql == nullptr)
+        //   저장을 틱마다 나눠 실어 배치가 틱마다 오므로, 죽은 DB 는 ReconnectMinSec 에 한 번만 두드린다(world-server-plan.md 5.8).
+        if (slot.mysql == nullptr && ReconnectDue(slot))
         {
             void* fresh = nullptr;
             if (Connect(fresh))
             {
                 slot.mysql = fresh;
                 if (PrepareStmt(slot))
+                {
+                    slot.lastFailedConnect = {};
                     SLOG_INFO("[DB] worker {} reconnected", idx);
+                }
                 else
                 {
                     mysql_close(static_cast<MYSQL*>(slot.mysql));   // stmt 준비 실패 → 커넥션 롤백
                     slot.mysql = nullptr;
+                    slot.lastFailedConnect = std::chrono::steady_clock::now();
                 }
             }
-            // 실패하면 이번 배치는 전부 실패 처리되고, 다음 배치에서 다시 시도
+            else
+                slot.lastFailedConnect = std::chrono::steady_clock::now();
+            // 실패하면 이번 배치는 전부 실패 처리되고, 간격이 지난 뒤 배치에서 다시 시도
         }
 
         // 이 묶음에서 재연결이 "실패한 적 있나". 위 머리 재연결을 했는데도 커넥션이 없으면 실패한 것이다.
@@ -997,12 +1004,22 @@ CDBWorker::LoadOutcome CDBWorker::RunRosterLoad(DBWorkerSlot& slot, const DBLoad
     return outcome;
 }
 
+bool CDBWorker::ReconnectDue(const DBWorkerSlot& slot) const
+{
+    // 성공하면 실패 기록을 지운다 — 살아 있는 DB 에서 연결만 끊긴 것은 곧바로 다시 붙는다. 막는 것은 죽은 DB 를 거푸 두드리는 일뿐이다
+    return slot.lastFailedConnect == std::chrono::steady_clock::time_point{}
+        || std::chrono::steady_clock::now() - slot.lastFailedConnect >= _reconnectMin;
+}
+
 bool CDBWorker::TryReconnectForLoad(DBWorkerSlot& slot, bool& reconnectFailedThisBatch)
 {
     // 이 묶음에서 이미 실패했다 = DB 가 죽어 있다고 본다. 불러오기마다 접속 제한 시간(거절까지 약 2초,
     //   안 닿는 곳이면 connectTimeoutSec)을 기다리며 큐를 막지 않는다. 다음 묶음 머리에서 다시 해 본다.
-    if (reconnectFailedThisBatch)
+    if (reconnectFailedThisBatch || !ReconnectDue(slot))
+    {
+        reconnectFailedThisBatch = true;
         return false;
+    }
 
     void* fresh = nullptr;
     if (Connect(fresh))
@@ -1010,6 +1027,7 @@ bool CDBWorker::TryReconnectForLoad(DBWorkerSlot& slot, bool& reconnectFailedThi
         slot.mysql = fresh;
         if (PrepareStmt(slot))
         {
+            slot.lastFailedConnect = {};
             SLOG_INFO("[DB] worker {} reconnected (load retry)", slot.index);
             return true;
         }
@@ -1017,6 +1035,7 @@ bool CDBWorker::TryReconnectForLoad(DBWorkerSlot& slot, bool& reconnectFailedThi
         slot.mysql = nullptr;
     }
 
+    slot.lastFailedConnect = std::chrono::steady_clock::now();
     reconnectFailedThisBatch = true;
     return false;
 }

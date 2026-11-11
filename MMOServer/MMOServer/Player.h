@@ -93,6 +93,7 @@ public:
         uint32_t      bundleNo    = 0;       // 비행 중 묶음 번호 · 0 = 비행 없음
         bool          again       = false;   // 비행 중에 계기가 와서 판정이 참이었다 = 다시 필요(성공 회신 뒤 틱 끝에 다시)
         bool          listed      = false;   // 이번 틱 끝 목록에 올라 있다(목록 중복 막기)
+        bool          retryListed = false;   // 재시도 목록에 올라 있다(되살린 묶음 — 목록 중복 막기)
         bool          posDirty    = false;   // 실을 때의 _dbDirty — 실패면 되살린다
         bool          fenced      = false;   // 펜스를 받았다 — 이 메모리는 진실이 아니다. 끊길 때까지 저장을 안 내고, 나갈 때 기록도 안 남긴다
         bool          paired      = false;   // 짝 고리(거래)가 걸려 있다 — 짝 묶음이 확정될 때까지 혼자 묶음을 안 낸다(CCharacterStore 「짝 저장」)

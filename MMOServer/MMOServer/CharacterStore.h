@@ -71,7 +71,7 @@ public:
         , _frameCount(frameCount), _loadEvents(loadEvents) {}
 
     // DB 저장 파이프라인 초기화. Start() 전에 호출(CGameServer::InitDB 가 넘긴다). 세 값은 1 이상 — 아니면 false(기동 거절).
-    bool Init(const DBConfig& dbConfig, int savePeriodSec, int workerCount, int queueMax, ZoneServerId zoneServerId);
+    bool Init(const DBConfig& dbConfig, int savePeriodSec, int retrySec, int reconnectMinSec, int workerCount, int queueMax, ZoneServerId zoneServerId);
     // 게임 스레드 종료 후(단일 스레드 시점) 전원 최종 저장 → 드레인 → 워커 종료. 워커가 없으면 아무 일도 안 한다.
     void Shutdown();
     // 워커가 떠 있나 — 띄우기 전·실패·멈춘 뒤는 false. 저장·불러오기를 부르는 쪽이 먼저 본다.
@@ -156,6 +156,10 @@ private:
     PairLink* FindPair(CharacterId characterId, int* outSide = nullptr);
     bool SendPair(PairLink& link, SaveTrigger trigger);   // 짝 묶음 하나를 낸다 — 반환 = 큐가 받았나
     void OnPairReply(const DBSaveReply& reply);           // 회신이 떠 있는 짝 묶음의 머리면 고리에 적고, 둘 다 오면 푼다(ProcessDbResults — OnSaveReply 바로 뒤)
+    void TickPeriodSaves();    // 주기 — 이번 틱 차례의 칸만 판정
+    void TickRetrySaves();     // 재시도 — RetrySec 마다 되살린 묶음 · 떠난 기록 · 짝
+    void TickListedSaves();    // 틱 끝 목록 — 즉시 저장 계기
+    void MarkRetry(CPlayer* player);   // 되살린 묶음을 재시도 목록에 올린다
     void FencePairSide(CharacterId characterId, SessionId sessionId);     // 펜스로 풀린 한쪽 — 거래 결과가 든 메모리는 끊고 붙잡힌 기록은 버린다
     void ReleasePairSide(CharacterId characterId, SessionId sessionId);   // 고리가 풀린 한쪽 — 혼자 묶음·붙잡힌 떠난 기록을 다시 흐르게
 
@@ -176,7 +180,9 @@ private:
     // DB 저장 파이프라인 — 워커(실행기)와 주기 계수
     std::unique_ptr<CDBWorker> _dbWorker;
     int _dbSavePeriodFrames = 0;     // SavePeriodSec × FRAME_PER_SEC (InitDB에서 설정)
-    int _dbSaveFrameCounter  = 0;
+    int _dbSaveFrameCounter  = 0;    // 이번 틱의 칸 차례(0 ~ 주기 틱 수 - 1)
+    int _dbRetryFrames = 0;          // RetrySec × FRAME_PER_SEC (InitDB에서 설정)
+    int _dbRetryFrameCounter = 0;
 
     // 회신 큐에서 통째로 꺼내 받는 로컬 버퍼 (멤버 재사용 — 워커 쪽 벡터와 맞바꾸므로 양쪽 용량이 보존된다.
     //   _localEvents 와 같은 방식). 접근은 게임 스레드 단독.
@@ -184,6 +190,7 @@ private:
     std::vector<DBSaveReply> _dbSaveReplies;   // 저장 회신 — 위와 같은 맞바꿈 버퍼(한 락에 같이 꺼낸다)
 
     // 저장 묶음 — 접근은 게임 스레드 단독(종료 때는 게임 스레드 join 뒤 메인 스레드 단독)
+    std::vector<SessionId>                       _retrySessions;     // 되살린 묶음의 주인 — 다음 재시도 때 다시 판정한다
     std::vector<SessionId>                       _tickEndSessions;   // 이번 틱 끝 목록(세션 번호 — 같은 틱에 나간 사람은 틱 끝에 못 찾아 건너뜀)
     std::unordered_map<CharacterId, LeaveRecord>   _leaveRecords;      // 캐릭터 → 떠난 기록
     uint32_t                                   _leaveSeq = 0;      // 떠난 기록 묶음 번호(실을 때마다 새로 — 늦게 온 옛 회신이 새 시도를 확정하지 않게)

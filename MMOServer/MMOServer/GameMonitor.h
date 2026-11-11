@@ -875,6 +875,7 @@ public:
         Counter _reply[static_cast<int>(SaveReplyResult::COUNT)];    // 받은 회신, 결과별
         Counter _inflight;       // [게이지] 비행 중 묶음이 있는 살아 있는 캐릭터 수 — 접속자 수에 붙어 안 내려가면 DB 가 못 따라간다
         Counter _pendingLeave;   // [게이지] 확정 안 된 떠난 기록 수 — 조용해지면 0
+        Counter _retry;          // 재시도(RetrySec)가 다시 실은 횟수 — 되살린 묶음 · 떠난 기록 · 짝(짝은 하나로 센다)
         Counter _lost;           // 종료 때 끝내 못 쓴 묶음(드레인 뒤 마지막 꺼내기에서 실패 · 회신 없음) — 0 이어야 한다
     } _save;
 

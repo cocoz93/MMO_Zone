@@ -22,8 +22,13 @@
 // DB 저장 파이프라인 — 바뀐 자리는 표시만, 계기가 묶음 하나를 워커에(저장 플랜 C · 아래 「저장 묶음」 절)
 // ==========================================================================
 
-bool CCharacterStore::Init(const DBConfig& dbConfig, int savePeriodSec, int workerCount, int queueMax, ZoneServerId zoneServerId)
+bool CCharacterStore::Init(const DBConfig& dbConfig, int savePeriodSec, int retrySec, int reconnectMinSec, int workerCount, int queueMax, ZoneServerId zoneServerId)
 {
+    if (retrySec <= 0 || reconnectMinSec <= 0)
+    {
+        SLOG_ERROR("[DB] INI [DB] RetrySec·ReconnectMinSec 는 1 이상이어야 합니다 (retry={}, reconnect={})", retrySec, reconnectMinSec);
+        return false;
+    }
     // 세 값은 INI 필수(코드에 기본값 없음) — 빠지면 조용히 다른 값으로 도는 대신 서버를 안 띄운다
     if (savePeriodSec <= 0 || workerCount <= 0 || queueMax <= 0)
     {
@@ -33,7 +38,7 @@ bool CCharacterStore::Init(const DBConfig& dbConfig, int savePeriodSec, int work
     }
 
     _dbWorker = std::make_unique<CDBWorker>(_gameMonitor._db);   // 저장 파이프라인 지표는 게임 그릇(10-06 코어에서 옮김)
-    if (!_dbWorker->Start(dbConfig, workerCount, queueMax, zoneServerId))
+    if (!_dbWorker->Start(dbConfig, workerCount, queueMax, reconnectMinSec, zoneServerId))
     {
         SLOG_ERROR("[DB] InitDB failed - check MySQL connection/config");
         _dbWorker.reset();
@@ -41,6 +46,8 @@ bool CCharacterStore::Init(const DBConfig& dbConfig, int savePeriodSec, int work
     }
     _dbSavePeriodFrames = savePeriodSec * FRAME_PER_SEC;
     _dbSaveFrameCounter = 0;
+    _dbRetryFrames = retrySec * FRAME_PER_SEC;
+    _dbRetryFrameCounter = 0;
     return true;
 }
 
@@ -714,6 +721,7 @@ bool CCharacterStore::SendBundle(CPlayer* player, SaveTrigger trigger)
     if (!_dbWorker->EnqueueSave(head, _batchRows.empty() ? nullptr : _batchRows.data(), head.slotCount))
     {
         AbortBundle(player);   // 큐 거절(dropped 는 워커가 셌다) — 표시가 남아 다음 계기에
+        MarkRetry(player);
         return false;
     }
     CommitBundle(player, head, trigger);
@@ -732,59 +740,113 @@ void CCharacterStore::RequestSave(CPlayer* player, SaveReason reason)
 
 void CCharacterStore::TickSaves()
 {
-    // ① 주기 — 판정 참인 전원을 한 번에(슬롯당 락 1회). 비행 중이면 다시 필요만.
+    // 차례 — 주기 칸 → 재시도 → 틱 끝 목록.
     //   목록보다 먼저 — 주기가 목록의 사람까지 실어, 목록 차례에선 판정이 거짓이라 헛 묶음이 없다.
+    TickPeriodSaves();
+    TickRetrySaves();
+    TickListedSaves();
+}
+
+void CCharacterStore::MarkRetry(CPlayer* player)
+{
+    if (player->_dbFlight.retryListed)
+        return;
+    player->_dbFlight.retryListed = true;
+    _retrySessions.push_back(player->_sessionId);
+}
+
+void CCharacterStore::TickPeriodSaves()
+{
+    // ① 주기 — 칸 번호 i 가 i % T == t % T 인 칸만 판정한다(T = 주기 틱 수). 전원을 한 틱에 실으면 5,600건이 큐에 서고
+    //   그 뒤의 입장 불러오기·확정 회신이 7~14초를 기다렸다(9월 실측 · world-server-plan.md 5.8). 비행 중이면 다시 필요만.
+    const size_t tick = static_cast<size_t>(_dbSaveFrameCounter);
     if (++_dbSaveFrameCounter >= _dbSavePeriodFrames)
-    {
         _dbSaveFrameCounter = 0;
-        _batchHeads.clear();
-        _batchRows.clear();
-        _batchOwners.clear();
-        _sessionHub.ForEachPlayer([&](CPlayer* player)
-        {
-            if (!ShouldSave(player))
-                return;
-            if (player->_dbFlight.paired)
-                return;   // 짝 고리 — 아래 짝 다시 싣기가 이 사람의 지금 값을 짝 묶음으로 싣는다
-            if (player->_dbFlight.bundleNo != 0)
-            {
-                player->_dbFlight.again = true;
-                return;
-            }
-            DBSaveBundle head;
-            PrepareBundle(player, head, _batchRows);
-            _batchHeads.push_back(head);
-            _batchOwners.push_back(player);
-        });
-        _dbWorker->EnqueueSaveBatch(_batchHeads, _batchRows, &_batchRefused);
-        for (size_t idx : _batchRefused)   // 거절된 묶음 — 그 자리에서 되살린다(상태 표 B·E2 거절)
-        {
-            AbortBundle(_batchOwners[idx]);
-            _batchOwners[idx] = nullptr;
-        }
-        for (size_t i = 0; i < _batchOwners.size(); ++i)
-        {
-            if (_batchOwners[i] != nullptr)
-                CommitBundle(_batchOwners[i], _batchHeads[i], SaveTrigger::PERIOD);
-        }
 
-        // 실패한 떠난 기록 다시 싣기 — 살아 있는 사람과 같은 간격(주기). 죽은 DB 를 틱마다 두드리지 않는다.
-        //   붙잡힌 기록(짝 고리)은 혼자 안 낸다 — 아래 짝 묶음의 한쪽으로 간다.
-        for (auto& kv : _leaveRecords)
+    _batchHeads.clear();
+    _batchRows.clear();
+    _batchOwners.clear();
+    const size_t slotCount = _sessionHub.SlotCount();
+    for (size_t i = tick; i < slotCount; i += static_cast<size_t>(_dbSavePeriodFrames))
+    {
+        CPlayer* player = _sessionHub.PlayerAtSlot(i);
+        if (player == nullptr || player->_dbFlight.fenced || !ShouldSave(player))
+            continue;
+        if (player->_dbFlight.paired)
+            continue;   // 짝 고리 — 재시도의 짝 다시 싣기가 이 사람의 지금 값을 짝 묶음으로 싣는다
+        if (player->_dbFlight.bundleNo != 0)
         {
-            if (!kv.second.inFlight && !kv.second.paired)
-                SendLeaveRecord(kv.second, SaveTrigger::LEAVE);
+            player->_dbFlight.again = true;
+            continue;
         }
+        DBSaveBundle head;
+        PrepareBundle(player, head, _batchRows);
+        _batchHeads.push_back(head);
+        _batchOwners.push_back(player);
+    }
+    if (_batchHeads.empty())
+        return;
 
-        // 실패·거절된 짝 다시 싣기 — 같은 간격. 짝째로만(두 사람의 지금 값 · 나간 쪽은 붙잡힌 떠난 기록)
-        for (PairLink& link : _pairs)
+    _dbWorker->EnqueueSaveBatch(_batchHeads, _batchRows, &_batchRefused);
+    for (size_t idx : _batchRefused)   // 거절된 묶음 — 그 자리에서 되살린다(상태 표 B·E2 거절)
+    {
+        AbortBundle(_batchOwners[idx]);
+        MarkRetry(_batchOwners[idx]);
+        _batchOwners[idx] = nullptr;
+    }
+    for (size_t i = 0; i < _batchOwners.size(); ++i)
+    {
+        if (_batchOwners[i] != nullptr)
+            CommitBundle(_batchOwners[i], _batchHeads[i], SaveTrigger::PERIOD);
+    }
+}
+
+void CCharacterStore::TickRetrySaves()
+{
+    // ② 재시도 — 주기에서 뗐다. 주기가 5분이라 그대로 두면 실패한 저장이 5분을 기다린다. RetrySec 마다 한 번이라 죽은 DB 를 틱마다 두드리지 않는다
+    if (++_dbRetryFrameCounter < _dbRetryFrames)
+        return;
+    _dbRetryFrameCounter = 0;
+    Counter& retried = _gameMonitor._save._retry;
+
+    // 되살린 묶음 — 세션 번호로 찾는다(나간 사람은 떠난 기록이 칸을 실었다). 다시 거절되면 SendBundle 이 새 목록에 올린다
+    std::vector<SessionId> sessions;
+    sessions.swap(_retrySessions);
+    for (SessionId sessionId : sessions)
+    {
+        CPlayer* player = _sessionHub.FindPlayer(sessionId);
+        if (player == nullptr)
+            continue;
+        player->_dbFlight.retryListed = false;
+        if (ShouldSave(player) && SendBundle(player, SaveTrigger::PERIOD))
+            retried.Inc();
+    }
+
+    // 실패한 떠난 기록 다시 싣기.
+    //   붙잡힌 기록(짝 고리)은 혼자 안 낸다 — 아래 짝 묶음의 한쪽으로 간다.
+    for (auto& kv : _leaveRecords)
+    {
+        if (!kv.second.inFlight && !kv.second.paired)
         {
-            if (!link.inFlight)
-                SendPair(link, SaveTrigger::TRADE);
+            SendLeaveRecord(kv.second, SaveTrigger::LEAVE);
+            retried.Inc();
         }
     }
 
-    // ② 틱 끝 목록 — 세션 번호로 찾는다(같은 틱에 나간 사람은 없다 — 표시는 나갈 때 묶음이 실었다)
+    // 실패·거절된 짝 다시 싣기 — 짝째로만(두 사람의 지금 값 · 나간 쪽은 붙잡힌 떠난 기록)
+    for (PairLink& link : _pairs)
+    {
+        if (!link.inFlight)
+        {
+            SendPair(link, SaveTrigger::TRADE);
+            retried.Inc();
+        }
+    }
+}
+
+void CCharacterStore::TickListedSaves()
+{
+    // ③ 틱 끝 목록 — 세션 번호로 찾는다(같은 틱에 나간 사람은 없다 — 표시는 나갈 때 묶음이 실었다)
     for (SessionId sessionId : _tickEndSessions)
     {
         CPlayer* player = _sessionHub.FindPlayer(sessionId);
@@ -931,6 +993,7 @@ void CCharacterStore::OnSaveReply(const DBSaveReply& reply)
             break;
         case DBSaveResult::FAILED:
             AbortBundle(player);   // 되살림 — 곧바로 다시 안 보낸다(다음 계기에 · 죽은 DB 를 틱마다 두드리지 않게)
+            MarkRetry(player);
             f.again = false;
             counters._reply[static_cast<int>(SaveReplyResult::FAILED)].Inc();
             break;
