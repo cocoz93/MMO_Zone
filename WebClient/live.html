@@ -21,6 +21,12 @@
     background:rgba(10,16,12,.82);border:1px solid rgba(150,200,150,.25);border-radius:8px;color:#eaf3e0;font:12px Galmuri11,system-ui,"Malgun Gothic",sans-serif}
   .tolobby:hover{border-color:rgba(255,233,138,.9);color:#ffe98a}
   .tolobby[hidden]{display:none}
+  /* 우편 보내기 입력 칸 — 캔버스에는 글자를 못 넣어 DOM 칸을 캔버스 위에 겹친다. 자리는 mailLayout() 이 매 프레임 CSS px 로 정한다(syncMailInputs) */
+  .mailin{position:absolute;z-index:6;box-sizing:border-box;margin:0;padding:4px 8px;outline:none;resize:none;
+    background:rgba(10,16,12,.92);border:1px solid rgba(150,200,150,.25);border-radius:4px;color:#eaf3e0;
+    font:12px Galmuri11,system-ui,"Malgun Gothic",sans-serif;line-height:19px}
+  .mailin:focus{border-color:rgba(120,220,150,.6)}
+  .mailin[hidden]{display:none}
   /* 캔버스 글꼴 — Galmuri(픽셀, SIL OFL 1.1 · fonts/galmuri/LICENSE.txt). 고르는 규칙은 아래 uiFont() */
   @font-face{font-family:Galmuri7;src:url('fonts/galmuri/Galmuri7.woff2') format('woff2')}
   @font-face{font-family:Galmuri9;src:url('fonts/galmuri/Galmuri9.woff2') format('woff2')}
@@ -35,7 +41,12 @@
 <body>
 <div class="stage"><canvas id="v"></canvas><div class="conn" id="conn">연결 중…</div>
 <input id="chatbox" class="chatbox" maxlength="200" autocomplete="off" placeholder="Enter로 채팅 입력 · 방향키로 이동 · Space로 공격">
-<button id="toLobby" class="tolobby" hidden>캐릭터 선택</button></div>
+<button id="toLobby" class="tolobby" hidden>캐릭터 선택</button>
+<!-- 우편 보내기 칸 — maxlength 가 세는 단위(UTF-16 칸)가 서버 칸(Protocol.h CHAR_NAME_MAX_LEN · MAIL_TITLE_MAX · MAIL_BODY_MAX)과 같다. 본문은 줄바꿈도 1칸 -->
+<input id="mailTo" class="mailin" maxlength="6" autocomplete="off" spellcheck="false" placeholder="캐릭터 이름" hidden>
+<input id="mailTitle" class="mailin" maxlength="20" autocomplete="off" spellcheck="false" placeholder="1자 이상" hidden>
+<textarea id="mailBody" class="mailin" maxlength="200" spellcheck="false" placeholder="비워도 됩니다 · Enter 는 줄바꿈" hidden></textarea>
+<input id="mailMoney" class="mailin" maxlength="9" inputmode="numeric" autocomplete="off" placeholder="0" hidden></div>
 <script src="proto.js"></script>
 <script src="proto-lobby.js"></script>
 <script src="assets/assetsB.js"></script>
@@ -50,7 +61,10 @@ const P = window.Proto;
 const cv = document.getElementById('v'), ctx = cv.getContext('2d');
 const connEl = document.getElementById('conn');
 const chatbox = document.getElementById('chatbox');
-function typing(){ return document.activeElement===chatbox; }
+const mailToEl=document.getElementById('mailTo'), mailTitleEl=document.getElementById('mailTitle'), mailBodyEl=document.getElementById('mailBody'), mailMoneyEl=document.getElementById('mailMoney');
+const MAIL_INPUTS=[mailToEl, mailTitleEl, mailBodyEl, mailMoneyEl];
+// 글을 쓰는 중인가 — 채팅 칸과 우편 보내기 칸. 참이면 게임 키(이동 · 공격 · 창 키)를 안 받는다
+function typing(){ const a=document.activeElement; return a===chatbox || MAIL_INPUTS.includes(a); }
 const SANS = 'system-ui,"Malgun Gothic",sans-serif';   // Galmuri 를 못 받았을 때 떨어질 글꼴
 const MONO = 'ui-monospace,Consolas,monospace';
 // 캔버스 글꼴 한 곳 — 픽셀 글꼴은 정해진 크기에서만 또렷해서(그 밖은 번진다) 코드가 원하는 크기를 가장 가까운 벌로 붙인다.
@@ -175,6 +189,7 @@ function fmtMoney(n){ return n===null ? '—' : Number(n).toLocaleString('ko-KR'
 //   slots: 칸 번호 -> {id, c}. 서버가 보낸 칸의 "최종값"을 그대로 담는다 — 넣고 빼는 규칙은 클라가 모른다(판정은 서버).
 //   fold = 제목 줄만 남기고 접었다(제목 줄 오른쪽 단추 — 게임 화면을 덜 가리게). 키로 다시 열면 펼친 채로 연다(접힌 채 열리면 연 것 같지 않다)
 const bag = { slots:new Map(), open:false, fold:false, tab:1, hover:null };
+let bagTip = null;   // 이번 프레임에 그릴 가방 칸 설명 — drawBag 이 정하고 창들을 다 그린 뒤 그린다
 const INV_TAB_NAMES = ['장비','소비','기타'];                           // P.INV_TAB_RANGES 순서
 const INV_TAB_FILE  = new Map([['equip',0],['use',1],['etc',2]]);       // 아이템 표의 tab 글자 → 탭 번호
 // 아이템 표 — 서버와 같은 파일(Run/bin/ItemTable.csv)을 serve.js 의 /data/ItemTable.csv 로 받는다(두 벌로 적지 않는다).
@@ -337,9 +352,132 @@ function tradeEndText(why, actorId){
 }
 // 이 가방 칸이 내 거래창에 올라가 있나 — 가방 그림의 「거래」 표시(판정은 서버 — 가방이 잠갔다)
 function tradeOffered(slot){ return !!trade.win && trade.win.mine.items.some(i=>i.slot===slot); }
+// 우편 (USE_MAIL) — 서버가 보낸 것만 담는다. 되는지(이름 · 글자 · 칸 · 돈 · 50통 · 거래 중)는 서버가 정한다(mail-plan.md 5절 · 10절).
+//   탭 둘 — 1 = 계정 우편(왼쪽 · 창을 열면 이 탭) · 0 = 캐릭터 우편(오른쪽). 계정 우편을 못 읽으면(ACC_OFFLINE) 캐릭터 우편 탭으로 넘어간다
+//   lists[tab] = S2C_MAIL_LIST 줄 그대로 · counts[tab] = {known, count}(S2C_MAIL_COUNT — known 0 = 못 읽음이라 0 으로 더한다) ·
+//   wait = 답을 기다리는 요청 이름(MAIL_ACTION) — 그동안 단추를 안 받는다(서버도 한 사람에게 우편 요청을 하나씩만 받는다 — 둘째는 BUSY)
+//   relist = 목록을 달라고 못 낸 채 창이 열렸다(앞 요청의 답을 기다리는 중에 다시 열었다) — 답이 오면 mailIdle 이 그때 낸다
+const mail = { open:false, tab:1, mode:'read', confirm:false, wait:null, relist:false, sel:null, top:0, userTab:false, lists:{0:[],1:[]}, pending:[],
+  counts:{0:{known:0,count:0},1:{known:0,count:0}}, bodies:new Map(), attach:[], hover:null, lastResult:null, sent:0 };
+// 보여 주기만 하는 값 — 정본은 서버 [Mail](Run/bin/MMOServerConfig.ini · 와이어에 안 실린다). 어긋나도 판정은 서버라 낼 돈이 모자라면 NOT_ENOUGH_MONEY 로 온다
+const MAIL_FEE_SHOWN=100, MAIL_KEEP_DAYS=30, MAIL_BOX_MAX=50;
+const MAIL_BODY_LINES=9;   // 읽는 칸의 줄 상한 — 보내기 확인창을 열 때 같은 줄 넘김(mailWrap)으로 센다(10절 「본문 줄 넘김」)
+// 거절 사유(P.MAIL_RESULT 이름) → 채팅 칸 [System] 문구. OTHER_CHARACTER 는 받는 중인 캐릭터 이름이 붙어 mailResultText 가 만든다
+const MAIL_RESULT_TEXT = {
+  BUSY:'앞 요청을 처리하는 중입니다 — 잠시 뒤 다시', NOT_HERE:'여기서는 우편을 쓸 수 없습니다 — 마을·사냥터에서만',
+  DEAD:'쓰러진 동안에는 우편을 쓸 수 없습니다', NO_CHARACTER:'이 접속으로는 우편을 쓸 수 없습니다(시험 입장)', DB_ERROR:'우편을 처리하지 못했습니다 — 잠시 뒤 다시',
+  BAD_NAME:'받는 사람 이름이 맞지 않습니다', BAD_TEXT:'제목이 비었거나 쓸 수 없는 글자가 있습니다', BAD_MONEY:'보낼 돈이 맞지 않습니다',
+  BAD_SLOT:'보낼 수 없는 칸입니다 — 끼운 장비는 벗고 올리세요', BAD_COUNT:'개수가 맞지 않습니다 — 가방을 다시 보세요', NOT_TRADABLE:'보낼 수 없는 물건입니다',
+  NOT_ENOUGH_MONEY:'돈이 모자랍니다(보낼 돈 + 수수료)', NO_TARGET:'그런 이름의 캐릭터가 없습니다', SELF:'자기 자신에게는 보낼 수 없습니다',
+  TARGET_DELETED:'지워진 캐릭터입니다', TARGET_FULL:'받는 사람의 우편함이 가득 찼습니다('+MAIL_BOX_MAX+'통)', BAG_CHANGED:'가방이 바뀌어 보내지 못했습니다 — 다시 올리세요',
+  GONE:'이미 없는 우편입니다(받았거나 기한이 지났습니다)', NO_ATTACH:'받을 것이 없는 우편입니다', CANNOT_DELETE:'첨부가 남은 우편은 지울 수 없습니다 — 먼저 받으세요',
+  ITEM_UNKNOWN:'받을 수 없는 물건이 들어 있습니다 — 운영자에게 알려 주세요', BAG_FULL:'가방에 자리가 없습니다', MONEY_FULL:'들 수 있는 돈(1억 전)을 넘습니다',
+  ACC_OFFLINE:'지금은 계정 우편을 읽을 수 없습니다', ACC_TIMEOUT:'계정 우편 답이 늦어 처리하지 못했습니다 — 잠시 뒤 다시',
+};
+function mailResultText(p){ return p.resultName==='OTHER_CHARACTER' ? '다른 캐릭터('+(p.name||'?')+')가 받는 중인 우편입니다' : (MAIL_RESULT_TEXT[p.resultName] || ('우편을 처리하지 못했습니다 ('+p.resultName+')')); }
+const mailHasAttach = m => m.money>0 || m.items.length>0;
+// 새 우편 표시의 수 — 안 읽었거나 첨부를 안 받은 줄(「받는 중」 줄은 뺀다). 목록을 받으면 그 탭을 이것으로 다시 센다(10절 「새 우편 표시」)
+const mailPending = m => !m.claiming && (!m.read || mailHasAttach(m));
+function mailRecount(tab){ mail.counts[tab]={ known:1, count:mail.lists[tab].filter(mailPending).length }; }
+function mailBadge(){ return [0,1].reduce((s,t)=>s+(mail.counts[t].known ? mail.counts[t].count : 0), 0); }
+function mailSelLine(){ return mail.sel===null ? null : (mail.lists[mail.tab].find(m=>m.mailId===mail.sel) || null); }
+function mailAttached(slot){ return mail.open && mail.mode==='send' && mail.attach.some(a=>a.slot===slot); }
+// 헤드리스 검증용 — 우편 요약(data-trade 와 같은 자리)
+function mailChanged(){
+  const line=m=>[m.mailId, m.title, m.read?1:0, m.money, m.items.length];
+  document.documentElement.setAttribute('data-mail', JSON.stringify({ open:mail.open, tab:mail.tab, mode:mail.mode, confirm:mail.confirm, wait:mail.wait, sel:mail.sel,
+    lines:mail.lists[mail.tab].map(line), n:{0:mail.lists[0].length, 1:mail.lists[1].length}, counts:mail.counts, badge:mailBadge(),
+    attach:mail.attach.map(a=>[a.slot,a.count]), body:mail.sel!==null ? (mail.bodies.get(mail.tab+':'+mail.sel) ?? null) : null, lastResult:mail.lastResult, sent:mail.sent }));
+}
+// 보내기만 한다(거래와 같은 까닭 — 판정을 두 곳에 두면 어긋난다). 답이 오기 전엔 다음 요청을 안 낸다
+function mailAsk(action, buf){
+  if(!ws || ws.readyState!==1 || !self || mail.wait) return false;
+  ws.send(buf); mail.wait=action; mail.sent++; if(action==='LIST') mail.relist=false; mailChanged(); return true;
+}
+// 목록 요청 — 앞 요청의 답을 기다리는 중이면 미뤄 둔다(안 그러면 창은 열렸는데 목록이 안 와 「우편이 없습니다」로 남는다)
+function mailAskList(tab){ if(!mailAsk('LIST', P.enc.mailList(tab)) && mail.wait) mail.relist=true; }
+// 답 하나를 다 받았다(wait 가 풀렸다) — 미뤄 둔 목록 요청이 있으면 지금 탭으로 낸다. 창을 닫았으면 버린다(다시 열 때 새로 낸다)
+function mailIdle(){
+  if(!mail.relist || mail.wait) return;
+  if(mail.open) mailAskList(mail.tab); else mail.relist=false;
+}
+function mailResetForm(){ MAIL_INPUTS.forEach(el=>{ el.value=''; }); mail.attach=[]; mail.confirm=false; }
+function openMail(){
+  if(trade.win){ sysMsg('거래 중에는 우편을 열 수 없습니다'); return; }
+  closeShop();   // 같은 자리에 겹친다 — 서로 닫는다
+  mail.open=true; mail.tab=1; mail.mode='read'; mail.sel=null; mail.top=0; mail.userTab=false; mail.hover=null; mailResetForm();
+  mailAskList(1);   // 왼쪽 탭부터 — 못 읽으면 ACC_OFFLINE 이 와서 캐릭터 우편 탭으로 넘어간다
+  mailChanged();
+}
+function closeMail(){
+  if(!mail.open) return;
+  mail.open=false; mail.mode='read'; mail.sel=null; mail.hover=null; mail.bodies.clear(); mailResetForm();
+  if(MAIL_INPUTS.includes(document.activeElement)) document.activeElement.blur();
+  mailChanged();   // wait 는 그대로 — 나간 요청의 답이 와야 풀린다(서버도 그때까지 그 사람의 다음 요청을 BUSY 로 본다)
+}
+function mailSwitchTab(tab){
+  mail.tab=tab; mail.top=0; mail.sel=null; mail.mode='read'; mailResetForm();
+  mailAskList(tab);
+}
+// 보내기 화면 — 캐릭터 우편으로만 보낸다(계정 우편 탭의 같은 단추도 여기로). 첨부는 가방 칸을 눌러 올리므로 가방도 연다
+function mailCompose(){
+  if(mail.tab!==0){ mail.tab=0; mail.top=0; mail.sel=null; mailAskList(0); }
+  mail.mode='send'; mailResetForm();
+  if(!bag.open || bag.fold){ bag.open=true; bag.fold=false; bag.hover=null; bagChanged(); }
+  setTimeout(()=>mailToEl.focus(), 0);   // 칸은 다음 프레임에 보인다(syncMailInputs) — 숨은 칸에는 초점이 안 간다
+}
+// 보내기 화면에서 가방 칸을 눌렀다 — 그 칸 전부, Shift 면 1개(거래 tradeOffer 와 같다). 올린 칸을 다시 누르면 뺀다. 보낼 수 있는지(trade=0 · 끼운 장비)는 서버가 본다
+function mailAttachSlot(slot, one){
+  const e=bag.slots.get(slot); if(!e) return;
+  const i=mail.attach.findIndex(a=>a.slot===slot);
+  if(i>=0) mail.attach.splice(i,1);
+  else if(mail.attach.length>=P.MAIL_MAX_ITEMS){ sysMsg('첨부는 '+P.MAIL_MAX_ITEMS+'칸까지입니다'); return; }
+  else mail.attach.push({ slot, itemId:e.id, count: one ? 1 : e.c });
+  mailChanged();
+}
+const mailMoneyValue = () => Number(mailMoneyEl.value.replace(/[^0-9]/g,'') || 0);
+// 「보내기」 — 9줄을 넘으면 막고, 아니면 확인창. 받는 이름은 앞뒤 띄어쓰기만 지운다(이름에는 띄어쓰기가 없다 — 나머지는 서버가 BAD_NAME 으로 본다)
+function mailOpenConfirm(){
+  if(mailWrap(mailBodyEl.value, MAIL_W-320-14).length > MAIL_BODY_LINES){ sysMsg('본문이 '+MAIL_BODY_LINES+'줄을 넘습니다'); return; }
+  mailToEl.value=mailToEl.value.trim();
+  mail.confirm=true;
+  if(MAIL_INPUTS.includes(document.activeElement)) document.activeElement.blur();
+}
+function mailSendNow(){
+  const items=mail.attach.map(a=>({ slot:a.slot, count:a.count }));
+  if(mailAsk('SEND', P.enc.mailSend(mailToEl.value, mailTitleEl.value, mailBodyEl.value, mailMoneyValue(), items))) mail.confirm=false;
+}
+function mailDropLine(tab, mailId){
+  mail.lists[tab]=mail.lists[tab].filter(m=>m.mailId!==mailId);
+  mail.bodies.delete(tab+':'+mailId);
+  if(mail.sel===mailId && mail.tab===tab) mail.sel=null;
+  mail.top=Math.max(0, Math.min(mail.top, mail.lists[tab].length-MAIL_ROWS));
+  mailRecount(tab);
+}
+function onMailResult(p){
+  mail.wait=null;   // 요청 하나에 결과 한 장 — 목록 · 본문을 못 줄 때도 이것이 온다
+  mail.lastResult=p.actionName+':'+p.resultName;
+  const tab = (p.actionName==='ACC_TAKE' || p.actionName==='ACC_ERASE') ? 1 : (p.actionName==='TAKE' || p.actionName==='ERASE') ? 0 : mail.tab;
+  if(p.resultName==='OK'){
+    switch(p.actionName){
+      case 'SEND': sysMsg('우편을 보냈습니다'); mailResetForm(); mail.mode='read'; break;
+      case 'TAKE': case 'ACC_TAKE': mailDropLine(tab, p.mailId); sysMsg('우편을 받았습니다 — 가방을 보세요'); break;
+      case 'ERASE': case 'ACC_ERASE': mailDropLine(tab, p.mailId); sysMsg('우편을 지웠습니다'); break;
+    }
+  } else if(p.actionName==='LIST' && p.resultName==='ACC_OFFLINE'){
+    if(mail.open && mail.tab===1){   // 그 사이 창을 닫았으면 아무것도 안 한다(다시 열 때 새로 묻는다)
+      if(mail.userTab) sysMsg(MAIL_RESULT_TEXT.ACC_OFFLINE);   // 창을 열 때 넘어가는 것은 조용히 — 탭을 눌렀을 때만 까닭을 알린다
+      mailSwitchTab(0);
+    }
+  } else {
+    sysMsg(mailResultText(p));
+    if(p.resultName==='GONE' && (p.actionName==='READ' || p.actionName==='TAKE')) mailDropLine(tab, p.mailId);   // 그 사이 받았거나 기한이 지났다 — 목록에서도 뺀다
+  }
+  mailIdle(); mailChanged();
+}
 function shopNpc(){ const o = shop.npc ? others.get(shop.npc) : null; return o ? { o, n:npcOf(o) } : null; }
 function shopLines(){ const s=shopNpc(); return (s && s.n && SHOPS.get(s.n.shopId)) || []; }   // 그 NPC 상점의 줄(파는 것 · 사들이는 것)
-function openShop(id){ shop.npc=id; shop.mode='menu'; shop.hover=null; if(party.menu) { party.menu=null; partyChanged(); } shopChanged(); }
+function openShop(id){ shop.npc=id; shop.mode='menu'; shop.hover=null; if(party.menu) { party.menu=null; partyChanged(); } closeMail(); shopChanged(); }   // 우편 창과 같은 자리 — 서로 닫는다
 function closeShop(){ if(!shop.mode) return; shop.npc=0; shop.mode=null; shop.hover=null; shopChanged(); }
 // 사들이는 값(한 개) — 보여 주기만(정본은 서버 CShopSystem::SellPriceOf — 파는 값의 절반 내림). 받는 돈은 S2C_MONEY 가 정한다
 function sellPriceOf(it){ return Math.floor((it.price||0)/2); }
@@ -649,7 +787,7 @@ function onPacket(p){
     case P.MSG.S2C_ZONE_CHANGE_OK:
       if(self){ self.x=self.rx=p.x; self.y=self.ry=p.y; self.dir=p.direction; self.moveState=0; }   // rx·ry 도 — 미끄러져 가지 않고 바로(카메라는 다음 프레임이 따라온다)
       // 누른 채 넘어가도 서버와 안 어긋나게 — 서버는 새 존에 멈춰 세운 채 넣는다(CZone::EnterZoneAt). 채팅창 열 때와 같은 정리
-      moving=false; keys.clear(); portalChanged(); askChannels(); break;
+      moving=false; keys.clear(); portalChanged(); askChannels(); closeMail(); break;   // 우편 창도 닫는다 — 새 맵에서 되는지는 서버가 다시 본다
     case P.MSG.S2C_ZONE_CHANGE_FAIL:
       portalState.lastFail=p.reasonName;
       sysMsg(ZONE_FAIL_TEXT[p.reasonName] || ('이동하지 못했습니다 ('+p.reasonName+')')); portalChanged(); break;
@@ -872,12 +1010,38 @@ function onPacket(p){
       tradeChanged(); break;
     // 거래창 전체(최종값) — 새 창이면 가방도 연다(가방 칸을 눌러 올린다)
     case P.MSG.S2C_TRADE_STATE:
-      if(!trade.win || trade.win.tradeId!==p.tradeId){ if(!bag.open || bag.fold){ bag.open=true; bag.fold=false; bag.hover=null; bagChanged(); } closeShop(); }   // 접혀 있으면 펼친다(칸을 눌러 올린다)
+      if(!trade.win || trade.win.tradeId!==p.tradeId){ if(!bag.open || bag.fold){ bag.open=true; bag.fold=false; bag.hover=null; bagChanged(); } closeShop(); closeMail(); }   // 접혀 있으면 펼친다(칸을 눌러 올린다) · 우편 창은 닫는다(가방 칸 누르기가 둘 중 어디로 갈지 헷갈리지 않게)
       trade.win={ tradeId:p.tradeId, partner:p.partner, mine:p.mine, theirs:p.theirs }; trade.hover=null; tradeChanged(); break;
     case P.MSG.S2C_TRADE_END:
       trade.win=null; trade.hover=null; trade.lastEnd=p.reasonName; sysMsg(tradeEndText(p.reasonName, p.actorId)); tradeChanged(); break;
     case P.MSG.S2C_TRADE_FAIL:
       trade.lastFail=p.reasonName; sysMsg(TRADE_FAIL_TEXT[p.reasonName] || ('거래하지 못했습니다 ('+p.reasonName+')')); tradeChanged(); break;
+
+    // ---- 우편 (USE_MAIL) — 판정은 서버. 존 서버는 목록을 안 들고 요청마다 DB 에서 읽는다(웹이 받은 목록이 그때의 전부) ----
+    //   목록은 여러 장(first 부터 more=0 까지) — 다 받으면 그 탭을 갈아 끼우고 새 우편 수를 목록에서 다시 센다
+    case P.MSG.S2C_MAIL_LIST:
+      if(p.first) mail.pending=[];
+      mail.pending.push(...p.lines);
+      if(!p.more){
+        mail.lists[p.tab]=mail.pending; mail.pending=[]; mail.wait=null;
+        if(mail.tab===p.tab && mail.sel!==null && !mail.lists[p.tab].some(m=>m.mailId===mail.sel)) mail.sel=null;
+        mail.top=Math.max(0, Math.min(mail.top, mail.lists[p.tab].length-MAIL_ROWS));
+        mailRecount(p.tab); mailIdle();
+      }
+      mailChanged(); break;
+    // 본문 — 그 줄을 읽음으로 바꾸고 다시 센다(서버도 read_at 을 적었다)
+    case P.MSG.S2C_MAIL_BODY: {
+      mail.wait=null; mail.bodies.set(p.tab+':'+p.mailId, p.body);
+      const m=mail.lists[p.tab].find(l=>l.mailId===p.mailId); if(m) m.read=true;
+      mailRecount(p.tab); mailIdle(); mailChanged(); break; }
+    case P.MSG.S2C_MAIL_RESULT:
+      onMailResult(p); break;
+    // 입장 때 탭마다 한 장(EXACT · 못 읽으면 UNKNOWN). ARRIVED = 새 우편 한 통이 왔다 — 그 탭의 수에 1을 더한다(못 읽은 탭이면 안 더한다 · 9절)
+    case P.MSG.S2C_MAIL_COUNT: {
+      const c=mail.counts[p.tab]; if(!c) break;
+      if(p.knownName==='ARRIVED'){ if(c.known) c.count++; }
+      else { c.known = p.knownName==='EXACT' ? 1 : 0; c.count = c.known ? p.count : 0; }
+      mailChanged(); break; }
 
     // ---- 겉모습 (USE_EQUIP) — 남의 것만 온다(나는 가방 900 칸). 모르는 번호면 버린다(등장 뒤에 다시 온다 — Protocol.h 겉모습 절) ----
     //   등장 엔트리에는 겉모습이 없어 새로 만든 상대는 look 이 null(맨손) — 겉모습이 있으면 등장 바로 뒤에 이 장이 온다
@@ -1026,12 +1190,15 @@ if(!SNAP){
     if(e.code==='Backquote' && !e.repeat){ SHOW_SERVER=!SHOW_SERVER; e.preventDefault(); return; }
     // P = 파티 창(관리) 열고 닫기 (I·C 와 같은 까닭으로 e.code) — 파티가 없어도 열린다(맺는 법을 안내한다)
     if(e.code==='KeyP' && !e.repeat){ party.open=!party.open; party.fold=false; party.hover=null; partyChanged(); e.preventDefault(); return; }
+    // M = 우편 창 열고 닫기 (I·C 와 같은 까닭으로 e.code) — 거래 중이면 안 열고 안내(openMail)
+    if(e.code==='KeyM' && !e.repeat){ if(mail.open) closeMail(); else openMail(); e.preventDefault(); return; }
     // Y·N = 받은 파티 요청에 수락·거절 — 요청 창이 떠 있을 때만(아니면 그냥 지나간다)
     if(party.ask && (e.code==='KeyY' || e.code==='KeyN')){ if(!e.repeat) partyAnswer(e.code==='KeyY'); e.preventDefault(); return; }
     // 받은 거래 신청도 Y·N — 파티 요청 창이 함께 떠 있으면 위 파티가 먼저(창 둘이 한 번에 답해지지 않게)
     if(trade.ask && (e.code==='KeyY' || e.code==='KeyN')){ if(!e.repeat) tradeAnswer(e.code==='KeyY'); e.preventDefault(); return; }
-    if(k==='escape' && (bag.open || stw.open || party.open || party.menu || shop.mode)){   // 창을 다 닫는다(받은 요청 창은 답해야 닫힌다 — N 이 거절)
-      bag.open=false; bag.hover=null; stw.open=false; stw.hover=false; party.open=false; party.menu=null; party.hover=null; closeShop(); bagChanged(); partyChanged(); return; }
+    if(k==='escape' && mail.open && mail.confirm){ mail.confirm=false; mailChanged(); return; }   // 보내기 확인창이 떠 있으면 그것만 닫는다(쓰던 글은 남는다)
+    if(k==='escape' && (bag.open || stw.open || party.open || party.menu || shop.mode || mail.open)){   // 창을 다 닫는다(받은 요청 창은 답해야 닫힌다 — N 이 거절)
+      bag.open=false; bag.hover=null; stw.open=false; stw.hover=false; party.open=false; party.menu=null; party.hover=null; closeShop(); closeMail(); bagChanged(); partyChanged(); return; }
     if(['arrowup','arrowdown','arrowleft','arrowright'].includes(k)){ if(!keys.has(k)){keys.add(k); sendMove();} e.preventDefault(); }});
   addEventListener('keyup',e=>{ if(typing())return; const k=e.key.toLowerCase(); if(keys.delete(k)) sendMove(); });
   // Enter=채팅 열기, 채팅창 내 Enter=전송/Esc=취소
@@ -1039,13 +1206,22 @@ if(!SNAP){
   chatbox.addEventListener('keydown',e=>{ e.stopPropagation();
     if(e.key==='Enter'){ const t=chatbox.value.trim(); if(t)sendChat(t); chatbox.value=''; chatbox.blur(); }
     else if(e.key==='Escape'){ chatbox.value=''; chatbox.blur(); } });
-  chatbox.addEventListener('focus',()=>{ if(moving && ws && ws.readyState===1){ moving=false; if(self)self.moveState=0; ws.send(P.enc.moveStop(lastDir, self?self.x:0, self?self.y:0)); } keys.clear(); });
+  // 글 칸에 초점이 가면 걷기를 멈춘다 — 누른 방향키의 keyup 이 typing() 에서 빠져 계속 걷는다
+  const stopForTyping=()=>{ if(moving && ws && ws.readyState===1){ moving=false; if(self)self.moveState=0; ws.send(P.enc.moveStop(lastDir, self?self.x:0, self?self.y:0)); } keys.clear(); };
+  chatbox.addEventListener('focus',stopForTyping);
+  // 우편 보내기 칸 — 게임 키로 새지 않게 막고(Enter 는 본문에서 줄바꿈 · 한 줄 칸에서는 아무 일 없음), Esc 는 초점만 뺀다. 돈 칸은 숫자만 남긴다
+  MAIL_INPUTS.forEach(el=>{ el.addEventListener('focus',stopForTyping);
+    el.addEventListener('keydown',e=>{ e.stopPropagation(); if(e.key==='Escape'){ el.blur(); e.preventDefault(); } }); });
+  mailMoneyEl.addEventListener('input',()=>{ const v=mailMoneyEl.value.replace(/[^0-9]/g,''); if(v!==mailMoneyEl.value) mailMoneyEl.value=v; });
   // 가방 창 마우스 — 창 안에서만 쓴다. 창 밖(게임 화면) 클릭은 가방이 안 다룬다 — 캐릭터를 누르면 아래 파티 메뉴가 뜬다(10-17 전엔 월드 클릭 동작이 없었다).
   //   좌표는 CSS px 그대로다(캔버스가 DPR 로 변환을 걸어 그리기도 CSS px 로 한다).
   cv.addEventListener('mousemove',e=>{ chan.hover=channelHit(e.offsetX,e.offsetY); });
   // 채널이 화면에 다 안 들어갈 때만 굴린다
   cv.addEventListener('wheel',e=>{ if(!chan.open) return; const L=channelLayout(); if(!inRect(e.offsetX,e.offsetY,L)) return; e.preventDefault();
     chan.top=Math.max(0, Math.min(chan.rows.length-L.rows.length, chan.top+(e.deltaY>0?1:-1))); }, { passive:false });
+  // 우편 목록 — 여섯 줄보다 많을 때 굴린다(100통까지 온다)
+  cv.addEventListener('wheel',e=>{ const L=mailLayout(); if(!L || L.confirm || !inRect(e.offsetX,e.offsetY,L.listBox)) return; e.preventDefault();
+    mail.top=Math.max(0, Math.min(mail.lists[mail.tab].length-MAIL_ROWS, mail.top+(e.deltaY>0?1:-1))); mailChanged(); }, { passive:false });
   cv.addEventListener('mousemove',e=>{ const h=bag.open ? bagHit(e.offsetX,e.offsetY) : null;
     const s=stw.open ? statusHit(e.offsetX,e.offsetY) : null;
     bag.hover = h && h.slot!==undefined ? h.slot : null; stw.hover = s==='weapon';
@@ -1055,10 +1231,12 @@ if(!SNAP){
     shop.hover = su && su.btn ? su : null;
     const tu=tradeUiHit(e.offsetX,e.offsetY);   // 거래 창 단추도
     trade.hover = tu && tu.btn ? tu : null;
+    const mu=mailUiHit(e.offsetX,e.offsetY);    // 우편 창 단추 · 줄 · 탭도
+    mail.hover = mu && mu.btn ? mu : null;
     foldHover = foldHit(e.offsetX,e.offsetY);   // 접기 단추도
     jobHover = jobPicking() ? jobHit(e.offsetX,e.offsetY) : null;   // 직업 고르는 창 단추도
-    cv.style.cursor = (h || s || pu || su || tu || jobHover) ? 'default' : ''; });
-  cv.addEventListener('mouseleave',()=>{ bag.hover=null; stw.hover=false; party.hover=null; shop.hover=null; trade.hover=null; foldHover=null; });
+    cv.style.cursor = (h || s || pu || su || tu || mu || jobHover) ? 'default' : ''; });
+  cv.addEventListener('mouseleave',()=>{ bag.hover=null; stw.hover=false; party.hover=null; shop.hover=null; trade.hover=null; mail.hover=null; foldHover=null; });
   // 누르기 — 위에 그려진 것부터: 받은 파티 요청 창 > 상점 창 > 캐릭터 메뉴·파티 창 > 가방(팔기 모드면 그 칸을 판다)·상태창 > 게임 화면.
   //   게임 화면을 누르면 그 자리의 NPC(말 걸기) 또는 사람 캐릭터(나·몬스터 빼고 — 파티 메뉴)를 고른다 — 10-17 전엔 창 밖 클릭이 아무 일도 안 했다(위 가방 주석).
   cv.addEventListener('mousedown',e=>{ if(e.button!==0) return;
@@ -1071,6 +1249,8 @@ if(!SNAP){
     if(chan.open){ chan.open=false; channelChanged(); }      // 목록 밖을 누르면 닫는다 — 누른 자리의 동작은 그대로
     const tu=tradeUiHit(x,y);
     if(tu){ tradeClick(tu); return; }                        // 받은 거래 신청 창 · 거래 창
+    const mu=mailUiHit(x,y);
+    if(mu){ mailClick(mu); return; }                         // 우편 창 — 거래 창 뒤 · 상점 앞(10절)
     const su=shopUiHit(x,y);
     if(su){ shopClick(su); return; }
     const fk=foldHit(x,y);                                   // 가방·상태창·파티 창 제목 줄의 접기 단추 — 그 창의 다른 누르기보다 먼저
@@ -1078,6 +1258,7 @@ if(!SNAP){
     if(pu){ partyClick(pu); return; }
     if(bag.open){ const h=bagHit(x,y);
       if(h){ if(trade.win && h.slot!==undefined && bag.slots.has(h.slot)) tradeOffer(h.slot, e.shiftKey);       // 거래창이 열렸으면 누르기가 올리기
+             else if(mail.open && mail.mode==='send' && !mail.confirm && h.slot!==undefined && bag.slots.has(h.slot)) mailAttachSlot(h.slot, e.shiftKey);   // 우편 보내기 화면이면 첨부
              else if(shop.mode==='sell' && h.slot!==undefined && bag.slots.has(h.slot)) shopSell(h.slot, e.shiftKey); return; } }
     if(stw.open && statusHit(x,y)) return;
     if(x<VX || x>VX+VW || y<VY || y>VY+VH){ if(party.menu){ party.menu=null; partyChanged(); } return; }
@@ -1098,7 +1279,7 @@ if(!SNAP){
     if(stw.open && statusHit(e.offsetX,e.offsetY)==='weapon'){
       if(bag.slots.has(P.EQUIP_SLOT.WEAPON)) ws.send(P.enc.unequip(P.EQUIP_SLOT.WEAPON));
       return; }
-    if(!bag.open || shop.mode==='sell' || trade.win) return;   // 팔기 모드·거래창에선 칸 누르기가 팔기·올리기다 — 두 번 누르기로 물약을 써 버리지 않게
+    if(!bag.open || shop.mode==='sell' || trade.win || (mail.open && mail.mode==='send')) return;   // 팔기 모드·거래창·우편 보내기에선 칸 누르기가 팔기·올리기·첨부다 — 두 번 누르기로 물약을 써 버리지 않게
     const h=bagHit(e.offsetX,e.offsetY); if(!h || h.slot===undefined || !bag.slots.has(h.slot)) return;
     ws.send(isEquipTabSlot(h.slot) ? P.enc.equip(h.slot) : P.enc.useItem(h.slot)); });
 }
@@ -1670,14 +1851,19 @@ function drawHUD(){
   ctx.fillStyle='rgba(200,230,200,.75)'; ctx.font=uiFont(10,600); ctx.fillText(SHOW_SERVER ? '레이더 · 주변(AOI)' : '레이더', mx+10, my+16);
 
   // 단축키 안내 (레이더 왼쪽) — 창을 여는 키는 창을 열어야 「I 키로 닫기」로 보여서, 처음 온 사람은 찾을 길이 없었다
-  const KEY_HELP=[['I','가방'],['C','상태창'],['P','파티'],['Z','줍기'],['F','말 걸기'],['`','서버 정보']];
+  const KEY_HELP=[['I','가방'],['C','상태창'],['P','파티'],['M','우편'],['Z','줍기'],['F','말 걸기'],['`','서버 정보']];
   const kw=104, kx=mx-10-kw;
-  const kh=138, ky=H-14-kh;   // 높이는 여섯 줄에 맞춘 그대로 — 레이더를 키워도 아래 끝만 맞춘다(같이 키우면 빈 줄이 생긴다)
+  const kh=158, ky=H-14-kh;   // 높이는 일곱 줄에 맞춘다(줄 20 · 우편 줄을 더해 138 → 158) — 레이더를 키워도 아래 끝만 맞춘다(같이 키우면 빈 줄이 생긴다)
   panel(kx,ky,kw,kh);
+  const newMail=mailBadge();   // 새 우편 수 — 두 탭의 합(못 읽은 탭은 0). 0 이면 안 그린다 · 100 이상은 99+
   KEY_HELP.forEach(([k,t],i)=>{ const y=ky+22+i*20;
     ctx.fillStyle='rgba(214,182,112,.25)'; rr(kx+10,y-12,18,16,3); ctx.fill();
     ctx.textAlign='center'; ctx.fillStyle='#ffe9b8'; ctx.font=uiFont(10,600,true); ctx.fillText(k, kx+19, y);
-    ctx.textAlign='left'; ctx.fillStyle='rgba(220,230,215,.85)'; ctx.font=uiFont(10); ctx.fillText(t, kx+36, y); });
+    ctx.textAlign='left'; ctx.fillStyle='rgba(220,230,215,.85)'; ctx.font=uiFont(10); ctx.fillText(t, kx+36, y);
+    if(k==='M' && newMail>0){ const s=newMail>99 ? '99+' : String(newMail); ctx.font=uiFont(10,600,true);
+      const bw=Math.max(18, ctx.measureText(s).width+8), bx=kx+kw-10-bw;
+      ctx.fillStyle='rgba(226,87,74,.85)'; rr(bx,y-12,bw,16,3); ctx.fill();
+      ctx.textAlign='center'; ctx.fillStyle='#fff'; ctx.fillText(s, bx+bw/2, y); ctx.textAlign='left'; } });
 
   // chat box (bottom-left) — real chat (입력창 자리 확보 위해 위로)
   // '주변' 채팅이다 — 서버가 채팅을 존 전체가 아니라 AOI(내 섹터 ±1)로만 뿌린다
@@ -1702,11 +1888,14 @@ function drawHUD(){
   if(bag.open) drawBag();   // 맨 마지막 — 창이 낮아 레이더 자리까지 내려와도 가방이 위에 그려진다
   drawShop();               // 상점 창 — 게임 화면 위 가운데(가방과 안 겹친다). 받은 파티 요청 창이 같은 자리면 그 창이 위
   drawTrade();              // 거래 창 — 상점 창과 같은 자리(거래창이 열리면 상점을 닫는다)
+  drawMail();               // 우편 창 — 거래 창 뒤(거래창이 열리면 우편을 닫는다 · 상점과는 서로 닫는다)
+  if(bagTip){ drawItemTip(bagTip.px, bagTip.y, bagTip.e, bagTip.at); bagTip=null; }   // 가방 칸 설명 — 창들 위. 가방 안에서 그리면 우편 창(폭 636)이 덮었다(11-11 사진 w1_send)
   drawChannelList();        // 맵 이름 줄을 눌러 연 채널 목록
   drawPartyMenu();          // 캐릭터를 눌러 연 메뉴와 받은 요청 창은 모든 창 위에 — 답을 기다리는 것이라 가리면 안 된다
   drawPartyAsk();
   drawJobPick();            // 직업 고르는 창 — 처음 입장 때만
   drawTradeAsk();           // 받은 거래 신청 — 파티 요청 창 아래 줄(둘이 같이 떠도 안 겹친다)
+  syncMailInputs();         // 우편 입력 칸(DOM) — 그린 뒤에 자리 · 보임을 맞춘다(받은 요청 창 · 확인창이 떠 있으면 숨긴다)
 }
 
 // ---- 스킬 막대 (USE_SKILL) — 게임 화면 아래 가운데. 표에 있는 스킬마다 한 칸: 키 번호 · 이름 · 쿨타임 덮개 · (지속 효과 스킬) 남은 시간 띠 ----
@@ -1849,6 +2038,10 @@ function drawBag(){
       ctx.fillStyle='rgba(0,0,0,.45)'; rr(c.x,c.y,BAG_CELL,BAG_CELL,3); ctx.fill();
       ctx.strokeStyle='rgba(158,200,255,.9)'; ctx.lineWidth=2; rr(c.x+1,c.y+1,BAG_CELL-2,BAG_CELL-2,3); ctx.stroke(); ctx.lineWidth=1;
       ctx.fillStyle='#cfe3ff'; ctx.font=uiFont(9,600); ctx.textAlign='left'; ctx.fillText('거래', c.x+3, c.y+11); }
+    else if(mailAttached(c.slot)){   // 우편 보내기 화면에 올린 칸 — 거래와 같은 꼴에 금빛(가방은 안 잠근다 — 보낼 때 서버가 다시 본다)
+      ctx.fillStyle='rgba(0,0,0,.45)'; rr(c.x,c.y,BAG_CELL,BAG_CELL,3); ctx.fill();
+      ctx.strokeStyle='rgba(255,233,138,.9)'; ctx.lineWidth=2; rr(c.x+1,c.y+1,BAG_CELL-2,BAG_CELL-2,3); ctx.stroke(); ctx.lineWidth=1;
+      ctx.fillStyle='#ffe9b8'; ctx.font=uiFont(9,600); ctx.textAlign='left'; ctx.fillText('우편', c.x+3, c.y+11); }
     if(e.c>1){ ctx.font=uiFont(10,600,true); ctx.textAlign='right';
       ctx.lineWidth=3; ctx.strokeStyle='rgba(0,0,0,.85)'; ctx.strokeText(String(e.c), c.x+BAG_CELL-3, c.y+BAG_CELL-4);
       ctx.fillStyle='#ffffff'; ctx.fillText(String(e.c), c.x+BAG_CELL-3, c.y+BAG_CELL-4); ctx.textAlign='left'; }
@@ -1858,11 +2051,13 @@ function drawBag(){
   ctx.fillText(INV_TAB_NAMES[bag.tab]+'  '+used+' / '+L.cells.length+'칸', px+12, py+ph-9);
   // 가진 돈 — 오른쪽 아래(돈은 칸이 아니라 숫자 하나 — Inventory.h [돈])
   ctx.textAlign='right'; ctx.fillStyle='#ffe98a'; ctx.font=uiFont(11,600,true); ctx.fillText(fmtMoney(me.money), px+pw-12, py+ph-9); ctx.textAlign='left';
-  if(hover) drawItemTip(px, hover.c.y, hover.e);
+  // 설명 상자는 창들 뒤에 그린다(drawHUD — 우편 창이 가방 왼쪽 설명 자리까지 온다). 우편 보내기 중엔 가방 아래 —
+  //   왼쪽 자리는 우편 입력 칸(DOM)과 겹치는데 DOM 은 늘 캔버스 위라 설명 상자를 가린다(1280 폭에서 늘 · 11-11 사진 w1_send)
+  bagTip = hover ? { px, y:hover.c.y, e:hover.e, at: mail.open && mail.mode==='send' ? { x:px, y:py+ph+8 } : null } : null;
 }
 // 마우스를 올린 칸의 설명 — 창 왼쪽(게임 화면 쪽)에 띄운다. 창 위에 띄우면 옆 칸을 가린다.
 //   "두 번 눌러 사용" 은 효과가 있는 아이템(물약)에만, "두 번 눌러 장착" 은 장비에만 — 재료에 적으면 안 되는 동작을 안내하게 된다.
-function drawItemTip(winX, y, e){
+function drawItemTip(winX, y, e, at){   // at = {x,y} 이면 그 자리(왼쪽 위)에 — 우편 보내기 중엔 가방 아래(drawBag)
   const it=ITEMS.get(e.id);
   const name = it ? it.name : '#'+e.id;
   const equip = !!it && it.tab===INV_TAB_FILE.get('equip');
@@ -1875,6 +2070,10 @@ function drawItemTip(winX, y, e){
     if(tradeOffered(bag.hover)) lines.push(['거래창에 올림', 'rgba(158,200,255,.95)']);
     else if(it && it.trade===0) lines.push(['거래할 수 없는 물건', 'rgba(200,180,170,.8)']);
     else { lines.push(['눌러 전부 올리기', 'rgba(158,200,255,.95)']); lines.push(['Shift 누른 채면 1개', 'rgba(158,200,255,.8)']); }
+  } else if(mail.open && mail.mode==='send'){   // 우편 보내기 화면 — 누르면 첨부(두 번 누르기 쓰기는 꺼진다). 보낼 수 있는지는 서버가 다시 본다(NOT_TRADABLE)
+    if(mailAttached(bag.hover)){ lines.push(['우편에 올림', 'rgba(255,233,138,.95)']); lines.push(['다시 누르면 뺌', 'rgba(255,233,138,.8)']); }   // 두 줄 — 한 줄이면 폭 156 을 넘었다(11-11 사진)
+    else if(it && it.trade===0) lines.push(['보낼 수 없는 물건', 'rgba(200,180,170,.8)']);
+    else { lines.push(['눌러 전부 올리기', 'rgba(255,233,138,.95)']); lines.push(['Shift 누른 채면 1개', 'rgba(255,233,138,.8)']); }
   } else if(shop.mode==='sell'){   // 팔기 모드 — 받을 값(한 개)을 보여 주기만. 정본은 서버(S2C_MONEY)
     //   두 줄로 — 한 줄에 다 쓰면 툴팁 폭(156)을 넘어 가방 창 위로 삐져나갔다(10-21 사진)
     if(it && shopBuysItem(e.id) && sellPriceOf(it)>0){ lines.push(['팔면 한 개 '+fmtMoney(sellPriceOf(it)), 'rgba(255,210,110,.95)']); lines.push(['눌러 팔기 · Shift 전부', 'rgba(255,233,138,.9)']); }
@@ -1883,7 +2082,7 @@ function drawItemTip(winX, y, e){
     if(it && (it.healHp>0 || it.healMp>0)) lines.push(['두 번 눌러 사용', 'rgba(255,233,138,.9)']);
     if(equip) lines.push(['두 번 눌러 장착', 'rgba(255,233,138,.9)']);
   }
-  const tw=156, th=58+lines.length*17+6, tx=winX-tw-10, ty=Math.min(y, H-14-th);
+  const tw=156, th=58+lines.length*17+6, tx=at ? at.x : winX-tw-10, ty=Math.min(at ? at.y : y, H-14-th);
   ctx.fillStyle='rgba(8,12,10,.97)'; rr(tx,ty,tw,th,8); ctx.fill();   // 게임 화면 위에 뜨므로 뒤가 비치지 않게 거의 불투명
   ctx.strokeStyle='rgba(255,233,138,.35)'; ctx.lineWidth=1; ctx.stroke();
   ctx.fillStyle='rgba(0,0,0,.35)'; rr(tx+10,ty+10,36,36,5); ctx.fill();
@@ -1989,7 +2188,7 @@ function monsterAt(x,y){
 // 창 위인가 — 게임 화면 클릭의 판단과 같은 순서(mousedown). 두 번 클릭이 창을 뚫고 몬스터를 치지 않게
 function overWindow(x,y){
   if(jobPicking() && inRect(x,y,jobLayout())) return true;
-  if(partyUiHit(x,y) || tradeUiHit(x,y) || shopUiHit(x,y) || foldHit(x,y)) return true;
+  if(partyUiHit(x,y) || tradeUiHit(x,y) || mailUiHit(x,y) || shopUiHit(x,y) || foldHit(x,y)) return true;
   if(bag.open && bagHit(x,y)) return true;
   if(stw.open && statusHit(x,y)) return true;
   return x<VX || x>VX+VW || y<VY || y>VY+VH;
@@ -2389,6 +2588,262 @@ function drawTradeAsk(){
   smallBtn(L.decline, party.ask ? '거절' : '거절 (N)', tradeHover('ask','decline'), true);
 }
 
+// ---- 우편 (USE_MAIL) — 그리기 · 마우스 판정 · 입력 칸 자리가 같은 자리 계산(mailLayout)을 쓴다(거래 tradeLayout 과 같은 꼴) ----
+//   모양은 시안 mail-mock/mock.html 의 1안(cand1)을 옮겼다(mail-plan.md 10절). 왼쪽 = 탭 둘 · 목록 여섯 줄 · 「우편 보내기」,
+//   오른쪽 = 읽기(제목 · 본문 · 첨부 8칸 · 받기 · 지우기) 또는 보내기(받는 사람 · 제목 · 본문 · 첨부 · 돈 · 보내기 · 취소). 보내기를 누르면 확인창
+const MAIL_W=636, MAIL_H=440, MAIL_LIST_W=282, MAIL_ROW_H=46, MAIL_ROW_GAP=4, MAIL_ROWS=6;
+const MAIL_CELL=36, MAIL_CELL_GAP=6, MAIL_AT_W=4*MAIL_CELL+3*MAIL_CELL_GAP, MAIL_AT_H=2*MAIL_CELL+MAIL_CELL_GAP;   // 첨부 8칸 = 4칸 2줄 · 칸 크기는 가방과 같은 36
+function mailCells(x,y){ const c=[]; for(let i=0;i<P.MAIL_MAX_ITEMS;i++) c.push({ x:x+(i%4)*(MAIL_CELL+MAIL_CELL_GAP), y:y+Math.floor(i/4)*(MAIL_CELL+MAIL_CELL_GAP), w:MAIL_CELL, h:MAIL_CELL }); return c; }
+function mailLayout(){
+  if(!mail.open) return null;
+  let x=Math.round(VX+VW/2-MAIL_W/2);
+  if(bag.open) x=Math.min(x, bagLayout().px-8-MAIL_W);   // 첨부 칸을 누르려면 가방이 보여야 한다 — 가방 왼쪽으로 민다(10절 「가방과 겹칠 때」)
+  x=Math.max(14, x);
+  const y=VY+56, w=MAIL_W, h=MAIL_H, lx=x+12, list=mail.lists[mail.tab];
+  const tw=(MAIL_LIST_W-4)/2;
+  const L={ x, y, w, h, lx, list, btns:{}, rows:[], cells:[], form:null, confirm:null,
+    tabs:[ { tab:1, x:lx, y:y+36, w:tw, h:22 }, { tab:0, x:lx+tw+4, y:y+36, w:tw, h:22 } ],   // 왼쪽 계정 우편 · 오른쪽 캐릭터 우편(10절)
+    listBox:{ x:lx, y:y+66, w:MAIL_LIST_W, h:MAIL_ROWS*(MAIL_ROW_H+MAIL_ROW_GAP)-MAIL_ROW_GAP } };
+  const n=Math.min(MAIL_ROWS, Math.max(0, list.length-mail.top));
+  for(let i=0;i<n;i++){ const m=list[mail.top+i]; L.rows.push({ x:lx, y:y+66+i*(MAIL_ROW_H+MAIL_ROW_GAP), w:MAIL_LIST_W-8, h:MAIL_ROW_H, id:m.mailId, m }); }
+  L.btns.compose={ x:lx+MAIL_LIST_W-96, y:y+h-36, w:96, h:26 };   // 두 탭 같은 자리(10절 「두 탭의 버튼」)
+  const rx=x+320, rw=w-320-14, by=y+h-38, gy=by-14-MAIL_AT_H;
+  Object.assign(L, { rx, rw, by, gy });
+  L.cells=mailCells(rx, gy);
+  if(mail.mode==='send'){
+    const fy=y+68, LW=58;
+    L.fy=fy;
+    L.form={ to:{ x:rx+LW, y:fy, w:rw-LW, h:26 }, title:{ x:rx+LW, y:fy+32, w:rw-LW, h:26 }, body:{ x:rx+LW, y:fy+64, w:rw-LW, h:gy-30-(fy+64) },
+             money:{ x:rx+MAIL_AT_W+16+22, y:gy, w:rw-MAIL_AT_W-16-22, h:26 } };
+    L.btns.send={ x:rx+rw-168, y:by, w:96, h:26 }; L.btns.cancel={ x:rx+rw-66, y:by, w:66, h:26 };
+    if(mail.confirm){ const cw=340, ch=196, cx=Math.round(x+w/2-cw/2), cy=Math.round(y+h/2-ch/2);
+      L.confirm={ x:cx, y:cy, w:cw, h:ch, ok:{ x:cx+cw/2-104, y:cy+154, w:100, h:28 }, no:{ x:cx+cw/2+4, y:cy+154, w:100, h:28 } }; }
+  } else {
+    L.btns.take={ x:rx+rw-168, y:by, w:96, h:26 }; L.btns.erase={ x:rx+rw-66, y:by, w:66, h:26 };   // 받기 · 지우기 — 못 누를 때만 흐리게(10절)
+  }
+  return L;
+}
+// 마우스가 우편 창 위면 {btn, tab? · id? · i?}(빈 곳이면 btn null), 밖이면 null. 확인창이 떠 있으면 확인창 단추만 받는다
+function mailUiHit(x,y){
+  const L=mailLayout(); if(!L) return null;
+  if(L.confirm){ if(inRect(x,y,L.confirm.ok)) return { btn:'confirmOk' }; if(inRect(x,y,L.confirm.no)) return { btn:'confirmNo' }; return inRect(x,y,L) ? { btn:null } : null; }
+  if(!inRect(x,y,L)) return null;
+  for(const t of L.tabs) if(inRect(x,y,t)) return { btn:'tab', tab:t.tab };
+  for(const r of L.rows) if(inRect(x,y,r)) return { btn:'row', id:r.id };
+  for(const [k,r] of Object.entries(L.btns)) if(inRect(x,y,r)) return { btn:k };
+  if(mail.mode==='send') for(let i=0;i<mail.attach.length && i<L.cells.length;i++) if(inRect(x,y,L.cells[i])) return { btn:'cell', i };
+  return { btn:null };
+}
+// 응답을 기다리는 동안 서버로 가는 누르기는 무시한다(10절 「그 밖」). 보내기 화면에서는 탭 · 줄을 안 받는다 — 쓰던 글이 날아가지 않게 「취소」부터
+function mailClick(h){
+  switch(h.btn){
+    case 'confirmNo': mail.confirm=false; break;
+    case 'confirmOk': mailSendNow(); break;
+    case 'tab':
+      if(mail.wait || mail.mode==='send') break;
+      mail.userTab=true; mailSwitchTab(h.tab); break;   // 지금 탭을 누르면 다시 받는다
+    case 'row':
+      if(mail.wait || mail.mode==='send') break;
+      mail.sel=h.id;
+      if(!mail.bodies.has(mail.tab+':'+h.id)) mailAsk('READ', P.enc.mailRead(mail.tab, h.id));
+      break;
+    case 'compose': if(!mail.wait && mail.mode!=='send') mailCompose(); break;
+    case 'cancel':
+      mail.mode='read'; mailResetForm();
+      if(MAIL_INPUTS.includes(document.activeElement)) document.activeElement.blur();
+      break;
+    case 'send': if(!mail.wait) mailOpenConfirm(); break;
+    case 'cell': mail.attach.splice(h.i,1); break;   // 올린 첨부를 누르면 뺀다(가방 칸을 다시 눌러도 같다)
+    case 'take': { const m=mailSelLine();
+      if(m && !mail.wait && mailHasAttach(m)) mailAsk(mail.tab===1 ? 'ACC_TAKE' : 'TAKE', mail.tab===1 ? P.enc.accMailTake(m.mailId) : P.enc.mailTake(m.mailId));
+      break; }
+    case 'erase': { const m=mailSelLine();
+      if(m && !mail.wait && !mailHasAttach(m)) mailAsk(mail.tab===1 ? 'ACC_ERASE' : 'ERASE', P.enc.mailDelete(mail.tab, m.mailId));
+      break; }
+    default: break;   // 창 안 빈 곳 — 아래 게임 화면으로 새지 않게 여기서 끝
+  }
+  mail.hover=null; mailChanged();
+}
+// 본문 줄 넘김 — 보낸 사람의 줄바꿈을 지키고 그 안에서 낱말 단위, 9줄을 넘으면 글자 단위(10절 「본문 줄 넘김」).
+//   읽는 칸(drawMailDetail)과 보내기 확인(mailOpenConfirm)이 같은 이 함수로 센다 — 따로 세면 보낼 때와 읽을 때의 줄 수가 어긋난다. 줄을 자르지는 않는다(그리는 쪽이 9줄까지만)
+function mailWrap(text, maxW){
+  const keep=ctx.font; ctx.font=uiFont(12);
+  const fits=s=>ctx.measureText(s).width<=maxW;
+  const byWord=p=>{ const out=[]; let line='';
+    for(const word of p.split(' ')){ const t=line ? line+' '+word : word;
+      if(fits(t)){ line=t; continue; }
+      if(line) out.push(line);
+      line=word;
+      while(!fits(line)){ let k=line.length; while(k>1 && !fits(line.slice(0,k))) k--; out.push(line.slice(0,k)); line=line.slice(k); }   // 한 낱말이 한 줄보다 길다
+    }
+    out.push(line); return out; };
+  const byChar=p=>{ const out=[]; let line='';
+    for(const ch of p){ if(!line && ch===' ') continue; const t=line+ch;
+      if(fits(t)){ line=t; continue; }
+      out.push(line); line = ch===' ' ? '' : ch; }
+    out.push(line); return out; };
+  const paras=String(text||'').split('\n');
+  let lines=paras.flatMap(byWord);
+  if(lines.length>MAIL_BODY_LINES) lines=paras.flatMap(byChar);
+  ctx.font=keep;
+  return lines;
+}
+// 남은 날 — 하루 미만이면 시간으로. 「받는 중」 줄(계정 우편을 다른 캐릭터가 받는 중)은 날 대신 그 글자
+function mailLeftText(m){ if(m.claiming) return '받는 중'; const s=m.remainSec; return s>=86400 ? Math.ceil(s/86400)+'일 남음' : Math.max(1,Math.ceil(s/3600))+'시간 남음'; }
+const mailLeftColor = m => m.claiming ? 'rgba(158,200,255,.85)' : m.remainSec<=3*86400 ? '#f0a090' : 'rgba(200,215,200,.60)';
+const mailFrom = m => m.fromName || '운영자';   // 보낸 이름이 비면 운영자(10절 「그 밖」)
+// 목록 줄의 돈 그림 — 아이템 표의 돈 줄(tab=money · 표에 하나뿐 — ItemTable.csv 머리말). 표를 못 받았으면 그림을 안 그린다
+function mailMoneyItemId(){ for(const [id,it] of ITEMS) if(it.money) return id; return 0; }
+function mailHLine(x,y,w){ ctx.strokeStyle='rgba(214,182,112,.28)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x,Math.round(y)+.5); ctx.lineTo(x+w,Math.round(y)+.5); ctx.stroke(); }
+function mailVLine(x,y,h){ ctx.strokeStyle='rgba(214,182,112,.28)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(Math.round(x)+.5,y); ctx.lineTo(Math.round(x)+.5,y+h); ctx.stroke(); }
+// 창 바탕 — 글을 읽는 창이라 거래 창의 불투명도(.97)에 가방 창의 금색 테두리(시안 win)
+function mailWin(x,y,w,h){ ctx.fillStyle='rgba(8,12,10,.97)'; rr(x,y,w,h,8); ctx.fill(); ctx.lineWidth=1;
+  ctx.strokeStyle='rgba(214,182,112,.70)'; rr(x+.5,y+.5,w-1,h-1,8); ctx.stroke();
+  ctx.strokeStyle='rgba(0,0,0,.55)'; rr(x+1.5,y+1.5,w-3,h-3,7); ctx.stroke(); }
+function mailCountText(c,x,y){ ctx.font=uiFont(10,600,true); ctx.textAlign='right'; ctx.lineWidth=3; ctx.strokeStyle='rgba(0,0,0,.85)'; ctx.strokeText(String(c),x,y);
+  ctx.fillStyle='#ffffff'; ctx.fillText(String(c),x,y); ctx.textAlign='left'; }
+// 첨부 8칸 — items = [{itemId, count}](읽기 = 우편 줄 · 보내기 = 올린 가방 칸)
+function mailDrawCells(cells, items){
+  cells.forEach((c,i)=>{
+    ctx.fillStyle='rgba(0,0,0,.36)'; rr(c.x+.5,c.y+.5,MAIL_CELL-1,MAIL_CELL-1,3); ctx.fill();
+    const on = mail.mode==='send' && i<items.length && !!mail.hover && mail.hover.btn==='cell' && mail.hover.i===i;
+    ctx.strokeStyle = on ? 'rgba(255,233,138,.85)' : 'rgba(214,182,112,.20)'; ctx.lineWidth=1; ctx.stroke();
+    const it=items[i]; if(!it) return;
+    drawItemIcon(c.x,c.y,MAIL_CELL,it.itemId);
+    if(it.count>1) mailCountText(it.count, c.x+MAIL_CELL-3, c.y+MAIL_CELL-4); });
+}
+const mailHover = btn => !!mail.hover && mail.hover.btn===btn;
+// 단추 — 못 누르면 흐리게(.4). 눌러도 mailClick 이 다시 막는다
+function mailBtn(r, key, label, can, danger){ ctx.save(); if(!can) ctx.globalAlpha=.4; smallBtn(r, label, can && mailHover(key), danger); ctx.restore(); }
+// 캔버스에 그린 입력 칸 — DOM 칸이 숨었을 때(확인창 · 받은 요청 창) 쓴 글이 그대로 보이게 같은 자리에 그린다. DOM 칸이 보이면 그 밑에 깔린다
+function mailInputBox(r, text, multi){
+  ctx.fillStyle='rgba(10,16,12,.92)'; rr(r.x+.5,r.y+.5,r.w-1,r.h-1,4); ctx.fill(); ctx.strokeStyle='rgba(150,200,150,.25)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(12);
+  if(!multi){ ctx.fillText(fitText(text, r.w-16), r.x+8, r.y+18); return; }
+  const lines=mailWrap(text, r.w-16), fit=Math.max(1, Math.floor((r.h-8)/19));
+  lines.slice(0, fit).forEach((ln,i)=>ctx.fillText(ln, r.x+8, r.y+18+i*19));
+}
+function drawMail(){
+  const L=mailLayout(); if(!L) return;
+  const { x, y, w, h, lx } = L, list=L.list;
+  mailWin(x,y,w,h);
+  ctx.textAlign='left'; ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(13,600); ctx.fillText('우편', x+12, y+21);
+  ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(11); ctx.fillText('M 키로 닫기', x+w-12, y+21); ctx.textAlign='left';
+  mailHLine(x+12, y+30, w-24);
+  // 탭 — 이름 옆 수 = 그 탭의 새 우편 수(키 안내의 붉은 칸과 같은 수 · S2C_MAIL_COUNT). 못 읽은 탭(known 0)은 수를 안 붙인다
+  for(const t of L.tabs){ const on=t.tab===mail.tab, c=mail.counts[t.tab];
+    const label=(t.tab===1 ? '계정 우편' : '캐릭터 우편')+(c.known && c.count>0 ? ' '+c.count : '');
+    ctx.fillStyle = on ? 'rgba(214,182,112,.22)' : mailHover('tab') && mail.hover.tab===t.tab ? 'rgba(255,255,255,.08)' : 'rgba(255,255,255,.04)'; rr(t.x+.5,t.y+.5,t.w-1,t.h-1,3); ctx.fill();
+    ctx.strokeStyle = on ? 'rgba(214,182,112,.80)' : 'rgba(214,182,112,.22)'; ctx.lineWidth=1; ctx.stroke();
+    ctx.textAlign='center'; ctx.fillStyle = on ? '#ffe9b8' : 'rgba(210,200,180,.60)'; ctx.font=uiFont(12,on?600:400); ctx.fillText(label, t.x+t.w/2, t.y+15); }
+  ctx.textAlign='left';
+  // 목록 — 윗줄 제목(안 읽었으면 점 · 굵게), 아랫줄 보낸 사람 · 남은 날, 오른쪽 첨부 그림 3개까지 + 「+N」(10절)
+  const moneyId=mailMoneyItemId();
+  for(const r of L.rows){ const m=r.m, sel=m.mailId===mail.sel && mail.mode!=='send', hov=mailHover('row') && mail.hover.id===r.id;
+    ctx.fillStyle = sel ? 'rgba(214,182,112,.16)' : hov ? 'rgba(255,255,255,.07)' : 'rgba(255,255,255,.03)'; rr(r.x+.5,r.y+.5,r.w-1,r.h-1,3); ctx.fill();
+    ctx.strokeStyle = sel ? 'rgba(214,182,112,.70)' : 'rgba(214,182,112,.14)'; ctx.lineWidth=1; ctx.stroke();
+    const all=m.items.map(i=>i.itemId); if(m.money>0 && moneyId) all.push(moneyId);
+    const icons=all.slice(0,3), more=all.length-icons.length, iconW=icons.length*28+(more?22:0);
+    if(!m.read){ ctx.fillStyle='#ffe98a'; ctx.beginPath(); ctx.arc(r.x+11,r.y+15,3,0,Math.PI*2); ctx.fill(); }
+    ctx.textAlign='left'; ctx.fillStyle = !m.read ? '#eaf3e0' : 'rgba(210,220,205,.72)'; ctx.font=uiFont(12,!m.read?600:400); ctx.fillText(fitText(m.title, r.w-28-iconW-8), r.x+20, r.y+19);
+    ctx.font=uiFont(10); ctx.fillStyle='rgba(200,215,200,.60)'; const from=fitText(mailFrom(m), 80); ctx.fillText(from, r.x+20, r.y+36);
+    ctx.fillStyle=mailLeftColor(m); ctx.fillText(mailLeftText(m), r.x+20+ctx.measureText(from).width+10, r.y+36);
+    const ix=r.x+r.w-8-(more?22:0); icons.forEach((id,i)=>drawItemIcon(ix-(icons.length-i)*28+2, r.y+10, 26, id));
+    if(more){ ctx.textAlign='right'; ctx.fillStyle='rgba(255,233,184,.85)'; ctx.font=uiFont(11,600); ctx.fillText('+'+more, r.x+r.w-8, r.y+27); ctx.textAlign='left'; }
+  }
+  if(list.length>MAIL_ROWS){ const b=L.listBox;   // 굴림 막대 — 여섯 줄보다 많을 때만
+    ctx.fillStyle='rgba(214,182,112,.14)'; rr(b.x+b.w-4,b.y,3,b.h,1.5); ctx.fill();
+    ctx.fillStyle='rgba(214,182,112,.60)'; rr(b.x+b.w-4, b.y+b.h*mail.top/list.length, 3, b.h*MAIL_ROWS/list.length, 1.5); ctx.fill(); }
+  if(!list.length){ ctx.textAlign='center'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(11);
+    ctx.fillText(mail.wait==='LIST' ? '불러오는 중…' : '우편이 없습니다', lx+MAIL_LIST_W/2, L.listBox.y+40); ctx.textAlign='left'; }
+  ctx.textAlign='left'; ctx.fillStyle='rgba(180,210,180,.6)'; ctx.font=uiFont(11);
+  ctx.fillText(mail.tab===0 ? list.length+' / '+MAIL_BOX_MAX+'통' : '계정 우편 '+list.length+'통', lx, y+h-36+17);
+  mailBtn(L.btns.compose, 'compose', '우편 보내기', !mail.wait && mail.mode!=='send', false);
+  mailVLine(x+306, y+38, h-50);
+  if(mail.mode==='send') drawMailForm(L); else drawMailDetail(L);
+  if(L.confirm) drawMailConfirm(L);
+}
+// 읽기 — 위에 제목, 가운데 본문(9줄까지), 아래 첨부와 받기 · 지우기
+function drawMailDetail(L){
+  const m=mailSelLine(), rx=L.rx, rw=L.rw, ty=L.y+38, by=L.by, gy=L.gy;
+  if(!m){
+    ctx.textAlign='center'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(12); ctx.fillText(L.list.length ? '왼쪽 목록에서 우편을 고르세요' : '읽을 우편이 없습니다', rx+rw/2, L.y+L.h/2-10); ctx.textAlign='left';
+    mailBtn(L.btns.take,'take','받기',false,false); mailBtn(L.btns.erase,'erase','지우기',false,true);
+    return;
+  }
+  ctx.textAlign='left'; ctx.fillStyle='#ffe9b8'; ctx.font=uiFont(14); ctx.fillText(fitText(m.title, rw), rx, ty+16);
+  ctx.fillStyle='rgba(200,215,200,.70)'; ctx.font=uiFont(12); ctx.fillText(fitText('보낸 사람  '+mailFrom(m), rw-90), rx, ty+37);
+  ctx.textAlign='right'; ctx.fillStyle=mailLeftColor(m); ctx.fillText(mailLeftText(m), rx+rw, ty+37); ctx.textAlign='left';
+  mailHLine(rx, ty+46, rw);
+  const body=mail.bodies.get(mail.tab+':'+m.mailId);
+  if(body===undefined){ ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(12); ctx.fillText(mail.wait==='READ' ? '불러오는 중…' : '본문을 못 받았습니다 — 줄을 다시 누르세요', rx, ty+68); }
+  else { ctx.fillStyle='#eaf3e0'; ctx.font=uiFont(12); mailWrap(body, rw).slice(0, MAIL_BODY_LINES).forEach((ln,i)=>ctx.fillText(ln, rx, ty+68+i*19)); }   // 그래도 넘으면 9줄까지만(10절)
+  const has=mailHasAttach(m), idle=!mail.wait;
+  if(!has){
+    ctx.fillStyle='rgba(180,210,180,.6)'; ctx.font=uiFont(11); ctx.fillText('첨부가 없는 우편입니다', rx, by+17);
+  } else {
+    mailHLine(rx, gy-30, rw);
+    ctx.fillStyle='rgba(200,215,200,.8)'; ctx.font=uiFont(12,600); ctx.fillText('첨부', rx, gy-10);
+    // 받으면 어디로 가나 — 첨부 제목 옆(단추 줄은 받기 단추까지 134px 라 문장이 안 들어간다)
+    ctx.fillStyle='rgba(180,210,180,.6)'; ctx.font=uiFont(11); ctx.fillText(fitText(mail.tab===1 ? '지금 캐릭터의 가방으로 들어갑니다' : '받으면 우편이 사라집니다', rw-34), rx+34, gy-10);
+    mailDrawCells(L.cells, m.items);
+    ctx.fillStyle='rgba(200,215,200,.75)'; ctx.font=uiFont(12); ctx.fillText('돈', rx+MAIL_AT_W+16, gy+15);
+    ctx.fillStyle='#ffe98a'; ctx.font=uiFont(12,600,true); ctx.fillText(fmtMoney(m.money), rx+MAIL_AT_W+16, gy+34);
+  }
+  mailBtn(L.btns.take,'take','받기',idle && has,false);
+  mailBtn(L.btns.erase,'erase','지우기',idle && !has,true);
+}
+// 보내기 — 받는 사람 · 제목 · 본문은 DOM 칸(syncMailInputs). 여기는 이름표 · 글자 수 · 첨부 · 돈 · 수수료 · 단추
+function drawMailForm(L){
+  const rx=L.rx, rw=L.rw, fy=L.fy, gy=L.gy, f=L.form;
+  ctx.textAlign='left'; ctx.fillStyle='#ffe9b8'; ctx.font=uiFont(14); ctx.fillText('우편 보내기', rx, L.y+54);
+  const label=(ty,t)=>{ ctx.textAlign='left'; ctx.fillStyle='rgba(200,215,200,.8)'; ctx.font=uiFont(12); ctx.fillText(t, rx, ty+18); };
+  label(fy,'받는 사람'); label(fy+32,'제목'); label(fy+64,'본문');
+  mailInputBox(f.to, mailToEl.value, false); mailInputBox(f.title, mailTitleEl.value, false); mailInputBox(f.body, mailBodyEl.value, true); mailInputBox(f.money, mailMoneyEl.value, false);
+  // 본문 글자 수 · 줄 수 — 이름표 아래(칸 안 오른쪽 아래는 DOM 칸이 덮는다). 줄 수는 읽는 칸과 같은 줄 넘김으로 센다 — 9줄을 넘으면 붉게(보내기를 누르면 막힌다)
+  const lines=mailBodyEl.value ? mailWrap(mailBodyEl.value, rw).length : 0;
+  ctx.font=uiFont(10,400,true); ctx.fillStyle='rgba(180,210,180,.55)'; ctx.fillText(mailBodyEl.value.length+'/'+P.MAIL_BODY_MAX, rx, fy+64+40);
+  ctx.fillStyle = lines>MAIL_BODY_LINES ? '#f0a090' : 'rgba(180,210,180,.55)'; ctx.fillText(lines+'/'+MAIL_BODY_LINES+'줄', rx, fy+64+56);
+  ctx.textAlign='left'; ctx.fillStyle='rgba(200,215,200,.8)'; ctx.font=uiFont(12,600); ctx.fillText('첨부', rx, gy-10);
+  ctx.fillStyle='rgba(180,210,180,.6)'; ctx.font=uiFont(11); ctx.fillText(fitText('가방 칸을 누르면 올라갑니다 · Shift 면 1개', rw-34), rx+34, gy-10);
+  mailDrawCells(L.cells, mail.attach);
+  const mx=rx+MAIL_AT_W+16, money=mailMoneyValue(), pay=money+MAIL_FEE_SHOWN;
+  ctx.fillStyle='rgba(200,215,200,.8)'; ctx.font=uiFont(12); ctx.fillText('돈', mx, gy+18);
+  ctx.fillStyle='rgba(200,215,200,.70)'; ctx.font=uiFont(11); ctx.fillText('수수료 '+fmtMoney(MAIL_FEE_SHOWN), mx, gy+47);
+  ctx.fillStyle = me.money!==null && pay>me.money ? '#f0a090' : '#ffe98a'; ctx.font=uiFont(11,600); ctx.fillText(fitText('낼 돈 '+fmtMoney(pay), rw-MAIL_AT_W-16), mx, gy+66);   // 가진 돈보다 많으면 붉게 — 보여 주기만(판정은 서버 NOT_ENOUGH_MONEY)
+  mailBtn(L.btns.send,'send','보내기',!mail.wait && !mail.confirm,false);
+  mailBtn(L.btns.cancel,'cancel','취소',!mail.confirm,true);
+}
+// 보내기 확인창 — 받는 사람 이름을 크게. 취소 · 폐기가 없다는 것을 여기서 알린다(10절 「보내기 확인창」 · 1절)
+function drawMailConfirm(L){
+  const c=L.confirm, money=mailMoneyValue(), n=mail.attach.length;
+  ctx.fillStyle='rgba(0,0,0,.55)'; rr(L.x,L.y,L.w,L.h,8); ctx.fill();
+  mailWin(c.x,c.y,c.w,c.h);
+  const cx=c.x+c.w/2;
+  ctx.textAlign='center'; ctx.fillStyle='rgba(200,215,200,.8)'; ctx.font=uiFont(12); ctx.fillText('이 캐릭터에게 보냅니다', cx, c.y+28);
+  ctx.fillStyle='#ffe9b8'; ctx.font=uiFont(18,600); ctx.fillText(fitText(mailToEl.value || '(이름 없음)', c.w-28), cx, c.y+60);
+  mailHLine(c.x+14, c.y+74, c.w-28);
+  const parts=[]; if(n) parts.push('아이템 '+n+'칸'); if(money>0) parts.push('돈 '+fmtMoney(money)); parts.push('수수료 '+fmtMoney(MAIL_FEE_SHOWN));
+  ctx.textAlign='center'; ctx.fillStyle='rgba(200,215,200,.8)'; ctx.font=uiFont(12); ctx.fillText(fitText(parts.join('  ·  '), c.w-28), cx, c.y+94);
+  ctx.fillStyle='#ffe98a'; ctx.font=uiFont(12,600); ctx.fillText('낼 돈 '+fmtMoney(money+MAIL_FEE_SHOWN), cx, c.y+113);
+  ctx.fillStyle='#f0a090'; ctx.font=uiFont(11); ctx.fillText(fitText('보낸 뒤에는 취소할 수 없고, '+MAIL_KEEP_DAYS+'일 안에 안 받으면 사라집니다', c.w-20), cx, c.y+136);
+  mailBtn(c.ok,'confirmOk','보내기',!mail.wait,false); mailBtn(c.no,'confirmNo','취소',true,true);
+  ctx.textAlign='left';
+}
+// 입력 칸(DOM) 자리 · 보임 — 그린 뒤에 매 프레임 맞춘다. DOM 은 캔버스 위라 확인창 · 받은 요청 창 · 직업 고르기가 떠 있으면 숨긴다(10절 — 안 숨기면 그 창을 뚫고 보인다)
+function syncMailInputs(){
+  const L=mailLayout();
+  const show = !!L && !!L.form && !mail.confirm && !party.ask && !trade.ask && !jobPicking();
+  const place=(el,r)=>{
+    if(!show){ if(!el.hidden){ if(document.activeElement===el) el.blur(); el.hidden=true; } return; }
+    if(el.hidden) el.hidden=false;
+    const s=el.style, l=r.x+'px', t=r.y+'px', w=r.w+'px', h=r.h+'px';
+    if(s.left!==l) s.left=l; if(s.top!==t) s.top=t; if(s.width!==w) s.width=w; if(s.height!==h) s.height=h;
+  };
+  const f = show ? L.form : {};
+  place(mailToEl, f.to); place(mailTitleEl, f.title); place(mailBodyEl, f.body); place(mailMoneyEl, f.money);
+}
+
 // ---- frame ----
 const dvec=d=> d===1?{x:0,y:-1}: d===2?{x:0,y:1}: d===3?{x:-1,y:0}: d===4?{x:1,y:0}:{x:0,y:0};
 function advance(o,dt,k){
@@ -2548,6 +3003,7 @@ function clearZoneWorld(){
   if(party.menu){ party.menu=null; partyChanged(); }   // 누른 사람이 옛 존에 남았다 — 파티 자체는 존을 넘으므로 안 비운다
   closeShop();                                          // 메뉴를 연 NPC 도 옛 존에 남았다
   if(trade.ask || trade.win){ trade.ask=null; trade.win=null; tradeChanged(); }   // 거래는 존을 안 넘는다 — 서버가 LEFT 로 끝냈다(END 가 먼저 와 있다)
+  closeMail();                                          // 우편 창도 — 새 맵에서 다시 연다
 }
 // 다른 존 서버로 채널을 바꾼다 — 옛 연결의 끊김 처리(캐릭터 창으로 돌아가기)를 막고, 받은 주소로 입장 번호를 들고 다시 붙는다.
 //   페이지를 새로 불러오지 않으므로 그림을 다시 받는 시간이 더해지지 않는다
@@ -2564,6 +3020,7 @@ function connect(){
   myJob=null; jobHover=null; jobChanged();   // 끊기면 새 접속의 MY_JOB 을 기다린다(그때까지 공용 기술만)
   party.info=null; party.ask=null; party.menu=null; partyChanged();   // 끊겨도 월드 서버의 파티에는 오프라인으로 남는다 — 화면은 비우고 새 접속의 명단을 다시 받는다
   trade.ask=null; trade.win=null; tradeChanged();                       // 거래도 끊기면 서버가 끝냈다
+  mail.wait=null; mail.relist=false; mail.lists={0:[],1:[]}; mail.pending=[]; mail.counts={0:{known:0,count:0},1:{known:0,count:0}}; mailChanged();   // 창은 clearZoneWorld 가 닫았다 — 우편 수는 새 접속의 입장 때 다시 오고 목록은 창을 다시 열 때 받는다(답을 기다리던 요청은 옛 연결과 함께 사라졌다)
   const re=new P.Reassembler(onPacket);
   ws=new WebSocket(WS_URL); ws.binaryType='arraybuffer';
   // 입장 요청을 먼저 보낸다 — 서버는 이걸 받아야 캐릭터를 불러온다(USE_LOGIN).
@@ -2572,6 +3029,7 @@ function connect(){
   ws.onmessage=(ev)=>{ const b=ev.data; stat.bytes+=b.byteLength||b.length||0; re.push(new Uint8Array(b)); };
   ws.onerror=()=>setConn(false,'연결 오류 — 릴레이/서버 확인');
   ws.onclose=()=>{
+    closeMail();   // 끊긴 순간 닫는다 — 다시 잇는 1.5초 동안 입력 칸이 떠 있지 않게(mail-plan.md 10절 「연결 끊김」)
     // 입장 번호로 들어왔으면 다시 잇지 않는다 — 번호는 이미 쓰였다. 캐릭터 창에서 다시 고른다. 그 창이 까닭을 띄운다
     if(ENTRY){ if(!leavingToLobby) sessionStorage.setItem('mmo.notice', self ? '게임 서버와 연결이 끊겼습니다' : '게임 서버에 들어가지 못했습니다'); toLobby(); return; }
     setConn(false,'연결 끊김 — 재시도 중…'); setTimeout(connect,1500);
