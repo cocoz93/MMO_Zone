@@ -77,7 +77,7 @@ const CREATE_TEXT = {
 };
 const DELETE_TEXT = { NOT_MINE: '내 캐릭터가 아닙니다', IN_GAME: '게임에 들어가 있는 캐릭터는 지울 수 없습니다', BUSY: '서버가 바쁩니다. 다시 눌러 주세요', DB_FAIL: '서버가 잠시 저장소를 못 읽었습니다. 다시 눌러 주세요' };
 const RESTORE_TEXT = { NOT_MINE: '내 캐릭터가 아닙니다', EXPIRED: '복구 기간이 지났습니다', BUSY: '서버가 바쁩니다. 다시 눌러 주세요', DB_FAIL: '서버가 잠시 저장소를 못 읽었습니다. 다시 눌러 주세요' };
-const SELECT_TEXT = { NOT_MINE: '내 캐릭터가 아닙니다', DELETED: '삭제 대기 중인 캐릭터입니다', ZONE_DOWN: '게임 서버가 꺼져 있습니다. 잠시 뒤 다시 눌러 주세요', ZONE_FULL: '게임 서버가 꽉 찼습니다', BUSY: '서버가 바쁩니다. 다시 눌러 주세요', DB_FAIL: '서버가 잠시 저장소를 못 읽었습니다. 다시 눌러 주세요' };
+const SELECT_TEXT = { DUPLICATE: '이미 접속 중이어서 기존 접속을 끊었습니다. 다시 눌러 주세요', NOT_MINE: '내 캐릭터가 아닙니다', DELETED: '삭제 대기 중인 캐릭터입니다', ZONE_DOWN: '게임 서버가 꺼져 있습니다. 잠시 뒤 다시 눌러 주세요', ZONE_FULL: '게임 서버가 꽉 찼습니다', BUSY: '서버가 바쁩니다. 다시 눌러 주세요', DB_FAIL: '서버가 잠시 저장소를 못 읽었습니다. 다시 눌러 주세요' };
 
 let ws = null, hb = null, rows = [], jobs = new Map(), looks = null, waiting = false, state = 'connecting', lastResult = '', tokenRetried = false;
 let makerSlot = 0, confirmId = null, noticeText = '';
@@ -286,6 +286,8 @@ $('confirmOk').onclick = () => { const id = confirmId; closeConfirm(); waiting =
   render();
   requestAnimationFrame(tick);
   noticeText = sessionStorage.getItem(S.notice) || ''; sessionStorage.removeItem(S.notice);   // 게임에서 돌아온 까닭 — 목록 창에 띄운다
+  // 까닭이 있으면 자동 접속하지 않는다 — 다른 탭에서 같은 계정으로 들어와 이 탭이 밀려났을 수 있다. 자동으로 붙으면 캐릭터 서버가 그 탭의 창을 끊는다
+  if (noticeText) { state = 'paused'; say(noticeText); $('retry').hidden = false; return; }
   connect();
 })();
 })();
