@@ -157,7 +157,7 @@ add_library(ServerCommonLib STATIC
 
 target_include_directories(ServerCommonLib PUBLIC
     ${COMMON_DIR}                        # <Data/…> · <Config/…> · <Db/…> · <Monitoring/…> · <Process/…> · <Lobby/…> · <Link/…>
-    ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Identity/…> · <Protocol/…>
+    ${CMAKE_CURRENT_SOURCE_DIR}/Shared   # <Identity/…> · <Protocol/…> · <Text/…>
 )
 
 target_link_libraries(ServerCommonLib PUBLIC ServerNetworkLib)
@@ -482,6 +482,11 @@ target_link_libraries(enter_gate_test PRIVATE ServerCommonLib)
 add_executable(room_lockout_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/RoomLockoutTest.cpp ${SRV_DIR}/RoomLockoutBlob.cpp)
 target_include_directories(room_lockout_test PRIVATE ${SRV_DIR})
 target_link_libraries(room_lockout_test PRIVATE ServerCommonLib)
+
+# 우편 와이어의 바이트 규칙 — 글자 변환(UTF-16 ↔ UTF-8) · 첨부 바이트. 헤더뿐이라 게임 소스를 안 묶는다
+add_executable(mail_wire_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/MailWireTest.cpp)
+target_include_directories(mail_wire_test PRIVATE ${SRV_DIR})
+target_link_libraries(mail_wire_test PRIVATE ServerCommonLib)
 
 # 월드 서버의 파티 규칙 — 오프라인 규칙 표 · 복원 합치기. 서버를 안 띄운다
 add_executable(world_party_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/WorldPartyTest.cpp ${WORLD_DIR}/PartySystem.cpp ${WORLD_DIR}/WorldPresence.cpp ${WORLD_DIR}/WorldMetrics.cpp)

@@ -229,6 +229,20 @@
 	#error "USE_TRADE requires USE_INVENTORY=1 (맞바꾸는 것이 가방 칸·돈이다)"
 #endif
 
+// 우편 — 캐릭터 우편(플레이어끼리) + 계정 우편(운영자가 계정에 준다) · mail-plan.md. 규칙은 CMailSystem, 와이어는 Protocol.h 우편 절.
+//   가방 칸 · 돈 · 우편 행을 저장 묶음 하나(트랜잭션 하나)로 쓴다 — 따로 쓰다 죽으면 아이템이 사라지거나 두 번 생겨서(거래의 짝 묶음과 같은 까닭).
+//   1: 우편 활성 — C2S_MAIL_* 를 받는다 [기본 = 가방과 DB 워커를 따름]
+//   0: 우편 경로가 컴파일에서 빠짐 — 요청은 조용히 버려진다(크기 등록이 빠짐). 와이어 정의(Protocol.h)는 그대로 남는다
+//   기본값이 USE_DB_WORKER 도 따르는 이유: 존 서버가 우편 목록을 메모리에 두지 않고 요청마다 DB 에서 읽는다.
+//     리눅스 빌드는 CMake 가 -DUSE_DB_WORKER=0 을 주므로 여기서 같이 꺼진다(USE_LOGIN 과 같은 꼴)
+#ifndef USE_MAIL
+#define USE_MAIL (USE_INVENTORY && USE_DB_WORKER)
+#endif
+
+#if USE_MAIL && !(USE_INVENTORY && USE_DB_WORKER)
+	#error "USE_MAIL requires USE_INVENTORY=1 and USE_DB_WORKER=1 (첨부가 가방 칸·돈이고 우편함이 DB 에 있다)"
+#endif
+
 // 스킬 — 스킬 표(Run/bin/SkillTable.csv) 한 줄이 스킬 하나. 지금은 백호참(앞의 한 명 · 피해)·어검술(칸 목록 · 피해)·이중공격(자신 · 공격력 2배 30초) 셋.
 //   ★ 비용(체력·마력·쿨타임)은 대상 확인까지 모든 검사를 지난 뒤에만 뗀다 — 거절이면 아무것도 안 바뀐다(SkillSystem.h).
 //   지속 효과의 칸·규칙(Buff.h · CBuffSystem)은 이 토글이 아니라 USE_COMBAT 소유다 — 거는 쪽이 스킬만이 아니라서(아이템도 걸 수 있는 틀).

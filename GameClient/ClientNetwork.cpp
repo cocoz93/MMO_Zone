@@ -451,6 +451,14 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
     case MsgType::S2C_MY_LOOK:
         break;
 
+    // 우편(서버 USE_MAIL) — 콘솔 클라는 우편 창이 없고, 입장 번호를 안 내서 시험 입장 길로 들어온다(SendEnterGame).
+    //   그 길은 우편이 전부 거절되고 입장 때 수(MAIL_COUNT)도 안 와 올 일이 없다. 모르는 타입 로그만 막는다(전례).
+    case MsgType::S2C_MAIL_LIST:
+    case MsgType::S2C_MAIL_BODY:
+    case MsgType::S2C_MAIL_RESULT:
+    case MsgType::S2C_MAIL_COUNT:
+        break;
+
     // 채널 — 콘솔 클라는 목록을 안 묻고 바꾸지도 않는다. 모르는 타입 로그만 막는다.
     case MsgType::S2C_CHANNEL_LIST:
     case MsgType::S2C_CHANNEL_MOVE:

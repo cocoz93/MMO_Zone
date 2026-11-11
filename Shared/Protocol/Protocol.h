@@ -218,6 +218,20 @@ enum class MsgType : uint16_t
     S2C_MY_LOOK,                // 서버 → 클라이언트: 내 몸 겉모습 (본인에게만 — 처음 입장 때 한 번)
 
     //--------------------------------------------------
+    // 우편 (USE_MAIL — 캐릭터 우편은 플레이어끼리 · 계정 우편은 운영자가 계정에 준다 · mail-plan.md)
+    //--------------------------------------------------
+    C2S_MAIL_LIST = 1083,       // 클라이언트 → 서버: 이 탭의 목록을 달라 (MailTab)
+    C2S_MAIL_READ,              // 클라이언트 → 서버: 이 우편의 본문을 달라
+    C2S_MAIL_SEND,              // 클라이언트 → 서버: 캐릭터 우편을 보낸다 (받는 이름 · 제목 · 본문 · 돈 · 가방 칸)
+    C2S_MAIL_TAKE,              // 클라이언트 → 서버: 이 캐릭터 우편의 첨부를 받는다 (한 통 통째로)
+    C2S_ACCMAIL_TAKE,           // 클라이언트 → 서버: 이 계정 우편의 첨부를 지금 캐릭터로 받는다
+    C2S_MAIL_DELETE,            // 클라이언트 → 서버: 이 우편을 지운다 (첨부가 없는 우편만)
+    S2C_MAIL_LIST,              // 서버 → 클라이언트: 목록 한 장 (MAIL_LIST_PAGE 줄까지 · 가변 길이)
+    S2C_MAIL_BODY,              // 서버 → 클라이언트: 본문 한 통
+    S2C_MAIL_RESULT,            // 서버 → 클라이언트: 동작 결과 + 사유 (본인)
+    S2C_MAIL_COUNT,             // 서버 → 클라이언트: 탭의 붉은 수 (입장 때 탭마다 한 장)
+
+    //--------------------------------------------------
     // 채널 목록 · 다른 존 서버로 채널 바꾸기 — 1083~1092 는 우편 몫이라 번호를 못박는다
     //--------------------------------------------------
     C2S_CHANNEL_LIST_REQ = 1093, // 클라이언트 → 서버: 이 맵의 채널 목록을 달라
@@ -1813,6 +1827,247 @@ static_assert(sizeof(MSG_S2C_ACTOR_NAME) == 20, "ACTOR_NAME 은 20B (proto.js �
 static_assert(sizeof(MSG_S2C_MY_LOOK)    == 10, "MY_LOOK 은 10B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_MY_NAME) == 1080, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_MY_LOOK) == 1082, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+
+//==================================================
+// 우편 (USE_MAIL) — mail-plan.md
+//==================================================
+// 탭 둘 — 계정 우편(운영자가 계정에 준다 · accountdb · 계정 서버가 읽고 쓴다) · 캐릭터 우편(플레이어끼리 · gamedb · 존 서버가 읽고 쓴다).
+//   규칙의 몸은 서버 CMailSystem(MailSystem.h) — 여기는 와이어만. 존 서버는 우편 목록을 메모리에 두지 않는다 — 요청마다 DB 에서 읽는다.
+//   글자 칸은 UTF-16(ChatChar) 고정 칸이고 글자가 끝난 뒤 칸은 전부 0 이다. 칸 수 = 글자 수 상한(maxlength 와 같은 단위 · 대리쌍은 2칸).
+//   ★ 부하 더미는 시험 입장 길이라 우편이 전부 거절되고 입장 때 수도 안 온다. 그래도 S2C 넷을 다 등록할 것(전례 · DummyClient.cpp · GameClient/ClientNetwork.cpp).
+constexpr int MAIL_MAX_ITEMS = 8;     // 첨부 칸 상한 — 사용자 결정(11-05)
+constexpr int MAIL_TITLE_MAX = 20;    // 제목 칸 — 사용자 결정(11-05). 1자 이상 · 줄바꿈 안 됨
+constexpr int MAIL_BODY_MAX  = 200;   // 본문 칸 — 사용자 결정(11-05). 비어도 됨 · 줄바꿈은 1자로 센다(11-10)
+constexpr int MAIL_LIST_PAGE = 10;    // 목록 한 장의 줄 수 — 머리 8B + 138B × 10 = 1,388B 가 패킷 상한 1,458B 안에 든다
+constexpr int MAIL_LIST_MAX  = 100;   // 한 번에 보여 주는 통 수 — 계정 우편을 받을 때 50통 상한을 안 봐서 50 을 넘을 수 있다
+
+// tab 칸 값
+enum class MailTab : uint8_t
+{
+    CHARACTER,   // 캐릭터 우편(오른쪽 탭)
+    ACCOUNT,     // 계정 우편(왼쪽 탭 · 창을 열면 이 탭)
+    COUNT
+};
+
+// S2C_MAIL_RESULT 의 action — 무엇의 결과인가
+enum class MailAction : uint8_t
+{
+    LIST,
+    READ,
+    SEND,
+    TAKE,        // 캐릭터 우편 받기
+    ACC_TAKE,    // 계정 우편 받기
+    ERASE,       // 캐릭터 우편 지우기 — DELETE 는 윈도 헤더의 매크로라 안 쓴다
+    ACC_ERASE,   // 계정 우편 지우기
+    RESUME,      // 입장 때 이어서 끝낸 계정 우편 받기(앞선 시도가 「받는 중」으로 남았던 것)
+    COUNT
+};
+
+// 결과 · 거절 사유. ★ 값이 와이어에 실린다 — 끝(COUNT 앞)에만 붙인다. WebClient/proto.js 에 같은 순서로 옮겨 둔다.
+//   거절이면 아무것도 안 바뀌었다(받기의 BAG_FULL 이면 우편이 그대로 남는다).
+enum class MailResult : uint8_t
+{
+    OK,
+    BUSY,              // 앞 우편 동작이 진행 중 · 거래 신청이나 거래창 · 거래 저장(짝 고리)이 아직 · DB 잡 큐 가득
+    NOT_HERE,          // 파티 방 — 우편은 마을 · 사냥터에서만(거래와 같은 규칙)
+    DEAD,              // 쓰러져 있다
+    NO_CHARACTER,      // 시험 입장 길(캐릭터 번호 · 이름이 없다)
+    DB_ERROR,          // DB 실패
+    BAD_NAME,          // 받는 이름이 이름 글자 규칙에 어긋난다
+    BAD_TEXT,          // 제목이 비었거나 공백뿐 · 제어 문자 · 깨진 글자(홀로 남은 대리쌍) · 글자가 끝난 뒤 칸에 값
+    BAD_MONEY,         // 돈이 0 미만이거나 상한 초과
+    BAD_SLOT,          // 칸 수 초과 · 범위 밖 · 착용 칸 · 빈 칸 · 같은 칸 두 번
+    BAD_COUNT,         // 개수가 1 ~ 그 칸 개수 밖
+    NOT_TRADABLE,      // 거래할 수 없는 아이템(ItemTable.csv trade 0)
+    NOT_ENOUGH_MONEY,  // 돈 + 수수료가 쓸 수 있는 돈보다 많다
+    NO_TARGET,         // 그런 이름의 캐릭터가 없다
+    SELF,              // 나 자신 — 같은 계정의 다른 캐릭터에게는 보낼 수 있다
+    TARGET_DELETED,    // 지움 표시된 캐릭터
+    TARGET_FULL,       // 받는 사람의 우편함이 가득 찼다(안 받고 안 지운 우편 수)
+    BAG_CHANGED,       // 이름 찾기 왕복 사이에 첨부할 칸이 바뀌었다
+    GONE,              // 없음 · 이미 받음 · 기한 지남 · 지움
+    NO_ATTACH,         // 글만 있는 우편의 받기(버튼이 흐려 보통은 안 온다)
+    CANNOT_DELETE,     // 지우기 — 첨부가 남았거나 받는 중이거나 이미 없다
+    ITEM_UNKNOWN,      // 아이템 표에 없는 첨부 · 첨부 바이트 깨짐 — 우편은 남는다
+    BAG_FULL,          // 가방이 모자란다 — 우편은 남는다
+    MONEY_FULL,        // 받으면 들 수 있는 돈을 넘는다 — 우편은 남는다
+    ACC_OFFLINE,       // 계정 우편 — 월드 서버 연결이 없다(UseServerLink=0 포함)
+    ACC_TIMEOUT,       // 계정 우편 — 시한 안에 답을 못 받았다(처리 중일 수 있다 — 다시 열면 이어진다)
+    OTHER_CHARACTER,   // 계정 우편 — 다른 캐릭터가 받는 중이다(name 에 그 이름 · 그 캐릭터로 들어가면 이어진다)
+    COUNT
+};
+
+// S2C_MAIL_COUNT 의 known
+enum class MailCountKind : uint8_t
+{
+    UNKNOWN,   // 못 읽었다(계정 서버가 꺼져 있다 등) — 웹은 표시를 비워 둔다. 0 을 「없음」으로 읽지 않게
+    EXACT,     // count 가 정확한 수다
+    ARRIVED,   // 새 우편 한 통이 왔다(world-server-plan 7단계 신호) — 웹은 count 를 안 보고 그 탭의 수에 1 을 더한다
+    COUNT
+};
+
+// 첨부 한 칸 (보내기 — 내 가방 칸 번호와 보낼 개수)
+struct MailSendSlot
+{
+    uint16_t slot;    // INV_TAB_RANGES 의 칸 번호
+    int32_t  count;   // 1 ~ 그 칸 개수(일부만 보내기 됨)
+};
+
+// 첨부 한 칸 (목록 — 아이템 번호와 개수)
+struct MailItemEntry
+{
+    int32_t itemId;   // ItemTable.csv
+    int32_t count;
+};
+
+// 목록 한 줄 = 본문만 뺀 전부 — 줄을 누르면 첨부를 다시 안 묻는다
+struct MailLine
+{
+    int64_t       mailId;
+    int64_t       money;
+    ChatChar      fromName[CHAR_NAME_MAX_LEN];   // 보낸 사람 — 비면 운영자(계정 우편 · 계정 우편에서 온 줄)
+    ChatChar      title[MAIL_TITLE_MAX];
+    uint32_t      remainSec;   // 기한까지 남은 초 — DB 가 계산한다(클라 시계와 무관). 「받는 중」은 기한과 무관해 0 일 수 있다
+    uint8_t       flags;       // MAIL_LINE_READ · MAIL_LINE_CLAIMING
+    uint8_t       itemCount;   // items 중 쓰는 줄 수(0 ~ MAIL_MAX_ITEMS)
+    MailItemEntry items[MAIL_MAX_ITEMS];
+};
+constexpr uint8_t MAIL_LINE_READ     = 0x01;   // 읽었다
+constexpr uint8_t MAIL_LINE_CLAIMING = 0x02;   // 계정 우편 — 받는 중(앞선 받기가 안 끝났다)
+
+// C2S: 이 탭의 목록 — 답은 S2C_MAIL_LIST 여러 장(first 로 시작 · more 0 으로 끝)
+struct MSG_C2S_MAIL_LIST
+{
+    static constexpr MsgType TYPE = MsgType::C2S_MAIL_LIST;
+    MsgHeader header;
+    uint8_t   tab;   // MailTab
+
+    MSG_C2S_MAIL_LIST() : header{ sizeof(*this), TYPE }, tab(0) {}
+};
+
+// C2S: 이 우편의 본문 — 답은 S2C_MAIL_BODY(없으면 S2C_MAIL_RESULT(READ, GONE))
+struct MSG_C2S_MAIL_READ
+{
+    static constexpr MsgType TYPE = MsgType::C2S_MAIL_READ;
+    MsgHeader header;
+    uint8_t   tab;
+    int64_t   mailId;
+
+    MSG_C2S_MAIL_READ() : header{ sizeof(*this), TYPE }, tab(0), mailId(0) {}
+};
+
+// C2S: 캐릭터 우편 보내기 — 답은 S2C_MAIL_RESULT(SEND). 결과는 DB 확정 뒤에 온다(칸 · 돈은 먼저 줄어 보인다)
+struct MSG_C2S_MAIL_SEND
+{
+    static constexpr MsgType TYPE = MsgType::C2S_MAIL_SEND;
+    MsgHeader    header;
+    ChatChar     toName[CHAR_NAME_MAX_LEN];
+    ChatChar     title[MAIL_TITLE_MAX];
+    ChatChar     body[MAIL_BODY_MAX];
+    int64_t      money;       // 보낼 돈(수수료는 따로 뗀다)
+    uint8_t      itemCount;   // items 중 쓰는 줄 수(0 ~ MAIL_MAX_ITEMS)
+    MailSendSlot items[MAIL_MAX_ITEMS];
+
+    MSG_C2S_MAIL_SEND() : header{ sizeof(*this), TYPE }, toName{}, title{}, body{}, money(0), itemCount(0), items{} {}
+};
+
+// C2S: 캐릭터 우편 받기 · 계정 우편 받기 — 답은 S2C_MAIL_RESULT(TAKE · ACC_TAKE)
+struct MSG_C2S_MAIL_TAKE
+{
+    static constexpr MsgType TYPE = MsgType::C2S_MAIL_TAKE;
+    MsgHeader header;
+    int64_t   mailId;
+
+    MSG_C2S_MAIL_TAKE() : header{ sizeof(*this), TYPE }, mailId(0) {}
+};
+
+struct MSG_C2S_ACCMAIL_TAKE
+{
+    static constexpr MsgType TYPE = MsgType::C2S_ACCMAIL_TAKE;
+    MsgHeader header;
+    int64_t   mailId;
+
+    MSG_C2S_ACCMAIL_TAKE() : header{ sizeof(*this), TYPE }, mailId(0) {}
+};
+
+// C2S: 지우기 — 답은 S2C_MAIL_RESULT(ERASE · ACC_ERASE)
+struct MSG_C2S_MAIL_DELETE
+{
+    static constexpr MsgType TYPE = MsgType::C2S_MAIL_DELETE;
+    MsgHeader header;
+    uint8_t   tab;
+    int64_t   mailId;
+
+    MSG_C2S_MAIL_DELETE() : header{ sizeof(*this), TYPE }, tab(0), mailId(0) {}
+};
+
+// S2C: 목록 한 장 — 가변 길이(머리 8B + MailLine × count). first 1 이면 웹이 그 탭 목록을 비우고, more 0 이면 마지막 장이다
+struct MSG_S2C_MAIL_LIST
+{
+    static constexpr MsgType TYPE = MsgType::S2C_MAIL_LIST;
+    MsgHeader header;
+    uint8_t   tab;
+    uint8_t   first;
+    uint8_t   more;
+    uint8_t   count;
+    MailLine  lines[MAIL_LIST_PAGE];
+
+    MSG_S2C_MAIL_LIST() : header{ sizeof(*this), TYPE }, tab(0), first(0), more(0), count(0), lines{} {}
+};
+
+// S2C: 본문 한 통 — 웹은 기억해 두고 같은 우편을 다시 눌러도 왕복하지 않는다
+struct MSG_S2C_MAIL_BODY
+{
+    static constexpr MsgType TYPE = MsgType::S2C_MAIL_BODY;
+    MsgHeader header;
+    uint8_t   tab;
+    int64_t   mailId;
+    ChatChar  body[MAIL_BODY_MAX];
+
+    MSG_S2C_MAIL_BODY() : header{ sizeof(*this), TYPE }, tab(0), mailId(0), body{} {}
+};
+
+// S2C: 동작 결과 — 본인에게만. name = OTHER_CHARACTER 일 때 받는 중인 캐릭터의 이름(그 밖엔 비어 있다)
+struct MSG_S2C_MAIL_RESULT
+{
+    static constexpr MsgType TYPE = MsgType::S2C_MAIL_RESULT;
+    MsgHeader header;
+    uint8_t   action;   // MailAction
+    uint8_t   result;   // MailResult
+    int64_t   mailId;   // 받기 · 지우기 · 읽기의 대상(웹이 그 줄을 목록에서 뺀다) · 없으면 0
+    ChatChar  name[CHAR_NAME_MAX_LEN];
+
+    MSG_S2C_MAIL_RESULT() : header{ sizeof(*this), TYPE }, action(0), result(0), mailId(0), name{} {}
+};
+
+// S2C: 붉은 수 — 입장 때 탭마다 한 장. 수 = 안 읽었거나 아이템 · 돈을 아직 안 받은 우편(두 탭 같은 기준 · 11-11)
+struct MSG_S2C_MAIL_COUNT
+{
+    static constexpr MsgType TYPE = MsgType::S2C_MAIL_COUNT;
+    MsgHeader header;
+    uint8_t   tab;
+    uint8_t   known;   // MailCountKind
+    uint16_t  count;
+
+    MSG_S2C_MAIL_COUNT() : header{ sizeof(*this), TYPE }, tab(0), known(0), count(0) {}
+};
+
+static_assert(sizeof(MailSendSlot)         == 6,    "MailSendSlot 은 6B (proto.js 와 맞출 것)");
+static_assert(sizeof(MailItemEntry)        == 8,    "MailItemEntry 는 8B (proto.js 와 맞출 것)");
+static_assert(sizeof(MailLine)             == 138,  "MailLine 은 138B (proto.js MAIL_LINE_BYTES 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_MAIL_LIST)    == 5,    "C2S_MAIL_LIST 는 5B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_MAIL_READ)    == 13,   "C2S_MAIL_READ 는 13B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_MAIL_SEND)    == 513,  "C2S_MAIL_SEND 는 513B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_MAIL_TAKE)    == 12,   "C2S_MAIL_TAKE 는 12B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_ACCMAIL_TAKE) == 12,   "C2S_ACCMAIL_TAKE 는 12B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_MAIL_DELETE)  == 13,   "C2S_MAIL_DELETE 는 13B (proto.js 와 맞출 것)");
+static_assert(offsetof(MSG_S2C_MAIL_LIST, lines) == 8, "MAIL_LIST 머리는 8B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_MAIL_LIST)    == 1388, "MAIL_LIST 는 머리 8B + 138B x 10 (패킷 상한 1,458B 안)");
+static_assert(sizeof(MSG_S2C_MAIL_BODY)    == 413,  "MAIL_BODY 는 413B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_MAIL_RESULT)  == 26,   "MAIL_RESULT 는 26B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_MAIL_COUNT)   == 8,    "MAIL_COUNT 는 8B (proto.js 와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::C2S_MAIL_LIST)  == 1083, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::S2C_MAIL_COUNT) == 1092, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 // ──────────────────────────────────────────
 // 채널 목록 · 다른 존 서버로 채널 바꾸기(world-server-plan.md 5.7)

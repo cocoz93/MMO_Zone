@@ -302,6 +302,11 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     case MsgType::S2C_MY_NAME:            return sizeof(MSG_S2C_MY_NAME);
     case MsgType::S2C_ACTOR_NAME:         return sizeof(MSG_S2C_ACTOR_NAME);
     case MsgType::S2C_MY_LOOK:            return sizeof(MSG_S2C_MY_LOOK);
+    // USE_MAIL: 우편 — 더미는 시험 입장 길이라 우편이 전부 거절되고 입장 때 수도 안 와 올 일이 없다. 등록은 같은 까닭(전례)
+    case MsgType::S2C_MAIL_LIST:          return static_cast<uint16_t>(offsetof(MSG_S2C_MAIL_LIST, lines));   // 가변 길이 — 머리 크기
+    case MsgType::S2C_MAIL_BODY:          return sizeof(MSG_S2C_MAIL_BODY);
+    case MsgType::S2C_MAIL_RESULT:        return sizeof(MSG_S2C_MAIL_RESULT);
+    case MsgType::S2C_MAIL_COUNT:         return sizeof(MSG_S2C_MAIL_COUNT);
     // 채널 — 더미는 목록을 안 묻고 바꾸지도 않아 안 온다. 등록은 같은 까닭(전례)
     case MsgType::S2C_CHANNEL_LIST:       return static_cast<uint16_t>(offsetof(MSG_S2C_CHANNEL_LIST, entries));   // 가변 길이 — 머리 크기
     case MsgType::S2C_CHANNEL_MOVE:       return sizeof(MSG_S2C_CHANNEL_MOVE);

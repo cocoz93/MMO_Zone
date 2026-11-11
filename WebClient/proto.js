@@ -57,6 +57,9 @@
     S2C_SKILL_EFFECT:1079,
     // 이름 · 몸 겉모습 — 입장 번호 길로 들어온 캐릭터만. MY_* 는 처음 입장 때 본인에게 한 번, ACTOR_NAME 은 남이 나타날 때 겉모습 바로 뒤
     S2C_MY_NAME:1080, S2C_ACTOR_NAME:1081, S2C_MY_LOOK:1082,
+    // 우편 (USE_MAIL) — 탭 둘(MAIL_TAB). 존 서버는 목록을 안 들고 요청마다 DB 에서 읽는다. 결과는 MAIL_RESULT 한 장(본인)
+    C2S_MAIL_LIST:1083, C2S_MAIL_READ:1084, C2S_MAIL_SEND:1085, C2S_MAIL_TAKE:1086, C2S_ACCMAIL_TAKE:1087, C2S_MAIL_DELETE:1088,
+    S2C_MAIL_LIST:1089, S2C_MAIL_BODY:1090, S2C_MAIL_RESULT:1091, S2C_MAIL_COUNT:1092,
     // 채널 목록 · 다른 존 서버로 채널 바꾸기 — 1083~1092 는 우편 몫
     C2S_CHANNEL_LIST_REQ:1093, S2C_CHANNEL_LIST:1094, C2S_CHANNEL_MOVE_REQ:1095, S2C_CHANNEL_MOVE:1096
   };
@@ -82,6 +85,18 @@
   const TRADE_END = ['DONE','CANCELLED','DECLINED','EXPIRED','LEFT','DEAD','NOT_IN_REACH','BAG_FULL','MONEY_FULL','CHANGED','SAVE_DELAY'];
   const TRADE_MAX_ITEMS = 20;       // Protocol.h TRADE_MAX_ITEMS — 거래창 한쪽 줄 수 상한
   const TRADE_SIDE_BYTES = 210;     // Protocol.h TradeSide = money i64 · closed u8 · count u8 · 칸 줄(10B) × TRADE_MAX_ITEMS
+  // 우편 — Protocol.h MailTab · MailAction · MailResult · MailCountKind 순서 그대로(값이 와이어에 실린다). 한글 문구는 live.html 이 이름으로 고른다
+  const MAIL_TAB = { CHARACTER:0, ACCOUNT:1 };
+  const MAIL_ACTION = ['LIST','READ','SEND','TAKE','ACC_TAKE','ERASE','ACC_ERASE','RESUME'];
+  const MAIL_RESULT = ['OK','BUSY','NOT_HERE','DEAD','NO_CHARACTER','DB_ERROR','BAD_NAME','BAD_TEXT','BAD_MONEY','BAD_SLOT','BAD_COUNT',
+    'NOT_TRADABLE','NOT_ENOUGH_MONEY','NO_TARGET','SELF','TARGET_DELETED','TARGET_FULL','BAG_CHANGED','GONE','NO_ATTACH','CANNOT_DELETE',
+    'ITEM_UNKNOWN','BAG_FULL','MONEY_FULL','ACC_OFFLINE','ACC_TIMEOUT','OTHER_CHARACTER'];
+  const MAIL_COUNT_KIND = ['UNKNOWN','EXACT','ARRIVED'];
+  const MAIL_MAX_ITEMS = 8;         // Protocol.h MAIL_MAX_ITEMS — 첨부 칸 상한
+  const MAIL_TITLE_MAX = 20;        // Protocol.h MAIL_TITLE_MAX — 제목 칸(UTF-16 칸 · maxlength 와 같은 단위)
+  const MAIL_BODY_MAX = 200;        // Protocol.h MAIL_BODY_MAX — 본문 칸(줄바꿈도 1칸)
+  const MAIL_LINE_BYTES = 138;      // Protocol.h MailLine = mailId i64 · money i64 · fromName u16×6 · title u16×20 · remainSec u32 · flags u8 · itemCount u8 · 칸(8B) × 8
+  const MAIL_LINE_READ = 0x01, MAIL_LINE_CLAIMING = 0x02;   // Protocol.h MAIL_LINE_* — flags 비트
   // 가방 탭 구간 — Protocol.h INV_TAB_RANGES 사본(InvTab 순서: 장비·소비·기타). 칸 번호가 곧 DB 열쇠라
   //   한쪽만 고치면 웹이 엉뚱한 탭에 그린다 — Protocol.h 와 나란히 볼 것.
   const INV_TAB_RANGES = [ { first:0, n:20 }, { first:100, n:20 }, { first:200, n:20 } ];
@@ -120,6 +135,28 @@
     let s = '';
     for (let i = 0; i < NAME_CELLS; i++) { const c = dv.getUint16(o+i*2,true); if (!c) break; s += String.fromCharCode(c); }
     return s;
+  }
+  // 글자 칸 n 칸 — 0 에서 끝낸다(우편 제목 · 본문). 대리쌍은 칸 그대로 이어 붙여 JS 문자열이 된다
+  function readCells(dv, o, n) {
+    let s = '';
+    for (let i = 0; i < n; i++) { const c = dv.getUint16(o+i*2,true); if (!c) break; s += String.fromCharCode(c); }
+    return s;
+  }
+  // 글자 칸 쓰기 — n 칸까지(넘치면 자른다 · 남은 칸은 ArrayBuffer 의 0 그대로). 대리쌍을 반으로 자르면 서버가 BAD_TEXT 로 거절한다
+  function writeCells(d, o, str, n) {
+    const s = String(str||'');
+    const len = Math.min(s.length, n);
+    for (let i = 0; i < len; i++) d.setUint16(o+i*2, s.charCodeAt(i), true);
+  }
+  // 우편 목록 한 줄 — Protocol.h MailLine 138B. mailId 는 문자열로 든다(파티 characterId 와 같은 까닭)
+  function readMailLine(dv, o) {
+    let n = dv.getUint8(o+73); if (n > MAIL_MAX_ITEMS) n = MAIL_MAX_ITEMS;
+    const items = [];
+    for (let i=0;i<n;i++){ const e=o+74+i*8; items.push({ itemId:dv.getInt32(e,true), count:dv.getInt32(e+4,true) }); }
+    const flags = dv.getUint8(o+72);
+    return { mailId:dv.getBigInt64(o,true).toString(), money:Number(dv.getBigInt64(o+8,true)), fromName:readName(dv, o+16),
+      title:readCells(dv, o+28, MAIL_TITLE_MAX), remainSec:dv.getUint32(o+68,true),
+      read:(flags & MAIL_LINE_READ)!==0, claiming:(flags & MAIL_LINE_CLAIMING)!==0, items };
   }
   // 몸 겉모습 — Protocol.h BodyLook 6B = gender · skin · hair · top · bottom · 빈자리. gender 0 = 외형 없음(해시로 그린다)
   function readBody(dv, o) {
@@ -362,6 +399,25 @@
         p.actorId=dv.getInt32(o,true); p.name=readName(dv, o+4); break;
       case MSG.S2C_MY_LOOK:
         p.body=readBody(dv, o); break;
+      // ---- 우편 (USE_MAIL) ----
+      //   MAIL_LIST 머리 8B = tab u8 · first u8 · more u8 · count u8 · MailLine 138B × count(가변 — 10줄까지)
+      case MSG.S2C_MAIL_LIST: {
+        p.tab=dv.getUint8(o); p.first=dv.getUint8(o+1)!==0; p.more=dv.getUint8(o+2)!==0;
+        let n=dv.getUint8(o+3); if (n > Math.floor((size-8)/MAIL_LINE_BYTES)) n = Math.floor((size-8)/MAIL_LINE_BYTES);
+        p.lines=[]; for(let i=0;i<n;i++) p.lines.push(readMailLine(dv, o+4+i*MAIL_LINE_BYTES));
+        break;
+      }
+      //   MAIL_BODY 413B = tab u8 · mailId i64 · body u16×200
+      case MSG.S2C_MAIL_BODY:
+        p.tab=dv.getUint8(o); p.mailId=dv.getBigInt64(o+1,true).toString(); p.body=readCells(dv, o+9, MAIL_BODY_MAX); break;
+      //   MAIL_RESULT 26B = action u8 (MAIL_ACTION) · result u8 (MAIL_RESULT) · mailId i64 · name u16×6(OTHER_CHARACTER 일 때 받는 중인 캐릭터)
+      case MSG.S2C_MAIL_RESULT:
+        p.action=dv.getUint8(o); p.actionName=MAIL_ACTION[p.action] || ('?'+p.action);
+        p.result=dv.getUint8(o+1); p.resultName=MAIL_RESULT[p.result] || ('?'+p.result);
+        p.mailId=dv.getBigInt64(o+2,true).toString(); p.name=readName(dv, o+10); break;
+      //   MAIL_COUNT 8B = tab u8 · known u8 (MAIL_COUNT_KIND) · count u16
+      case MSG.S2C_MAIL_COUNT:
+        p.tab=dv.getUint8(o); p.known=dv.getUint8(o+1); p.knownName=MAIL_COUNT_KIND[p.known] || ('?'+p.known); p.count=dv.getUint16(o+2,true); break;
       // ---- 채널 ----
       //   CHANNEL_LIST 머리 14B = zoneServerId i32 · channelBlock i32 · count u16 · 줄 6B(visibleNo i32 · players u16)
       case MSG.S2C_CHANNEL_LIST: {
@@ -455,6 +511,24 @@
     // C2S_TRADE_COMMIT(교환하기) · CANCEL: 몸 없음
     tradeCommit(){ return hdr(4, MSG.C2S_TRADE_COMMIT).b; },
     tradeCancel(){ return hdr(4, MSG.C2S_TRADE_CANCEL).b; },
+    // ---- 우편 (USE_MAIL) ----
+    // C2S_MAIL_LIST: header(4) + tab u8 = 5B · READ · DELETE: + tab u8 + mailId i64 = 13B · TAKE · ACCMAIL_TAKE: + mailId i64 = 12B
+    mailList(tab){ const {b,d}=hdr(5,MSG.C2S_MAIL_LIST); d.setUint8(4, tab); return b; },
+    mailRead(tab, mailId){ const {b,d}=hdr(13,MSG.C2S_MAIL_READ); d.setUint8(4, tab); d.setBigInt64(5, BigInt(mailId), true); return b; },
+    mailTake(mailId){ const {b,d}=hdr(12,MSG.C2S_MAIL_TAKE); d.setBigInt64(4, BigInt(mailId), true); return b; },
+    accMailTake(mailId){ const {b,d}=hdr(12,MSG.C2S_ACCMAIL_TAKE); d.setBigInt64(4, BigInt(mailId), true); return b; },
+    mailDelete(tab, mailId){ const {b,d}=hdr(13,MSG.C2S_MAIL_DELETE); d.setUint8(4, tab); d.setBigInt64(5, BigInt(mailId), true); return b; },
+    // C2S_MAIL_SEND 513B = header(4) · toName u16×6 · title u16×20 · body u16×200 · money i64 · itemCount u8 · 칸(slot u16 · count i32) × 8
+    //   items = [{slot, count}] — 8칸을 넘는 것은 자른다(서버도 BAD_SLOT 으로 본다)
+    mailSend(toName, title, body, money, items){
+      const {b,d}=hdr(513,MSG.C2S_MAIL_SEND);
+      writeCells(d, 4, toName, NAME_CELLS); writeCells(d, 16, title, MAIL_TITLE_MAX); writeCells(d, 56, body, MAIL_BODY_MAX);
+      d.setBigInt64(456, BigInt(Math.trunc(money||0)), true);
+      const list = (items||[]).slice(0, MAIL_MAX_ITEMS);
+      d.setUint8(464, list.length);
+      list.forEach((it, i)=>{ d.setUint16(465+i*6, it.slot, true); d.setInt32(467+i*6, it.count, true); });
+      return b;
+    },
     moveStart(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_START); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     moveStop(dir,x,y){ const {b,d}=hdr(13,MSG.C2S_MOVE_STOP); d.setUint8(4,dir); d.setFloat32(5,x,true); d.setFloat32(9,y,true); return b; },
     // C2S_CHAT: header + wchar_t[] UTF-16LE, 널 종단 포함, (len+1)*2 바이트만 전송 (서버가 header.size로 역산)
@@ -470,7 +544,9 @@
 
   const API = { MSG, NAME, DIR, MOVE, INV_TAB_RANGES, EQUIP_SLOT, USE_FAIL, EQUIP_FAIL, SKILL_FAIL, ZONE_FAIL, GROUND_APPEAR, GROUND_GONE, PICKUP_FAIL,
                 PARTY_ASK_KIND, PARTY_NOTICE, PARTY_MAX_MEMBERS, DISPLAY_MONSTER, DISPLAY_NPC, CREATE_ENTRY_BYTES, SHOP_FAIL,
-                TRADE_FAIL, TRADE_END, TRADE_MAX_ITEMS, decodePacket, Reassembler, enc };
+                TRADE_FAIL, TRADE_END, TRADE_MAX_ITEMS,
+                MAIL_TAB, MAIL_ACTION, MAIL_RESULT, MAIL_COUNT_KIND, MAIL_MAX_ITEMS, MAIL_TITLE_MAX, MAIL_BODY_MAX, MAIL_LINE_READ, MAIL_LINE_CLAIMING,
+                decodePacket, Reassembler, enc };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else global.Proto = API;
 })(typeof window !== 'undefined' ? window : globalThis);
