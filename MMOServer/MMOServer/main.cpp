@@ -1,4 +1,5 @@
 ﻿//
+#include <cstdio>
 #include <iostream>
 #include <memory>
 #include <atomic>
@@ -35,14 +36,54 @@ void OnShutdownWaitTimeout()
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 }
 
-int main()
+// 실행 인자 — 같은 PC 에 존 서버를 두 대 띄울 때만 쓴다. 안 주면 기본 파일 · 기본 폴더다
+struct LaunchArgs
 {
-    // 로거 초기화 (RAII — 소멸자에서 Shutdown)
-    shared::LoggerGuard loggerGuard;
+    std::string configFile;           // --config — 실행 파일 옆의 파일 이름. 비면 기본 파일
+    std::string logDir = "logs";      // --log-dir — 로그 파일 이름은 날짜와 실행 파일 이름뿐이라 폴더가 같으면 두 대가 한 파일에 쓴다
+};
 
-    // INI 설정 파일 로드
+static bool ParseLaunchArgs(int argc, char** argv, LaunchArgs& out)
+{
+    for (int i = 1; i < argc; ++i)
+    {
+        const std::string name = argv[i];
+        if (i + 1 >= argc)
+            return false;
+        if (name == "--config")
+            out.configFile = argv[++i];
+        else if (name == "--log-dir")
+            out.logDir = argv[++i];
+        else
+            return false;
+    }
+    return true;
+}
+
+int main(int argc, char** argv)
+{
+    // 로거보다 먼저 — 로그 폴더가 인자로 온다
+    LaunchArgs launchArgs;
+    if (!ParseLaunchArgs(argc, argv, launchArgs))
+    {
+        std::fprintf(stderr, "usage: MMOServer [--config <file>] [--log-dir <dir>]\n");
+        return 1;
+    }
+
+    // 로거 초기화 (RAII — 소멸자에서 Shutdown)
+    shared::LoggerGuard loggerGuard(launchArgs.logDir);
+
+    // INI 설정 파일 로드. 인자로 준 파일이 없으면 기본값으로 뜨지 않는다 — 포트가 첫 번째 존 서버와 겹친다
     ServerConfig config;
-    config.Load();
+    if (launchArgs.configFile.empty())
+    {
+        config.Load();
+    }
+    else if (!config.Load(launchArgs.configFile))
+    {
+        SLOG_ERROR("[Error] --config 파일을 못 읽음: {}", launchArgs.configFile);
+        return 1;
+    }
 
     // CPU 코어 핀(affinity) — Init/Start 전에 걸어야 이후 생성되는
     // worker/send/accept/gameloop 스레드가 전부 이 마스크를 상속한다.

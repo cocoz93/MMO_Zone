@@ -108,16 +108,16 @@ struct ServerConfig
     int         zoneServerId    = 1;       // 캐릭터 서버에 등록하는 번호
     std::string publicWsAddr    = "ws://127.0.0.1:9000";   // 웹 브라우저가 접속할 주소 — relay.js 기본 포트. 캐릭터 서버가 웹에 그대로 넘긴다
 
-    // 실행 파일 경로 기준으로 MMOServerConfig.ini 로드
-    bool Load()
+    // 실행 파일 경로 기준으로 MMOServerConfig.ini 로드. 두 번째 존 서버는 --config 로 다른 파일 이름을 준다
+    bool Load(const std::string& iniFileName = "MMOServerConfig.ini")
     {
         // 실행 파일 디렉토리 기준 INI 경로 (플랫폼 독립)
-        std::string iniPath = Platform::GetExecutableDir() + "MMOServerConfig.ini";
+        std::string iniPath = Platform::GetExecutableDir() + iniFileName;
 
         CIniFile& ini = _ini;   // 맵별 운영 값([MapN])은 맵 표를 읽은 뒤 MapOpsOf 가 꺼내므로 들고 있는다
         if (!ini.Load(iniPath))
         {
-            SLOG_INFO("[ServerConfig] MMOServerConfig.ini not found. Using defaults.");
+            SLOG_INFO("[ServerConfig] {} not found. Using defaults.", iniFileName);
             return false;
         }
 

@@ -23,6 +23,10 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9096"]
 
+  - job_name: mmo_zone2
+    static_configs:
+      - targets: ["localhost:9097"]
+
   - job_name: stress_client
     static_configs:
       - targets: ["__STRESS_CLIENT_IP__:9101"]
