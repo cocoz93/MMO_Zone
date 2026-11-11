@@ -73,6 +73,7 @@
 #include "TradeHandler.h"     // 거래(거래 요청 여섯 · 거래 알림 · 짝 저장 — USE_TRADE) — trade-plan.md
 #include "MoveHandler.h"      // 이동(이동 시작·멈춤 요청 · 좌표 수용 예산 — 토글 없음) — 게임 서버 나누기 11 단계(C2)
 #include "ZoneLink.h"         // 캐릭터 서버 연결 — 입장 예고 · 입장 퇴장 알림
+#include "WorldLink.h"        // 월드 서버 연결
 #include "EntryHandler.h"     // 입장·존 이동 요청(접속 · 대기표 · 불러온 캐릭터 세우기 · 중복 접속 · 포털) — 게임 서버 나누기 12 단계(C1)
 #include "JobHandler.h"       // 직업 고르기 — 토글 없음
 #include "CommandHandler.h"   // 채팅 명령(명령 표 · 운영자 권한 · /item · /gm · /die — 명령 줄만 토글) — 10-26 CChatHandler 에서 떼어 냄
@@ -123,7 +124,8 @@ public:
             _network->SetUntaggedSessionLimit(limit);
     }
     bool ConfigureZoneLink(const CZoneLink::Config& config) { return _zoneLink.Configure(config); }
-    void WriteLinkMetrics(std::ostringstream& ss) const { _zoneLink.WriteMetrics(ss); }   // 지표 스레드 — 꺼져 있으면 줄이 없다
+    bool ConfigureWorldLink(const CWorldLink::Config& config) { return _worldLink.Configure(config); }
+    void WriteLinkMetrics(std::ostringstream& ss) const { CLinkConnector::WriteMetrics(ss, { _zoneLink.Connector(), _worldLink.Connector() }); }   // 지표 스레드 — 꺼져 있으면 줄이 없다
 
     // 플레이어 이동 속도(칸/초) — 0 이면 지금까지의 동작(25~50 무작위). ServerConfig [Game] 참조.
     //   Start() 전에 호출. 새로 만드는 캐릭터부터 적용된다. 몬스터 속도는 몬스터 표(MonsterTable.csv)에 있다.
@@ -388,6 +390,7 @@ private:
 
     // 캐릭터 서버 연결 — 예고를 _enterGate 에 적고, 입장 · 퇴장을 알린다. _entryHandler 보다 앞 — 그쪽이 참조를 받는다.
     CZoneLink _zoneLink{ _monitor, _enterGate, _sessionHub };
+    CWorldLink _worldLink{ _monitor };
 
     CEntryHandler _entryHandler{ _sessionHub, _placement,
 #if USE_DB_WORKER

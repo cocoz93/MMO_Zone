@@ -39,6 +39,7 @@ public:
 
 private:
     bool RegisterRoutes();
+    void OnWorldRegister(SessionId sessionId, CSerialBuffer* msg);
     void Periodic(int64_t nowMs);
     std::string BuildMetricsText();
 
@@ -58,6 +59,8 @@ private:
 
     CPacketTable _webTable;
     CPacketTable _linkTable;
+
+    SessionId _worldSession = NO_SESSION;   // 월드 서버 연결 — 신호는 이 연결로만 보낸다
 
     int64_t _nextSweepMs = 0;
     bool    _started = false;

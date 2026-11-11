@@ -118,6 +118,15 @@ struct LINK_ZONE_CHAR_LEAVE
     int64_t   characterId;
 };
 
+// ── 월드 서버 등록 (월드 서버 → 계정 서버) ──
+//   계정 서버의 서버 간 포트에는 캐릭터 서버도 붙는다. 이 패킷을 보낸 연결이 월드 서버다
+struct LINK_WORLD_REGISTER
+{
+    static constexpr uint16_t TYPE = 3031;
+    MsgHeader header;
+    int32_t   worldId;
+};
+
 #pragma pack(pop)
 
 static_assert(sizeof(LINK_HEARTBEAT) == 4);
@@ -127,4 +136,5 @@ static_assert(sizeof(LINK_ZONE_REGISTER) == 4 + 4 + 4 + 64);
 static_assert(sizeof(LINK_ZONE_ONLINE_LIST) == 4 + 2);
 static_assert(sizeof(LINK_ENTER_NOTICE_REQ) == 4 + 8 + 8 + 8 + 64);
 static_assert(sizeof(LINK_ENTER_NOTICE_ACK) == 4 + 8 + 1 + 4);
+static_assert(sizeof(LINK_WORLD_REGISTER) == 4 + 4);
 static_assert(sizeof(LINK_ZONE_ONLINE_LIST) + LINK_ONLINE_LIST_MAX * sizeof(int64_t) <= 1458, "코어 패킷 상한(IOCPServer.h)");

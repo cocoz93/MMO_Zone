@@ -123,6 +123,7 @@ bool CGameServer::Start()
     {
         // 게임 스레드보다 먼저 — 게임 스레드가 틱마다 보는 연결 객체를 여기서 만든다. 접속이 먼저 돼도 사건은 큐에서 기다린다.
         _zoneLink.Start(*_network);
+        _worldLink.Start(*_network);
 
         _running = true;
         _gameThread = std::thread(&CGameServer::GameLoopThread, this);
@@ -155,6 +156,7 @@ void CGameServer::Stop()
     if (_network)
     {
         _zoneLink.Stop();   // 코어를 내리기 전에 접속 스레드부터 — CLinkConnector 약속
+        _worldLink.Stop();
         _network->ShutdownServer();
 
         // 미처리 이벤트의 CSerialBuffer 정리
@@ -287,6 +289,7 @@ void CGameServer::GameLoopThread()
         // 4-1) 동접 게이지(_enter._inGame — 존 정원 카운터의 합, 약 0.5초마다) — CEntryHandler. 위 순회에 얹혀 있던 자리 그대로(게임 서버 나누기 14 단계)
         _entryHandler.TickInGameGauge();
         _zoneLink.Tick();   // 서버 간 하트비트 — 꺼져 있으면 바로 돌아온다
+        _worldLink.Tick();
 
         // 이번 틱 보류물 비우기 — digest(USE_BROADCAST_BUNDLE) 또는 섹터 묶음(USE_SECTOR_AGGREGATION). 아래 flush가 묶어 보냄
         _sightBroadcaster.FlushSends();
@@ -359,28 +362,35 @@ void CGameServer::ProcessNetworkEvents()
     {
         NetworkEvent& event = _localEvents.front();
         // 구분 값이 가른다 — 웹 포트로 온 접속은 언제나 0(Web)이라 서버 간 패킷을 보내도 이쪽으로 못 온다.
-        const bool fromLink = (event.tag == static_cast<int>(SessionTag::LinkUp));
+        const SessionTag tag = static_cast<SessionTag>(event.tag);
+        const SessionId sessionId{ event.sessionId };
         switch (event.type)
         {
         case NetworkEvent::Type::CONNECTED:
-            if (fromLink)
-                _zoneLink.OnConnected(SessionId{ event.sessionId });
-            else
-                _entryHandler.OnConnected(SessionId{ event.sessionId });
+            switch (tag)
+            {
+            case SessionTag::LinkUp:      _zoneLink.OnConnected(sessionId); break;
+            case SessionTag::LinkUpWorld: _worldLink.OnConnected(sessionId); break;
+            default:                      _entryHandler.OnConnected(sessionId); break;
+            }
             break;
 
         case NetworkEvent::Type::DISCONNECTED:
-            if (fromLink)
-                _zoneLink.OnDisconnected(SessionId{ event.sessionId });
-            else
-                OnDisconnected(SessionId{ event.sessionId });
+            switch (tag)
+            {
+            case SessionTag::LinkUp:      _zoneLink.OnDisconnected(sessionId); break;
+            case SessionTag::LinkUpWorld: _worldLink.OnDisconnected(sessionId); break;
+            default:                      OnDisconnected(sessionId); break;
+            }
             break;
 
         case NetworkEvent::Type::RECEIVED:
-            if (fromLink)
-                _zoneLink.OnReceived(SessionId{ event.sessionId }, event.pMsg);
-            else
-                OnReceived(SessionId{ event.sessionId }, event.pMsg);
+            switch (tag)
+            {
+            case SessionTag::LinkUp:      _zoneLink.OnReceived(sessionId, event.pMsg); break;
+            case SessionTag::LinkUpWorld: _worldLink.OnReceived(sessionId, event.pMsg); break;
+            default:                      OnReceived(sessionId, event.pMsg); break;
+            }
             // handle-latency: enqueue(recv) → 처리완료(응답 송신 포함) 시간.
             // 틱 게이트 대기 + 핸들러 비용 = RTT의 서버 기여분. RECEIVED만 측정.
             if (event.enqueueTimeNs != 0)

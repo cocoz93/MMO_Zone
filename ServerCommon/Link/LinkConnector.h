@@ -16,12 +16,14 @@
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
 
 #include <Identity/GameIds.h>
+#include <Link/SessionTag.h>
 #include <Lobby/PacketSend.h>
 #include "IOCPServer.h"
 #include "MonitorManager.h"
@@ -31,11 +33,12 @@ class CLinkConnector
 public:
     struct Config
     {
-        const char* peerName = "";   // 지표 라벨 peer — 미리 정한 목록뿐(account · character)
+        const char* peerName = "";   // 지표 라벨 peer — 미리 정한 목록뿐(account · character · world)
         std::string ip;
         int port = 0;
         int retrySec = 0;
         int heartbeatSec = 0;
+        SessionTag tag = SessionTag::LinkUp;   // 위층이 둘인 존 서버만 월드 서버 연결에 LinkUpWorld 를 준다
     };
 
     // onUp — 연결이 됐다(로직 스레드). 위층에 등록 패킷을 보내는 자리다
@@ -83,6 +86,9 @@ public:
 
     // ── 지표 스레드 ──
     void WriteMetrics(std::ostringstream& ss) const;
+
+    // 한 프로세스의 연결 여럿 — 지표 머리는 이름마다 한 번만 쓴다. nullptr 은 건너뛰고 전부 nullptr 이면 줄이 없다
+    static void WriteMetrics(std::ostringstream& ss, std::initializer_list<const CLinkConnector*> connectors);
 
     int64_t ReconnectCount() const { return _reconnects.load(std::memory_order_relaxed); }
 

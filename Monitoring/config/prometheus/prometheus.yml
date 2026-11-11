@@ -19,6 +19,10 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9093"]
 
+  - job_name: world_server
+    static_configs:
+      - targets: ["localhost:9096"]
+
   - job_name: stress_client
     static_configs:
       - targets: ["__STRESS_CLIENT_IP__:9101"]

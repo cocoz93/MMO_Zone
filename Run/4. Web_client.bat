@@ -56,8 +56,11 @@ netstat -an | findstr "LISTENING" | findstr ":6200" >nul
 if %ERRORLEVEL% NEQ 0 start "MMO account" /D "%~dp0bin" AccountServer.exe
 netstat -an | findstr "LISTENING" | findstr ":6100" >nul
 if %ERRORLEVEL% NEQ 0 start "MMO character" /D "%~dp0bin" CharacterServer.exe
+netstat -an | findstr "LISTENING" | findstr ":6301" >nul
+if %ERRORLEVEL% NEQ 0 start "MMO world" /D "%~dp0bin" WorldServer.exe
 echo   - account   : tcp 127.0.0.1:6200 (metrics 9095)
 echo   - character : tcp 127.0.0.1:6100 (metrics 9093)
+echo   - world     : tcp 127.0.0.1:6301 (metrics 9096)
 echo.
 
 REM === 5. 릴레이 + 정적 서버 ===

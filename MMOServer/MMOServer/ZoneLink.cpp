@@ -182,9 +182,3 @@ void CZoneLink::NotifyLeave(CharacterId characterId)
     packet.characterId = ToInt(characterId);
     _connector->Send(packet);
 }
-
-void CZoneLink::WriteMetrics(std::ostringstream& ss) const
-{
-    if (_connector)
-        _connector->WriteMetrics(ss);
-}

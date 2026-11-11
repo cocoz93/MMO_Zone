@@ -47,6 +47,8 @@ bool ServerLinkConfig::Load(const std::string& path, std::string& error)
     };
     if (!readAddress("Account", account) || !readAddress("Character", character))
         return false;
+    if (!ini.GetString("World", "InternalAddr", "").empty() && !readAddress("World", world))
+        return false;
 
     const auto readPositive = [&](const char* key, int& value)
     {

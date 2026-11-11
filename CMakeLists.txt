@@ -195,6 +195,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/MoveHandler.cpp
     ${SRV_DIR}/EnterGate.cpp
     ${SRV_DIR}/ZoneLink.cpp
+    ${SRV_DIR}/WorldLink.cpp
     ${SRV_DIR}/EntryHandler.cpp
     ${SRV_DIR}/JobHandler.cpp
     ${SRV_DIR}/ChatHandler.cpp
@@ -410,6 +411,43 @@ if(MSVC)
                         $<$<CONFIG:Release>:/LTCG:incremental>)
 endif()
 set_target_properties(${CHAR_TARGET} PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY         ${CMAKE_CURRENT_SOURCE_DIR}/Run/bin
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_CURRENT_SOURCE_DIR}/Run/bin
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG   ${CMAKE_CURRENT_SOURCE_DIR}/Run/bin
+)
+
+# ═══════════════════════════════════════════════════════════
+#  WorldServer / world_server — 월드 서버 실행 파일 (DB 없음 — 나머지는 캐릭터 서버와 같은 꼴)
+# ═══════════════════════════════════════════════════════════
+set(WORLD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/WorldServer)
+
+# 네트워크 없는 부품 — 단위 시험이 같이 빌드한다
+set(WORLD_LOGIC_SOURCES
+    ${WORLD_DIR}/WorldPresence.cpp
+)
+
+set(WORLD_SOURCES
+    ${WORLD_LOGIC_SOURCES}
+    ${WORLD_DIR}/main.cpp
+    ${WORLD_DIR}/WorldServer.cpp
+    ${WORLD_DIR}/WorldServerConfig.cpp
+    ${WORLD_DIR}/WorldMetrics.cpp
+)
+
+if(WIN32)
+    set(WORLD_TARGET WorldServer)
+else()
+    set(WORLD_TARGET world_server)
+endif()
+
+add_executable(${WORLD_TARGET} ${WORLD_SOURCES})
+target_link_libraries(${WORLD_TARGET} PRIVATE ServerCommonLib)
+target_include_directories(${WORLD_TARGET} PRIVATE ${WORLD_DIR})
+if(MSVC)
+    target_link_options(${WORLD_TARGET} PRIVATE /SUBSYSTEM:CONSOLE /DEBUG
+                        $<$<CONFIG:Release>:/LTCG:incremental>)
+endif()
+set_target_properties(${WORLD_TARGET} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY         ${CMAKE_CURRENT_SOURCE_DIR}/Run/bin
     RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_CURRENT_SOURCE_DIR}/Run/bin
     RUNTIME_OUTPUT_DIRECTORY_DEBUG   ${CMAKE_CURRENT_SOURCE_DIR}/Run/bin

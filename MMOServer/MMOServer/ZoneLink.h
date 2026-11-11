@@ -65,8 +65,8 @@ public:
     void NotifyEnter(CharacterId characterId);
     void NotifyLeave(CharacterId characterId);
 
-    // ── 지표 스레드 ── 꺼져 있으면 줄이 안 나온다
-    void WriteMetrics(std::ostringstream& ss) const;
+    // 꺼져 있으면 nullptr — 지표는 CLinkConnector::WriteMetrics 가 연결 여럿을 한 번에 쓴다
+    const CLinkConnector* Connector() const { return _connector.get(); }
 
 private:
     void SendRegister();

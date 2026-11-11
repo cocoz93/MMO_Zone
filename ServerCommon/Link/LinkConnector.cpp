@@ -47,7 +47,7 @@ void CLinkConnector::ConnectThread()
             //   ConnectTo 가 돌아오기 전에 그 연결이 끊겨 로직 스레드가 처리를 끝낼 수 있다. 돌아온 뒤에 내리면
             //   그 값을 덮어써 아래 wait 에서 영영 못 깬다(세우는 곳이 OnDisconnected 하나뿐이다).
             _wantConnect = false;
-            const int64_t session = _network.ConnectTo(_config.ip.c_str(), _config.port, static_cast<int>(SessionTag::LinkUp));
+            const int64_t session = _network.ConnectTo(_config.ip.c_str(), _config.port, static_cast<int>(_config.tag));
             if (session != 0)
             {
                 if (_everConnected)
@@ -107,9 +107,30 @@ void CLinkConnector::Tick(int64_t nowMs)
 
 void CLinkConnector::WriteMetrics(std::ostringstream& ss) const
 {
+    WriteMetrics(ss, { this });
+}
+
+void CLinkConnector::WriteMetrics(std::ostringstream& ss, std::initializer_list<const CLinkConnector*> connectors)
+{
+    bool any = false;
+    for (const CLinkConnector* connector : connectors)
+        any = any || connector != nullptr;
+    if (!any)
+        return;
+
     MetricsText::WriteHead(ss, "mmo_link_up", "Server-to-server link state toward the upper server (1 = connected)", "gauge");
-    ss << "mmo_link_up{peer=\"" << _config.peerName << "\"} " << (_linkUp.load() ? 1 : 0) << "\n\n";
+    for (const CLinkConnector* connector : connectors)
+    {
+        if (connector != nullptr)
+            ss << "mmo_link_up{peer=\"" << connector->_config.peerName << "\"} " << (connector->_linkUp.load() ? 1 : 0) << "\n";
+    }
+    ss << "\n";
 
     MetricsText::WriteHead(ss, "mmo_link_reconnect_total", "Reconnects after the link dropped (first connect not counted)", "counter");
-    ss << "mmo_link_reconnect_total{peer=\"" << _config.peerName << "\"} " << _reconnects.load(std::memory_order_relaxed) << "\n\n";
+    for (const CLinkConnector* connector : connectors)
+    {
+        if (connector != nullptr)
+            ss << "mmo_link_reconnect_total{peer=\"" << connector->_config.peerName << "\"} " << connector->_reconnects.load(std::memory_order_relaxed) << "\n";
+    }
+    ss << "\n";
 }

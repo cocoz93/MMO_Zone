@@ -149,6 +149,24 @@ int main()
             SLOG_ERROR("[Error] Zone link config failed");
             return 1;
         }
+
+        // [World] 가 없으면 월드 서버 없이 돈다 — 연결을 안 켠다
+        if (linkConfig.HasWorld())
+        {
+            CWorldLink::Config world;
+            world.worldIp = linkConfig.world.ip;
+            world.worldPort = linkConfig.world.port;
+            world.retrySec = linkConfig.retrySec;
+            world.heartbeatSec = linkConfig.heartbeatSec;
+            world.zoneServerId = config.zoneServerId;
+            world.maxClients = config.maxClients;
+            world.publicWsAddr = config.publicWsAddr;
+            if (!server.ConfigureWorldLink(world))
+            {
+                SLOG_ERROR("[Error] World link config failed");
+                return 1;
+            }
+        }
     }
     server.SetPlayerSpeed(config.playerSpeed);   // 0 = 기본(부하 시험 기준) — ServerConfig [Game]. 몬스터 사양은 표에 있다
 

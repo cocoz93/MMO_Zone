@@ -2,6 +2,7 @@
 
 #include <Common/ErrorLog.h>
 #include <Link/SessionTag.h>
+#include <Lobby/PacketSend.h>
 #include <Protocol/AccountProtocol.h>
 #include <Protocol/ServerLinkProtocol.h>
 #include <sstream>
@@ -49,7 +50,26 @@ bool CAccountServer::RegisterRoutes()
     bool ok = _webTable.Register<C2S_ACCOUNT_LOGIN>([this](SessionId id, CSerialBuffer* msg) { _loginFlow.OnLogin(id, msg); });
     ok = _linkTable.Register<LINK_HEARTBEAT>([](SessionId, CSerialBuffer*) {}) && ok;   // 받는 것만으로 코어가 세션 시한을 늘린다
     ok = _linkTable.Register<LINK_TOKEN_CHECK_REQ>([this](SessionId id, CSerialBuffer* msg) { _tokenFlow.OnCheck(id, msg); }) && ok;
+    ok = _linkTable.Register<LINK_WORLD_REGISTER>([this](SessionId id, CSerialBuffer* msg) { OnWorldRegister(id, msg); }) && ok;
     return ok;
+}
+
+void CAccountServer::OnWorldRegister(SessionId sessionId, CSerialBuffer* msg)
+{
+    LINK_WORLD_REGISTER packet;
+    if (!PacketSend::Read(msg, packet))
+    {
+        _monitor._packetErrors.Inc();
+        return;
+    }
+    // 월드 서버가 재시작한 뒤 옛 연결이 코어 세션 시한까지 남아 있어도 새 연결이 바로 맡는다
+    if (_worldSession != NO_SESSION && _worldSession != sessionId)
+    {
+        SLOG_WARN("[AccountServer] 월드 서버가 다시 등록 — 옛 연결을 끊음 (session={})", ToInt(_worldSession));
+        _peers.Disconnect(_worldSession);
+    }
+    _worldSession = sessionId;
+    SLOG_INFO("[AccountServer] 월드 서버 {} 등록 (session={})", packet.worldId, ToInt(sessionId));
 }
 
 bool CAccountServer::Start()
@@ -88,8 +108,13 @@ bool CAccountServer::Start()
     _loop.SetDb(&_db);
     _loop.SetPeriodic([this](int64_t nowMs) { Periodic(nowMs); });
     _peers.SetHandlers(
-        [](SessionId id) { SLOG_INFO("[AccountServer] 캐릭터 서버 접속 (session={})", ToInt(id)); },
-        [](SessionId id) { SLOG_WARN("[AccountServer] 캐릭터 서버 끊김 (session={})", ToInt(id)); });
+        [](SessionId id) { SLOG_INFO("[AccountServer] 서버 간 연결 접속 (session={})", ToInt(id)); },
+        [this](SessionId id)
+        {
+            SLOG_WARN("[AccountServer] 서버 간 연결 끊김 (session={})", ToInt(id));
+            if (_worldSession == id)
+                _worldSession = NO_SESSION;
+        });
     _loop.Start();
 
     if (!_endpoint.Start())

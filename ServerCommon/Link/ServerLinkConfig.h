@@ -22,6 +22,7 @@ struct ServerLinkConfig
 
     Address account;     // [Account] InternalAddr
     Address character;   // [Character] InternalAddr
+    Address world;       // [World] InternalAddr — 섹션이 없으면 월드 서버 없이 도는 것이다(존 서버는 파티를 끈다). 값이 틀리면 거절
 
     int retrySec = 3;          // 아래층이 위층에 다시 접속하는 주기 — 근거 없이 고른 값(플랜 4절)
     int heartbeatSec = 20;     // 코어 세션 시한 60초(IOCPServer.h)의 3분의 1 — 세 번은 놓쳐도 된다
@@ -33,4 +34,6 @@ struct ServerLinkConfig
 
     // 실패하면 error 에 어느 값이 왜 틀렸는지를 담는다
     bool Load(const std::string& path, std::string& error);
+
+    bool HasWorld() const { return world.port != 0; }
 };
