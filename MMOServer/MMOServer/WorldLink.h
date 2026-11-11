@@ -2,7 +2,8 @@
 // CWorldLink — 존 서버 → 월드 서버 연결
 //
 // [책임]
-//  - 월드 서버에 접속해 번호 · 웹 주소 · 정원을 등록한다
+//  - 월드 서버에 접속해 번호 · 웹 주소 · 정원 · 지금 접속 중인 사람 명단을 등록한다
+//  - 입장 · 퇴장을 알린다 — 월드 서버의 접속 장부(파티 · 이름 찾기 · 우편 신호)
 //
 // [경계]
 //  재접속 · 하트비트는 CLinkConnector 다. 여기는 패킷만 오간다.
@@ -25,7 +26,9 @@
 #include <string>
 
 class CMonitorManager;
+class CPlayer;
 class CSerialBuffer;
+class CSessionHub;
 
 class CWorldLink
 {
@@ -41,7 +44,7 @@ public:
         std::string publicWsAddr;
     };
 
-    explicit CWorldLink(CMonitorManager& monitor);
+    CWorldLink(CMonitorManager& monitor, CSessionHub& sessionHub);
 
     // 연결을 켠다 — 메인 스레드, Start 전. false = 처리표 등록 실패이거나 웹 주소가 패킷 칸에 안 들어간다(기동 거절)
     bool Configure(const Config& config);
@@ -55,6 +58,9 @@ public:
     void OnReceived(SessionId sessionId, CSerialBuffer* msg);   // 웹 처리기와 같이 버퍼를 여기서 반납한다
     void Tick();   // 하트비트 — 게임 틱마다
 
+    void NotifyEnter(const CPlayer& player);
+    void NotifyLeave(CharacterId characterId);
+
     // 꺼져 있으면 nullptr — 지표는 CLinkConnector::WriteMetrics 가 연결 여럿을 한 번에 쓴다
     const CLinkConnector* Connector() const { return _connector.get(); }
 
@@ -62,6 +68,7 @@ private:
     void SendRegister();
 
     CMonitorManager& _monitor;
+    CSessionHub&     _sessionHub;
 
     CPacketTable _table;
     bool         _routesOk = false;

@@ -57,6 +57,21 @@ bool CEnterGate::AddNotice(const char (&code)[CODE_BYTES], CharacterId character
     return true;
 }
 
+bool CEnterGate::RemoveAccount(AccountId accountId)
+{
+    const auto mine = _codeByAccount.find(ToInt(accountId));
+    if (mine == _codeByAccount.end())
+        return false;
+    const auto it = _byCode.find(mine->second);
+    if (it == _byCode.end())
+    {
+        _codeByAccount.erase(mine);
+        return false;
+    }
+    Erase(it);
+    return true;
+}
+
 EnterCodeResult CEnterGate::Consume(const char (&code)[CODE_BYTES], int64_t nowMs, Ticket& out)
 {
     if (SecureRandom::ClassifyCode(code) != SecureRandom::CodeShape::Valid)

@@ -56,6 +56,12 @@ public:
         ListResult        list;
     };
 
+    struct SelectChecked
+    {
+        CharSelectResult result = CharSelectResult::DB_FAIL;
+        ZoneServerId     ownerZone{ 0 };   // characters.owner_zone — 행이 없거나 0 이면 새 캐릭터
+    };
+
     // 유예 지난 자리를 풀고 목록을 읽는다 — 유예 지난 행은 목록에 안 나온다
     static ListResult LoadList(CDbConnection& conn, AccountId account, int graceDays);
 
@@ -68,6 +74,6 @@ public:
 
     static RestoreOutcome Restore(CDbConnection& conn, AccountId account, CharacterId character, int graceDays);
 
-    // 소유 · 삭제 확인. OK 이면 입장 번호로 넘어간다. ZONE_* 는 여기서 안 나온다
-    static CharSelectResult CheckSelect(CDbConnection& conn, AccountId account, CharacterId character);
+    // 소유 · 삭제 확인 + 주인 존 서버 읽기. OK 이면 입장 번호로 넘어간다. ZONE_* 는 여기서 안 나온다
+    static SelectChecked CheckSelect(CDbConnection& conn, AccountId account, CharacterId character);
 };

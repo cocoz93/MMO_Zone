@@ -13,6 +13,7 @@
 #include "GameDataFiles.h"    // 포털 표
 #include "PacketRoutes.h"
 #include "ZoneLink.h"
+#include "WorldLink.h"
 #include "SerialBuffer.h"
 #include "NetIoModel.h"       // CSession::ExtractIndex — 대기표 색인(세션 허브의 칸과 같은 색인)
 #include <Protocol/Protocol.h>
@@ -466,7 +467,8 @@ CPlayer* CEntryHandler::SpawnPlayer(SessionId sessionId, ActorId actorId, Charac
     _placement.NotifyArrival(player, zone, CPlayerPlacement::ArrivalKind::CONNECT);
 
     // 캐릭터 서버의 게임 중 장부 — 세운 뒤에 알린다. 불러오다 나간 사람은 여기를 안 지나니 퇴장 알림도 없어 짝이 맞는다.
-    _zoneLink.NotifyEnter(characterId);
+    _zoneLink.NotifyEnter(*player);
+    _worldLink.NotifyEnter(*player);
 
     return player;
 }

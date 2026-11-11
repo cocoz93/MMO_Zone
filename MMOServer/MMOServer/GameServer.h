@@ -390,7 +390,7 @@ private:
 
     // 캐릭터 서버 연결 — 예고를 _enterGate 에 적고, 입장 · 퇴장을 알린다. _entryHandler 보다 앞 — 그쪽이 참조를 받는다.
     CZoneLink _zoneLink{ _monitor, _enterGate, _sessionHub };
-    CWorldLink _worldLink{ _monitor };
+    CWorldLink _worldLink{ _monitor, _sessionHub };
 
     CEntryHandler _entryHandler{ _sessionHub, _placement,
 #if USE_DB_WORKER
@@ -402,7 +402,7 @@ private:
 #if USE_COMBAT
                                  _statSystem,
 #endif
-                                 _mapManager, _gameMonitor, _gameDataFiles, _enterGate, _zoneLink };
+                                 _mapManager, _gameMonitor, _gameDataFiles, _enterGate, _zoneLink, _worldLink };
 
     // 채팅 명령 — '/' 채팅의 명령 표 · 운영자 권한 · /item(USE_INVENTORY) · /gm · /die(USE_COMBAT)(CommandHandler.h · 10-26 CChatHandler 에서 떼어 냄).
     //   ★ _sightBroadcaster · _selfNotifier · _gameMonitor · _mapManager 와 명령이 쓰는 _statSystem · _combatSystem · _frameCount · _itemHandler · _gameDataFiles

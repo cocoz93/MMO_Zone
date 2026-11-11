@@ -4,6 +4,7 @@
 #include <Config/IniFile.h>
 #include <Db/DbConnection.h>
 #include <Identity/SecureRandom.h>
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -211,7 +212,7 @@ namespace
         Check(exact(names(static_cast<int>(CharCreateResult::COUNT), [](int i) { return static_cast<CharCreateResult>(i); }), 8), "만들기 결과 이름 8");
         Check(exact(names(static_cast<int>(CharDeleteResult::COUNT), [](int i) { return static_cast<CharDeleteResult>(i); }), 5), "삭제 결과 이름 5");
         Check(exact(names(static_cast<int>(CharRestoreResult::COUNT), [](int i) { return static_cast<CharRestoreResult>(i); }), 5), "복구 결과 이름 5");
-        Check(exact(names(static_cast<int>(CharSelectResult::COUNT), [](int i) { return static_cast<CharSelectResult>(i); }), 7), "고르기 결과 이름 7");
+        Check(exact(names(static_cast<int>(CharSelectResult::COUNT), [](int i) { return static_cast<CharSelectResult>(i); }), 8), "고르기 결과 이름 8");
     }
 
     void TestSessionTable()
@@ -278,23 +279,23 @@ namespace
         const AccountId a1{ 1 };
 
         CZoneDirectory zones;
-        Check(zones.PickZone() == nullptr, "없으면 nullptr");
+        Check(zones.Candidates(ZoneServerId{ 0 }).empty(), "없으면 후보 없음");
         Check(!zones.IsRegistered(z1), "등록 전");
         Check(!zones.OnDisconnected(z1), "등록 전 끊김 → false");
 
         Check(zones.Register(z1, id2, 100, "ws://b") == NO_SESSION, "첫 등록");
         Check(zones.Register(z2, id1, 100, "ws://a") == NO_SESSION, "다른 번호 등록");
         Check(zones.ZoneCount() == 2, "둘");
-        Check(zones.PickZone() != nullptr && zones.PickZone()->session == z2, "번호가 가장 작은 것");
+        Check(zones.Candidates(ZoneServerId{ 0 }).front().session == z2, "번갈아 고른 적 없으면 번호가 가장 작은 것");
 
-        zones.Enter(z1, c1);
+        zones.Enter(z1, c1, NO_ACCOUNT);
         Check(zones.IsInGame(c1, 0), "입장 통지 → 게임 중");
         Check(zones.OnlineCount() == 1, "접속 수 1");
         Check(!zones.IsInGame(c2, 0), "다른 캐릭터는 아님(반대 방향)");
         zones.Leave(z1, c1);
         Check(!zones.IsInGame(c1, 0) && zones.OnlineCount() == 0, "퇴장 → 아님");
 
-        zones.Enter(z3, c1);
+        zones.Enter(z3, c1, NO_ACCOUNT);
         Check(!zones.IsInGame(c1, 0), "등록 안 된 세션의 입장은 안 적음");
 
         // 입장 대기
@@ -311,7 +312,7 @@ namespace
         zones.AddEntering(z1, c2, a1, 2000);
         Check(zones.EnteringCount() == 1 && !zones.IsInGame(c1, 0) && zones.IsInGame(c2, 0), "같은 계정 새 예고 → 앞 항목 지움");
 
-        zones.Enter(z1, c2);
+        zones.Enter(z1, c2, NO_ACCOUNT);
         Check(zones.EnteringCount() == 0 && zones.IsInGame(c2, 5000) && zones.OnlineCount() == 1, "입장 통지 → 대기에서 접속 중으로");
 
         // 끊김 — 그 존의 접속 · 대기를 지운다
@@ -323,7 +324,7 @@ namespace
 
         // 재등록 명단 → 복원
         Check(zones.Register(z1, id2, 100, "ws://b") == NO_SESSION, "다시 등록");
-        zones.Enter(z1, c2);
+        zones.Enter(z1, c2, NO_ACCOUNT);
         Check(zones.IsInGame(c2, 0), "명단으로 복원");
 
         // 같은 번호로 새 연결
@@ -334,6 +335,90 @@ namespace
         Check(!zones.OnDisconnected(z1), "옛 연결의 끊김 이벤트 → false");
         Check(zones.IsRegistered(z3), "새 연결은 그대로");
         Check(zones.Register(z3, id2, 300, "ws://d") == NO_SESSION, "같은 연결이 다시 등록 → 옛 세션 없음");
+    }
+
+    // 길 안내 후보 순서 — 주인 있음 · 주인 꺼짐 · 주인 없음 · 번갈아 고른 뒤
+    void TestCandidates()
+    {
+        const auto ids = [](const std::vector<CZoneDirectory::Zone>& zones)
+        {
+            std::vector<int> out;
+            for (const auto& zone : zones)
+                out.push_back(ToInt(zone.id));
+            return out;
+        };
+        using V = std::vector<int>;
+
+        CZoneDirectory zones;
+        zones.Register(SessionId{ 13 }, ZoneServerId{ 3 }, 10, "c");
+        zones.Register(SessionId{ 11 }, ZoneServerId{ 1 }, 10, "a");
+        zones.Register(SessionId{ 12 }, ZoneServerId{ 2 }, 10, "b");
+
+        Check(ids(zones.Candidates(ZoneServerId{ 0 })) == V{ 1, 2, 3 }, "주인 없음 → 번호순");
+        Check(ids(zones.Candidates(ZoneServerId{ 2 })) == V{ 2, 1, 3 }, "주인 먼저 · 나머지 번호순");
+        Check(ids(zones.Candidates(ZoneServerId{ 9 })) == V{ 1, 2, 3 }, "주인이 등록 안 됨 → 건너뜀");
+
+        zones.NoteRotated(ZoneServerId{ 1 });
+        Check(ids(zones.Candidates(ZoneServerId{ 0 })) == V{ 2, 3, 1 }, "1 뒤 → 2 부터");
+        Check(ids(zones.Candidates(ZoneServerId{ 3 })) == V{ 3, 2, 1 }, "주인은 앞 · 나머지는 2 부터");
+        zones.NoteRotated(ZoneServerId{ 3 });
+        Check(ids(zones.Candidates(ZoneServerId{ 0 })) == V{ 1, 2, 3 }, "끝 번호 뒤 → 처음으로");
+
+        zones.OnDisconnected(SessionId{ 12 });
+        zones.NoteRotated(ZoneServerId{ 1 });
+        Check(ids(zones.Candidates(ZoneServerId{ 2 })) == V{ 3, 1 }, "주인이 꺼짐 → 다음 번호부터");
+    }
+
+    // 중복 판정 — 접속 중 · 입장 대기 · 둘 다 · 없음 · 시험 입장 길 · 만료
+    void TestDuplicateFind()
+    {
+        const SessionId z1{ 21 };
+        const SessionId z2{ 22 };
+        const AccountId a1{ 1 };
+        const AccountId a2{ 2 };
+        const CharacterId c1{ 1000 };
+        const CharacterId c2{ 2000 };
+        using V = std::vector<SessionId>;
+
+        CZoneDirectory zones;
+        zones.Register(z1, ZoneServerId{ 1 }, 10, "a");
+        zones.Register(z2, ZoneServerId{ 2 }, 10, "b");
+
+        Check(zones.FindAccountZones(a1, 0).empty(), "없음");
+
+        zones.Enter(z1, c1, a1);
+        Check(zones.FindAccountZones(a1, 0) == V{ z1 }, "접속 중");
+        Check(zones.FindAccountZones(a2, 0).empty(), "다른 계정은 아님(반대 방향)");
+
+        zones.AddEntering(z2, c2, a1, 1000);
+        const V both = zones.FindAccountZones(a1, 0);
+        Check(both.size() == 2 && std::find(both.begin(), both.end(), z1) != both.end() && std::find(both.begin(), both.end(), z2) != both.end(), "접속 중 + 입장 대기 → 둘 다");
+        Check(zones.FindAccountZones(a1, 1000) == V{ z1 }, "만료된 입장 대기는 안 셈");
+
+        zones.AddEntering(z1, c2, a1, 1000);
+        Check(zones.FindAccountZones(a1, 0) == V{ z1 }, "같은 존 서버면 한 번만");
+
+        zones.EraseEnteringAccount(a1);
+        Check(zones.EnteringCount() == 0, "입장 대기 지움");
+        zones.Leave(z1, c1);
+        Check(zones.FindAccountZones(a1, 0).empty(), "퇴장 → 없음");
+
+        zones.AddEntering(z2, c2, a1, 1000);
+        Check(zones.FindAccountZones(a1, 0) == V{ z2 }, "입장 대기만");
+        zones.EraseEnteringAccount(a1);
+
+        zones.Enter(z1, c1, NO_ACCOUNT);
+        Check(zones.FindAccountZones(NO_ACCOUNT, 0).empty(), "시험 입장 길은 판정 밖");
+        zones.Leave(z1, c1);
+
+        // 같은 계정의 다음 캐릭터가 먼저 적힌 뒤 앞 캐릭터가 나가도 줄이 남는다
+        zones.Enter(z1, c1, a1);
+        zones.Enter(z1, c2, a1);
+        zones.Leave(z1, c1);
+        Check(zones.FindAccountZones(a1, 0) == V{ z1 }, "앞 캐릭터 퇴장이 다음 캐릭터 줄을 안 지움");
+
+        zones.OnDisconnected(z1);
+        Check(zones.FindAccountZones(a1, 0).empty(), "존 서버 끊김 → 줄 사라짐");
     }
 
     bool LoadDb(const std::string& iniPath, const std::string& database, DBConfig& out)
@@ -425,7 +510,7 @@ namespace
             Check(!none.ok && closed.TakeJobFailed(), "연결 없음 → ok 아님 · 실패 표시");
             const CCharacterDb::CreateOutcome made = CCharacterDb::Create(closed, MakeCreate(acc, 0, "aa"), GRACE_DAYS);
             Check(made.result == CharCreateResult::DB_FAIL && closed.TakeJobFailed(), "연결 없음 만들기 → DB_FAIL");
-            Check(CCharacterDb::CheckSelect(closed, acc, CharacterId{ 1 }) == CharSelectResult::DB_FAIL && closed.TakeJobFailed(), "연결 없음 고르기 → DB_FAIL");
+            Check(CCharacterDb::CheckSelect(closed, acc, CharacterId{ 1 }).result == CharSelectResult::DB_FAIL && closed.TakeJobFailed(), "연결 없음 고르기 → DB_FAIL");
         }
 
         CDbConnection conn(config);
@@ -465,15 +550,15 @@ namespace
             Check(second.list.rows[0].slot == 0 && second.list.rows[1].slot == 2, "자리 순서");
 
         // 고르기 · 소유
-        Check(CCharacterDb::CheckSelect(conn, acc, first.characterId) == CharSelectResult::OK, "내 캐릭터 고르기 OK");
-        Check(CCharacterDb::CheckSelect(conn, other, first.characterId) == CharSelectResult::NOT_MINE, "남의 캐릭터 → NOT_MINE");
-        Check(CCharacterDb::CheckSelect(conn, acc, CharacterId{ 42 }) == CharSelectResult::NOT_MINE, "없는 번호 → NOT_MINE");
+        Check(CCharacterDb::CheckSelect(conn, acc, first.characterId).result == CharSelectResult::OK, "내 캐릭터 고르기 OK");
+        Check(CCharacterDb::CheckSelect(conn, other, first.characterId).result == CharSelectResult::NOT_MINE, "남의 캐릭터 → NOT_MINE");
+        Check(CCharacterDb::CheckSelect(conn, acc, CharacterId{ 42 }).result == CharSelectResult::NOT_MINE, "없는 번호 → NOT_MINE");
 
         // 삭제
         Check(CCharacterDb::Delete(conn, other, first.characterId, false, GRACE_DAYS).result == CharDeleteResult::NOT_MINE, "남의 캐릭터 삭제 → NOT_MINE");
         Check(CCharacterDb::Delete(conn, other, first.characterId, true, GRACE_DAYS).result == CharDeleteResult::NOT_MINE, "남의 캐릭터가 접속 중이어도 NOT_MINE");
         Check(CCharacterDb::Delete(conn, acc, first.characterId, true, GRACE_DAYS).result == CharDeleteResult::IN_GAME, "접속 중 → IN_GAME");
-        Check(CCharacterDb::CheckSelect(conn, acc, first.characterId) == CharSelectResult::OK, "막힌 삭제는 표시 안 함");
+        Check(CCharacterDb::CheckSelect(conn, acc, first.characterId).result == CharSelectResult::OK, "막힌 삭제는 표시 안 함");
 
         const CCharacterDb::DeleteOutcome removed = CCharacterDb::Delete(conn, acc, first.characterId, false, GRACE_DAYS);
         Check(removed.result == CharDeleteResult::OK, "삭제 OK");
@@ -484,7 +569,7 @@ namespace
             Check(left > 0 && left <= GRACE_DAYS * CCharacterRules::SECONDS_PER_DAY, "남은 초: " + std::to_string(left));
         }
         Check(CCharacterDb::Delete(conn, acc, first.characterId, false, GRACE_DAYS).result == CharDeleteResult::OK, "다시 지움 = OK(회신 유실)");
-        Check(CCharacterDb::CheckSelect(conn, acc, first.characterId) == CharSelectResult::DELETED, "삭제 대기 고르기 → DELETED");
+        Check(CCharacterDb::CheckSelect(conn, acc, first.characterId).result == CharSelectResult::DELETED, "삭제 대기 고르기 → DELETED");
         Check(CCharacterDb::Create(conn, MakeCreate(acc, 0, "o" + unique), GRACE_DAYS).result == CharCreateResult::SLOT_TAKEN, "삭제 대기 자리 → SLOT_TAKEN");
 
         // 복구
@@ -494,7 +579,7 @@ namespace
         if (!restored.list.rows.empty())
             Check(restored.list.rows[0].slot == 0 && restored.list.rows[0].deleteLeftSec == 0, "같은 자리 · 대기 아님");
         Check(CCharacterDb::Restore(conn, acc, first.characterId, GRACE_DAYS).result == CharRestoreResult::OK, "다시 복구 = OK");
-        Check(CCharacterDb::CheckSelect(conn, acc, first.characterId) == CharSelectResult::OK, "복구 뒤 고르기 OK");
+        Check(CCharacterDb::CheckSelect(conn, acc, first.characterId).result == CharSelectResult::OK, "복구 뒤 고르기 OK");
 
         // 소유 표와 characters 가 같이 들어갔나 — 목록이 JOIN 이라 없으면 줄이 빠진다
         Check(!conn.TakeJobFailed(), "삭제·복구에 실패 표시 없음");
@@ -548,6 +633,8 @@ int main(int argc, char** argv)
     TestBlob();
     TestLookTable(argc >= 2 ? [&]() { std::string dir = argv[1]; return dir.substr(0, dir.find_last_of("/\\") + 1); }() : std::string());
     TestRules();
+    TestCandidates();
+    TestDuplicateFind();
     TestSessionTable();
     TestZoneDirectory();
 

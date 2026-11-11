@@ -135,6 +135,40 @@ namespace
         return row;
     }
 
+    // 길 안내의 주인 존 서버. 행이 없으면 0 으로 두고 true — 실패는 질의가 안 된 때뿐이다
+    bool ReadOwnerZone(CDbConnection& conn, int64_t character, ZoneServerId& out)
+    {
+        MYSQL_STMT* stmt = static_cast<MYSQL_STMT*>(conn.Prepare("SELECT owner_zone FROM characters WHERE character_id=?"));
+        if (stmt == nullptr)
+            return false;
+
+        MYSQL_BIND in = BindLong(character);
+        if (mysql_stmt_bind_param(stmt, &in) != 0 || mysql_stmt_execute(stmt) != 0)
+        {
+            conn.NoteStmtError(stmt, "owner zone");
+            return false;
+        }
+
+        int ownerZone = 0;
+        MYSQL_BIND result = BindInt(ownerZone);
+        if (mysql_stmt_bind_result(stmt, &result) != 0)
+        {
+            conn.NoteStmtError(stmt, "owner zone bind");
+            return false;
+        }
+
+        const int fetched = mysql_stmt_fetch(stmt);
+        if (fetched != 0 && fetched != MYSQL_NO_DATA)
+        {
+            conn.NoteStmtError(stmt, "owner zone fetch");
+            return false;
+        }
+        mysql_stmt_free_result(stmt);
+
+        out = ZoneServerId{ fetched == 0 ? ownerZone : 0 };
+        return true;
+    }
+
     // 1062 뒤 — 같은 계정 · 자리 · 이름 행이면 앞선 시도가 이미 들어간 것이다
     bool FindSameCreate(CDbConnection& conn, int64_t account, int slot, const std::string& name, int64_t& outCharacter, bool& queryOk)
     {
@@ -461,20 +495,31 @@ CCharacterDb::RestoreOutcome CCharacterDb::Restore(CDbConnection& conn, AccountI
     return outcome;
 }
 
-CharSelectResult CCharacterDb::CheckSelect(CDbConnection& conn, AccountId account, CharacterId character)
+CCharacterDb::SelectChecked CCharacterDb::CheckSelect(CDbConnection& conn, AccountId account, CharacterId character)
 {
+    SelectChecked checked;
     if (!conn.IsOpen())
     {
         conn.NoteNotOpen();
-        return CharSelectResult::DB_FAIL;
+        return checked;
     }
 
     const OwnerRow owner = ReadOwner(conn, ToInt(character));
     if (!owner.queryOk)
-        return CharSelectResult::DB_FAIL;
+        return checked;
     if (!owner.found || owner.account != ToInt(account))
-        return CharSelectResult::NOT_MINE;
+    {
+        checked.result = CharSelectResult::NOT_MINE;
+        return checked;
+    }
     if (owner.hasDeletedAt)
-        return CharSelectResult::DELETED;
-    return CharSelectResult::OK;
+    {
+        checked.result = CharSelectResult::DELETED;
+        return checked;
+    }
+
+    if (!ReadOwnerZone(conn, ToInt(character), checked.ownerZone))
+        return checked;
+    checked.result = CharSelectResult::OK;
+    return checked;
 }

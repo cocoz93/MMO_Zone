@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "EnterGate.h"
+#include "LinkOnlineList.h"
 #include "MonitorManager.h"
 #include "Player.h"
 #include "SerialBuffer.h"
@@ -18,6 +19,7 @@ CZoneLink::CZoneLink(CMonitorManager& monitor, CEnterGate& enterGate, CSessionHu
     // 하트비트는 처리할 것이 없다 — 받는 것만으로 코어가 세션 시한을 늘린다
     _routesOk = _table.Register<LINK_HEARTBEAT>([](SessionId, CSerialBuffer*) {});
     _routesOk = _table.Register<LINK_ENTER_NOTICE_REQ>([this](SessionId, CSerialBuffer* msg) { RecvEnterNotice(msg); }) && _routesOk;
+    _routesOk = _table.Register<LINK_ZONE_KICK_ACCOUNT>([this](SessionId, CSerialBuffer* msg) { RecvKickAccount(msg); }) && _routesOk;
 }
 
 bool CZoneLink::Configure(const Config& config)
@@ -106,36 +108,7 @@ void CZoneLink::SendRegister()
     std::memcpy(reg.publicWsAddr, _config.publicWsAddr.data(), _config.publicWsAddr.size());   // 끝 NUL 자리는 Configure 가 봤다
     _connector->Send(reg);
 
-    // pack 필수 — 없으면 ids 가 8바이트 경계로 밀려 머리와 첫 번호 사이에 빈 2바이트가 낀다
-#pragma pack(push, 1)
-    struct OnlineListPacket
-    {
-        LINK_ZONE_ONLINE_LIST head;
-        int64_t ids[LINK_ONLINE_LIST_MAX];
-    };
-#pragma pack(pop)
-    static_assert(sizeof(OnlineListPacket) == sizeof(LINK_ZONE_ONLINE_LIST) + sizeof(int64_t) * LINK_ONLINE_LIST_MAX, "명단 패킷에 빈 칸이 끼었다");
-    OnlineListPacket packet{};
-    int total = 0;
-
-    const auto flush = [&]()
-    {
-        const int size = static_cast<int>(sizeof(packet.head) + sizeof(int64_t) * packet.head.count);
-        packet.head.header.size = static_cast<uint16_t>(size);
-        packet.head.header.type = static_cast<MsgType>(LINK_ZONE_ONLINE_LIST::TYPE);
-        _connector->SendBytes(&packet, size);
-        packet.head.count = 0;
-    };
-
-    _sessionHub.ForEachPlayer([&](CPlayer* player)
-    {
-        packet.ids[packet.head.count++] = ToInt(player->_characterId);
-        ++total;
-        if (packet.head.count == LINK_ONLINE_LIST_MAX)
-            flush();
-    });
-    if (packet.head.count > 0)
-        flush();
+    const int total = LinkOnlineList::Send(*_connector, _sessionHub);
 
     SLOG_INFO("[ZoneLink] 등록 (zone server={}, max={}, web={}, online={})",
               _config.zoneServerId, _config.maxClients, _config.publicWsAddr, total);
@@ -165,12 +138,24 @@ void CZoneLink::RecvEnterNotice(CSerialBuffer* msg)
     _connector->Send(ack);
 }
 
-void CZoneLink::NotifyEnter(CharacterId characterId)
+void CZoneLink::RecvKickAccount(CSerialBuffer* msg)
+{
+    LINK_ZONE_KICK_ACCOUNT packet;
+    if (!PacketSend::Read(msg, packet) || packet.accountId == ToInt(NO_ACCOUNT))
+    {
+        _monitor._packetErrors.Inc();
+        return;
+    }
+    if (_kickAccount)
+        _kickAccount(AccountId{ packet.accountId });
+}
+
+void CZoneLink::NotifyEnter(const CPlayer& player)
 {
     if (!_connector || !_connector->IsUp())
         return;   // 끊긴 동안의 입장은 다시 등록할 때 명단에 실린다
     LINK_ZONE_CHAR_ENTER packet{};
-    packet.characterId = ToInt(characterId);
+    LinkOnlineList::Fill(packet.entry, player);
     _connector->Send(packet);
 }
 

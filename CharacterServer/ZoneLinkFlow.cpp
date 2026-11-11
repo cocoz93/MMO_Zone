@@ -60,7 +60,7 @@ void CZoneLinkFlow::OnOnlineList(SessionId sessionId, CSerialBuffer* msg)
         return;
     }
     if (head.count > LINK_ONLINE_LIST_MAX
-        || static_cast<size_t>(msg->GetDataSize()) < sizeof(head) + size_t{ head.count } * sizeof(int64_t))
+        || static_cast<size_t>(msg->GetDataSize()) < sizeof(head) + size_t{ head.count } * sizeof(LinkOnlineEntry))
     {
         _monitor._packetErrors.Inc();
         return;
@@ -69,9 +69,9 @@ void CZoneLinkFlow::OnOnlineList(SessionId sessionId, CSerialBuffer* msg)
     const char* data = msg->GetReadBufferPtr() + sizeof(head);
     for (uint16_t i = 0; i < head.count; ++i)
     {
-        int64_t characterId = 0;
-        std::memcpy(&characterId, data + size_t{ i } * sizeof(int64_t), sizeof(characterId));
-        _zones.Enter(sessionId, CharacterId{ characterId });
+        LinkOnlineEntry entry;
+        std::memcpy(&entry, data + size_t{ i } * sizeof(LinkOnlineEntry), sizeof(entry));
+        _zones.Enter(sessionId, CharacterId{ entry.characterId }, AccountId{ entry.accountId });
     }
 }
 
@@ -100,7 +100,7 @@ void CZoneLinkFlow::OnCharEnter(SessionId sessionId, CSerialBuffer* msg)
         _monitor._packetErrors.Inc();
         return;
     }
-    _zones.Enter(sessionId, CharacterId{ packet.characterId });
+    _zones.Enter(sessionId, CharacterId{ packet.entry.characterId }, AccountId{ packet.entry.accountId });
 }
 
 void CZoneLinkFlow::OnCharLeave(SessionId sessionId, CSerialBuffer* msg)

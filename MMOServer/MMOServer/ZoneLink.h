@@ -5,6 +5,7 @@
 //  - 캐릭터 서버에 접속해 번호 · 웹 주소 · 정원 · 지금 접속 중인 캐릭터 명단을 등록한다
 //  - 입장 예고를 입장 대기 명단(CEnterGate)에 적고 답한다
 //  - 입장 · 퇴장을 캐릭터 번호로 알린다 — 캐릭터 서버가 게임 중인 캐릭터의 삭제를 막는 근거다(IN_GAME)
+//  - 캐릭터 서버의 내보내기(3042)를 받아 CGameServer 가 준 콜백에 넘긴다
 //
 // [경계]
 //  재접속 · 하트비트는 CLinkConnector, 번호 표는 CEnterGate, 입장 번호 확인은 CEntryHandler 다. 여기는 패킷만 오간다.
@@ -24,12 +25,14 @@
 #include <Identity/GameIds.h>
 #include <Link/LinkConnector.h>
 #include <Lobby/PacketTable.h>
+#include <functional>
 #include <memory>
 #include <sstream>
 #include <string>
 
 class CEnterGate;
 class CMonitorManager;
+class CPlayer;
 class CSerialBuffer;
 class CSessionHub;
 
@@ -53,6 +56,9 @@ public:
     // 연결을 켠다 — 메인 스레드, Start 전. false = 처리표 등록 실패이거나 웹 주소가 패킷 칸에 안 들어간다(기동 거절)
     bool Configure(const Config& config);
 
+    // 내보내기 처리 — 메인 스레드, Start 전. 이 클래스는 CEntryHandler 를 들지 않는다(그쪽이 이쪽 참조를 받는다)
+    void SetKickAccount(std::function<void(AccountId)> kickAccount) { _kickAccount = std::move(kickAccount); }
+
     void Start(NetIoModel& network);
     void Stop();
 
@@ -62,7 +68,7 @@ public:
     void OnReceived(SessionId sessionId, CSerialBuffer* msg);   // 웹 처리기와 같이 버퍼를 여기서 반납한다
     void Tick();   // 하트비트 — 게임 틱마다
 
-    void NotifyEnter(CharacterId characterId);
+    void NotifyEnter(const CPlayer& player);
     void NotifyLeave(CharacterId characterId);
 
     // 꺼져 있으면 nullptr — 지표는 CLinkConnector::WriteMetrics 가 연결 여럿을 한 번에 쓴다
@@ -71,6 +77,7 @@ public:
 private:
     void SendRegister();
     void RecvEnterNotice(CSerialBuffer* msg);
+    void RecvKickAccount(CSerialBuffer* msg);
 
     CMonitorManager& _monitor;
     CEnterGate&      _enterGate;
@@ -82,4 +89,5 @@ private:
     Config _config;
     bool   _enabled = false;
     std::unique_ptr<CLinkConnector> _connector;   // Start 가 만든다 — 끄면 없다
+    std::function<void(AccountId)>  _kickAccount;
 };

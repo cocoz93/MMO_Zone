@@ -196,6 +196,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/EnterGate.cpp
     ${SRV_DIR}/ZoneLink.cpp
     ${SRV_DIR}/WorldLink.cpp
+    ${SRV_DIR}/LinkOnlineList.cpp
     ${SRV_DIR}/EntryHandler.cpp
     ${SRV_DIR}/JobHandler.cpp
     ${SRV_DIR}/ChatHandler.cpp

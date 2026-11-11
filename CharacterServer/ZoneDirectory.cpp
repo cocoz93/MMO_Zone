@@ -1,5 +1,7 @@
 ﻿#include "ZoneDirectory.h"
 
+#include <algorithm>
+
 SessionId CZoneDirectory::Register(SessionId session, ZoneServerId id, int maxClients, const std::string& wsAddr)
 {
     SessionId previous = NO_SESSION;
@@ -17,6 +19,7 @@ SessionId CZoneDirectory::Register(SessionId session, ZoneServerId id, int maxCl
     ZoneState& state = _zones[ToInt(session)];
     state.zone = Zone{ session, id, maxClients, wsAddr };
     state.online.clear();   // 뒤따르는 명단으로 다시 채운다
+    state.accounts.clear();
     return previous;
 }
 
@@ -47,32 +50,82 @@ bool CZoneDirectory::IsRegistered(SessionId session) const
     return _zones.find(ToInt(session)) != _zones.end();
 }
 
-void CZoneDirectory::Enter(SessionId session, CharacterId characterId)
+void CZoneDirectory::Enter(SessionId session, CharacterId characterId, AccountId accountId)
 {
     const auto it = _zones.find(ToInt(session));
     if (it == _zones.end())
         return;
-    it->second.online.insert(ToInt(characterId));
+    it->second.online[ToInt(characterId)] = ToInt(accountId);
+    if (accountId != NO_ACCOUNT)
+        it->second.accounts[ToInt(accountId)] = ToInt(characterId);
     EraseEntering(ToInt(characterId));
 }
 
 void CZoneDirectory::Leave(SessionId session, CharacterId characterId)
 {
     const auto it = _zones.find(ToInt(session));
-    if (it != _zones.end())
-        it->second.online.erase(ToInt(characterId));
+    if (it == _zones.end())
+        return;
+    ZoneState& state = it->second;
+    const auto row = state.online.find(ToInt(characterId));
+    if (row == state.online.end())
+        return;
+
+    // 계정 표의 줄이 이 캐릭터를 가리킬 때만 지운다 — 같은 계정의 다음 캐릭터가 이미 적혔을 수 있다
+    const auto account = state.accounts.find(row->second);
+    if (account != state.accounts.end() && account->second == ToInt(characterId))
+        state.accounts.erase(account);
+    state.online.erase(row);
 }
 
-const CZoneDirectory::Zone* CZoneDirectory::PickZone() const
+std::vector<CZoneDirectory::Zone> CZoneDirectory::Candidates(ZoneServerId owner) const
 {
-    const Zone* best = nullptr;
+    std::vector<Zone> ordered;
+    std::vector<Zone> rest;
     for (const auto& entry : _zones)
     {
         const Zone& zone = entry.second.zone;
-        if (best == nullptr || ToInt(zone.id) < ToInt(best->id))
-            best = &zone;
+        if (zone.id == owner)
+            ordered.push_back(zone);
+        else
+            rest.push_back(zone);
     }
-    return best;
+    std::sort(rest.begin(), rest.end(), [](const Zone& a, const Zone& b) { return ToInt(a.id) < ToInt(b.id); });
+
+    const auto start = std::upper_bound(rest.begin(), rest.end(), _lastRotated, [](int id, const Zone& zone) { return id < ToInt(zone.id); });
+    ordered.insert(ordered.end(), start, rest.end());
+    ordered.insert(ordered.end(), rest.begin(), start);
+    return ordered;
+}
+
+std::vector<SessionId> CZoneDirectory::FindAccountZones(AccountId accountId, int64_t nowMs) const
+{
+    std::vector<SessionId> found;
+    for (const auto& entry : _zones)
+    {
+        if (entry.second.accounts.count(ToInt(accountId)) != 0)
+            found.push_back(entry.second.zone.session);
+    }
+
+    const auto waiting = _enteringByAccount.find(ToInt(accountId));
+    if (waiting != _enteringByAccount.end())
+    {
+        const auto it = _entering.find(waiting->second);
+        if (it != _entering.end() && nowMs < it->second.expireMs)
+        {
+            const SessionId session{ it->second.zoneSession };
+            if (std::find(found.begin(), found.end(), session) == found.end())
+                found.push_back(session);
+        }
+    }
+    return found;
+}
+
+void CZoneDirectory::EraseEnteringAccount(AccountId accountId)
+{
+    const auto waiting = _enteringByAccount.find(ToInt(accountId));
+    if (waiting != _enteringByAccount.end())
+        EraseEntering(waiting->second);
 }
 
 void CZoneDirectory::EraseEntering(int64_t characterId)

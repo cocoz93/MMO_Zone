@@ -17,8 +17,10 @@ inline constexpr uint16_t LINK_PACKET_LAST  = 3099;
 inline constexpr int LINK_CODE_BYTES    = 64;   // 로그인 토큰 · 입장 번호 칸 — 앞 16바이트가 난수(SecureRandom.h)
 inline constexpr int LINK_WS_ADDR_BYTES = 64;   // 존 서버 웹 접속 주소(ws://…) — NUL 로 끝난다. 64 는 사설·공인 주소와 포트가 넉넉히 드는 크기로 고른 값이다
 
-// 명단 패킷 하나에 드는 줄 수 — (1458 − 머리 4 − 칸 수 2) ÷ 8 = 181. 5,600명이면 패킷 31개다
-inline constexpr int LINK_ONLINE_LIST_MAX = 181;
+inline constexpr int LINK_NAME_CHARS = 6;        // 캐릭터 이름 칸 — CHAR_NAME_MAX_LEN 과 같아야 한다(존 서버가 static_assert 로 맞춘다)
+
+// 명단 패킷 하나에 드는 줄 수 — (1458 − 머리 4 − 칸 수 2) ÷ 38 = 38. 5,600명이면 패킷 148개다
+inline constexpr int LINK_ONLINE_LIST_MAX = 38;
 
 #pragma pack(push, 1)
 
@@ -67,13 +69,26 @@ struct LINK_ZONE_REGISTER
     char      publicWsAddr[LINK_WS_ADDR_BYTES];
 };
 
-// 지금 접속 중인 캐릭터 명단 — 머리 + 칸 수 + 캐릭터 번호 N개 (가변)
+// 접속 장부 한 줄 — 3004 · 3007 이 같은 꼴을 쓴다. 캐릭터 서버는 번호 둘만 쓰고(중복 판정 · 삭제 판정),
+//   월드 서버는 전부 쓴다(파티 창 · 이름 찾기). 존 서버는 같은 패킷을 양쪽에 보낸다
+struct LinkOnlineEntry
+{
+    int64_t  characterId;
+    int64_t  accountId;     // 시험 입장 길의 사람은 0(NO_ACCOUNT) — 중복 판정 밖이다
+    int32_t  level;
+    int32_t  job;
+    uint8_t  displayChar;
+    uint8_t  colorIndex;
+    char16_t name[LINK_NAME_CHARS];   // 끝 표시가 없을 수 있다 — 6글자를 꽉 채운 이름
+};
+
+// 지금 접속 중인 캐릭터 명단 — 머리 + 칸 수 + 줄 N개 (가변)
 struct LINK_ZONE_ONLINE_LIST
 {
     static constexpr uint16_t TYPE = 3004;
     MsgHeader header;
     uint16_t  count;
-    // int64_t characterId[count];
+    // LinkOnlineEntry entries[count];
 };
 
 // ── 입장 예고 (캐릭터 서버 → 존 서버) ──
@@ -108,7 +123,7 @@ struct LINK_ZONE_CHAR_ENTER
 {
     static constexpr uint16_t TYPE = 3007;
     MsgHeader header;
-    int64_t   characterId;
+    LinkOnlineEntry entry;
 };
 
 struct LINK_ZONE_CHAR_LEAVE
@@ -127,6 +142,15 @@ struct LINK_WORLD_REGISTER
     int32_t   worldId;
 };
 
+// ── 내보내기 (캐릭터 서버 → 존 서버) ──
+//   같은 계정이 다시 고르면 줄이 있는 존 서버마다 보낸다. 회신이 없다
+struct LINK_ZONE_KICK_ACCOUNT
+{
+    static constexpr uint16_t TYPE = 3042;
+    MsgHeader header;
+    int64_t   accountId;
+};
+
 #pragma pack(pop)
 
 static_assert(sizeof(LINK_HEARTBEAT) == 4);
@@ -137,4 +161,7 @@ static_assert(sizeof(LINK_ZONE_ONLINE_LIST) == 4 + 2);
 static_assert(sizeof(LINK_ENTER_NOTICE_REQ) == 4 + 8 + 8 + 8 + 64);
 static_assert(sizeof(LINK_ENTER_NOTICE_ACK) == 4 + 8 + 1 + 4);
 static_assert(sizeof(LINK_WORLD_REGISTER) == 4 + 4);
-static_assert(sizeof(LINK_ZONE_ONLINE_LIST) + LINK_ONLINE_LIST_MAX * sizeof(int64_t) <= 1458, "코어 패킷 상한(IOCPServer.h)");
+static_assert(sizeof(LINK_ZONE_KICK_ACCOUNT) == 4 + 8);
+static_assert(sizeof(LinkOnlineEntry) == 8 + 8 + 4 + 4 + 1 + 1 + 12);
+static_assert(sizeof(LINK_ZONE_CHAR_ENTER) == 4 + sizeof(LinkOnlineEntry));
+static_assert(sizeof(LINK_ZONE_ONLINE_LIST) + LINK_ONLINE_LIST_MAX * sizeof(LinkOnlineEntry) <= 1458, "코어 패킷 상한(IOCPServer.h)");

@@ -121,6 +121,13 @@ bool CGameServer::Start()
     // 에코 테스트는 CIOCPServer 내부에서 자체 처리
     if (_mode == ServerMode::GameServer)
     {
+        // 내보내기 — 입장 번호를 지우고 앞 접속을 끊는다. 입장 번호를 먼저 지워야 끊긴 사이 그 번호로 못 들어온다
+        _zoneLink.SetKickAccount([this](AccountId accountId)
+        {
+            _enterGate.RemoveAccount(accountId);
+            _entryHandler.KickAccount(accountId);
+        });
+
         // 게임 스레드보다 먼저 — 게임 스레드가 틱마다 보는 연결 객체를 여기서 만든다. 접속이 먼저 돼도 사건은 큐에서 기다린다.
         _zoneLink.Start(*_network);
         _worldLink.Start(*_network);
@@ -446,6 +453,7 @@ void CGameServer::OnLeavingGame(CPlayer* player)
 {
     // 캐릭터 서버의 게임 중 장부 — 같은 계정 끊기는 LeaveGame 을 동기로 불러 이 알림이 새 입장 알림보다 먼저 간다
     _zoneLink.NotifyLeave(player->_characterId);
+    _worldLink.NotifyLeave(player->_characterId);   // 월드 서버의 접속 장부
 
 #if USE_COMBAT
     // 부활 대기열 회수 — 끊김 길에서는 RemoveFromZone 이 이미 하지만, 존을 못 찾은 분기는 그걸 건너뛴다.

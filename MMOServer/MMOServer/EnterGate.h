@@ -79,6 +79,9 @@ public:
     // 입장 — Ok 면 out 을 채우고 그 번호를 지운다(일회용). 빈 칸은 BadSize 다: 빈 번호를 받아 줄지는 부르는 쪽이 먼저 정한다.
     EnterCodeResult Consume(const char (&code)[CODE_BYTES], int64_t nowMs, Ticket& out);
 
+    // 그 계정의 번호를 지운다 — 캐릭터 서버의 내보내기(3042). 지웠으면 true
+    bool RemoveAccount(AccountId accountId);
+
     // 시간이 지난 번호를 「아직 안 지난 수」에서 빼고, 보관까지 끝난 번호를 지운다.
     //   부르는 곳 = 동접 게이지 주기(약 0.5초) · 예고를 적을 때. 명단은 정원 안이라 훑는 비용이 작다.
     void Sweep(int64_t nowMs);

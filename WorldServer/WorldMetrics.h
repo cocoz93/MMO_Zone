@@ -14,9 +14,11 @@ class CWorldMetrics
 {
 public:
     void SetZones(int count) { _zones.store(count, std::memory_order_relaxed); }
+    void SetOnline(int count) { _online.store(count, std::memory_order_relaxed); }
 
     void Write(std::ostringstream& ss) const;
 
 private:
     std::atomic<int64_t> _zones{ 0 };
+    std::atomic<int64_t> _online{ 0 };
 };

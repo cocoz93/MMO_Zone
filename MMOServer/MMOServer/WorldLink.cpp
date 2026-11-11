@@ -6,11 +6,13 @@
 #include <cstring>
 
 #include "EnterGate.h"
+#include "LinkOnlineList.h"
 #include "MonitorManager.h"
 #include "SerialBuffer.h"
+#include "SessionHub.h"
 
-CWorldLink::CWorldLink(CMonitorManager& monitor)
-    : _monitor(monitor), _table(LINK_PACKET_FIRST, LINK_PACKET_LAST)
+CWorldLink::CWorldLink(CMonitorManager& monitor, CSessionHub& sessionHub)
+    : _monitor(monitor), _sessionHub(sessionHub), _table(LINK_PACKET_FIRST, LINK_PACKET_LAST)
 {
     // 하트비트는 처리할 것이 없다 — 받는 것만으로 코어가 세션 시한을 늘린다
     _routesOk = _table.Register<LINK_HEARTBEAT>([](SessionId, CSerialBuffer*) {});
@@ -102,5 +104,25 @@ void CWorldLink::SendRegister()
     std::memcpy(reg.publicWsAddr, _config.publicWsAddr.data(), _config.publicWsAddr.size());   // 끝 NUL 자리는 Configure 가 봤다
     _connector->Send(reg);
 
-    SLOG_INFO("[WorldLink] 등록 (zone server={}, max={}, web={})", _config.zoneServerId, _config.maxClients, _config.publicWsAddr);
+    const int total = LinkOnlineList::Send(*_connector, _sessionHub);
+
+    SLOG_INFO("[WorldLink] 등록 (zone server={}, max={}, web={}, online={})", _config.zoneServerId, _config.maxClients, _config.publicWsAddr, total);
+}
+
+void CWorldLink::NotifyEnter(const CPlayer& player)
+{
+    if (!_connector || !_connector->IsUp())
+        return;   // 끊긴 동안의 입장은 다시 등록할 때 명단에 실린다
+    LINK_ZONE_CHAR_ENTER packet{};
+    LinkOnlineList::Fill(packet.entry, player);
+    _connector->Send(packet);
+}
+
+void CWorldLink::NotifyLeave(CharacterId characterId)
+{
+    if (!_connector || !_connector->IsUp())
+        return;   // 끊긴 동안의 퇴장은 다시 등록할 때 명단에서 빠져 있다
+    LINK_ZONE_CHAR_LEAVE packet{};
+    packet.characterId = ToInt(characterId);
+    _connector->Send(packet);
 }

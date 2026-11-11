@@ -78,6 +78,7 @@ enum class CharSelectResult : uint8_t
     ZONE_FULL = 4,
     BUSY = 5,
     DB_FAIL = 6,
+    DUPLICATE_LOGIN = 7,    // 윈도 헤더에 DUPLICATE 매크로가 있어 이름을 늘렸다. 같은 계정이 게임 중이거나 입장 대기 중 — 앞 접속을 내보냈다. 다시 고르면 된다
     COUNT
 };
 

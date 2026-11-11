@@ -15,7 +15,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
+#include <vector>
 
 #include <Identity/GameIds.h>
 
@@ -40,11 +40,22 @@ public:
     bool IsRegistered(SessionId session) const;
 
     // 접속 통지 · 재등록 명단. 입장 대기였다면 접속 중으로 바뀐다
-    void Enter(SessionId session, CharacterId characterId);
+    //   accountId 가 NO_ACCOUNT 면 시험 입장 길의 사람이다 — 계정으로 찾는 표에 안 넣는다(중복 판정 밖)
+    void Enter(SessionId session, CharacterId characterId, AccountId accountId);
     void Leave(SessionId session, CharacterId characterId);
 
-    // 이번에는 한 대뿐이다 — 번호가 가장 작은 것. 맵에 따라 대를 고르는 규칙은 여러 대를 띄우는 플랜에서 정한다
-    const Zone* PickZone() const;
+    // 길 안내 후보 순서 — 주인 존 서버(등록돼 있을 때) → 나머지를 번호순으로, 마지막으로 번갈아 고른 번호의 다음부터.
+    //   owner 0 = 새 캐릭터(주인 없음)
+    std::vector<Zone> Candidates(ZoneServerId owner) const;
+
+    // 주인이 아닌 존 서버로 들어가게 됐을 때 부른다 — 다음 번갈아 고르기가 그 다음 번호부터 시작한다
+    void NoteRotated(ZoneServerId id) { _lastRotated = ToInt(id); }
+
+    // 이 계정의 줄이 있는 존 서버들 — 접속 중 + 만료 안 된 입장 대기(겹치면 한 번만). 고르기의 중복 판정
+    std::vector<SessionId> FindAccountZones(AccountId accountId, int64_t nowMs) const;
+
+    // 이 계정의 입장 대기 줄을 지운다 — 내보내기(3042)와 같이 부른다
+    void EraseEnteringAccount(AccountId accountId);
 
     // 입장 예고 성공. 같은 계정의 앞 항목을 지운다(존 서버의 대기 명단과 같은 규칙)
     void AddEntering(SessionId zoneSession, CharacterId characterId, AccountId accountId, int64_t expireMs);
@@ -69,7 +80,8 @@ private:
     struct ZoneState
     {
         Zone zone;
-        std::unordered_set<int64_t> online;
+        std::unordered_map<int64_t, int64_t> online;   // 캐릭터 번호 → 계정 번호
+        std::unordered_map<int64_t, int64_t> accounts; // 계정 번호 → 캐릭터 번호 — 시험 입장 길(NO_ACCOUNT)의 사람은 없다
     };
 
     void EraseEntering(int64_t characterId);
@@ -77,4 +89,5 @@ private:
     std::unordered_map<int64_t, ZoneState> _zones;   // 세션 번호로 찾는다 — 패킷이 세션으로 온다
     std::unordered_map<int64_t, Entering> _entering;
     std::unordered_map<int64_t, int64_t> _enteringByAccount;
+    int _lastRotated = 0;   // 번갈아 고르기에서 마지막으로 고른 존 서버 번호
 };

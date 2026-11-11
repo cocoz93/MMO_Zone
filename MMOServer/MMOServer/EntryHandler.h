@@ -38,6 +38,7 @@ class CMapManager;
 class CGameMonitor;
 class CGameDataFiles;
 class CZoneLink;
+class CWorldLink;
 #if USE_PARTY
 class CPartyHandler;
 #endif
@@ -68,7 +69,7 @@ public:
                   CStatSystem& statSystem,
 #endif
                   CMapManager& mapManager, CGameMonitor& gameMonitor, const CGameDataFiles& gameDataFiles,
-                  CEnterGate& enterGate, CZoneLink& zoneLink)
+                  CEnterGate& enterGate, CZoneLink& zoneLink, CWorldLink& worldLink)
         : _sessionHub(sessionHub), _placement(placement)
 #if USE_DB_WORKER
         , _characterStore(characterStore)
@@ -79,7 +80,7 @@ public:
 #if USE_COMBAT
         , _statSystem(statSystem)
 #endif
-        , _mapManager(mapManager), _gameMonitor(gameMonitor), _gameDataFiles(gameDataFiles), _enterGate(enterGate), _zoneLink(zoneLink) {}
+        , _mapManager(mapManager), _gameMonitor(gameMonitor), _gameDataFiles(gameDataFiles), _enterGate(enterGate), _zoneLink(zoneLink), _worldLink(worldLink) {}
 
     // 대기표 잡기 — 게임 서버 모드의 Init 이 세션 허브의 칸을 잡은 뒤 부른다(같은 크기·같은 색인). DB 를 끈 빌드는 할 일이 없다.
     void Init(int maxClients);
@@ -112,6 +113,9 @@ public:
     // 동접 게이지 주기 — 13 × 40ms ≈ 0.5초. 옮기기 전 CSightBroadcaster 의 주기 동기화(SYNC_INTERVAL_FRAMES)에 얹혀 돌던 주기 그대로다
     //   (노출 설명 mmo_players_ingame 의 「약 0.5초마다」). 존마다 덧셈 한 번이라 값을 바꿔도 부담은 없다.
     static constexpr int IN_GAME_GAUGE_INTERVAL_FRAMES = 13;
+
+    // 캐릭터 서버의 내보내기(3042) — 같은 계정의 앞 접속을 내보낸다(게임 중 · 불러오는 중). 게임 스레드
+    void KickAccount(AccountId accountId) { KickDuplicateAccount(accountId, NO_SESSION); }
 
 private:
     // ── 입장(스폰) ──
@@ -248,6 +252,7 @@ private:
     const CGameDataFiles& _gameDataFiles;    // 포털 표
     CEnterGate&           _enterGate;        // 입장 번호 확인 · 예고는 CZoneLink 가 적는다
     CZoneLink&            _zoneLink;         // 입장 알림 — 캐릭터 서버의 게임 중 장부
+    CWorldLink&           _worldLink;        // 입장 알림 — 월드 서버의 접속 장부
     bool                  _allowDevEnter = false;   // 입장 번호 없는 접속을 받을까(SetAllowDevEnter)
 
     // 플레이어 이동 속도 덮어쓰기(칸/초) — 0 이면 생성자의 기본값을 그대로 쓴다(SetPlayerSpeed)

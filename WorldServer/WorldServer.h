@@ -42,6 +42,10 @@ private:
     std::string BuildMetricsText();
 
     void OnZoneRegister(SessionId sessionId, CSerialBuffer* msg);
+    void OnOnlineList(SessionId sessionId, CSerialBuffer* msg);
+    void OnCharEnter(SessionId sessionId, CSerialBuffer* msg);
+    void OnCharLeave(SessionId sessionId, CSerialBuffer* msg);
+    bool CheckRegistered(SessionId sessionId);
     void SendWorldRegister();
 
     WorldServerConfig _config;

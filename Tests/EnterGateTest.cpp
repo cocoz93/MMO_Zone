@@ -131,6 +131,23 @@ namespace
         Check(theirs.accountId == ACC_B, "다른 계정 번호");
     }
 
+    void TestRemoveAccount()
+    {
+        CEnterGate gate;
+        const Code a = MakeCode('x');
+        const Code b = MakeCode('y');
+        Check(gate.AddNotice(a.bytes, CHAR_A, ACC_A, 0, MAX_CLIENTS, 1000), "A 번호를 적음");
+        Check(gate.AddNotice(b.bytes, CHAR_B, ACC_B, 0, MAX_CLIENTS, 1000), "B 번호를 적음");
+
+        Check(gate.RemoveAccount(ACC_A), "있는 계정 → true");
+        Check(!gate.RemoveAccount(ACC_A), "두 번째 → false");
+        Check(gate.LiveCount() == 1 && gate.StoredCount() == 1, "A 만 지워짐");
+
+        CEnterGate::Ticket ticket;
+        Check(gate.Consume(a.bytes, 1000, ticket) == EnterCodeResult::NotFound, "지운 번호 → NotFound");
+        Check(gate.Consume(b.bytes, 1000, ticket) == EnterCodeResult::Ok, "다른 계정 번호는 그대로");
+    }
+
     void TestCapacity()
     {
         std::printf("-- 정원\n");
@@ -178,6 +195,7 @@ int main()
     TestShape();
     TestExpire();
     TestOnePerAccount();
+    TestRemoveAccount();
     TestCapacity();
     TestResultNames();
     return TestHelp::Finish("enter_gate_test");

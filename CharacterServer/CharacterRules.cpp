@@ -97,6 +97,7 @@ const char* CCharacterRules::ResultName(CharSelectResult result)
     case CharSelectResult::ZONE_FULL: return "zone_full";
     case CharSelectResult::BUSY:      return "busy";
     case CharSelectResult::DB_FAIL:   return "db_fail";
+    case CharSelectResult::DUPLICATE_LOGIN: return "duplicate";
     case CharSelectResult::COUNT:     break;
     }
     return "unknown";

@@ -4,6 +4,7 @@
 #include <Link/SessionTag.h>
 #include <Lobby/PacketSend.h>
 #include <Protocol/ServerLinkProtocol.h>
+#include <cstring>
 #include <sstream>
 #include <string>
 
@@ -49,6 +50,9 @@ bool CWorldServer::RegisterRoutes()
 
     ok = _zoneTable.Register<LINK_HEARTBEAT>([](SessionId, CSerialBuffer*) {}) && ok;
     ok = _zoneTable.Register<LINK_ZONE_REGISTER>([this](SessionId id, CSerialBuffer* msg) { OnZoneRegister(id, msg); }) && ok;
+    ok = _zoneTable.Register<LINK_ZONE_ONLINE_LIST>([this](SessionId id, CSerialBuffer* msg) { OnOnlineList(id, msg); }) && ok;
+    ok = _zoneTable.Register<LINK_ZONE_CHAR_ENTER>([this](SessionId id, CSerialBuffer* msg) { OnCharEnter(id, msg); }) && ok;
+    ok = _zoneTable.Register<LINK_ZONE_CHAR_LEAVE>([this](SessionId id, CSerialBuffer* msg) { OnCharLeave(id, msg); }) && ok;
     return ok;
 }
 
@@ -130,6 +134,7 @@ void CWorldServer::Periodic(int64_t nowMs)
     {
         _nextSweepMs = nowMs + SWEEP_PERIOD_MS;
         _metrics.SetZones(_presence.ZoneCount());
+        _metrics.SetOnline(_presence.OnlineCount());
     }
 }
 
@@ -154,6 +159,69 @@ void CWorldServer::OnZoneRegister(SessionId sessionId, CSerialBuffer* msg)
         _peers.Disconnect(previous);
     }
     SLOG_INFO("[WorldServer] 존 서버 {} 등록 — {} · 정원 {}", packet.zoneServerId, wsAddr, packet.maxClients);
+}
+
+bool CWorldServer::CheckRegistered(SessionId sessionId)
+{
+    if (_presence.IsRegistered(sessionId))
+        return true;
+    _monitor._packetErrors.Inc();
+    return false;
+}
+
+void CWorldServer::OnOnlineList(SessionId sessionId, CSerialBuffer* msg)
+{
+    if (!CheckRegistered(sessionId))
+        return;
+
+    LINK_ZONE_ONLINE_LIST head;
+    if (!PacketSend::Read(msg, head))
+    {
+        _monitor._packetErrors.Inc();
+        return;
+    }
+    if (head.count > LINK_ONLINE_LIST_MAX
+        || static_cast<size_t>(msg->GetDataSize()) < sizeof(head) + size_t{ head.count } * sizeof(LinkOnlineEntry))
+    {
+        _monitor._packetErrors.Inc();
+        return;
+    }
+
+    const char* data = msg->GetReadBufferPtr() + sizeof(head);
+    for (uint16_t i = 0; i < head.count; ++i)
+    {
+        LinkOnlineEntry entry;
+        std::memcpy(&entry, data + size_t{ i } * sizeof(LinkOnlineEntry), sizeof(entry));
+        _presence.Enter(sessionId, entry);
+    }
+}
+
+void CWorldServer::OnCharEnter(SessionId sessionId, CSerialBuffer* msg)
+{
+    if (!CheckRegistered(sessionId))
+        return;
+
+    LINK_ZONE_CHAR_ENTER packet;
+    if (!PacketSend::Read(msg, packet))
+    {
+        _monitor._packetErrors.Inc();
+        return;
+    }
+    _presence.Enter(sessionId, packet.entry);
+}
+
+void CWorldServer::OnCharLeave(SessionId sessionId, CSerialBuffer* msg)
+{
+    if (!CheckRegistered(sessionId))
+        return;
+
+    LINK_ZONE_CHAR_LEAVE packet;
+    if (!PacketSend::Read(msg, packet))
+    {
+        _monitor._packetErrors.Inc();
+        return;
+    }
+    _presence.Leave(sessionId, CharacterId{ packet.characterId });
 }
 
 void CWorldServer::SendWorldRegister()
