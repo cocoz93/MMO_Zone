@@ -1046,7 +1046,9 @@ public:
         Counter _listPagesSent;                                           // S2C_MAIL_LIST 보낸 장 수(빈 목록도 한 장)
         Counter _bodySent;                                                // S2C_MAIL_BODY 보낸 수
         Counter _countSent;                                               // S2C_MAIL_COUNT 보낸 수
-        Counter _lateReplies;                                             // 버린 회신 — 주인이 나갔거나(정상) 상태가 그 회신을 안 기다렸다(오류 로그도 남김)
+        Counter _lateReplies;                                             // 버린 회신(DB 잡 · 계정 우편 서버 간 답) — 주인이 나갔거나(정상) 상태가 그 회신을 안 기다렸다(오류 로그도 남김)
+        Counter _unclaimed;                                               // 계정 우편 — 다시 판정이 거절해 받는 중 표시 풀기(UNCLAIM)를 보낸 수
+        Counter _resumed;                                                 // 계정 우편 — 입장 때 이어서 처리를 시작한 수(이 캐릭터가 받는 중인 행이 남아 있었다)
     } _mail;
 #endif
 

@@ -428,7 +428,9 @@ private:
             WriteCounter(ss, "mmo_mail_list_pages_sent_total", "S2C_MAIL_LIST pages sent (an empty list is one page)", ml._listPagesSent);
             WriteCounter(ss, "mmo_mail_body_sent_total", "S2C_MAIL_BODY packets sent", ml._bodySent);
             WriteCounter(ss, "mmo_mail_count_sent_total", "S2C_MAIL_COUNT packets sent", ml._countSent);
-            WriteCounter(ss, "mmo_mail_late_replies_total", "Mail DB replies dropped (owner left, or the state was not waiting for it)", ml._lateReplies);
+            WriteCounter(ss, "mmo_mail_late_replies_total", "Mail replies dropped, DB jobs and account mail link (owner left, or the state was not waiting for it)", ml._lateReplies);
+            WriteCounter(ss, "mmo_mail_unclaimed_total", "Account mail claims released after the zone refused the take (UNCLAIM sent)", ml._unclaimed);
+            WriteCounter(ss, "mmo_mail_resumed_total", "Account mail takes resumed on entry (a claim by this character was left)", ml._resumed);
         }
 #endif
 

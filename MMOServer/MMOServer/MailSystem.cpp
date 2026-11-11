@@ -3,6 +3,7 @@
 
 #if USE_MAIL
 
+#include <algorithm>
 #include <cassert>
 #include <cstring>
 #include <memory>
@@ -17,7 +18,13 @@
 #endif
 #include <Identity/CharacterName.h>    // 받는 이름 검사 · 이름 UTF-8
 #include <Text/TextUtf.h>              // 제목 · 본문 검사와 UTF-8
+#include <Protocol/ServerLinkProtocol.h>   // LinkAccMailFull · AccMailState — 계정 우편 한 통(읽기만)
 #include <Common/ErrorLog.h>
+
+// 계정 우편의 글자 · 첨부 칸이 존 서버의 칸과 같아야 그대로 옮긴다(ServerLinkProtocol.h 「칸 크기는 존 서버가 static_assert 로 맞춘다」)
+static_assert(LINK_MAIL_TITLE_CHARS == MAIL_TITLE_MAX, "계정 우편 제목 칸 = 우편 제목 칸");
+static_assert(LINK_MAIL_BODY_CHARS == MAIL_BODY_MAX, "계정 우편 본문 칸 = 우편 본문 칸");
+static_assert(LINK_MAIL_ATTACH_BYTES == MailAttach::MAX_BYTES, "계정 우편 첨부 칸 = 첨부 바이트 상한");
 
 bool MailAllowedOn(MapKind kind)
 {
@@ -78,6 +85,23 @@ namespace
             s += std::to_string(a.items[i].itemId) + " x " + std::to_string(a.items[i].count);
         }
         return s;
+    }
+
+    // 계정 우편의 글자 칸(첫 0 까지) → UTF-8 DB 칸. 계정 서버가 DB 의 UTF-8 에서 만든 칸이라 보통 실패하지 않는다 —
+    //   깨졌으면(홀로 남은 대리쌍) 빈 글자로 적고 false(받은 기록 줄의 제목 · 본문일 뿐이라 받기를 막지 않는다)
+    template <int N, size_t B>
+    bool PutCells(DBBytes<B>& dst, const char16_t (&cells)[N])
+    {
+        static_assert(static_cast<size_t>(N) * 3 <= B, "UTF-16 한 칸은 UTF-8 로 많아야 3바이트(대리쌍 두 칸 = 4바이트)");
+        int length = 0;
+        while (length < N && cells[length] != 0)
+            ++length;
+        std::string text;
+        const bool ok = TextUtf::ToUtf8(cells, length, text);
+        if (!ok)
+            text.clear();
+        PutBytes(dst, text);
+        return ok;
     }
 
     // 로그용 — send_key 16바이트를 16진 32자로(문의 때 DB 의 send_key 와 맞춰 본다)
@@ -185,13 +209,59 @@ MailResult CMailSystem::BeginTake(CPlayer* p)
     return r;
 }
 
+MailResult CMailSystem::BeginAccList(CPlayer* p)
+{
+    const MailResult r = CheckReadDoor(p);
+    if (r == MailResult::OK)
+        p->_mailOp = CPlayer::MailOp::ACC_LIST;
+    return r;
+}
+
+MailResult CMailSystem::BeginAccRead(CPlayer* p)
+{
+    const MailResult r = CheckReadDoor(p);
+    if (r == MailResult::OK)
+        p->_mailOp = CPlayer::MailOp::ACC_READ;
+    return r;
+}
+
+MailResult CMailSystem::BeginAccErase(CPlayer* p)
+{
+    const MailResult r = CheckReadDoor(p);
+    if (r == MailResult::OK)
+        p->_mailOp = CPlayer::MailOp::ACC_ERASE;
+    return r;
+}
+
+MailResult CMailSystem::BeginAccTake(CPlayer* p)
+{
+    const MailResult r = CheckItemDoor(p);
+    if (r == MailResult::OK)
+        p->_mailOp = CPlayer::MailOp::ACC_TAKE_READ;
+    return r;
+}
+
+MailResult CMailSystem::BeginAccResume(CPlayer* p)
+{
+    // 가방이 바뀔 수 있는 동작이라 받기와 같은 문 — 파티 방 · 쓰러짐 · 거래 중이면 이번 입장에서는 안 한다
+    const MailResult r = CheckItemDoor(p);
+    if (r == MailResult::OK)
+    {
+        p->_mailOp = CPlayer::MailOp::ACC_CHECK_MOVED;
+        p->_mailResume = true;
+    }
+    return r;
+}
+
 void CMailSystem::End(CPlayer* p)
 {
-    assert(p->_mailOp != CPlayer::MailOp::SEND_SAVE && p->_mailOp != CPlayer::MailOp::TAKE_SAVE && "가방이 바뀐 뒤에는 확정 회신만 푼다");
+    assert(p->_mailOp != CPlayer::MailOp::SEND_SAVE && p->_mailOp != CPlayer::MailOp::TAKE_SAVE &&
+           p->_mailOp != CPlayer::MailOp::ACC_TAKE_SAVE && "가방이 바뀐 뒤에는 확정 회신만 푼다");
     assert(!(p->_mailDraft && p->_mailDraft->ready) && "대기로 올린 문장을 버리면 줄인 칸이 사라진다");
     if (p->_mailDraft && !p->_mailDraft->ready)
         p->_mailDraft.reset();   // 찾기 중 초안 — 아직 아무것도 안 줄였다
     p->_mailOp = CPlayer::MailOp::IDLE;
+    p->_mailResume = false;
 }
 
 bool CMailSystem::Waiting(const CPlayer* p, DBMailOp op) const
@@ -205,8 +275,8 @@ bool CMailSystem::Waiting(const CPlayer* p, DBMailOp op) const
     case DBMailOp::FIND_RECEIVER: return p->_mailOp == CPlayer::MailOp::FIND;
     case DBMailOp::READ_ONE:      return p->_mailOp == CPlayer::MailOp::TAKE_READ;
     case DBMailOp::COUNT_PENDING: return true;    // 입장 때 수 세기는 상태를 안 쓴다(mail-plan.md 7절 끝) — 다른 동작과 겹쳐도 해가 없다
-    case DBMailOp::FIND_MOVED:    return false;   // 계정 우편(8단계) — 아직 내는 곳이 없다
-    case DBMailOp::FIND_NAME:     return false;
+    case DBMailOp::FIND_MOVED:    return p->_mailOp == CPlayer::MailOp::ACC_CHECK_MOVED;
+    case DBMailOp::FIND_NAME:     return p->_mailOp == CPlayer::MailOp::ACC_OTHER_NAME;
     case DBMailOp::COUNT:         break;
     }
     return false;
@@ -220,12 +290,13 @@ bool CMailSystem::Confirm(CPlayer* p, DBMailStmtKind kind)
     {
     case DBMailStmtKind::SEND_INSERT:     want = CPlayer::MailOp::SEND_SAVE; break;
     case DBMailStmtKind::TAKE_UPDATE:     want = CPlayer::MailOp::TAKE_SAVE; break;
-    case DBMailStmtKind::ACC_TAKE_INSERT: return false;   // 계정 우편(8단계) — 아직 만드는 곳이 없다
+    case DBMailStmtKind::ACC_TAKE_INSERT: want = CPlayer::MailOp::ACC_TAKE_SAVE; break;
     case DBMailStmtKind::COUNT:           return false;
     }
     if (p->_mailOp != want)
         return false;
     p->_mailOp = CPlayer::MailOp::IDLE;
+    p->_mailResume = false;
     return true;
 }
 
@@ -446,27 +517,26 @@ MailResult CMailSystem::FinishTake(CPlayer* p, const DBMailReply& reply)
     return r;
 }
 
-MailResult CMailSystem::ApplyTake(CPlayer* p, const DBMailRow& row)
+MailResult CMailSystem::JudgeAttach(const CPlayer* p, int64_t money, const uint8_t* bytes, int len, int64_t mailId,
+                                    const char* what, const char* idName, MailAttach::Items& attach) const
 {
-    if (row.attach.len == 0 && row.money == 0)
+    if (len == 0 && money == 0)
         return MailResult::NO_ATTACH;   // 글만 있는 우편 — 받기 버튼이 흐려 보통은 안 온다
-    MailAttach::Items attach;
-    if (!MailAttach::Read(row.attach.data, static_cast<int>(row.attach.len), attach) || row.money < 0)
+    if (!MailAttach::Read(bytes, len, attach) || money < 0)
     {
-        SLOG_ERROR("[MAIL] take attach broken (character={}, mail={}, bytes={}, money={}) — 우편은 남는다",
-                   ToInt(p->_characterId), row.mailId, row.attach.len, row.money);
+        SLOG_ERROR("[MAIL] {} attach broken (character={}, {}={}, bytes={}, money={}) — 우편은 남는다",
+                   what, ToInt(p->_characterId), idName, mailId, len, money);
         return MailResult::ITEM_UNKNOWN;
     }
-    const MailResult r = CheckTake(p, row.money, attach);
-    if (r != MailResult::OK)
-    {
-        if (r == MailResult::ITEM_UNKNOWN)
-            SLOG_ERROR("[MAIL] take item not in table (character={}, mail={}, items=[{}]) — 우편은 남는다",
-                       ToInt(p->_characterId), row.mailId, ItemsText(attach));
-        return r;
-    }
+    const MailResult r = CheckTake(p, money, attach);
+    if (r == MailResult::ITEM_UNKNOWN)
+        SLOG_ERROR("[MAIL] {} item not in table (character={}, {}={}, items=[{}]) — 우편은 남는다",
+                   what, ToInt(p->_characterId), idName, mailId, ItemsText(attach));
+    return r;
+}
 
-    // ── 통과 — 같은 판정으로 원본에 넣는다(위 복사본이 됐으니 원본도 된다 · 같은 게임 스레드라 그 사이에 안 바뀐다) ──
+void CMailSystem::PutIntoBag(CPlayer* p, int64_t money, const MailAttach::Items& attach)
+{
     CInventory& inv = p->_inventory;
     for (int i = 0; i < attach.count; ++i)
     {
@@ -474,12 +544,23 @@ MailResult CMailSystem::ApplyTake(CPlayer* p, const DBMailRow& row)
         assert(added == InvAddResult::OK);
         (void)added;
     }
-    if (row.money > 0)
+    if (money > 0)
     {
-        const bool ok = inv.TryAddMoney(row.money);
+        const bool ok = inv.TryAddMoney(money);
         assert(ok);
         (void)ok;
     }
+}
+
+MailResult CMailSystem::ApplyTake(CPlayer* p, const DBMailRow& row)
+{
+    MailAttach::Items attach;
+    const MailResult r = JudgeAttach(p, row.money, row.attach.data, static_cast<int>(row.attach.len), row.mailId, "take", "mail", attach);
+    if (r != MailResult::OK)
+        return r;
+
+    // ── 통과 — 같은 판정으로 원본에 넣는다(위 복사본이 됐으니 원본도 된다 · 같은 게임 스레드라 그 사이에 안 바뀐다) ──
+    PutIntoBag(p, row.money, attach);
 
     assert(!p->_mailDraft && "우편 문장은 한 사람에게 많아야 하나다");
     auto draft = std::make_unique<MailDraft>();
@@ -502,6 +583,151 @@ MailResult CMailSystem::ApplyTake(CPlayer* p, const DBMailRow& row)
     SLOG_INFO("[MAIL] take character={} mail={} items=[{}] money {} account_mail={}",
               ToInt(p->_characterId), row.mailId, ItemsText(attach), row.money, 0);
     return MailResult::OK;
+}
+
+// ==========================================================================
+// 계정 우편 받기 (mail-plan.md 6절 받기 1~7번) — 답은 존 서버가 「이 캐릭터」로 다시 판정한다
+//   계정 서버는 살아 있는 행(안 받음 · 받는 중)만 OK 로 답한다. 그 밖의 상태가 OK 로 오면 GONE 으로 닫는다(답이 틀린 것)
+// ==========================================================================
+namespace
+{
+    AccTakeDecision AccClose(MailResult r)  { return AccTakeDecision{ AccTakeStep::CLOSE, r, 0 }; }
+    AccTakeDecision AccNext(AccTakeStep s)  { return AccTakeDecision{ s, MailResult::OK, 0 }; }
+    AccTakeDecision AccOtherName(int64_t c) { return AccTakeDecision{ AccTakeStep::OTHER_NAME, MailResult::OK, c }; }
+}
+
+AccTakeDecision CMailSystem::AfterAccRead(CPlayer* p, const LinkAccMailFull& mail)
+{
+    assert(p->_mailOp == CPlayer::MailOp::ACC_TAKE_READ);
+    const MailResult again = CheckAgain(p);
+    if (again != MailResult::OK)
+    {
+        End(p);
+        return AccClose(again);
+    }
+
+    const int64_t me = ToInt(p->_characterId);
+    const int64_t claimer = mail.claimCharacterId;
+    switch (static_cast<AccMailState>(mail.state))
+    {
+    case AccMailState::NOT_TAKEN:
+    {
+        // 판정만 — 가방은 받는 중 표시가 걸린 뒤 다시 판정해 넣는다(AfterAccClaim · 왕복 사이에 줍기로 칸이 찰 수 있다)
+        uint8_t bytes[MailAttach::MAX_BYTES] = {};
+        const int len = (mail.attachLen <= MailAttach::MAX_BYTES) ? mail.attachLen : MailAttach::MAX_BYTES + 1;   // 넘치면 Read 가 거절한다
+        std::memcpy(bytes, mail.attach, (std::min)(static_cast<size_t>(mail.attachLen), sizeof(bytes)));
+        MailAttach::Items attach;
+        const MailResult r = JudgeAttach(p, mail.money, bytes, len, mail.mailId, "acc take", "account_mail", attach);
+        if (r != MailResult::OK)
+        {
+            End(p);
+            return AccClose(r);   // 우편은 계정 우편에 그대로 — 아직 아무것도 안 걸었다
+        }
+        p->_mailOp = CPlayer::MailOp::ACC_CLAIM;
+        return AccNext(AccTakeStep::CLAIM);
+    }
+    case AccMailState::CLAIMING:
+        if (claimer == me)
+        {
+            p->_mailOp = CPlayer::MailOp::ACC_CHECK_MOVED;   // 앞선 시도가 어디까지 갔는지 모른다 — 받은 줄부터 본다
+            return AccNext(AccTakeStep::CHECK_MOVED);
+        }
+        p->_mailOp = CPlayer::MailOp::ACC_OTHER_NAME;        // 그 캐릭터만 끝낸다 — 이름을 알려 준다
+        return AccOtherName(claimer);
+    case AccMailState::TAKEN:
+    case AccMailState::ERASED:
+        break;
+    }
+    End(p);
+    return AccClose(MailResult::GONE);
+}
+
+AccTakeDecision CMailSystem::AfterAccMoved(CPlayer* p, const DBMailReply& moved)
+{
+    assert(p->_mailOp == CPlayer::MailOp::ACC_CHECK_MOVED);
+    if (!moved.ok)
+    {
+        End(p);
+        return AccClose(MailResult::DB_ERROR);   // 받는 중은 남는다 — 다음 입장 때 다시 본다
+    }
+    if (moved.found)
+    {
+        // 앞선 묶음이 이미 확정됐다 — 가방에 다시 넣지 않고 DONE 만 다시(6절 「이미 옮겼나」)
+        SLOG_INFO("[MAIL] acc take already moved character={} account_mail={} mail={} — 받음(DONE)만 다시 보낸다",
+                  ToInt(p->_characterId), moved.mailId, moved.foundId);
+        End(p);
+        return AccTakeDecision{ AccTakeStep::DONE_CLOSE, MailResult::OK, 0 };
+    }
+    p->_mailOp = CPlayer::MailOp::ACC_CLAIM;   // 줄 없음 — 받는 중 표시는 같은 행이라 내용만 돌려받는다
+    return AccNext(AccTakeStep::CLAIM);
+}
+
+AccTakeDecision CMailSystem::AfterAccClaim(CPlayer* p, const LinkAccMailFull& mail)
+{
+    assert(p->_mailOp == CPlayer::MailOp::ACC_CLAIM);
+    if (static_cast<AccMailState>(mail.state) != AccMailState::CLAIMING)
+    {
+        End(p);
+        return AccClose(MailResult::GONE);
+    }
+    if (mail.claimCharacterId != ToInt(p->_characterId))
+    {
+        // 왕복 사이에 다른 캐릭터가 먼저 걸었다 — 계정 서버는 적혀 있는 캐릭터와 내용을 돌려준다(6절 받기 4번)
+        p->_mailOp = CPlayer::MailOp::ACC_OTHER_NAME;
+        return AccOtherName(mail.claimCharacterId);
+    }
+
+    // 다시 판정 — 받는 중 표시가 내 것이다. 거절이면 핸들러가 UNCLAIM 으로 푼다(아무것도 안 바꿨다)
+    MailResult r = CheckAgain(p);
+    uint8_t bytes[MailAttach::MAX_BYTES] = {};
+    const int len = (mail.attachLen <= MailAttach::MAX_BYTES) ? mail.attachLen : MailAttach::MAX_BYTES + 1;
+    std::memcpy(bytes, mail.attach, (std::min)(static_cast<size_t>(mail.attachLen), sizeof(bytes)));
+    const int64_t money = mail.money;
+    MailAttach::Items attach;
+    if (r == MailResult::OK)
+        r = JudgeAttach(p, money, bytes, len, mail.mailId, "acc take", "account_mail", attach);
+    if (r != MailResult::OK)
+    {
+        End(p);
+        return AccTakeDecision{ AccTakeStep::UNCLAIM_CLOSE, r, 0 };
+    }
+
+    // ── 통과 — 같은 함수 안에서 가방에 넣고 문장을 대기로 올리고 로그를 남긴다(옮기기와 가방 넣기는 저장 묶음 하나 · 6절) ──
+    PutIntoBag(p, money, attach);
+
+    assert(!p->_mailDraft && "우편 문장은 한 사람에게 많아야 하나다");
+    auto draft = std::make_unique<MailDraft>();
+    draft->itemCount = static_cast<uint8_t>(attach.count);
+    for (int i = 0; i < attach.count; ++i)
+        draft->items[i] = MailDraftItem{ -1, attach.items[i].itemId, attach.items[i].count };
+    DBMailStmt& s = draft->stmt;
+    s = DBMailStmt{};
+    s.kind              = DBMailStmtKind::ACC_TAKE_INSERT;   // 받은 상태로 내 우편 한 줄 — from_account_mail_id UNIQUE 가 두 번 받기를 막는다
+    s.characterId       = ToInt(p->_characterId);
+    s.accountId         = ToInt(p->_accountId);              // 확정 뒤 DONE — 떠난 기록으로 확정돼도 이 값으로 보낸다
+    s.money             = money;
+    s.fromAccountMailId = mail.mailId;
+    s.expireDays        = _rules.expireDays;                 // 받은 줄이라 목록에는 안 보인다 — 열이 NOT NULL 이라 같은 규칙으로 채운다
+    {
+        char16_t title[MAIL_TITLE_MAX];
+        char16_t body[MAIL_BODY_MAX];
+        std::memcpy(title, mail.title, sizeof(title));        // 서버 간 패킷은 pack(1) — 칸 주소를 넘기지 않고 정렬된 배열로 옮긴다
+        std::memcpy(body, mail.body, sizeof(body));
+        if (!PutCells(s.title, title) || !PutCells(s.body, body))
+            SLOG_ERROR("[MAIL] acc take text broken (character={}, account_mail={}) — 받은 줄의 그 칸을 비워 적는다", s.characterId, mail.mailId);
+    }
+    std::memcpy(s.attach.data, bytes, static_cast<size_t>(len));   // JudgeAttach 가 len ≤ MAX_BYTES 를 봤다
+    s.attach.len = static_cast<unsigned long>(len);
+    draft->ready = true;
+    p->_mailDraft = std::move(draft);
+    p->_mailOp = CPlayer::MailOp::ACC_TAKE_SAVE;
+
+    if (money > 0)
+        _gameMonitor._inventory._moneyIn[static_cast<int>(MoneySource::MAIL)].Add(money);
+    _gameMonitor._mail._taken[static_cast<int>(MailTab::ACCOUNT)].Inc();
+    SLOG_INFO("[MAIL] take character={} mail={} items=[{}] money {} account_mail={}",
+              s.characterId, 0, ItemsText(attach), money, mail.mailId);
+    return AccNext(AccTakeStep::SAVE);
 }
 
 #endif // USE_MAIL

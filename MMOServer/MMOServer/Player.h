@@ -126,7 +126,7 @@ public:
     // 사람별 우편 상태 — 한 사람의 우편 동작을 한 번에 하나로 묶는다(mail-plan.md 7절 전이 표). IDLE 이 아니면 새 우편 요청을 BUSY 로 거절하고,
     //   거래 신청(CTradeSystem::Busy)과 다른 존 서버로 채널 바꾸기(CChannelMoveFlow::Check)도 BUSY 로 막는다.
     //   바꾸는 쪽 = 우편 규칙(CMailSystem) · 우편 핸들러(잡을 못 넣었을 때 IDLE 로 되돌리기). 이름에 DELETE 를 안 쓴다(윈도 헤더 매크로).
-    //   계정 우편 상태(ACC_*)는 계정 우편 단계(mail-plan.md 12절 8단계)에서 더한다.
+    //   계정 우편 상태(ACC_*)의 답은 서버 간 답(CAccountMailClient — 시한 3초 · 끊기면 바로 끝)이거나 DB 잡 회신이다.
     enum class MailOp : uint8_t
     {
         IDLE,
@@ -137,8 +137,19 @@ public:
         SEND_SAVE,   // 보내기 — 칸·돈을 줄였다. 문장이 든 묶음의 성공 회신을 기다린다(실패면 다시 실려 상태 유지)
         TAKE_READ,   // 받기 — READ_ONE 회신을 기다린다
         TAKE_SAVE,   // 받기 — 가방에 넣었다. 묶음의 성공 회신을 기다린다
+        ACC_LIST,         // 계정 우편 목록 — 한 장(LIST_ACK)을 기다린다. 더 있으면 다음 장을 묻는다(최대 MAIL_LIST_MAX 통)
+        ACC_READ,         // 계정 우편 읽기 — READ_ACK 를 기다린다
+        ACC_TAKE_READ,    // 계정 우편 받기 — 읽기 답(READ_ACK)으로 그 우편의 상태를 본다
+        ACC_CHECK_MOVED,  // 계정 우편 받기 — 「이미 옮겼나」(FIND_MOVED) 회신을 기다린다. 입장 때 이어서 처리도 여기서 시작한다
+        ACC_OTHER_NAME,   // 계정 우편 받기 — 받는 중인 다른 캐릭터의 이름(FIND_NAME) 회신을 기다린다
+        ACC_CLAIM,        // 계정 우편 받기 — 받는 중 표시(CLAIM_ACK) 답을 기다린다
+        ACC_TAKE_SAVE,    // 계정 우편 받기 — 가방에 넣었다. 묶음의 성공 회신을 기다린다(확정되면 DONE 을 보낸다)
+        ACC_ERASE,        // 계정 우편 지우기 — ERASE_ACK 를 기다린다
     };
     MailOp _mailOp = MailOp::IDLE;
+    // 입장 때 이어서 처리 중인 계정 우편 받기 — 결과를 action=RESUME 으로 알리고, 끝나면 수를 다시 묻는다(mail-plan.md 6절 「입장 때 다시 처리」).
+    //   켜는 곳 = CMailSystem::BeginAccResume · 끄는 곳 = End · Confirm(상태가 IDLE 로 갈 때 같이)
+    bool _mailResume = false;
 #endif
     bool     _channelListAsking = false;   // 채널 목록을 월드 서버에 묻는 중 — CChannelListFlow 만 쓴다
 
