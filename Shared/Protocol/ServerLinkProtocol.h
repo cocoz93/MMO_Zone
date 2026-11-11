@@ -155,8 +155,11 @@ enum class LinkMailResult : uint8_t
     DB_ERROR = 3,
     NO_ACCOUNT = 4,      // 한 계정 지급의 대상 계정이 없다
     CANNOT_DELETE = 5,   // 첨부 · 돈이 남았거나 받는 중이거나 이미 없다
+    OFFLINE = 6,         // 월드 서버가 계정 서버에 못 넘겼다(끊김) — 월드 서버만 만든다. 존 서버가 ACC_OFFLINE 으로 옮긴다(9절 「못 보내면 Cancel 후 존에 ACC_OFFLINE」)
 };
-inline constexpr int LINK_MAIL_RESULT_COUNT = 6;
+inline constexpr int LINK_MAIL_RESULT_COUNT = 7;
+inline constexpr int LINK_MAIL_RESULT_ACCOUNT_COUNT = 6;   // 계정 서버가 만드는 결과 — OFFLINE 앞까지. 계정 서버 지표 칸 수다
+static_assert(LINK_MAIL_RESULT_ACCOUNT_COUNT == static_cast<int>(LinkMailResult::OFFLINE), "계정 서버가 만드는 결과는 OFFLINE 앞에 둔다");
 
 // account_mail.state 와 같은 값이다
 enum class AccMailState : uint8_t

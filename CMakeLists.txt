@@ -193,6 +193,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/ShopHandler.cpp
     ${SRV_DIR}/TradeHandler.cpp
     ${SRV_DIR}/MailHandler.cpp
+    ${SRV_DIR}/AccountMailClient.cpp
     ${SRV_DIR}/MoveHandler.cpp
     ${SRV_DIR}/EnterGate.cpp
     ${SRV_DIR}/ZoneLink.cpp
@@ -443,6 +444,7 @@ set(WORLD_SOURCES
     ${WORLD_DIR}/WorldServer.cpp
     ${WORLD_DIR}/WorldServerConfig.cpp
     ${WORLD_DIR}/PartyFlow.cpp
+    ${WORLD_DIR}/AccountMailRelay.cpp
 )
 
 if(WIN32)

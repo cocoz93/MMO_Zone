@@ -24,6 +24,13 @@ enum class LinkRequestKind : int
     EnterNotice = 1,
     ChannelList = 2,
     Handoff = 3,
+    // 계정 우편 — 존 서버 → 월드 서버, 월드 서버 → 계정 서버 양쪽이 같은 종류로 센다(mail-plan.md 9절)
+    AccMailCount = 4,
+    AccMailList = 5,
+    AccMailRead = 6,
+    AccMailClaim = 7,
+    AccMailSend = 8,
+    AccMailErase = 9,
     COUNT
 };
 
@@ -31,11 +38,17 @@ inline const char* LinkRequestKindName(LinkRequestKind kind)
 {
     switch (kind)
     {
-    case LinkRequestKind::TokenCheck:  return "token_check";
-    case LinkRequestKind::EnterNotice: return "enter_notice";
-    case LinkRequestKind::ChannelList: return "channel_list";
-    case LinkRequestKind::Handoff:     return "handoff";
-    case LinkRequestKind::COUNT:       break;
+    case LinkRequestKind::TokenCheck:   return "token_check";
+    case LinkRequestKind::EnterNotice:  return "enter_notice";
+    case LinkRequestKind::ChannelList:  return "channel_list";
+    case LinkRequestKind::Handoff:      return "handoff";
+    case LinkRequestKind::AccMailCount: return "accmail_count";
+    case LinkRequestKind::AccMailList:  return "accmail_list";
+    case LinkRequestKind::AccMailRead:  return "accmail_read";
+    case LinkRequestKind::AccMailClaim: return "accmail_claim";
+    case LinkRequestKind::AccMailSend:  return "accmail_send";
+    case LinkRequestKind::AccMailErase: return "accmail_erase";
+    case LinkRequestKind::COUNT:        break;
     }
     return "unknown";
 }

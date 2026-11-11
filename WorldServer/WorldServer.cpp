@@ -41,6 +41,7 @@ CWorldServer::CWorldServer(const WorldServerConfig& config, const ServerLinkConf
     , _account(_network, _monitor, AccountLink(link))
     , _peers(_network, _monitor, link.heartbeatSec)
     , _partyFlow(_peers, _monitor, _presence, _metrics, (link.retrySec + RESTORE_MARGIN_SEC) * int64_t{ 1000 })
+    , _mailRelay(_peers, _account, _monitor, _presence, link.replyTimeoutSec)
     , _accountTable(LINK_PACKET_FIRST, LINK_PACKET_LAST)
     , _zoneTable(LINK_PACKET_FIRST, LINK_PACKET_LAST)
     , _coreMetrics(_monitor)
@@ -60,6 +61,7 @@ bool CWorldServer::RegisterRoutes()
     ok = _zoneTable.Register<LINK_ZONE_CHANNELS>([this](SessionId id, CSerialBuffer* msg) { OnZoneChannels(id, msg); }) && ok;
     ok = _zoneTable.Register<LINK_CHANNEL_LIST_REQ>([this](SessionId id, CSerialBuffer* msg) { OnChannelListReq(id, msg); }) && ok;
     ok = _partyFlow.RegisterRoutes(_zoneTable) && ok;
+    ok = _mailRelay.RegisterRoutes(_zoneTable, _accountTable) && ok;
     return ok;
 }
 
@@ -101,7 +103,11 @@ bool CWorldServer::Start()
             SLOG_INFO("[WorldServer] 계정 서버 연결됨 (session={})", ToInt(id));
             SendWorldRegister();
         },
-        []() { SLOG_WARN("[WorldServer] 계정 서버 끊김"); });
+        [this]()
+        {
+            SLOG_WARN("[WorldServer] 계정 서버 끊김");
+            _mailRelay.OnAccountDown();
+        });
     _peers.SetHandlers(
         [](SessionId id) { SLOG_INFO("[WorldServer] 존 서버 접속 (session={})", ToInt(id)); },
         [this](SessionId id)
@@ -143,6 +149,7 @@ void CWorldServer::Periodic(int64_t nowMs)
     _account.Tick(nowMs);
     _peers.Tick(nowMs);
     _partyFlow.Tick(nowMs);
+    _mailRelay.Tick(nowMs);
 
     if (nowMs >= _nextSweepMs)
     {
@@ -322,5 +329,6 @@ std::string CWorldServer::BuildMetricsText()
     _coreMetrics.Write(ss);
     _metrics.Write(ss);
     _account.WriteMetrics(ss);
+    _mailRelay.WriteMetrics(ss);
     return ss.str();
 }

@@ -242,6 +242,13 @@ namespace
         const std::string text = ss.str();
         Check(Contains(text, "mmo_link_timeout_total{request=\"token_check\"} 0") && Contains(text, "mmo_link_timeout_total{request=\"enter_notice\"} 0"), "지표: 시한 갈래가 0 으로 나옴");
         Check(Contains(text, "mmo_link_reply_seconds_count{request=\"token_check\"} 0") && Contains(text, "mmo_link_reply_seconds_count{request=\"enter_notice\"} 0"), "지표: 응답 시간 갈래가 0 으로 나옴");
+
+        // 종류 이름 — 겹치면 두 종류가 지표 한 줄로 합쳐진다(계정 우편 여섯을 더하며 넣음)
+        std::set<std::string> kindNames;
+        for (int i = 0; i < static_cast<int>(LinkRequestKind::COUNT); ++i)
+            kindNames.insert(LinkRequestKindName(static_cast<LinkRequestKind>(i)));
+        Check(kindNames.size() == 10 && kindNames.count("unknown") == 0, "종류 이름 10개(계정 우편 여섯 포함)가 전부 다름");
+        Check(Contains(text, "mmo_link_timeout_total{request=\"accmail_erase\"} 0") && Contains(text, "mmo_link_reply_seconds_count{request=\"accmail_count\"} 0"), "지표: 계정 우편 갈래도 0 으로 나옴");
     }
 
     // ── CDbPipeline ──

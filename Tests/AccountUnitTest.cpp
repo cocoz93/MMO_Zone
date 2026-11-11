@@ -83,7 +83,7 @@ namespace
         std::set<std::string> mailResults;
         for (int i = 0; i < LINK_MAIL_RESULT_COUNT; ++i)
             mailResults.insert(CAccountRules::MailResultName(static_cast<LinkMailResult>(i)));
-        Check(mailResults.size() == 6 && mailResults.count("unknown") == 0, "계정 우편 결과 6갈래 이름이 전부 다름");
+        Check(mailResults.size() == 7 && mailResults.count("unknown") == 0, "계정 우편 결과 7갈래(월드 서버만 만드는 offline 포함) 이름이 전부 다름");
 
         std::set<std::string> dbOps;
         for (int i = 0; i < CAccountDb::OP_COUNT; ++i)

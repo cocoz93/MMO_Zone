@@ -28,7 +28,10 @@ public:
     // 계정 우편 — 답이 없는 받음 · 풀기도 DB 결과로 센다(0행 = gone)
     void CountMail(AccMailOp op, LinkMailResult result)
     {
-        _mail[static_cast<int>(op)][static_cast<int>(result)].fetch_add(1, std::memory_order_relaxed);
+        const int index = static_cast<int>(result);
+        if (index >= LINK_MAIL_RESULT_ACCOUNT_COUNT)
+            return;   // OFFLINE 은 월드 서버만 만든다 — 계정 서버가 부를 길이 없다(칸 밖을 안 쓰게만 막는다)
+        _mail[static_cast<int>(op)][index].fetch_add(1, std::memory_order_relaxed);
     }
     void AddMailSentRows(int64_t rows) { _mailSentRows.fetch_add(rows, std::memory_order_relaxed); }
 
@@ -42,6 +45,6 @@ private:
     std::atomic<int64_t> _created{ 0 };
     std::atomic<int64_t> _issued{ 0 };
     std::atomic<int64_t> _pending{ 0 };
-    std::atomic<int64_t> _mail[ACC_MAIL_OP_COUNT][LINK_MAIL_RESULT_COUNT]{};
+    std::atomic<int64_t> _mail[ACC_MAIL_OP_COUNT][LINK_MAIL_RESULT_ACCOUNT_COUNT]{};
     std::atomic<int64_t> _mailSentRows{ 0 };
 };

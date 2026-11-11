@@ -80,6 +80,7 @@ const char* CAccountRules::MailResultName(LinkMailResult result)
     case LinkMailResult::DB_ERROR:      return "db_error";
     case LinkMailResult::NO_ACCOUNT:    return "no_account";
     case LinkMailResult::CANNOT_DELETE: return "cannot_delete";
+    case LinkMailResult::OFFLINE:       return "offline";   // 월드 서버만 만든다 — 계정 서버 지표에는 칸이 없다
     }
     return "unknown";
 }

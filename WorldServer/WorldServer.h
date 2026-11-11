@@ -8,6 +8,7 @@
 //   포트: 서버 간(ServerLink.ini [World] 주소에서만, 존 서버가 접속) · 지표.
 //   코어가 늘 여는 포트([Server] Port)에는 받을 손님이 없어 들어오면 바로 끊는다.
 //   계정 서버로는 내가 접속한다(CLinkConnector) — 어느 쪽을 먼저 켜도 된다.
+//   계정 우편은 존 서버와 계정 서버 사이를 잇기만 한다(CAccountMailRelay).
 // ==========================================================================
 
 #include "IOCPServer.h"   // 맨 앞 — 윈도 소켓 헤더 순서는 이 헤더가 맡는다
@@ -21,6 +22,7 @@
 #include <Monitoring/CoreMetrics.h>
 #include <Monitoring/MetricsEndpoint.h>
 
+#include "AccountMailRelay.h"
 #include "ChannelTable.h"
 #include "PartyFlow.h"
 #include "WorldMetrics.h"
@@ -66,6 +68,7 @@ private:
     CWorldPresence _presence;
     CChannelTable  _channels;
     CPartyFlow     _partyFlow;   // _peers · _presence · _metrics 뒤에 둔다 — 그 참조를 받는다
+    CAccountMailRelay _mailRelay;   // _peers · _account · _presence 뒤에 둔다 — 그 참조를 받는다
 
     CPacketTable _accountTable;
     CPacketTable _zoneTable;

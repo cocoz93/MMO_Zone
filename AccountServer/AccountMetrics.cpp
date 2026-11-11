@@ -30,7 +30,7 @@ void CAccountMetrics::Write(std::ostringstream& ss) const
     MetricsText::WriteHead(ss, "mmo_account_mail_total", "Account mail requests by op and result", "counter");
     for (int op = 0; op < ACC_MAIL_OP_COUNT; ++op)
     {
-        for (int result = 0; result < LINK_MAIL_RESULT_COUNT; ++result)
+        for (int result = 0; result < LINK_MAIL_RESULT_ACCOUNT_COUNT; ++result)
         {
             ss << "mmo_account_mail_total{op=\"" << CAccountRules::MailOpName(static_cast<AccMailOp>(op))
                << "\",result=\"" << CAccountRules::MailResultName(static_cast<LinkMailResult>(result)) << "\"} "

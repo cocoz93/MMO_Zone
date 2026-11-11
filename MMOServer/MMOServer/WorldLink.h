@@ -83,6 +83,10 @@ public:
     bool SendPartyState(const LinkPartyStateRow* rows, int count);               // 끊겨 있으면 false
     bool SendPartyRestore(const LinkPartyRestoreRow* rows, int count);           // 끊겨 있으면 false
 
+    // 몸을 만든 쪽이 그대로 보내는 패킷 — 계정 우편 요청(CAccountMailClient). 끊겨 있으면 false
+    template <typename TPacket>
+    bool SendLink(const TPacket& packet) { return IsUp() && _connector->Send(packet); }
+
     // 컨텐츠가 자기 받는 패킷을 등록하는 자리 — 등록은 Start 전
     CPacketTable& Routes() { return _table; }
     void CountPacketError();

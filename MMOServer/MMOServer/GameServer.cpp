@@ -142,6 +142,9 @@ bool CGameServer::Start()
 #if USE_PARTY
                 _partyHandler.OnWorldDown();
 #endif
+#if USE_MAIL
+                _accountMailClient.OnWorldDown();
+#endif
             },
             [this](const LINK_CHANNEL_LIST_ACK& head, const char* rows) { _channelListFlow.OnListAck(head, rows, CEnterGate::NowMs()); },
         });
@@ -634,6 +637,8 @@ bool CGameServer::RegisterRoutes()
 #if USE_MAIL
     // 우편 요청 여섯 — CMailHandler 가 자기 줄을 등록한다(CMailHandler::RegisterRoutes · mail-plan.md 3단계). 끄면 크기 줄도 없어 요청이 조용히 버려진다
     ok &= _mailHandler.RegisterRoutes(_routes);
+    // 계정 우편 답 여섯 — 월드 서버 처리표에 등록한다(CAccountMailClient::RegisterRoutes · mail-plan.md 7단계)
+    ok &= _accountMailClient.RegisterRoutes();
 #endif
     return ok;
 }

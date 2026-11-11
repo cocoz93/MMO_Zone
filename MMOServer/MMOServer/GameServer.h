@@ -64,6 +64,7 @@
 #include "CharacterStore.h"   // 캐릭터 저장소(DB 워커 · 저장 계기 넷과 묶음 · 불러오기 — USE_DB_WORKER) — 게임 서버 나누기 4 단계(B3)
 #include "MailSystem.h"       // 우편 규칙(판정 · 사람별 우편 상태 전이 · 운영 값 MailRules — USE_MAIL) — mail-plan.md 3단계
 #include "MailHandler.h"      // 우편(우편 요청 · 저장소의 우편 회신 · 결과 패킷 · 입장 때 수 — USE_MAIL) — mail-plan.md
+#include "AccountMailClient.h" // 계정 우편 요청(월드 서버를 거쳐 계정 서버로 · 응답 대기 — USE_MAIL) — mail-plan.md 7단계
 #include "PlayerPlacement.h"  // 배치(존에 넣기·옮기기·빼기·떠나보내기 · 도착 차례) — 게임 서버 나누기 5 단계(B4)
 #include "ItemHandler.h"      // 가방·땅(물약 · 장착 · 줍기 · 땅 아이템 알림 — USE_INVENTORY) — 게임 서버 나누기 6 단계(C6)
 #include "PartyHandler.h"     // 파티·방(파티 요청 · 파티 알림 · 방 입장·거절 · 다시 들어가기 잠금 — USE_PARTY) — 게임 서버 나누기 7 단계(C7)
@@ -440,6 +441,10 @@ private:
                              _tradeSystem,
 #endif
                              _gameMonitor };
+
+    // 계정 우편 요청 — 월드 서버를 거쳐 계정 서버에 묻는다(AccountMailClient.h). 응답 대기는 채널 흐름과 같은 _linkRequests 를 쓴다.
+    //   ★ _worldLink · _linkRequests 보다 뒤에 선언 — 그 참조를 받는다. 우편 처리기가 이것을 쓰므로 그보다 앞이다.
+    CAccountMailClient _accountMailClient{ _worldLink, _linkRequests };
 
     // 우편 — 우편 요청 · 저장소의 우편 회신(IMailStoreEvents) · 결과 패킷 · 입장 때 수(MailHandler.h).
     //   ★ _sessionHub · _itemHandler · _characterStore · _mailSystem · _gameMonitor 보다 뒤에 선언 — 그 참조를 받는다.
