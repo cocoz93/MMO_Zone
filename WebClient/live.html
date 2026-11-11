@@ -357,7 +357,8 @@ function tradeOffered(slot){ return !!trade.win && trade.win.mine.items.some(i=>
 //   lists[tab] = S2C_MAIL_LIST 줄 그대로 · counts[tab] = {known, count}(S2C_MAIL_COUNT — known 0 = 못 읽음이라 0 으로 더한다) ·
 //   wait = 답을 기다리는 요청 이름(MAIL_ACTION) — 그동안 단추를 안 받는다(서버도 한 사람에게 우편 요청을 하나씩만 받는다 — 둘째는 BUSY)
 //   relist = 목록을 달라고 못 낸 채 창이 열렸다(앞 요청의 답을 기다리는 중에 다시 열었다) — 답이 오면 mailIdle 이 그때 낸다
-const mail = { open:false, tab:1, mode:'read', confirm:false, wait:null, relist:false, sel:null, top:0, userTab:false, lists:{0:[],1:[]}, pending:[],
+//   listFail = 마지막 목록 요청이 거절된 탭(없으면 null) — 빈 목록 자리에 「우편이 없습니다」 대신 못 받았다고 그린다. 그 탭 목록을 다 받으면 풀린다
+const mail = { open:false, tab:1, mode:'read', confirm:false, wait:null, relist:false, listFail:null, sel:null, top:0, userTab:false, lists:{0:[],1:[]}, pending:[],
   counts:{0:{known:0,count:0},1:{known:0,count:0}}, bodies:new Map(), attach:[], hover:null, lastResult:null, sent:0 };
 // 보여 주기만 하는 값 — 정본은 서버 [Mail](Run/bin/MMOServerConfig.ini · 와이어에 안 실린다). 어긋나도 판정은 서버라 낼 돈이 모자라면 NOT_ENOUGH_MONEY 로 온다
 const MAIL_FEE_SHOWN=100, MAIL_KEEP_DAYS=30, MAIL_BOX_MAX=50;
@@ -387,7 +388,8 @@ function mailChanged(){
   const line=m=>[m.mailId, m.title, m.read?1:0, m.money, m.items.length];
   document.documentElement.setAttribute('data-mail', JSON.stringify({ open:mail.open, tab:mail.tab, mode:mail.mode, confirm:mail.confirm, wait:mail.wait, sel:mail.sel,
     lines:mail.lists[mail.tab].map(line), n:{0:mail.lists[0].length, 1:mail.lists[1].length}, counts:mail.counts, badge:mailBadge(),
-    attach:mail.attach.map(a=>[a.slot,a.count]), body:mail.sel!==null ? (mail.bodies.get(mail.tab+':'+mail.sel) ?? null) : null, lastResult:mail.lastResult, sent:mail.sent }));
+    attach:mail.attach.map(a=>[a.slot,a.count]), body:mail.sel!==null ? (mail.bodies.get(mail.tab+':'+mail.sel) ?? null) : null, lastResult:mail.lastResult, sent:mail.sent,
+    pending:mail.pending.length, listFail:mail.listFail }));
 }
 // 보내기만 한다(거래와 같은 까닭 — 판정을 두 곳에 두면 어긋난다). 답이 오기 전엔 다음 요청을 안 낸다
 function mailAsk(action, buf){
@@ -448,6 +450,8 @@ function mailSendNow(){
   if(mailAsk('SEND', P.enc.mailSend(mailToEl.value, mailTitleEl.value, mailBodyEl.value, mailMoneyValue(), items))) mail.confirm=false;
 }
 function mailDropLine(tab, mailId){
+  // 목록에 없는 줄 — 창을 안 열어 그 탭 목록을 안 받았다(입장 때 이어서 받기). 빈 목록으로 다시 세면 수가 0 이 되니 손대지 않는다(수는 서버가 다시 알린다)
+  if(!mail.lists[tab].some(m=>m.mailId===mailId)) return;
   mail.lists[tab]=mail.lists[tab].filter(m=>m.mailId!==mailId);
   mail.bodies.delete(tab+':'+mailId);
   if(mail.sel===mailId && mail.tab===tab) mail.sel=null;
@@ -455,13 +459,18 @@ function mailDropLine(tab, mailId){
   mailRecount(tab);
 }
 function onMailResult(p){
-  mail.wait=null;   // 요청 하나에 결과 한 장 — 목록 · 본문을 못 줄 때도 이것이 온다
+  // RESUME = 서버가 입장 때 스스로 이어 간 계정 우편 받기(지난 접속에서 받다 만 것 — mail-plan.md 6절 「입장 때 다시 처리」). 웹이 낸 요청의 답이 아니라 wait 를 안 푼다
+  const resume = p.actionName==='RESUME';
+  if(!resume) mail.wait=null;   // 요청 하나에 결과 한 장 — 목록 · 본문을 못 줄 때도 이것이 온다
   mail.lastResult=p.actionName+':'+p.resultName;
-  const tab = (p.actionName==='ACC_TAKE' || p.actionName==='ACC_ERASE') ? 1 : (p.actionName==='TAKE' || p.actionName==='ERASE') ? 0 : mail.tab;
+  const tab = (p.actionName==='ACC_TAKE' || p.actionName==='ACC_ERASE' || resume) ? 1 : (p.actionName==='TAKE' || p.actionName==='ERASE') ? 0 : mail.tab;
+  // 목록이 몇 장 온 뒤 거절이 왔다(다음 장의 답이 늦음 · 월드 서버 끊김) — 받은 장은 버린다. 반쪽 목록으로 수를 다시 세면 붉은 칸이 틀린다
+  if(p.actionName==='LIST') mail.pending=[];
   if(p.resultName==='OK'){
     switch(p.actionName){
       case 'SEND': sysMsg('우편을 보냈습니다'); mailResetForm(); mail.mode='read'; break;
       case 'TAKE': case 'ACC_TAKE': mailDropLine(tab, p.mailId); sysMsg('우편을 받았습니다 — 가방을 보세요'); break;
+      case 'RESUME': mailDropLine(tab, p.mailId); sysMsg('지난 접속에서 받다 만 계정 우편을 마저 받았습니다 — 가방을 보세요'); break;
       case 'ERASE': case 'ACC_ERASE': mailDropLine(tab, p.mailId); sysMsg('우편을 지웠습니다'); break;
     }
   } else if(p.actionName==='LIST' && p.resultName==='ACC_OFFLINE'){
@@ -470,9 +479,13 @@ function onMailResult(p){
       mailSwitchTab(0);
     }
   } else {
-    sysMsg(mailResultText(p));
-    if(p.resultName==='GONE' && (p.actionName==='READ' || p.actionName==='TAKE')) mailDropLine(tab, p.mailId);   // 그 사이 받았거나 기한이 지났다 — 목록에서도 뺀다
+    if(p.actionName==='LIST') mail.listFail=mail.tab;   // 목록 요청은 지금 탭으로 낸다(답을 기다리는 동안 탭 · 보내기 단추를 안 받는다). 닫았다 다시 열면 탭이 계정(1)으로 바뀌어 어긋날 수 있지만, 그때는 미룬 계정 탭 목록이 곧 나가고 그 답이 화면을 다시 정한다
+    sysMsg(resume ? '지난 접속에서 받다 만 계정 우편 — '+mailResultText(p) : mailResultText(p));
+    // 그 사이 받았거나 기한이 지났다 — 목록에서도 뺀다
+    if(p.resultName==='GONE' && (p.actionName==='READ' || p.actionName==='TAKE' || p.actionName==='ACC_TAKE' || resume)) mailDropLine(tab, p.mailId);
   }
+  // 이어서 받기가 끝났다 — 받는 중 줄이 받음 · 풀림으로 바뀌었을 수 있으니(시한이면 그대로일 수도 있다) 열린 계정 우편 탭은 서버 목록으로 다시 그린다(답을 기다리는 중이면 미뤘다가 낸다)
+  if(resume && mail.open && mail.tab===1) mailAskList(1);
   mailIdle(); mailChanged();
 }
 function shopNpc(){ const o = shop.npc ? others.get(shop.npc) : null; return o ? { o, n:npcOf(o) } : null; }
@@ -1024,6 +1037,7 @@ function onPacket(p){
       mail.pending.push(...p.lines);
       if(!p.more){
         mail.lists[p.tab]=mail.pending; mail.pending=[]; mail.wait=null;
+        if(mail.listFail===p.tab) mail.listFail=null;
         if(mail.tab===p.tab && mail.sel!==null && !mail.lists[p.tab].some(m=>m.mailId===mail.sel)) mail.sel=null;
         mail.top=Math.max(0, Math.min(mail.top, mail.lists[p.tab].length-MAIL_ROWS));
         mailRecount(p.tab); mailIdle();
@@ -2755,7 +2769,7 @@ function drawMail(){
     ctx.fillStyle='rgba(214,182,112,.14)'; rr(b.x+b.w-4,b.y,3,b.h,1.5); ctx.fill();
     ctx.fillStyle='rgba(214,182,112,.60)'; rr(b.x+b.w-4, b.y+b.h*mail.top/list.length, 3, b.h*MAIL_ROWS/list.length, 1.5); ctx.fill(); }
   if(!list.length){ ctx.textAlign='center'; ctx.fillStyle='rgba(180,210,180,.55)'; ctx.font=uiFont(11);
-    ctx.fillText(mail.wait==='LIST' ? '불러오는 중…' : '우편이 없습니다', lx+MAIL_LIST_W/2, L.listBox.y+40); ctx.textAlign='left'; }
+    ctx.fillText(mail.wait==='LIST' ? '불러오는 중…' : mail.listFail===mail.tab ? '목록을 못 받았습니다 — 탭을 다시 누르세요' : '우편이 없습니다', lx+MAIL_LIST_W/2, L.listBox.y+40); ctx.textAlign='left'; }
   ctx.textAlign='left'; ctx.fillStyle='rgba(180,210,180,.6)'; ctx.font=uiFont(11);
   ctx.fillText(mail.tab===0 ? list.length+' / '+MAIL_BOX_MAX+'통' : '계정 우편 '+list.length+'통', lx, y+h-36+17);
   mailBtn(L.btns.compose, 'compose', '우편 보내기', !mail.wait && mail.mode!=='send', false);
@@ -3020,7 +3034,7 @@ function connect(){
   myJob=null; jobHover=null; jobChanged();   // 끊기면 새 접속의 MY_JOB 을 기다린다(그때까지 공용 기술만)
   party.info=null; party.ask=null; party.menu=null; partyChanged();   // 끊겨도 월드 서버의 파티에는 오프라인으로 남는다 — 화면은 비우고 새 접속의 명단을 다시 받는다
   trade.ask=null; trade.win=null; tradeChanged();                       // 거래도 끊기면 서버가 끝냈다
-  mail.wait=null; mail.relist=false; mail.lists={0:[],1:[]}; mail.pending=[]; mail.counts={0:{known:0,count:0},1:{known:0,count:0}}; mailChanged();   // 창은 clearZoneWorld 가 닫았다 — 우편 수는 새 접속의 입장 때 다시 오고 목록은 창을 다시 열 때 받는다(답을 기다리던 요청은 옛 연결과 함께 사라졌다)
+  mail.wait=null; mail.relist=false; mail.listFail=null; mail.lists={0:[],1:[]}; mail.pending=[]; mail.counts={0:{known:0,count:0},1:{known:0,count:0}}; mailChanged();   // 창은 clearZoneWorld 가 닫았다 — 우편 수는 새 접속의 입장 때 다시 오고 목록은 창을 다시 열 때 받는다(답을 기다리던 요청은 옛 연결과 함께 사라졌다)
   const re=new P.Reassembler(onPacket);
   ws=new WebSocket(WS_URL); ws.binaryType='arraybuffer';
   // 입장 요청을 먼저 보낸다 — 서버는 이걸 받아야 캐릭터를 불러온다(USE_LOGIN).
