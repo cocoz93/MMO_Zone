@@ -431,6 +431,15 @@ private:
             WriteCounter(ss, "mmo_mail_late_replies_total", "Mail replies dropped, DB jobs and account mail link (owner left, or the state was not waiting for it)", ml._lateReplies);
             WriteCounter(ss, "mmo_mail_unclaimed_total", "Account mail claims released after the zone refused the take (UNCLAIM sent)", ml._unclaimed);
             WriteCounter(ss, "mmo_mail_resumed_total", "Account mail takes resumed on entry (a claim by this character was left)", ml._resumed);
+            WriteCounter(ss, "mmo_mail_signal_sent_total", "Character mail arrival signals sent to the world server (one per committed send)", ml._signalSent);
+            WriteCounter(ss, "mmo_mail_signal_not_sent_total", "Character mail arrival signals not sent because the world server link was down", ml._signalNotSent);
+            ss << "# HELP mmo_mail_signal_received_total Mail arrival signals forwarded by the world server, split by tab (counted even with nobody to show)\n# TYPE mmo_mail_signal_received_total counter\n";
+            for (int i = 0; i < static_cast<int>(MailTab::COUNT); ++i)
+                ss << "mmo_mail_signal_received_total{tab=\"" << MailTabName(static_cast<MailTab>(i)) << "\"} " << ml._signalReceived[i] << "\n";
+            ss << "\n# HELP mmo_mail_arrived_shown_total S2C_MAIL_COUNT ARRIVED packets sent from arrival signals, split by tab\n# TYPE mmo_mail_arrived_shown_total counter\n";
+            for (int i = 0; i < static_cast<int>(MailTab::COUNT); ++i)
+                ss << "mmo_mail_arrived_shown_total{tab=\"" << MailTabName(static_cast<MailTab>(i)) << "\"} " << ml._arrivedShown[i] << "\n";
+            ss << "\n";
         }
 #endif
 

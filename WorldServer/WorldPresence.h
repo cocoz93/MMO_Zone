@@ -69,6 +69,14 @@ public:
     const Person* Find(CharacterId characterId) const;
     const Person* FindByName(const std::u16string& name) const;
 
+    // 등록된 존 서버마다 fn(const Zone&) — 계정 우편 도착 신호가 전부에 넘긴다(CMailSignalRelay). fn 안에서 등록 · 끊김을 부르면 안 된다
+    template <typename Fn>
+    void ForEachZone(Fn&& fn) const
+    {
+        for (const auto& [key, zone] : _zones)
+            fn(zone);
+    }
+
     int ZoneCount() const { return static_cast<int>(_zones.size()); }
     int OnlineCount() const { return static_cast<int>(_people.size()); }
 

@@ -7,10 +7,12 @@
 #include <cassert>
 #include <cstring>
 #include <string>
-#include <Protocol/ServerLinkProtocol.h>   // 계정 우편 서버 간 답 · LinkMailResult · AccMailState
+#include <Protocol/ServerLinkProtocol.h>   // 계정 우편 서버 간 답 · LinkMailResult · AccMailState · 도착 신호
+#include <Lobby/PacketSend.h>              // 도착 신호 읽기(Read)
 #include "MailSystem.h"
 #include "MailDraft.h"
 #include "SessionHub.h"
+#include "WorldLink.h"       // 도착 신호 — 보내기 · 받기 등록
 #include "SelfNotifier.h"    // 운영자 지급의 알림 한 줄
 #include "EnterGate.h"       // NowMs — 전 계정 지급 대기 30초
 #include "ItemHandler.h"
@@ -212,6 +214,14 @@ bool CMailHandler::RegisterRoutes(CPacketRoutes& routes)
     ok &= routes.OnPlayer(MsgType::C2S_MAIL_TAKE,    sizeof(MSG_C2S_MAIL_TAKE),    [this](CPlayer* p, CSerialBuffer* m) { RecvTake(p, m); });
     ok &= routes.OnPlayer(MsgType::C2S_ACCMAIL_TAKE, sizeof(MSG_C2S_ACCMAIL_TAKE), [this](CPlayer* p, CSerialBuffer* m) { RecvAccTake(p, m); });
     ok &= routes.OnPlayer(MsgType::C2S_MAIL_DELETE,  sizeof(MSG_C2S_MAIL_DELETE),  [this](CPlayer* p, CSerialBuffer* m) { RecvDelete(p, m); });
+    return ok;
+}
+
+bool CMailHandler::RegisterWorldRoutes()
+{
+    CPacketTable& world = _worldLink.Routes();
+    bool ok = world.Register<LINK_MAIL_ARRIVED>([this](SessionId, CSerialBuffer* m) { OnMailArrived(m); });
+    ok = world.Register<LINK_ACCMAIL_ARRIVED>([this](SessionId, CSerialBuffer* m) { OnAccMailArrived(m); }) && ok;
     return ok;
 }
 
@@ -848,6 +858,9 @@ void CMailHandler::OnMailSaved(CPlayer* player, const DBMailStmt& stmt)
     // 계정 우편 받기 — 내 우편 한 줄이 확정됐다. 받는 중 → 받음(DONE)을 사람이 있든 없든 보낸다(떠난 기록으로 확정돼도 · mail-plan.md 6절 7번)
     if (stmt.kind == DBMailStmtKind::ACC_TAKE_INSERT)
         SendDone(stmt.accountId, stmt.fromAccountMailId, stmt.characterId);
+    // 캐릭터 우편 보내기 — 받는 사람의 우편 한 줄이 확정됐다. 보낸 사람이 있든 없든 도착 신호를 보낸다(world-server-plan.md 5.6)
+    if (stmt.kind == DBMailStmtKind::SEND_INSERT)
+        SendArrived(stmt.characterId);
     if (player == nullptr)
         return;   // 떠난 기록으로 확정 — 결과를 알릴 사람이 없다
     const bool resume = player->_mailResume;   // Confirm 이 끈다
@@ -874,6 +887,60 @@ void CMailHandler::FlushChanged(CPlayer* player)
     //   돈만 줄고 칸이 그대로인 우편(글 + 수수료)도 이 요청이 묶음을 만든다(ShouldSave 가 대기 문장을 본다)
     _characterStore.RequestSave(player, SaveReason::MAIL);
     _itemHandler.FlushInventory(player);
+}
+
+// ==========================================================================
+// 도착 신호 (world-server-plan.md 5.6) — 수는 DB 에 다시 묻지 않는다. 웹이 그 탭의 수에 1 을 더한다(못 읽은 탭이면 안 더한다)
+//   같은 문장이 묶음과 떠난 기록 둘로 확정되면(GameMonitor.h 우편 대조 주석) 신호도 둘이다 — 웹 수가 하나 많을 수 있고, 목록을 받으면 웹이 다시 센다(mail-plan.md 10절)
+// ==========================================================================
+void CMailHandler::SendArrived(int64_t receiverCharacterId)
+{
+    LINK_MAIL_ARRIVED signal{};
+    signal.characterId = receiverCharacterId;
+    if (_worldLink.SendLink(signal))
+        _gameMonitor._mail._signalSent.Inc();
+    else
+        _gameMonitor._mail._signalNotSent.Inc();   // 월드 서버 연결 없음(UseServerLink=0 포함) — 받는 사람은 입장 때 · 창을 열 때 본다
+}
+
+void CMailHandler::OnMailArrived(CSerialBuffer* msg)
+{
+    LINK_MAIL_ARRIVED signal;
+    if (!PacketSend::Read(msg, signal))
+    {
+        _worldLink.CountPacketError();
+        return;
+    }
+    _gameMonitor._mail._signalReceived[static_cast<int>(MailTab::CHARACTER)].Inc();
+    // 월드 서버의 장부는 이 존 서버라고 했지만 그새 나갔으면 없다 — 버린다(다음 입장 때 수를 새로 받는다)
+    CPlayer* player = _sessionHub.FindPlayerIf([&](const CPlayer* p) { return ToInt(p->_characterId) == signal.characterId; });
+    if (player != nullptr)
+        ShowArrived(player, MailTab::CHARACTER);
+}
+
+void CMailHandler::OnAccMailArrived(CSerialBuffer* msg)
+{
+    LINK_ACCMAIL_ARRIVED signal;
+    if (!PacketSend::Read(msg, signal))
+    {
+        _worldLink.CountPacketError();
+        return;
+    }
+    _gameMonitor._mail._signalReceived[static_cast<int>(MailTab::ACCOUNT)].Inc();
+    // 0 = 전 계정 지급 — 이 존 서버의 접속자 전원. 한 계정이면 그 계정의 사람(중복 로그인을 막아 많아야 하나지만 돌기는 끝까지 한다)
+    _sessionHub.ForEachPlayer([&](CPlayer* p)
+    {
+        if (signal.accountId == 0 || ToInt(p->_accountId) == signal.accountId)
+            ShowArrived(p, MailTab::ACCOUNT);
+    });
+}
+
+void CMailHandler::ShowArrived(CPlayer* player, MailTab tab)
+{
+    if (player->_accountId == NO_ACCOUNT)
+        return;   // 시험 입장 길 — 입장 때 수도 안 보낸 사람이다(OnEntered)
+    _gameMonitor._mail._arrivedShown[static_cast<int>(tab)].Inc();
+    SendCount(player, tab, MailCountKind::ARRIVED, 0);   // count 는 안 본다(9절 S2C_MAIL_COUNT)
 }
 
 // ==========================================================================

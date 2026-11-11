@@ -41,4 +41,8 @@ void CAccountMetrics::Write(std::ostringstream& ss) const
 
     MetricsText::WriteCounter(ss, "mmo_account_mail_sent_rows_total", "Account mail rows inserted by operator sends",
                               _mailSentRows.load(std::memory_order_relaxed));
+    MetricsText::WriteCounter(ss, "mmo_account_mail_signal_sent_total", "Account mail arrival signals sent to the world server (operator sends that inserted rows)",
+                              _mailSignalSent.load(std::memory_order_relaxed));
+    MetricsText::WriteCounter(ss, "mmo_account_mail_signal_not_sent_total", "Account mail arrival signals not sent because the world server link was down",
+                              _mailSignalNotSent.load(std::memory_order_relaxed));
 }

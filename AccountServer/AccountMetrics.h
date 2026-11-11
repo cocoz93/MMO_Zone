@@ -34,6 +34,8 @@ public:
         _mail[static_cast<int>(op)][index].fetch_add(1, std::memory_order_relaxed);
     }
     void AddMailSentRows(int64_t rows) { _mailSentRows.fetch_add(rows, std::memory_order_relaxed); }
+    // 도착 신호(LINK_ACCMAIL_ARRIVED) — 보냄 · 못 보냄(월드 서버 끊김)
+    void CountMailSignal(bool sent) { (sent ? _mailSignalSent : _mailSignalNotSent).fetch_add(1, std::memory_order_relaxed); }
 
     void Write(std::ostringstream& ss) const;
 
@@ -47,4 +49,6 @@ private:
     std::atomic<int64_t> _pending{ 0 };
     std::atomic<int64_t> _mail[ACC_MAIL_OP_COUNT][LINK_MAIL_RESULT_ACCOUNT_COUNT]{};
     std::atomic<int64_t> _mailSentRows{ 0 };
+    std::atomic<int64_t> _mailSignalSent{ 0 };
+    std::atomic<int64_t> _mailSignalNotSent{ 0 };
 };

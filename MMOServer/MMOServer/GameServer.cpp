@@ -639,6 +639,8 @@ bool CGameServer::RegisterRoutes()
     ok &= _mailHandler.RegisterRoutes(_routes);
     // 계정 우편 답 여섯 — 월드 서버 처리표에 등록한다(CAccountMailClient::RegisterRoutes · mail-plan.md 7단계)
     ok &= _accountMailClient.RegisterRoutes();
+    // 우편 도착 신호 둘 — 월드 서버 처리표에 등록한다(CMailHandler::RegisterWorldRoutes · world-server-plan.md 7단계)
+    ok &= _mailHandler.RegisterWorldRoutes();
 #endif
     return ok;
 }

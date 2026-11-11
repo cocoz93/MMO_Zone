@@ -340,6 +340,24 @@ struct LINK_ACCMAIL_ERASE_ACK
     uint8_t   result;   // LinkMailResult
 };
 
+// ── 우편 도착 신호 (world-server-plan.md 5.6 · 9절 7단계) — 답이 없다 ──
+//   받은 존 서버는 DB 에 수를 다시 묻지 않고 S2C_MAIL_COUNT(known=ARRIVED)를 보낸다 — 웹이 그 탭의 수에 1 을 더한다(mail-plan.md 9절)
+// 캐릭터 우편 — 보낸 사람의 존 서버 → 월드 서버 → 받는 사람의 존 서버(월드 서버가 접속 장부로 찾는다). 우편 문장이 DB 에 확정된 뒤에 보낸다
+struct LINK_MAIL_ARRIVED
+{
+    static constexpr uint16_t TYPE = 3032;
+    MsgHeader header;
+    int64_t   characterId;   // 받는 캐릭터
+};
+
+// 계정 우편 — 계정 서버 → 월드 서버 → 존 서버 전부. 존 서버가 _accountId 로 사람을 찾는다. 지급이 행을 넣었을 때만 보낸다(같은 일괄 번호를 다시 보내 0행이면 안 보낸다)
+struct LINK_ACCMAIL_ARRIVED
+{
+    static constexpr uint16_t TYPE = 3033;
+    MsgHeader header;
+    int64_t   accountId;   // 0 = 전 계정 지급 — 접속 중인 전원
+};
+
 // ── 월드 서버 등록 (월드 서버 → 계정 서버) ──
 //   계정 서버의 서버 간 포트에는 캐릭터 서버도 붙는다. 이 패킷을 보낸 연결이 월드 서버다
 struct LINK_WORLD_REGISTER
@@ -608,6 +626,8 @@ static_assert(sizeof(LINK_ACCMAIL_UNCLAIM) == 28);
 static_assert(sizeof(LINK_ACCMAIL_ERASE_REQ) == 28);
 static_assert(sizeof(LINK_ACCMAIL_ERASE_ACK) == 13);
 static_assert(sizeof(LINK_ACCMAIL_LIST_ACK) <= 1458, "코어 패킷 상한(IOCPServer.h)");
+static_assert(sizeof(LINK_MAIL_ARRIVED) == 4 + 8);
+static_assert(sizeof(LINK_ACCMAIL_ARRIVED) == 4 + 8);
 static_assert(sizeof(LINK_WORLD_REGISTER) == 4 + 4);
 static_assert(sizeof(LINK_ZONE_KICK_ACCOUNT) == 4 + 8);
 static_assert(sizeof(LinkPartyPerson) == 8 + 1 + 1 + 4 + 12);

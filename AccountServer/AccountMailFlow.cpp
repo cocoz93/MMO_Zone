@@ -350,6 +350,14 @@ void CAccountMailFlow::OnSend(SessionId peer, CSerialBuffer* msg)
                       all ? std::string("전 계정") : "계정 " + std::to_string(send.targetAccount),
                       send.batchId, send.money, send.attach.size(), send.title, static_cast<int64_t>(ack.rows));
             _peers.Send(peer, ack);
+            // 도착 신호 — 행을 넣었을 때만(같은 일괄 번호를 다시 보내 0행이면 새 우편이 없다). 답이 없다(world-server-plan.md 5.6).
+            //   지금 등록된 월드 서버로 보낸다 — 요청 뒤 월드 서버가 다시 붙었으면 peer 는 옛 연결이다
+            if (write.ok && write.rows > 0)
+            {
+                LINK_ACCMAIL_ARRIVED signal{};
+                signal.accountId = send.targetAccount;   // 0 = 전 계정 — 접속 중인 전원
+                _metrics.CountMailSignal(_worldSession != NO_SESSION && _peers.Send(_worldSession, signal));
+            }
         });
     if (!queued)
     {

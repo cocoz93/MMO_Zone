@@ -445,6 +445,7 @@ set(WORLD_SOURCES
     ${WORLD_DIR}/WorldServerConfig.cpp
     ${WORLD_DIR}/PartyFlow.cpp
     ${WORLD_DIR}/AccountMailRelay.cpp
+    ${WORLD_DIR}/MailSignalRelay.cpp
 )
 
 if(WIN32)

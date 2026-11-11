@@ -10,6 +10,8 @@
 //  - 입장 때 수(OnEntered — 탭마다 S2C_MAIL_COUNT 한 장) · 계정 우편의 「받는 중」 행 이어서 처리(mail-plan.md 6절 「입장 때 다시 처리」)
 //  - 계정 우편 탭 — 월드 서버를 거쳐 계정 서버에 묻는다(CAccountMailClient). 목록 · 읽기 · 받기 · 지우기
 //  - 운영자 지급(/accmail — CCommandHandler 가 넘긴다) — 한 계정은 바로 · 전 계정은 일괄 번호를 30초 들고 confirm 을 기다린다 · 답을 운영자에게 한 줄로
+//  - 도착 신호(world-server-plan.md 5.6) — 보낸 우편이 DB 에 확정되면 LINK_MAIL_ARRIVED 를 월드 서버로 · 월드 서버가 넘긴 신호 둘을 받아
+//    그 사람에게 S2C_MAIL_COUNT(known=ARRIVED) — DB 에 수를 다시 묻지 않는다(웹이 그 탭의 수에 1 을 더한다)
 //
 // [경계]
 //  DB 를 직접 부르지 않는다 — 잡은 저장소에, 칸·돈과 함께 쓸 문장은 대기 문장(CPlayer::_mailDraft)에 둔다(규칙이 올린다).
@@ -41,6 +43,7 @@ class CSelfNotifier;
 class CItemHandler;
 class CGameMonitor;
 class CAccountMailClient;
+class CWorldLink;
 struct LINK_ACCMAIL_COUNT_ACK;   // ServerLinkProtocol.h — 계정 우편 서버 간 답(.cpp 만 연다)
 struct LINK_ACCMAIL_LIST_ACK;
 struct LINK_ACCMAIL_READ_ACK;
@@ -51,18 +54,20 @@ struct LINK_ACCMAIL_SEND_ACK;
 class CMailHandler final : public IMailStoreEvents
 {
 public:
-    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(세션 허브 · 본인 알림 · CItemHandler · 저장소 · 우편 규칙 · 계정 우편 요청 · 게임 지표)보다
+    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(세션 허브 · 본인 알림 · CItemHandler · 저장소 · 우편 규칙 · 계정 우편 요청 · 월드 서버 연결 · 게임 지표)보다
     //   뒤에 이것을 선언해야 한다. 저장소(_characterStore)는 거꾸로 이것보다 앞에 세워져 이것의 참조(IMailStoreEvents)를 받는다 — 생성 중엔 서로 부르지 않는다.
     CMailHandler(CSessionHub& sessionHub, CSelfNotifier& selfNotifier, CItemHandler& itemHandler, CCharacterStore& characterStore,
-                 CMailSystem& mailSystem, CAccountMailClient& accountMailClient, CGameMonitor& gameMonitor)
+                 CMailSystem& mailSystem, CAccountMailClient& accountMailClient, CWorldLink& worldLink, CGameMonitor& gameMonitor)
         : _sessionHub(sessionHub), _selfNotifier(selfNotifier), _itemHandler(itemHandler), _characterStore(characterStore)
-        , _mailSystem(mailSystem), _accountMailClient(accountMailClient), _gameMonitor(gameMonitor) {}
+        , _mailSystem(mailSystem), _accountMailClient(accountMailClient), _worldLink(worldLink), _gameMonitor(gameMonitor) {}
 
     CMailHandler(const CMailHandler&) = delete;
     CMailHandler& operator=(const CMailHandler&) = delete;
 
     // 받은 패킷 등록 — 우편 요청 여섯. 게임 서버의 등록(RegisterRoutes)이 부른다. false = 등록 실패(기동 거절).
     bool RegisterRoutes(CPacketRoutes& routes);
+    // 월드 서버가 넘기는 도착 신호 둘(3032 · 3033) — 월드 서버 처리표에 등록한다. 등록은 Start 전(CWorldLink::Routes)
+    bool RegisterWorldRoutes();
 
     // 입장 — 탭마다 수 한 장(캐릭터 우편 = COUNT_PENDING 잡의 회신 · 계정 우편 = COUNT_REQ 의 답). 시험 입장 길은 안 보낸다.
     //   계정 우편 답에 이 캐릭터가 받는 중인 행이 있으면 이어서 처리한다(action=RESUME).
@@ -124,6 +129,13 @@ private:
     void SendAdminMail(CPlayer* player, const AdminMailForm& form, int64_t batchId);
     void OnAdminSendAck(SessionId sessionId, CharacterId characterId, int64_t target, int64_t batchId, const LINK_ACCMAIL_SEND_ACK* ack);
 
+    // 도착 신호 — 보내기 문장이 확정됐다(사람이 없어도 · 떠난 기록으로 확정돼도). 월드 서버 연결이 없으면 못 보낸 수만 센다
+    void SendArrived(int64_t receiverCharacterId);
+    // 월드 서버가 넘긴 신호 — 캐릭터 번호 / 계정 번호(0 = 전원)로 사람을 찾아 그 탭에 ARRIVED 한 장. 시험 입장 길 사람은 안 보낸다(OnEntered 와 같다)
+    void OnMailArrived(CSerialBuffer* msg);
+    void OnAccMailArrived(CSerialBuffer* msg);
+    void ShowArrived(CPlayer* player, MailTab tab);
+
     // 가방이 바뀌었다(보내기 · 받기 성사) — 저장 요청을 먼저 내 사유가 MAIL 로 세이게 하고(같은 틱의 둘째 요청은 무시된다) 칸·돈을 내보낸다
     void FlushChanged(CPlayer* player);
 
@@ -138,6 +150,7 @@ private:
     CCharacterStore&    _characterStore;
     CMailSystem&        _mailSystem;
     CAccountMailClient& _accountMailClient;
+    CWorldLink&         _worldLink;          // 도착 신호 — 보내기 · 받기 등록(계정 우편 요청은 _accountMailClient 가 같은 연결로 보낸다)
     CGameMonitor&       _gameMonitor;
 
     // 전 계정 지급 대기 — 한 칸(6절 「CMailHandler가 운영자 캐릭터 · 내용 · 시각과 함께 30초 동안 들고 있고」).

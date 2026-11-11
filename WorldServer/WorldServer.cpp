@@ -42,6 +42,7 @@ CWorldServer::CWorldServer(const WorldServerConfig& config, const ServerLinkConf
     , _peers(_network, _monitor, link.heartbeatSec)
     , _partyFlow(_peers, _monitor, _presence, _metrics, (link.retrySec + RESTORE_MARGIN_SEC) * int64_t{ 1000 })
     , _mailRelay(_peers, _account, _monitor, _presence, link.replyTimeoutSec)
+    , _mailSignal(_peers, _monitor, _presence)
     , _accountTable(LINK_PACKET_FIRST, LINK_PACKET_LAST)
     , _zoneTable(LINK_PACKET_FIRST, LINK_PACKET_LAST)
     , _coreMetrics(_monitor)
@@ -62,6 +63,7 @@ bool CWorldServer::RegisterRoutes()
     ok = _zoneTable.Register<LINK_CHANNEL_LIST_REQ>([this](SessionId id, CSerialBuffer* msg) { OnChannelListReq(id, msg); }) && ok;
     ok = _partyFlow.RegisterRoutes(_zoneTable) && ok;
     ok = _mailRelay.RegisterRoutes(_zoneTable, _accountTable) && ok;
+    ok = _mailSignal.RegisterRoutes(_zoneTable, _accountTable) && ok;
     return ok;
 }
 
@@ -330,5 +332,6 @@ std::string CWorldServer::BuildMetricsText()
     _metrics.Write(ss);
     _account.WriteMetrics(ss);
     _mailRelay.WriteMetrics(ss);
+    _mailSignal.WriteMetrics(ss);
     return ss.str();
 }

@@ -1049,6 +1049,11 @@ public:
         Counter _lateReplies;                                             // 버린 회신(DB 잡 · 계정 우편 서버 간 답) — 주인이 나갔거나(정상) 상태가 그 회신을 안 기다렸다(오류 로그도 남김)
         Counter _unclaimed;                                               // 계정 우편 — 다시 판정이 거절해 받는 중 표시 풀기(UNCLAIM)를 보낸 수
         Counter _resumed;                                                 // 계정 우편 — 입장 때 이어서 처리를 시작한 수(이 캐릭터가 받는 중인 행이 남아 있었다)
+        // 도착 신호(world-server-plan.md 5.6) — 대조: _signalSent + _signalNotSent = 확정된 보내기 문장 수(OnMailSaved SEND_INSERT)
+        Counter _signalSent;                                              // 캐릭터 우편 도착 신호(LINK_MAIL_ARRIVED)를 월드 서버로 보낸 수
+        Counter _signalNotSent;                                           // 그 신호를 못 보낸 수 — 월드 서버 연결 없음(UseServerLink=0 포함)
+        Counter _signalReceived[static_cast<int>(MailTab::COUNT)];        // 월드 서버가 넘긴 신호, 탭별(캐릭터 = 3032 · 계정 = 3033) — 받을 사람이 없어도 센다
+        Counter _arrivedShown[static_cast<int>(MailTab::COUNT)];          // 신호로 보낸 S2C_MAIL_COUNT(ARRIVED), 탭별 — _countSent 에도 들어간다
     } _mail;
 #endif
 
