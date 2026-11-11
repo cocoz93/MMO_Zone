@@ -75,7 +75,7 @@ const SNAP = q.has('snap');                 // headless verify: render one frame
 // 캐릭터 창(character.html)이 탭 저장소로 넘긴 입장 번호 · 존 서버 주소 — 읽자마자 지운다.
 //   번호는 한 번만 쓰이므로 새로고침하면 다시 쓸 수 없다 — 그때는 아래 boot 가 캐릭터 창으로 돌려보낸다(그 창에서 다시 고른다).
 //   ?account= 를 주면 시험 입장 길이다 — 탭에 남은 번호를 안 본다.
-const ENTRY = (()=>{
+let ENTRY = (()=>{   // let — 다른 존 서버로 채널을 바꾸면 새 입장 번호로 다시 붙는다(moveToZone)
   if(SNAP || q.has('account')) return null;
   const code=sessionStorage.getItem('mmo.enterCode'), addr=sessionStorage.getItem('mmo.zoneWs');
   sessionStorage.removeItem('mmo.enterCode'); sessionStorage.removeItem('mmo.zoneWs');
@@ -83,7 +83,7 @@ const ENTRY = (()=>{
   const ticket=new Uint8Array(code.length>>1); for(let i=0;i<ticket.length;i++) ticket[i]=parseInt(code.substr(i*2,2),16);
   return { ticket, addr };
 })();
-const WS_URL = q.get('ws') || (ENTRY ? ENTRY.addr : 'ws://127.0.0.1:9000');
+let WS_URL = q.get('ws') || (ENTRY ? ENTRY.addr : 'ws://127.0.0.1:9000');
 // ?account=N — 지정 계정 번호로 입장한다(같은 번호면 저장된 자리에서 다시 시작).
 //   N 은 2^31(2147483648) 이상이어야 한다 — 그 미만(0 제외)은 서버가 입장 요청에서 끊는다(자동 번호 구간).
 //   없으면 0 = "번호를 지정하지 않음" → 서버가 매번 새 번호를 붙인다(탭을 여럿 열어도 안 겹친다).
@@ -235,6 +235,8 @@ const PORTALS = [];                                                     // {id, 
 const portalState = { sent:0, lastFail:null };                          // 헤드리스 검증용 계산
 // 맵 이동 실패 사유(P.ZONE_FAIL 이름) → 채팅 칸 [System] 문구. 존 이동 요청·포털 공통(S2C_ZONE_CHANGE_FAIL)
 const ZONE_FAIL_TEXT = {
+  BUSY:'지금은 채널을 바꿀 수 없습니다', DEAD:'쓰러진 상태에서는 채널을 바꿀 수 없습니다', NOT_HERE:'이 맵에서는 채널을 바꿀 수 없습니다',
+  SAVE_FAILED:'저장에 실패해 채널을 바꾸지 못했습니다', ZONE_DOWN:'그 채널의 서버에 연결할 수 없습니다',
   NOT_FOUND:'갈 곳이 없습니다', FULL:'채널이 가득 찼습니다', SAME_ZONE:'이미 그 채널에 있습니다',
   NOT_ALLOWED:'다른 맵으로는 포털로만 갈 수 있습니다', TOO_FAR:'포털에 더 가까이 가세요', NO_PORTAL:'이 맵의 포털이 아닙니다',
 };
@@ -393,6 +395,13 @@ const EQUIP_FAIL_TEXT = {
 //   open = P 키로 연 관리 창(파티원 줄 옆 넘기기·내보내기, 아래 나가기·해산). 닫혀 있어도 파티에 들면 작은 목록이 늘 뜬다
 //   self 밖에 두는 이유는 me·bag 과 같다 — 존을 넘을 때 self 가 새로 만들어지는데 파티는 존을 넘는다.
 const party = { info:null, ask:null, menu:null, open:false, fold:false, hover:null, lastNotice:null, sent:0 };   // fold = 가방과 같다(목록·관리 창 둘 다 접힌다)
+// 채널 목록 — 맵 이름 줄을 누르면 펼친다. 두 존 서버의 채널이 한 장으로 온다(S2C_CHANNEL_LIST).
+//   zone · block 을 알아야 내 채널의 보이는 번호를 적으므로, 입장과 맵 이동 때마다 한 번 묻는다
+const chan = { open:false, rows:[], zone:0, block:0, top:0, hover:null, label:null };
+function myVisibleNo(){ return chan.zone>0 ? (chan.zone-1)*chan.block+ZONE.channel+1 : ZONE.channel+1; }
+function channelChanged(){ document.documentElement.setAttribute('data-channel', JSON.stringify({ open:chan.open, zone:chan.zone, block:chan.block, now:myVisibleNo(), map:ZONE.mapId, rows:chan.rows.map(r=>[r.visibleNo,r.players]), label:chan.label })); }
+function channelSend(b){ if(ws && ws.readyState===1) ws.send(b); }
+function askChannels(){ if(ZONE.mapId>=0) channelSend(P.enc.channelListReq(ZONE.mapId)); }
 // 헤드리스 검증용 — 파티 요약(data-bag 과 같은 자리)
 function partyChanged(){
   document.documentElement.setAttribute('data-party', JSON.stringify({ open:party.open, fold:party.fold,
@@ -631,15 +640,20 @@ function onPacket(p){
     case P.MSG.S2C_ZONE_CHANGE_OK:
       if(self){ self.x=self.rx=p.x; self.y=self.ry=p.y; self.dir=p.direction; self.moveState=0; }   // rx·ry 도 — 미끄러져 가지 않고 바로(카메라는 다음 프레임이 따라온다)
       // 누른 채 넘어가도 서버와 안 어긋나게 — 서버는 새 존에 멈춰 세운 채 넣는다(CZone::EnterZoneAt). 채팅창 열 때와 같은 정리
-      moving=false; keys.clear(); portalChanged(); break;
+      moving=false; keys.clear(); portalChanged(); askChannels(); break;
     case P.MSG.S2C_ZONE_CHANGE_FAIL:
       portalState.lastFail=p.reasonName;
       sysMsg(ZONE_FAIL_TEXT[p.reasonName] || ('이동하지 못했습니다 ('+p.reasonName+')')); portalChanged(); break;
+    case P.MSG.S2C_CHANNEL_LIST:
+      chan.zone=p.zoneServerId; chan.block=p.channelBlock; chan.rows=p.channels; chan.top=0; channelChanged(); break;
+    case P.MSG.S2C_CHANNEL_MOVE:
+      moveToZone(p.wsAddr, p.enterCode); break;
     case P.MSG.S2C_CREATE_MY_PLAYER:
       self={id:p.playerId,x:p.x,y:p.y,dir:p.direction,moveState:0,disp:p.displayChar,color:p.colorIndex,speed:p.speed,rx:p.x,ry:p.y,...COMBAT_INIT(),hp:p.hp,maxHp:p.maxHp};
       // 운영자 켜기(/test)는 내 캐릭터가 생긴 "뒤"에 — 서버는 플레이어가 없는 세션의 패킷을 버린다.
       //   존을 넘을 때도 이 패킷이 다시 오지만 한 접속에 한 번만 보낸다(운영자 표시는 서버 플레이어에 남는다).
       if(ADMIN_KEY && !adminSent && ws && ws.readyState===1){ ws.send(P.enc.chat('/test')); adminSent=true; }
+      askChannels();   // 서버는 플레이어가 없는 세션의 패킷을 버리므로 여기서 묻는다
       break;
     // spawnReason 3(SPAWN) = 월드에 새로 생김 — 뱀이 깔릴 때. 부활 섬광을 같이 그린다
     case P.MSG.S2C_CREATE_OTHER_PLAYER: bump('ENTER'); fading.delete(p.playerId);   // 흐려지던 같은 번호가 다시 보이면 흐림을 버린다
@@ -1019,6 +1033,10 @@ if(!SNAP){
   chatbox.addEventListener('focus',()=>{ if(moving && ws && ws.readyState===1){ moving=false; if(self)self.moveState=0; ws.send(P.enc.moveStop(lastDir, self?self.x:0, self?self.y:0)); } keys.clear(); });
   // 가방 창 마우스 — 창 안에서만 쓴다. 창 밖(게임 화면) 클릭은 가방이 안 다룬다 — 캐릭터를 누르면 아래 파티 메뉴가 뜬다(10-17 전엔 월드 클릭 동작이 없었다).
   //   좌표는 CSS px 그대로다(캔버스가 DPR 로 변환을 걸어 그리기도 CSS px 로 한다).
+  cv.addEventListener('mousemove',e=>{ chan.hover=channelHit(e.offsetX,e.offsetY); });
+  // 채널이 화면에 다 안 들어갈 때만 굴린다
+  cv.addEventListener('wheel',e=>{ if(!chan.open) return; const L=channelLayout(); if(!inRect(e.offsetX,e.offsetY,L)) return; e.preventDefault();
+    chan.top=Math.max(0, Math.min(chan.rows.length-L.rows.length, chan.top+(e.deltaY>0?1:-1))); }, { passive:false });
   cv.addEventListener('mousemove',e=>{ const h=bag.open ? bagHit(e.offsetX,e.offsetY) : null;
     const s=stw.open ? statusHit(e.offsetX,e.offsetY) : null;
     bag.hover = h && h.slot!==undefined ? h.slot : null; stw.hover = s==='weapon';
@@ -1039,6 +1057,9 @@ if(!SNAP){
     if(jobPicking() && inRect(x,y,jobLayout())){ const j=jobHit(x,y); if(j && ws && ws.readyState===1) ws.send(P.enc.chooseJob(j)); return; }   // 직업을 고르는 창 — 맨 위
     const pu=partyUiHit(x,y);
     if(pu && pu.where==='ask'){ partyClick(pu); return; }   // 답을 기다리는 창이 맨 위
+    const ch=channelHit(x,y);
+    if(ch){ channelClick(ch); return; }
+    if(chan.open){ chan.open=false; channelChanged(); }      // 목록 밖을 누르면 닫는다 — 누른 자리의 동작은 그대로
     const tu=tradeUiHit(x,y);
     if(tu){ tradeClick(tu); return; }                        // 받은 거래 신청 창 · 거래 창
     const su=shopUiHit(x,y);
@@ -1535,8 +1556,14 @@ function drawHUD(){
   const lvX = 26 + (myName ? ctx.measureText(myName).width + 10 : 0);
   if(me.level!==null){ ctx.fillStyle='#cfe8c8'; ctx.font=uiFont(11,600,true); ctx.fillText('Lv.'+me.level, lvX, 35); }
   // 어느 맵인가 — 맵 표의 kind(마을·던전)와 채널. 표를 못 받았으면 번호만
-  const mk=(MAPS.get(ZONE.mapId)||{}).kind, mapTxt = ZONE.mapId<0 ? '' : (mk==='town'?'마을':mk==='dungeon'?'던전':'맵 '+ZONE.mapId)+(ZONE.channel?' ch'+ZONE.channel:'');
-  ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.75)'; ctx.font=uiFont(11); ctx.fillText(mapTxt, 222, 35); ctx.textAlign='left';
+  const mk=(MAPS.get(ZONE.mapId)||{}).kind, mapFull = ZONE.mapId<0 ? '' : (mk==='town'?'마을':mk==='dungeon'?'던전':'맵 '+ZONE.mapId)+(mk==='town'||mk==='dungeon'?' · '+myVisibleNo()+'채널':'');
+  // 긴 이름 · 두 자리 레벨 · 세 자리 채널이 겹치면 맵 이름을 빼고 채널만 적는다
+  const lvEnd = lvX + (me.level!==null ? ctx.measureText('Lv.'+me.level).width : 0);
+  ctx.font=uiFont(11);
+  const mapTxt = (mk==='town'||mk==='dungeon') && 222-ctx.measureText(mapFull).width < lvEnd+6 ? myVisibleNo()+'채널' : mapFull;
+  ctx.textAlign='right'; ctx.fillStyle=(chan.open||(chan.hover&&chan.hover.btn==='label'))?'#ffe98a':'rgba(180,210,180,.75)'; ctx.font=uiFont(11); ctx.fillText(mapTxt, 222, 35); ctx.textAlign='left';
+  // 누를 자리 — 채널이 있는 맵에서만. 파티 방은 번호에 뜻이 없다
+  { const mw=ctx.measureText(mapTxt).width, was=chan.label; chan.label=(mk==='town'||mk==='dungeon') ? { x:Math.round(222-mw-4), y:24, w:Math.round(mw+8), h:16 } : null; if(JSON.stringify(was)!==JSON.stringify(chan.label)) channelChanged(); }
   // 막대 한 줄 — 이름 · 막대 · 숫자. ratio 가 null 이면 빈 막대
   const bannerBar=(y,label,col,ratio,txt)=>{
     ctx.fillStyle=col; ctx.font=uiFont(10,600); ctx.fillText(label, 26, y+7);
@@ -1666,6 +1693,7 @@ function drawHUD(){
   if(bag.open) drawBag();   // 맨 마지막 — 창이 낮아 레이더 자리까지 내려와도 가방이 위에 그려진다
   drawShop();               // 상점 창 — 게임 화면 위 가운데(가방과 안 겹친다). 받은 파티 요청 창이 같은 자리면 그 창이 위
   drawTrade();              // 거래 창 — 상점 창과 같은 자리(거래창이 열리면 상점을 닫는다)
+  drawChannelList();        // 맵 이름 줄을 눌러 연 채널 목록
   drawPartyMenu();          // 캐릭터를 눌러 연 메뉴와 받은 요청 창은 모든 창 위에 — 답을 기다리는 것이라 가리면 안 된다
   drawPartyAsk();
   drawJobPick();            // 직업 고르는 창 — 처음 입장 때만
@@ -2167,6 +2195,47 @@ function drawPartyPanel(){
   if(L.btns.leave) smallBtn(L.btns.leave,'나가기',isHover('panel','leave'),false);
   if(L.btns.disband) smallBtn(L.btns.disband,'해산',isHover('panel','disband'),true);
 }
+// 채널 목록 창 — 이름표 바로 아래. 줄 수는 화면에 들어가는 만큼(채널 수는 서버 설정이라 정해져 있지 않다)
+const CH_ROW=24, CH_W=190, CH_HEAD=30;
+function channelLayout(){
+  const x=14, y=14+BANNER_H+6, fit=Math.max(1, Math.floor((H-y-40-CH_HEAD)/CH_ROW)), n=Math.min(chan.rows.length, fit);
+  const rows=chan.rows.slice(chan.top, chan.top+n).map((r,i)=>({ ...r, rect:{ x:x+8, y:y+CH_HEAD+i*CH_ROW, w:CH_W-16, h:CH_ROW-2 } }));
+  return { x, y, w:CH_W, h:CH_HEAD+Math.max(n,1)*CH_ROW+8, rows };
+}
+function channelHit(x,y){
+  if(chan.label && inRect(x,y,chan.label)) return { btn:'label' };
+  if(!chan.open) return null;
+  const L=channelLayout();
+  if(!inRect(x,y,L)) return null;
+  for(const r of L.rows) if(inRect(x,y,r.rect)) return { btn:'row', no:r.visibleNo };
+  return { btn:null };
+}
+function channelClick(h){
+  if(h.btn==='label'){ chan.open=!chan.open; chan.top=0; if(chan.open) askChannels(); channelChanged(); return; }
+  if(h.btn==='row') chooseChannel(h.no);
+}
+// 같은 존 서버면 맵 이동 패킷으로, 다른 존 서버면 넘기기 요청으로
+function chooseChannel(no){
+  chan.open=false; channelChanged();
+  if(no===myVisibleNo() || chan.block<=0) return;
+  const zone=Math.floor((no-1)/chan.block)+1;
+  if(zone===chan.zone) channelSend(P.enc.zoneChange(ZONE.mapId, (no-1)%chan.block));
+  else channelSend(P.enc.channelMoveReq(no));
+}
+function drawChannelList(){
+  if(!chan.open) return;
+  const L=channelLayout(), now=myVisibleNo();
+  ctx.fillStyle='rgba(8,12,10,.96)'; rr(L.x,L.y,L.w,L.h,8); ctx.fill(); ctx.strokeStyle='rgba(255,233,138,.35)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.textAlign='left'; ctx.fillStyle='#f2f6ec'; ctx.font=uiFont(12,600,true); ctx.fillText('채널', L.x+12, L.y+20);
+  if(!L.rows.length){ ctx.fillStyle='rgba(180,210,180,.6)'; ctx.font=uiFont(11); ctx.fillText('채널을 불러오는 중입니다', L.x+12, L.y+CH_HEAD+15); return; }
+  for(const r of L.rows){
+    const mine=r.visibleNo===now, on=chan.hover && chan.hover.no===r.visibleNo;
+    ctx.fillStyle = mine ? 'rgba(143,214,160,.22)' : on ? 'rgba(255,255,255,.12)' : 'rgba(255,255,255,.05)'; rr(r.rect.x,r.rect.y,r.rect.w,r.rect.h,4); ctx.fill();
+    ctx.textAlign='left'; ctx.fillStyle = mine ? '#dff3d8' : '#f2f6ec'; ctx.font=uiFont(11,600); ctx.fillText(r.visibleNo+'채널'+(mine?' (지금)':''), r.rect.x+8, r.rect.y+15);
+    ctx.textAlign='right'; ctx.fillStyle='rgba(180,210,180,.75)'; ctx.font=uiFont(11); ctx.fillText(r.players+'명', r.rect.x+r.rect.w-8, r.rect.y+15);
+  }
+  ctx.textAlign='left';
+}
 function drawPartyMenu(){
   if(!party.menu) return;
   if(!others.has(party.menu.id)){ party.menu=null; partyChanged(); return; }   // 누른 사람이 화면에서 사라졌다
@@ -2465,8 +2534,17 @@ function clearZoneWorld(){
   closeShop();                                          // 메뉴를 연 NPC 도 옛 존에 남았다
   if(trade.ask || trade.win){ trade.ask=null; trade.win=null; tradeChanged(); }   // 거래는 존을 안 넘는다 — 서버가 LEFT 로 끝냈다(END 가 먼저 와 있다)
 }
+// 다른 존 서버로 채널을 바꾼다 — 옛 연결의 끊김 처리(캐릭터 창으로 돌아가기)를 막고, 받은 주소로 입장 번호를 들고 다시 붙는다.
+//   페이지를 새로 불러오지 않으므로 그림을 다시 받는 시간이 더해지지 않는다
+function moveToZone(addr, code){
+  const old=ws; old.onclose=null; old.onmessage=null; old.onerror=null; old.close();
+  ENTRY={ ticket:code, addr }; WS_URL=addr;
+  moving=false; keys.clear();
+  connect();
+}
 function connect(){
   clearZoneWorld(); self=null; selfName=''; selfBody=null;   // 재접속 시 유령 엔티티 제거
+  chan.open=false; chan.rows=[]; chan.zone=0; chan.hover=null; channelChanged();   // 번호는 새 접속의 답으로 다시 안다
   bag.slots.clear(); adminSent=false; me.money=null; me.moneyT=0; bagChanged();   // 가방·돈은 입장 때 전체가 다시 온다 · 운영자 켜기도 새 접속마다
   myJob=null; jobHover=null; jobChanged();   // 끊기면 새 접속의 MY_JOB 을 기다린다(그때까지 공용 기술만)
   party.info=null; party.ask=null; party.menu=null; partyChanged();   // 끊기면 서버가 파티에서 뺐다(저장 안 함) — 새 접속은 파티 없이 시작

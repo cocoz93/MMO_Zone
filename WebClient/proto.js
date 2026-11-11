@@ -92,7 +92,7 @@
   // 스킬 거절 사유 — Protocol.h SkillFail 순서 그대로(값이 와이어에 실린다). 거절이면 체력·마력·쿨타임이 그대로다
   const SKILL_FAIL = ['BAD_SKILL','DEAD','COOLDOWN','LOW_HP','NO_TARGET','LOW_MP','OUT_OF_RANGE'];
   // 맵 이동 실패 사유 — Protocol.h MSG_S2C_ZONE_CHANGE_FAIL 의 reason 주석 순서 그대로(존 이동 요청 · 포털 공통)
-  const ZONE_FAIL = ['NOT_FOUND','FULL','SAME_ZONE','NOT_ALLOWED','TOO_FAR','NO_PORTAL'];
+  const ZONE_FAIL = ['NOT_FOUND','FULL','SAME_ZONE','NOT_ALLOWED','TOO_FAR','NO_PORTAL','BUSY','DEAD','NOT_HERE','SAVE_FAILED','ZONE_DOWN'];
   // 표시 문자의 부류 값 — Protocol.h DISPLAY_MONSTER · DISPLAY_NPC 사본. 0x20 미만이면 사람이 아니고, 어느 몬스터·NPC 인지는 등장 엔트리의 defId
   const DISPLAY_MONSTER = 0x01;
   const DISPLAY_NPC     = 0x02;
@@ -412,6 +412,8 @@
     channelListReq(mapId){ const {b,d}=hdr(8,MSG.C2S_CHANNEL_LIST_REQ); d.setInt32(4, mapId, true); return b; },
     // C2S_CHANNEL_MOVE_REQ: header(4) + visibleNo i32 = 8B
     channelMoveReq(visibleNo){ const {b,d}=hdr(8,MSG.C2S_CHANNEL_MOVE_REQ); d.setInt32(4, visibleNo, true); return b; },
+    // C2S_ZONE_CHANGE: header(4) + targetMapId i32 + targetChannelIndex i32 = 12B — 같은 존 서버 안의 채널로 옮길 때
+    zoneChange(mapId, channelIndex){ const {b,d}=hdr(12,MSG.C2S_ZONE_CHANGE); d.setInt32(4, mapId, true); d.setInt32(8, channelIndex, true); return b; },
     // 바디 없음 — 방향은 서버가 들고 있고, 대상도 서버가 "앞 한 칸"으로 고른다
     attack(){ return hdr(4, MSG.C2S_ATTACK).b; },
     // C2S_USE_ITEM: header(4) + slot u16 = 6B
