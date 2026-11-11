@@ -124,7 +124,12 @@ public:
     static constexpr int IN_GAME_GAUGE_INTERVAL_FRAMES = 13;
 
     // 캐릭터 서버의 내보내기(3042) — 같은 계정의 앞 접속을 내보낸다(게임 중 · 불러오는 중). 게임 스레드
+    //   입장 번호 길이 꺼진 빌드(USE_LOGIN 0 — 리눅스)에는 계정 번호를 가진 사람이 없다(EntryHandler.cpp 입장 · NO_ACCOUNT) — 할 일이 없다
+#if USE_LOGIN
     void KickAccount(AccountId accountId) { KickDuplicateAccount(accountId, NO_SESSION); }
+#else
+    void KickAccount(AccountId) {}
+#endif
 
 private:
     // ── 입장(스폰) ──
