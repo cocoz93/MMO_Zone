@@ -22,6 +22,8 @@ enum class LinkRequestKind : int
 {
     TokenCheck = 0,
     EnterNotice = 1,
+    ChannelList = 2,
+    Handoff = 3,
     COUNT
 };
 
@@ -31,6 +33,8 @@ inline const char* LinkRequestKindName(LinkRequestKind kind)
     {
     case LinkRequestKind::TokenCheck:  return "token_check";
     case LinkRequestKind::EnterNotice: return "enter_notice";
+    case LinkRequestKind::ChannelList: return "channel_list";
+    case LinkRequestKind::Handoff:     return "handoff";
     case LinkRequestKind::COUNT:       break;
     }
     return "unknown";
@@ -43,6 +47,9 @@ public:
     using DoneFn = std::function<void(const void* reply)>;
 
     explicit CLinkRequests(int replyTimeoutSec) : _timeoutMs(static_cast<int64_t>(replyTimeoutSec) * 1000) {}
+
+    // 시한을 나중에 정한다 — 존 서버는 멤버를 만든 뒤에 설정을 읽는다. 요청을 내기 전에만 부른다
+    void SetTimeoutSec(int replyTimeoutSec) { _timeoutMs = static_cast<int64_t>(replyTimeoutSec) * 1000; }
 
     // 요청 번호를 받는다 — 이 번호를 패킷에 실어 보낸다. 0 은 안 나온다
     uint64_t Begin(LinkRequestKind kind, int64_t nowMs, DoneFn done);

@@ -215,7 +215,15 @@ enum class MsgType : uint16_t
     //--------------------------------------------------
     S2C_MY_NAME,                // 서버 → 클라이언트: 내 캐릭터 이름 (본인에게만 — 처음 입장 때 한 번)
     S2C_ACTOR_NAME,             // 서버 → 클라이언트: 남의 이름 (남이 화면에 나타날 때 겉모습 바로 뒤 — 이름이 있는 사람만)
-    S2C_MY_LOOK                 // 서버 → 클라이언트: 내 몸 겉모습 (본인에게만 — 처음 입장 때 한 번)
+    S2C_MY_LOOK,                // 서버 → 클라이언트: 내 몸 겉모습 (본인에게만 — 처음 입장 때 한 번)
+
+    //--------------------------------------------------
+    // 채널 목록 · 다른 존 서버로 채널 바꾸기 — 1083~1092 는 우편 몫이라 번호를 못박는다
+    //--------------------------------------------------
+    C2S_CHANNEL_LIST_REQ = 1093, // 클라이언트 → 서버: 이 맵의 채널 목록을 달라
+    S2C_CHANNEL_LIST,            // 서버 → 클라이언트: 채널 목록(모든 존 서버)
+    C2S_CHANNEL_MOVE_REQ,        // 클라이언트 → 서버: 다른 존 서버의 채널로 바꾸기
+    S2C_CHANNEL_MOVE             // 서버 → 클라이언트: 이 주소로 입장 번호를 들고 다시 접속하라
 };
 
 // 패킷 헤더(MsgHeader · EchoMsgHeader)는 NetHeader.h 로 분리했다 — 전송 계층이
@@ -1796,5 +1804,73 @@ static_assert(sizeof(MSG_S2C_ACTOR_NAME) == 20, "ACTOR_NAME 은 20B (proto.js �
 static_assert(sizeof(MSG_S2C_MY_LOOK)    == 10, "MY_LOOK 은 10B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_MY_NAME) == 1080, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_MY_LOOK) == 1082, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+
+// ──────────────────────────────────────────
+// 채널 목록 · 다른 존 서버로 채널 바꾸기(world-server-plan.md 5.7)
+// ──────────────────────────────────────────
+
+// 목록 줄 상한 — (1458 − 머리 14) ÷ 6 = 240. 존 서버 두 대의 채널(구간 100씩)을 다 담고 남는다
+constexpr int32_t CHANNEL_LIST_MAX = 240;
+constexpr int32_t CHANNEL_WS_ADDR_BYTES = 64;   // 존 서버 웹 주소 칸 — LINK_WS_ADDR_BYTES 와 같아야 한다
+
+// C2S: 이 맵의 채널 목록을 달라 — 답은 S2C_CHANNEL_LIST
+struct MSG_C2S_CHANNEL_LIST_REQ
+{
+    static constexpr MsgType TYPE = MsgType::C2S_CHANNEL_LIST_REQ;
+    MsgHeader header;
+    int32_t   mapId;
+
+    MSG_C2S_CHANNEL_LIST_REQ() : header{ sizeof(*this), TYPE }, mapId(0) {}
+};
+
+struct ChannelListEntry
+{
+    int32_t  visibleNo;   // 보이는 채널 번호(ChannelNumber.h)
+    uint16_t players;     // 인원 — 이번 화면은 안 쓴다(혼잡도 표시는 웹만 고치면 된다)
+};
+
+// S2C: 채널 목록 — 가변 길이(header + zoneServerId + channelBlock + count + 줄 × count). 방 맵이면 0줄이다.
+//   zoneServerId · channelBlock 은 웹이 화면 위 줄에 같은 번호를 쓰고, 고른 번호가 이 존 서버인지 가르는 데 쓴다
+struct MSG_S2C_CHANNEL_LIST
+{
+    static constexpr MsgType TYPE = MsgType::S2C_CHANNEL_LIST;
+    MsgHeader        header;
+    int32_t          zoneServerId;
+    int32_t          channelBlock;
+    uint16_t         count;
+    ChannelListEntry entries[CHANNEL_LIST_MAX];
+
+    MSG_S2C_CHANNEL_LIST() : header{ sizeof(*this), TYPE }, zoneServerId(0), channelBlock(0), count(0), entries{} {}
+};
+
+// C2S: 다른 존 서버의 채널로 바꾸기 — 같은 존 서버면 C2S_ZONE_CHANGE 를 쓴다
+struct MSG_C2S_CHANNEL_MOVE_REQ
+{
+    static constexpr MsgType TYPE = MsgType::C2S_CHANNEL_MOVE_REQ;
+    MsgHeader header;
+    int32_t   visibleNo;
+
+    MSG_C2S_CHANNEL_MOVE_REQ() : header{ sizeof(*this), TYPE }, visibleNo(0) {}
+};
+
+// S2C: 이 주소로 입장 번호를 들고 다시 접속하라 — 받으면 웹이 지금 연결을 닫는다
+struct MSG_S2C_CHANNEL_MOVE
+{
+    static constexpr MsgType TYPE = MsgType::S2C_CHANNEL_MOVE;
+    MsgHeader header;
+    char      wsAddr[CHANNEL_WS_ADDR_BYTES];
+    char      enterCode[ENTER_TICKET_MAX_LEN];
+
+    MSG_S2C_CHANNEL_MOVE() : header{ sizeof(*this), TYPE }, wsAddr{}, enterCode{} {}
+};
+
+static_assert(sizeof(MSG_C2S_CHANNEL_LIST_REQ) == 8, "CHANNEL_LIST_REQ 는 8B (proto.js 와 맞출 것)");
+static_assert(sizeof(ChannelListEntry) == 6, "ChannelListEntry 는 6B (proto.js 와 맞출 것)");
+static_assert(offsetof(MSG_S2C_CHANNEL_LIST, entries) == 14, "CHANNEL_LIST 머리는 14B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_CHANNEL_LIST) == 14 + 6 * CHANNEL_LIST_MAX, "CHANNEL_LIST 는 머리 14B + 6B x 줄 수");
+static_assert(sizeof(MSG_C2S_CHANNEL_MOVE_REQ) == 8, "CHANNEL_MOVE_REQ 는 8B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_CHANNEL_MOVE) == 132, "CHANNEL_MOVE 는 132B (proto.js 와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::C2S_CHANNEL_LIST_REQ) == 1093, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
+static_assert(static_cast<uint16_t>(MsgType::S2C_CHANNEL_MOVE) == 1096, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
 #pragma pack(pop)

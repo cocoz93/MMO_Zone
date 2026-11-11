@@ -41,6 +41,12 @@ public:
         return PacketSend::Send(_network, _monitor, sessionId, packet);
     }
 
+    // 가변 길이 패킷 — 머리까지 채운 바이트 덩어리
+    bool SendBytes(SessionId sessionId, const void* data, int size)
+    {
+        return PacketSend::SendBytes(_network, _monitor, sessionId, data, size);
+    }
+
     // 같은 번호로 다시 등록할 때 옛 연결을 끊는다(플랜 6절)
     void Disconnect(SessionId sessionId);
 

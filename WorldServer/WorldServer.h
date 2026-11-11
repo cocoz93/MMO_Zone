@@ -21,6 +21,7 @@
 #include <Monitoring/CoreMetrics.h>
 #include <Monitoring/MetricsEndpoint.h>
 
+#include "ChannelTable.h"
 #include "WorldMetrics.h"
 #include "WorldPresence.h"
 #include "WorldServerConfig.h"
@@ -45,6 +46,8 @@ private:
     void OnOnlineList(SessionId sessionId, CSerialBuffer* msg);
     void OnCharEnter(SessionId sessionId, CSerialBuffer* msg);
     void OnCharLeave(SessionId sessionId, CSerialBuffer* msg);
+    void OnZoneChannels(SessionId sessionId, CSerialBuffer* msg);
+    void OnChannelListReq(SessionId sessionId, CSerialBuffer* msg);
     bool CheckRegistered(SessionId sessionId);
     void SendWorldRegister();
 
@@ -59,6 +62,7 @@ private:
 
     CWorldMetrics  _metrics;
     CWorldPresence _presence;
+    CChannelTable  _channels;
 
     CPacketTable _accountTable;
     CPacketTable _zoneTable;

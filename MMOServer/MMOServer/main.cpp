@@ -185,6 +185,7 @@ int main(int argc, char** argv)
         link.maxClients = config.maxClients;
         link.publicWsAddr = config.publicWsAddr;
         link.enterCodeTtlSec = config.enterCodeTtlSec;
+        server.SetLinkReplyTimeoutSec(linkConfig.replyTimeoutSec);
         if (!server.ConfigureZoneLink(link))
         {
             SLOG_ERROR("[Error] Zone link config failed");
@@ -209,6 +210,7 @@ int main(int argc, char** argv)
             }
         }
     }
+    server.ConfigureChannels(config.zoneServerId, config.channelBlock);   // 연결을 꺼도 자기 채널 목록은 답한다
     server.SetPlayerSpeed(config.playerSpeed);   // 0 = 기본(부하 시험 기준) — ServerConfig [Game]. 몬스터 사양은 표에 있다
 
     // DB 저장 파이프라인 초기화 (USE_DB_WORKER=0이면 no-op)

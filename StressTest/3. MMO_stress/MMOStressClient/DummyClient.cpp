@@ -302,6 +302,9 @@ uint16_t DummyClient::GetPacketSize(MsgType type)
     case MsgType::S2C_MY_NAME:            return sizeof(MSG_S2C_MY_NAME);
     case MsgType::S2C_ACTOR_NAME:         return sizeof(MSG_S2C_ACTOR_NAME);
     case MsgType::S2C_MY_LOOK:            return sizeof(MSG_S2C_MY_LOOK);
+    // 채널 — 더미는 목록을 안 묻고 바꾸지도 않아 안 온다. 등록은 같은 까닭(전례)
+    case MsgType::S2C_CHANNEL_LIST:       return static_cast<uint16_t>(offsetof(MSG_S2C_CHANNEL_LIST, entries));   // 가변 길이 — 머리 크기
+    case MsgType::S2C_CHANNEL_MOVE:       return sizeof(MSG_S2C_CHANNEL_MOVE);
     default: return 0;
     }
 }

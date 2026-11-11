@@ -53,6 +53,8 @@ bool CWorldServer::RegisterRoutes()
     ok = _zoneTable.Register<LINK_ZONE_ONLINE_LIST>([this](SessionId id, CSerialBuffer* msg) { OnOnlineList(id, msg); }) && ok;
     ok = _zoneTable.Register<LINK_ZONE_CHAR_ENTER>([this](SessionId id, CSerialBuffer* msg) { OnCharEnter(id, msg); }) && ok;
     ok = _zoneTable.Register<LINK_ZONE_CHAR_LEAVE>([this](SessionId id, CSerialBuffer* msg) { OnCharLeave(id, msg); }) && ok;
+    ok = _zoneTable.Register<LINK_ZONE_CHANNELS>([this](SessionId id, CSerialBuffer* msg) { OnZoneChannels(id, msg); }) && ok;
+    ok = _zoneTable.Register<LINK_CHANNEL_LIST_REQ>([this](SessionId id, CSerialBuffer* msg) { OnChannelListReq(id, msg); }) && ok;
     return ok;
 }
 
@@ -100,6 +102,10 @@ bool CWorldServer::Start()
         [this](SessionId id)
         {
             SLOG_WARN("[WorldServer] 존 서버 끊김 (session={})", ToInt(id));
+            // 장부에서 지우기 전에 번호를 읽는다. 재등록으로 이미 밀려난 옛 연결이면 0 이라 새 연결의 줄을 안 지운다
+            const ZoneServerId zone = _presence.ZoneOf(id);
+            if (ToInt(zone) != 0)
+                _channels.RemoveZone(zone);
             _presence.OnDisconnected(id);
         });
 
@@ -135,6 +141,7 @@ void CWorldServer::Periodic(int64_t nowMs)
         _nextSweepMs = nowMs + SWEEP_PERIOD_MS;
         _metrics.SetZones(_presence.ZoneCount());
         _metrics.SetOnline(_presence.OnlineCount());
+        _metrics.SetChannelRows(_channels.RowCount());
     }
 }
 
@@ -157,6 +164,7 @@ void CWorldServer::OnZoneRegister(SessionId sessionId, CSerialBuffer* msg)
     {
         SLOG_WARN("[WorldServer] 존 서버 {} 가 다시 등록 — 옛 연결을 끊음 (session={})", packet.zoneServerId, ToInt(previous));
         _peers.Disconnect(previous);
+        _channels.RemoveZone(ZoneServerId{ packet.zoneServerId });   // 새 연결이 전부 다시 알린다
     }
     SLOG_INFO("[WorldServer] 존 서버 {} 등록 — {} · 정원 {}", packet.zoneServerId, wsAddr, packet.maxClients);
 }
@@ -222,6 +230,60 @@ void CWorldServer::OnCharLeave(SessionId sessionId, CSerialBuffer* msg)
         return;
     }
     _presence.Leave(sessionId, CharacterId{ packet.characterId });
+}
+
+void CWorldServer::OnZoneChannels(SessionId sessionId, CSerialBuffer* msg)
+{
+    if (!CheckRegistered(sessionId))
+        return;
+
+    LINK_ZONE_CHANNELS head;
+    if (!PacketSend::Read(msg, head))
+    {
+        _monitor._packetErrors.Inc();
+        return;
+    }
+    if (head.count > LINK_ZONE_CHANNELS_MAX
+        || static_cast<size_t>(msg->GetDataSize()) < sizeof(head) + size_t{ head.count } * sizeof(LinkZoneChannelRow))
+    {
+        _monitor._packetErrors.Inc();
+        return;
+    }
+
+    LinkZoneChannelRow rows[LINK_ZONE_CHANNELS_MAX];
+    std::memcpy(rows, msg->GetReadBufferPtr() + sizeof(head), size_t{ head.count } * sizeof(LinkZoneChannelRow));
+    _channels.Update(_presence.ZoneOf(sessionId), head.mapId, rows, head.count);
+}
+
+void CWorldServer::OnChannelListReq(SessionId sessionId, CSerialBuffer* msg)
+{
+    if (!CheckRegistered(sessionId))
+        return;
+
+    LINK_CHANNEL_LIST_REQ req;
+    if (!PacketSend::Read(msg, req))
+    {
+        _monitor._packetErrors.Inc();
+        return;
+    }
+
+    // pack 필수 — 없으면 줄이 8바이트 경계로 밀려 머리와 첫 줄 사이에 빈 칸이 낀다
+#pragma pack(push, 1)
+    struct ListPacket
+    {
+        LINK_CHANNEL_LIST_ACK head;
+        LinkChannelListRow    rows[LINK_CHANNEL_LIST_MAX];
+    };
+#pragma pack(pop)
+    static_assert(sizeof(ListPacket) == sizeof(LINK_CHANNEL_LIST_ACK) + sizeof(LinkChannelListRow) * LINK_CHANNEL_LIST_MAX, "목록 패킷에 빈 칸이 끼었다");
+
+    ListPacket packet{};
+    packet.head.requestId = req.requestId;
+    packet.head.count = static_cast<uint16_t>(_channels.ListOf(req.mapId, packet.rows, LINK_CHANNEL_LIST_MAX));
+    const int size = static_cast<int>(sizeof(packet.head) + sizeof(LinkChannelListRow) * packet.head.count);
+    packet.head.header.size = static_cast<uint16_t>(size);
+    packet.head.header.type = static_cast<MsgType>(LINK_CHANNEL_LIST_ACK::TYPE);
+    _peers.SendBytes(sessionId, &packet, size);
 }
 
 void CWorldServer::SendWorldRegister()

@@ -50,6 +50,13 @@ public:
 
     bool IsRegistered(SessionId session) const { return _zones.count(ToInt(session)) != 0; }
 
+    // 그 연결의 존 서버 번호 — 등록된 연결이 아니면 0
+    ZoneServerId ZoneOf(SessionId session) const
+    {
+        const auto it = _zones.find(ToInt(session));
+        return it != _zones.end() ? it->second.id : ZoneServerId{ 0 };
+    }
+
     // 입장 통지 · 재등록 명단. 다른 존 서버의 줄이 있으면 나중에 알린 쪽으로 덮어쓴다(채널 바꾸기의 3007 이 3008 보다 먼저 올 수 있다). 등록 안 된 연결이면 false
     bool Enter(SessionId session, const LinkOnlineEntry& entry);
 

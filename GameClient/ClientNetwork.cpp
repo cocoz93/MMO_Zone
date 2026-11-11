@@ -451,6 +451,11 @@ void CClientNetwork::DispatchPacket(const char* data, uint16_t size)
     case MsgType::S2C_MY_LOOK:
         break;
 
+    // 채널 — 콘솔 클라는 목록을 안 묻고 바꾸지도 않는다. 모르는 타입 로그만 막는다.
+    case MsgType::S2C_CHANNEL_LIST:
+    case MsgType::S2C_CHANNEL_MOVE:
+        break;
+
     default:
         LOG_ERROR_STREAM("Unknown message type: " << static_cast<int>(header->type));
         break;

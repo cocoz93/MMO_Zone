@@ -25,6 +25,7 @@ class CPlayer : public CCharacter
     friend class CSessionHub;  // 세션 칸의 주인 — 칸에 넣을 때 세션을 붙이고, 찾기(재사용 가드)·보내기가 읽는다
     friend class CEntryHandler; // 접속 세션 → 플레이어 관문 — 같은 캐릭터 걷어내기가 옛 세션을 읽어 끊고, 존 이동 요청이 세션 없는 플레이어를 거른다(게임 서버 나누기 12 단계)
     friend class CCharacterStore; // 캐릭터 저장소 — 저장 묶음에 주인(세션)을 적고, 회신과 틱 끝 목록이 그 세션으로 주인을 찾는다(저장 플랜 C)
+    friend class CChannelListFlow; // 채널 목록 — 월드 서버의 답이 올 때 세션으로 다시 찾으려고 세션 번호를 적어 둔다
 
 public:
     CPlayer();
@@ -104,6 +105,7 @@ public:
 #endif
     };
     DbFlight _dbFlight;
+    bool     _channelListAsking = false;   // 채널 목록을 월드 서버에 묻는 중 — CChannelListFlow 만 쓴다
 
     // USE_DB_WORKER: 주인 열 둘 — 불러올 때 받은 값을 들고 있다가 저장 묶음마다 싣는다. DB 의 값과 다르면 저장이 거절된다(펜스 · CDBWorker::RunBundleOnce)
     int32_t  _ownerZone = 0;

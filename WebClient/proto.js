@@ -56,7 +56,9 @@
     // 기술 효과 대상 (USE_SKILL) — 피해 없는 기술(회복 · 남에게 건 버프)의 대상. 대상 주변에 대상마다 한 장
     S2C_SKILL_EFFECT:1079,
     // 이름 · 몸 겉모습 — 입장 번호 길로 들어온 캐릭터만. MY_* 는 처음 입장 때 본인에게 한 번, ACTOR_NAME 은 남이 나타날 때 겉모습 바로 뒤
-    S2C_MY_NAME:1080, S2C_ACTOR_NAME:1081, S2C_MY_LOOK:1082
+    S2C_MY_NAME:1080, S2C_ACTOR_NAME:1081, S2C_MY_LOOK:1082,
+    // 채널 목록 · 다른 존 서버로 채널 바꾸기 — 1083~1092 는 우편 몫
+    C2S_CHANNEL_LIST_REQ:1093, S2C_CHANNEL_LIST:1094, C2S_CHANNEL_MOVE_REQ:1095, S2C_CHANNEL_MOVE:1096
   };
   // 파티 — Protocol.h PartyAskKind · PartyNotice 순서 그대로(값이 와이어에 실린다). 한글 문구는 live.html 이 이름으로 고른다
   const PARTY_ASK_KIND = ['INVITE','APPLY','SUGGEST'];
@@ -359,6 +361,20 @@
         p.actorId=dv.getInt32(o,true); p.name=readName(dv, o+4); break;
       case MSG.S2C_MY_LOOK:
         p.body=readBody(dv, o); break;
+      // ---- 채널 ----
+      //   CHANNEL_LIST 머리 14B = zoneServerId i32 · channelBlock i32 · count u16 · 줄 6B(visibleNo i32 · players u16)
+      case MSG.S2C_CHANNEL_LIST: {
+        p.zoneServerId=dv.getInt32(o,true); p.channelBlock=dv.getInt32(o+4,true);
+        const n=dv.getUint16(o+8,true); p.channels=[];
+        for(let i=0;i<n;i++){ const q=o+10+i*6; p.channels.push({ visibleNo:dv.getInt32(q,true), players:dv.getUint16(q+4,true) }); }
+        break;
+      }
+      //   CHANNEL_MOVE 132B = wsAddr char[64] · enterCode 64바이트 — 입장 번호는 글자가 아니라 바이트 그대로 enterGame 에 넘긴다
+      case MSG.S2C_CHANNEL_MOVE: {
+        let addr=''; for(let i=0;i<64;i++){ const c=dv.getUint8(o+i); if(!c) break; addr+=String.fromCharCode(c); }
+        p.wsAddr=addr; p.enterCode=new Uint8Array(dv.buffer.slice(dv.byteOffset+o+64, dv.byteOffset+o+128));
+        break;
+      }
       default: break; // ADMIN_* etc. — not needed for the view
     }
     return p;
@@ -392,6 +408,10 @@
     //   devCharacterId 0 = "번호를 지정하지 않음" → 서버가 새 번호를 붙인다(새로고침마다 다른 캐릭터).
     // ticket = 캐릭터 서버가 준 입장 번호(64바이트) — 없으면 0 칸 그대로(시험 입장 길. ArrayBuffer 가 0 으로 채워져 나온다)
     enterGame(devCharacterId, ticket){ const {b,d}=hdr(76,MSG.C2S_ENTER_GAME); d.setBigInt64(4, BigInt(devCharacterId||0), true); if(ticket) new Uint8Array(d.buffer, d.byteOffset+12, 64).set(ticket.subarray(0,64)); return b; },
+    // C2S_CHANNEL_LIST_REQ: header(4) + mapId i32 = 8B
+    channelListReq(mapId){ const {b,d}=hdr(8,MSG.C2S_CHANNEL_LIST_REQ); d.setInt32(4, mapId, true); return b; },
+    // C2S_CHANNEL_MOVE_REQ: header(4) + visibleNo i32 = 8B
+    channelMoveReq(visibleNo){ const {b,d}=hdr(8,MSG.C2S_CHANNEL_MOVE_REQ); d.setInt32(4, visibleNo, true); return b; },
     // 바디 없음 — 방향은 서버가 들고 있고, 대상도 서버가 "앞 한 칸"으로 고른다
     attack(){ return hdr(4, MSG.C2S_ATTACK).b; },
     // C2S_USE_ITEM: header(4) + slot u16 = 6B

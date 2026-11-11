@@ -128,6 +128,12 @@ bool CGameServer::Start()
             _entryHandler.KickAccount(accountId);
         });
 
+        _worldLink.SetCallbacks({
+            [this]() { _channelListFlow.OnWorldUp(); },
+            [this]() { _channelListFlow.OnWorldDown(); },
+            [this](const LINK_CHANNEL_LIST_ACK& head, const char* rows) { _channelListFlow.OnListAck(head, rows, CEnterGate::NowMs()); },
+        });
+
         // 게임 스레드보다 먼저 — 게임 스레드가 틱마다 보는 연결 객체를 여기서 만든다. 접속이 먼저 돼도 사건은 큐에서 기다린다.
         _zoneLink.Start(*_network);
         _worldLink.Start(*_network);
@@ -294,6 +300,11 @@ void CGameServer::GameLoopThread()
         _entryHandler.TickInGameGauge();
         _zoneLink.Tick();   // 서버 간 하트비트 — 꺼져 있으면 바로 돌아온다
         _worldLink.Tick();
+        {
+            const int64_t linkNowMs = CEnterGate::NowMs();
+            _linkRequests.ExpireDue(linkNowMs);
+            _channelListFlow.Tick(linkNowMs);
+        }
 
         // 이번 틱 보류물 비우기 — digest(USE_BROADCAST_BUNDLE) 또는 섹터 묶음(USE_SECTOR_AGGREGATION). 아래 flush가 묶어 보냄
         _sightBroadcaster.FlushSends();
@@ -564,6 +575,8 @@ bool CGameServer::RegisterRoutes()
     ok &= _chatHandler.RegisterRoutes(_routes);
     // 존 이동 · 포털 · 입장 요청(USE_LOGIN — 끄면 크기만) — CEntryHandler 가 자기 줄을 등록한다(CEntryHandler::RegisterRoutes · 게임 서버 나누기 12 단계)
     ok &= _entryHandler.RegisterRoutes(_routes);
+    // 채널 목록 — CChannelListFlow 가 자기 줄을 등록한다
+    ok &= _channelListFlow.RegisterRoutes(_routes);
     // 직업 고르기 — CJobHandler 가 자기 줄을 등록한다
     ok &= _jobHandler.RegisterRoutes(_routes);
     ok &= _routes.Size(MsgType::C2S_HEARTBEAT, sizeof(MSG_C2S_HEARTBEAT));   // 처리기 없음 — 타임아웃 갱신은 IOCPServer 수신 시점

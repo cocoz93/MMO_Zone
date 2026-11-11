@@ -19,6 +19,10 @@ inline constexpr int LINK_WS_ADDR_BYTES = 64;   // 존 서버 웹 접속 주소(
 
 inline constexpr int LINK_NAME_CHARS = 6;        // 캐릭터 이름 칸 — CHAR_NAME_MAX_LEN 과 같아야 한다(존 서버가 static_assert 로 맞춘다)
 
+// 채널 줄 상한 — 존 서버 한 대의 맵 하나는 ChannelNumber::BLOCK_MAX 까지 · 전 존 서버 합은 웹 패킷 상한(CHANNEL_LIST_MAX)까지
+inline constexpr int LINK_ZONE_CHANNELS_MAX = 200;
+inline constexpr int LINK_CHANNEL_LIST_MAX = 240;
+
 // 명단 패킷 하나에 드는 줄 수 — (1458 − 머리 4 − 칸 수 2) ÷ 38 = 38. 5,600명이면 패킷 148개다
 inline constexpr int LINK_ONLINE_LIST_MAX = 38;
 
@@ -142,6 +146,47 @@ struct LINK_WORLD_REGISTER
     int32_t   worldId;
 };
 
+// ── 채널 목록 ──
+//   존 서버가 1초마다 바뀐 맵을 통째로 알린다(맵 하나씩). 월드 서버는 그 맵 · 그 존 서버 줄을 갈아 끼운다
+struct LinkZoneChannelRow
+{
+    int32_t  channel;
+    uint16_t players;
+};
+
+struct LINK_ZONE_CHANNELS
+{
+    static constexpr uint16_t TYPE = 3034;
+    MsgHeader header;
+    int32_t   mapId;
+    uint16_t  count;
+    // LinkZoneChannelRow rows[count];
+};
+
+struct LINK_CHANNEL_LIST_REQ
+{
+    static constexpr uint16_t TYPE = 3035;
+    MsgHeader header;
+    uint64_t  requestId;
+    int32_t   mapId;
+};
+
+struct LinkChannelListRow
+{
+    uint16_t zoneServerId;
+    uint16_t channel;
+    uint16_t players;
+};
+
+struct LINK_CHANNEL_LIST_ACK
+{
+    static constexpr uint16_t TYPE = 3036;
+    MsgHeader header;
+    uint64_t  requestId;
+    uint16_t  count;
+    // LinkChannelListRow rows[count];
+};
+
 // ── 내보내기 (캐릭터 서버 → 존 서버) ──
 //   같은 계정이 다시 고르면 줄이 있는 존 서버마다 보낸다. 회신이 없다
 struct LINK_ZONE_KICK_ACCOUNT
@@ -165,3 +210,10 @@ static_assert(sizeof(LINK_ZONE_KICK_ACCOUNT) == 4 + 8);
 static_assert(sizeof(LinkOnlineEntry) == 8 + 8 + 4 + 4 + 1 + 1 + 12);
 static_assert(sizeof(LINK_ZONE_CHAR_ENTER) == 4 + sizeof(LinkOnlineEntry));
 static_assert(sizeof(LINK_ZONE_ONLINE_LIST) + LINK_ONLINE_LIST_MAX * sizeof(LinkOnlineEntry) <= 1458, "코어 패킷 상한(IOCPServer.h)");
+static_assert(sizeof(LinkZoneChannelRow) == 6);
+static_assert(sizeof(LINK_ZONE_CHANNELS) == 4 + 4 + 2);
+static_assert(sizeof(LINK_CHANNEL_LIST_REQ) == 4 + 8 + 4);
+static_assert(sizeof(LinkChannelListRow) == 6);
+static_assert(sizeof(LINK_CHANNEL_LIST_ACK) == 4 + 8 + 2);
+static_assert(sizeof(LINK_ZONE_CHANNELS) + LINK_ZONE_CHANNELS_MAX * sizeof(LinkZoneChannelRow) <= 1458, "코어 패킷 상한");
+static_assert(sizeof(LINK_CHANNEL_LIST_ACK) + LINK_CHANNEL_LIST_MAX * sizeof(LinkChannelListRow) <= 1458, "코어 패킷 상한");

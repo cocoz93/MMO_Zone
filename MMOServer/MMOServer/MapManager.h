@@ -120,6 +120,14 @@ public:
         }
     }
 
+    // 번호까지 주는 순회 — fn(번호, 존). 채널 목록 보고가 쓴다
+    template<typename Fn>
+    void ForEachChannel(Fn&& fn)
+    {
+        for (auto& [channelIndex, zone] : _channels)
+            fn(channelIndex, zone.get());
+    }
+
     // 전체 채널 Tick — 섹터 변경은 존마다 대기열에 쌓인다(CZone::GetSectorChanges). 쉬는 존(사람 0)은 건너뛴다(CZone::IsIdle)
     void TickAll(float deltaTime, IZoneEvents& events);
 
@@ -170,6 +178,9 @@ public:
 
     template<typename Fn>
     void ForEachZone(Fn&& fn) { _table.ForEachZone(std::forward<Fn>(fn)); }
+
+    template<typename Fn>
+    void ForEachChannel(Fn&& fn) { _table.ForEachChannel(std::forward<Fn>(fn)); }
 
 private:
     CChannelTable _table;
@@ -287,6 +298,21 @@ public:
             fieldMap.ForEachZone(fn);
         for (auto& [mapId, roomMap] : _roomMaps)
             roomMap.ForEachZone(fn);
+    }
+
+    // 필드 맵만 돈다 — fn(맵 번호, 맵). 방 맵은 채널 번호에 뜻이 없어 채널 목록에 안 나간다
+    template<typename Fn>
+    void ForEachFieldMap(Fn&& fn)
+    {
+        for (auto& [mapId, fieldMap] : _fieldMaps)
+            fn(mapId, fieldMap);
+    }
+
+    // 필드 맵 찾기 — 방 맵이거나 없는 맵이면 nullptr
+    CFieldMap* FindFieldMap(MapId mapId)
+    {
+        const auto it = _fieldMaps.find(mapId);
+        return it != _fieldMaps.end() ? &it->second : nullptr;
     }
 
     // zoneId 인코딩/디코딩 헬퍼 — zoneId = mapId × CHANNELS_PER_MAP + channelIndex

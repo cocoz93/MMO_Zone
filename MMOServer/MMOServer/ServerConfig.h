@@ -28,6 +28,7 @@
 #include <cstdlib>      // strtol (ServerCores 범위 파싱)
 
 #include <Protocol/ServerLinkProtocol.h>   // LINK_WS_ADDR_BYTES — 웹 주소 패킷 칸
+#include <Identity/ChannelNumber.h>
 #include <Config/IniFile.h>       // 플랫폼 독립 INI 리더 (GetPrivateProfile* 대체)
 #include <Config/DbPassword.h>    // DB 암호 — 커밋되는 INI 밖의 파일에서 읽는다
 #include "Platform/Platform.h"    // Platform::GetExecutableDir
@@ -108,6 +109,7 @@ struct ServerConfig
     bool        allowDevAdmin   = false;   // 채팅 /test 로 운영자 켜기 — 로그인 서버가 붙으면 계정 권한으로 옮긴다
     bool        useServerLink   = false;   // 캐릭터 서버에 접속할까 — 코드 기본은 끔. 부하 측정은 0 으로 돈다(측정 조건이 안 바뀌게)
     int         zoneServerId    = 1;       // 캐릭터 서버에 등록하는 번호
+    int         channelBlock    = 100;     // 존 서버 한 대가 쓰는 보이는 채널 번호 수 — 필드 맵 채널 수 상한(최대 접속 ÷ 정원 = 60)에 여유를 둔 값(플랜 2절 13번). 모든 존 서버가 같아야 한다
     std::string publicWsAddr    = "ws://127.0.0.1:9000";   // 웹 브라우저가 접속할 주소 — relay.js 기본 포트. 캐릭터 서버가 웹에 그대로 넘긴다
 
     // 실행 파일 경로 기준으로 MMOServerConfig.ini 로드. 두 번째 존 서버는 --config 로 다른 파일 이름을 준다
@@ -209,6 +211,12 @@ struct ServerConfig
         {
             SLOG_ERROR("[ServerConfig] ZoneServerId({}) out of range. Using default 1.", zoneServerId);
             zoneServerId = 1;
+        }
+        channelBlock = ini.GetInt("Zone", "ChannelBlock", channelBlock);
+        if (channelBlock < ChannelNumber::BLOCK_MIN || channelBlock > ChannelNumber::BLOCK_MAX)
+        {
+            SLOG_ERROR("[ServerConfig] ChannelBlock({}) out of range ({}~{}). Using default 100.", channelBlock, ChannelNumber::BLOCK_MIN, ChannelNumber::BLOCK_MAX);
+            channelBlock = 100;
         }
         {
             const std::string addr = ini.GetString("Zone", "PublicWsAddr", publicWsAddr);

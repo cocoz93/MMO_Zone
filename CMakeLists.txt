@@ -195,6 +195,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/MoveHandler.cpp
     ${SRV_DIR}/EnterGate.cpp
     ${SRV_DIR}/ZoneLink.cpp
+    ${SRV_DIR}/ChannelListFlow.cpp
     ${SRV_DIR}/WorldLink.cpp
     ${SRV_DIR}/LinkOnlineList.cpp
     ${SRV_DIR}/EntryHandler.cpp
@@ -426,6 +427,7 @@ set(WORLD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/WorldServer)
 # 네트워크 없는 부품 — 단위 시험이 같이 빌드한다
 set(WORLD_LOGIC_SOURCES
     ${WORLD_DIR}/WorldPresence.cpp
+    ${WORLD_DIR}/ChannelTable.cpp
 )
 
 set(WORLD_SOURCES
@@ -476,6 +478,11 @@ target_link_libraries(enter_gate_test PRIVATE ServerCommonLib)
 add_executable(room_lockout_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/RoomLockoutTest.cpp ${SRV_DIR}/RoomLockoutBlob.cpp)
 target_include_directories(room_lockout_test PRIVATE ${SRV_DIR})
 target_link_libraries(room_lockout_test PRIVATE ServerCommonLib)
+
+# 보이는 채널 번호 · 월드 서버의 채널 표 — 서버를 안 띄운다
+add_executable(channel_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/ChannelNumberTest.cpp ${WORLD_DIR}/ChannelTable.cpp)
+target_include_directories(channel_test PRIVATE ${WORLD_DIR})
+target_link_libraries(channel_test PRIVATE ServerCommonLib)
 
 # 계정 서버의 규칙 · 장부 · DB 문장 — 서버를 안 띄운다. 인자 <ini> <db> 를 주면 시험 DB 경쟁까지 본다
 add_executable(account_unit_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/AccountUnitTest.cpp ${ACCOUNT_LOGIC_SOURCES})

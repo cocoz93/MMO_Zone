@@ -22,6 +22,7 @@
 #include <Identity/GameIds.h>
 #include <Link/LinkConnector.h>
 #include <Lobby/PacketTable.h>
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -29,6 +30,8 @@ class CMonitorManager;
 class CPlayer;
 class CSerialBuffer;
 class CSessionHub;
+struct LINK_CHANNEL_LIST_ACK;
+struct LinkZoneChannelRow;
 
 class CWorldLink
 {
@@ -49,6 +52,15 @@ public:
     // 연결을 켠다 — 메인 스레드, Start 전. false = 처리표 등록 실패이거나 웹 주소가 패킷 칸에 안 들어간다(기동 거절)
     bool Configure(const Config& config);
 
+    // 위쪽에 알릴 것 — Start 전에 넣는다
+    struct Callbacks
+    {
+        std::function<void()> onUp;     // 연결됐고 등록을 보냈다
+        std::function<void()> onDown;   // 끊겼다
+        std::function<void(const LINK_CHANNEL_LIST_ACK& head, const char* rows)> onChannelListAck;   // 줄 수는 검사를 마쳤다
+    };
+    void SetCallbacks(Callbacks callbacks) { _callbacks = std::move(callbacks); }
+
     void Start(NetIoModel& network);
     void Stop();
 
@@ -61,11 +73,16 @@ public:
     void NotifyEnter(const CPlayer& player);
     void NotifyLeave(CharacterId characterId);
 
+    bool IsUp() const { return _connector && _connector->IsUp(); }
+    bool SendChannels(MapId mapId, const LinkZoneChannelRow* rows, int count);   // 끊겨 있으면 false
+    bool AskChannels(uint64_t requestId, MapId mapId);                           // 끊겨 있으면 false
+
     // 꺼져 있으면 nullptr — 지표는 CLinkConnector::WriteMetrics 가 연결 여럿을 한 번에 쓴다
     const CLinkConnector* Connector() const { return _connector.get(); }
 
 private:
     void SendRegister();
+    void RecvChannelListAck(CSerialBuffer* msg);
 
     CMonitorManager& _monitor;
     CSessionHub&     _sessionHub;
@@ -73,7 +90,8 @@ private:
     CPacketTable _table;
     bool         _routesOk = false;
 
-    Config _config;
-    bool   _enabled = false;
+    Config    _config;
+    Callbacks _callbacks;
+    bool      _enabled = false;
     std::unique_ptr<CLinkConnector> _connector;   // Start 가 만든다 — 끄면 없다
 };
