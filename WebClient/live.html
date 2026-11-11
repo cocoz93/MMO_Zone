@@ -389,7 +389,8 @@ const EQUIP_FAIL_TEXT = {
   IN_TRADE:'거래창에 올린 장비는 끼울 수 없습니다',
 };
 // 파티 (USE_PARTY) — 서버가 보낸 것만 담는다. 누가 무엇을 할 수 있나(초대·신청·추천 가르기, 파티장만, 인원)는 서버가 정한다.
-//   info = S2C_PARTY_INFO 그대로(파티 없으면 null) — {partyId, leaderId, members:[{actorId, displayChar, colorIndex, level, name, hp, maxHp, mapId}]}(가입 순서)
+//   info = S2C_PARTY_INFO 그대로(파티 없으면 null) — {partyId, leaderId(캐릭터 번호 문자열), members:[{characterId, actorId, displayChar, colorIndex, level, name, hp, maxHp, mapId, visibleChannel, online}]}(가입 순서)
+//     actorId 는 같은 존 서버의 사람만 있고 다른 존 서버 · 오프라인은 0 — 사람을 가리킬 때는 characterId
 //   ask  = 받은 요청(서버가 한 번에 하나만 보낸다) — {requestId, kind, from, about, until}. 끝은 서버가 정한다(ASK_END) — 남은 초는 그리기만
 //   menu = 화면에서 캐릭터를 눌러 연 메뉴 — {id, x, y}(화면 px). 이름으로 찾는 기능이 없어 고르기는 누르기뿐이다(Protocol.h 파티 절)
 //   open = P 키로 연 관리 창(파티원 줄 옆 넘기기·내보내기, 아래 나가기·해산). 닫혀 있어도 파티에 들면 작은 목록이 늘 뜬다
@@ -405,9 +406,10 @@ function askChannels(){ if(ZONE.mapId>=0) channelSend(P.enc.channelListReq(ZONE.
 // 헤드리스 검증용 — 파티 요약(data-bag 과 같은 자리)
 function partyChanged(){
   document.documentElement.setAttribute('data-party', JSON.stringify({ open:party.open, fold:party.fold,
-    partyId: party.info ? party.info.partyId : 0, leader: party.info ? party.info.leaderId : 0,
-    members: party.info ? party.info.members.map(m=>[m.actorId, m.level, m.hp, m.maxHp, m.mapId]) : [],
-    ask: party.ask ? { id:party.ask.requestId, kind:party.ask.kind, from:party.ask.from.actorId, about:party.ask.about.actorId } : null,
+    partyId: party.info ? party.info.partyId : 0, leaderChar: party.info ? party.info.leaderId : '0',
+    leader: party.info ? ((party.info.members.find(m=>m.characterId===party.info.leaderId)||{}).actorId||0) : 0,
+    members: party.info ? party.info.members.map(m=>[m.actorId, m.level, m.hp, m.maxHp, m.mapId, m.online?1:0, m.visibleChannel, m.characterId]) : [],
+    ask: party.ask ? { id:party.ask.requestId, kind:party.ask.kind, from:party.ask.from.actorId, about:party.ask.about.actorId, fromChar:party.ask.from.characterId, aboutChar:party.ask.about.characterId } : null,
     menu: party.menu ? party.menu.id : 0, lastNotice:party.lastNotice, sent:party.sent }));
 }
 // 사람 이름 — 이름이 있으면 이름, 없으면(소유 표에 없는 옛 행 · 더미) 글자 한 자. 화면에 사람 이름을 그리는 자리는 전부 이 함수를 거친다
@@ -419,14 +421,20 @@ function whoName(id){
   const o=others.get(id); if(o && o.disp>=0x20) return nameText(o.name, o.disp);
   return '#'+id;
 }
+// 내 캐릭터 번호 — 파티 명단의 내 줄에서 안다(웹은 입장 때 캐릭터 번호를 안 받는다). 파티가 없으면 null
+function myPartyCharacterId(){
+  const m=party.info && self && party.info.members.find(x=>x.actorId===self.id);
+  return m ? m.characterId : null;
+}
 // 알림 번호(P.PARTY_NOTICE 이름) → 채팅 칸 [System] 문구. w = 관련 사람(이름 끝 글자에 받침이 있는지 안 따지려고 조사를 붙이지 않고 「: 」 뒤에 둔다)
-function partyNoticeText(code, actorId){
-  const w=whoName(actorId), mine = self && actorId===self.id;
+//   who 는 이름이 실려 온다 — 다른 존 서버의 사람도 부를 수 있다. 내가 받은 알림의 내 번호는 actorId 로 가린다
+function partyNoticeText(code, who){
+  const mine = !!(self && who.actorId && who.actorId===self.id), w = mine ? '나' : (who.characterId!=='0' ? nameText(who.name, who.displayChar) : '');
   switch(code){
     case 'SENT_INVITE':   return '파티 초대를 보냈습니다: '+w;
     case 'SENT_APPLY':    return '파티장에게 가입 신청을 보냈습니다: '+w;
     case 'SENT_SUGGEST':  return '파티장에게 초대 요청을 보냈습니다: '+w;
-    case 'NO_TARGET':     return '그 사람이 화면에 없습니다';
+    case 'NO_TARGET':     return '그 사람을 찾을 수 없습니다';
     case 'SELF':          return '자기 자신입니다';
     case 'SAME_PARTY':    return '이미 같은 파티입니다';
     case 'BOTH_IN_PARTY': return '상대가 다른 파티에 있습니다';
@@ -434,7 +442,7 @@ function partyNoticeText(code, actorId){
     case 'NOT_LEADER':    return '파티장만 할 수 있습니다';
     case 'NOT_IN_PARTY':  return '파티에 있지 않습니다';
     case 'NOT_MEMBER':    return '우리 파티원이 아닙니다';
-    case 'TARGET_BUSY':   return '상대가 다른 요청에 답하는 중입니다 — 잠시 뒤에 다시';
+    case 'TARGET_BUSY':   return '상대가 지금 받을 수 없습니다 — 잠시 뒤에 다시';
     case 'SELF_BUSY':     return '보낸 요청이 아직 답을 기다리고 있습니다';
     case 'NO_REQUEST':    return '이미 끝난 요청입니다';
     case 'DECLINED':      return '요청이 거절됐습니다: '+w;
@@ -450,6 +458,7 @@ function partyNoticeText(code, actorId){
     case 'ROOM_NOT_GATHERED': return '같은 채널에 없는 파티원이 있습니다: '+w;
     case 'ROOM_DEAD':         return '쓰러진 파티원이 있습니다: '+w;
     case 'ROOM_LOCKED':       return '아직 다시 못 들어가는 파티원이 있습니다: '+w;
+    case 'NO_WORLD':          return '월드 서버에 연결되지 않아 파티를 바꿀 수 없습니다';
   }
   return '파티 알림 ('+code+')';
 }
@@ -838,8 +847,8 @@ function onPacket(p){
       partyChanged(); break;
     // 파티원 한 줄 — 서버가 0.5초마다 견줘 바뀐 사람만(체력·레벨·맵). 다른 맵의 파티원도 온다
     case P.MSG.S2C_PARTY_MEMBER: {
-      const m=party.info && party.info.members.find(x=>x.actorId===p.actorId);
-      if(m){ m.level=p.level; m.hp=p.hp; m.maxHp=p.maxHp; m.mapId=p.mapId; m.displayChar=p.displayChar; m.colorIndex=p.colorIndex; m.name=p.name; partyChanged(); }
+      const m=party.info && party.info.members.find(x=>x.characterId===p.characterId);
+      if(m){ m.actorId=p.actorId; m.level=p.level; m.hp=p.hp; m.maxHp=p.maxHp; m.mapId=p.mapId; m.visibleChannel=p.visibleChannel; m.online=p.online; m.displayChar=p.displayChar; m.colorIndex=p.colorIndex; m.name=p.name; partyChanged(); }
       break; }
     // 답할 요청 — 서버가 한 번에 하나만 보낸다. 창이 뜨고 Y·N 이나 단추로 답한다
     case P.MSG.S2C_PARTY_ASK:
@@ -853,7 +862,7 @@ function onPacket(p){
       }
       partyChanged(); break;
     case P.MSG.S2C_PARTY_NOTICE:
-      party.lastNotice=p.codeName; sysMsg(partyNoticeText(p.codeName, p.actorId)); partyChanged(); break;
+      party.lastNotice=p.codeName; sysMsg(partyNoticeText(p.codeName, p.who)); partyChanged(); break;
 
     // ---- 거래 (USE_TRADE) — 판정은 서버. 여기는 받은 것을 담고 그리기만 한다 ----
     case P.MSG.S2C_TRADE_ASK:
@@ -2101,15 +2110,15 @@ function partyMenuLayout(){
 }
 // 파티 목록(늘) · 관리 창(P) — 왼쪽, 이름표 아래 12px(옆 여백이 있으면 연결 표시가 이름표 아래로 오므로 그만큼 더 내린다). 관리 창은 줄마다 단추가 붙어 폭이 넓다
 //   ★ 줄 높이 20 · 목록 폭 190(10-29 줄임 — 24 · 220 이었다. 목록 폭은 상태창과 같은 ST_W). 접으면(fold) 제목 줄(FOLD_H)만.
-const PT_ROW=20, PT_TOP=30;
+const PT_ROW=20, PT_TOP=30, PT_PLACE_W=100;   // PT_PLACE_W = 줄 끝의 「맵 이름 · N채널」 자리
 function partyLayout(){
   const visible = !!party.info || party.open; if(!visible) return null;
   const ms = party.info ? party.info.members : [];
   // 이름 칸 폭 — 글자 한 자면 20 그대로. 이름이 있으면 가장 긴 이름에 맞춰 넓히고 창도 그만큼 넓힌다(줄마다 열이 어긋나지 않게)
   ctx.font=uiFont(12,600,true);
   const nameW = Math.max(20, Math.ceil(ms.reduce((w,m)=>Math.max(w, ctx.measureText(nameText(m.name,m.displayChar)).width), 0))+8);
-  const px=14, py=14+BANNER_H+12+((VX>=250) ? 42 : 0), pw = (party.open ? 268 : ST_W)+nameW-20;
-  const iLead = !!(party.info && self && party.info.leaderId===self.id);
+  const px=14, py=14+BANNER_H+12+((VX>=250) ? 42 : 0), pw = (party.open ? 268 : ST_W)+nameW-20+PT_PLACE_W;
+  const iLead = !!(party.info && party.info.leaderId===myPartyCharacterId());
   if(party.fold) return { px, py, pw, ph:FOLD_H, rows:[], btns:{}, iLead, nameW };   // 접힘 — 제목 줄뿐(줄·단추가 없어 누를 것도 없다)
   const rows = ms.map((m,i)=>{ const y=py+PT_TOP+8+i*PT_ROW, r={ y, m };
     if(party.open && iLead && !(self && m.actorId===self.id)){ r.leader={ x:px+pw-120, y:y-1, w:46, h:18 }; r.kick={ x:px+pw-70, y:y-1, w:58, h:18 }; }   // 「내보내기」 네 글자 — 50px 은 글자가 테두리에 닿았다(사진으로 확인)
@@ -2128,7 +2137,7 @@ function partyUiHit(x,y){
   if(party.menu){ const L=partyMenuLayout(); if(inRect(x,y,L)) return { where:'menu', btn: inRect(x,y,L.req)?'request' : inRect(x,y,L.trade)?'trade' : null }; }
   const L=partyLayout();
   if(L && inRect(x,y,{x:L.px,y:L.py,w:L.pw,h:L.ph})){
-    for(const r of L.rows){ if(inRect(x,y,r.leader)) return { where:'panel', btn:'leader', id:r.m.actorId }; if(inRect(x,y,r.kick)) return { where:'panel', btn:'kick', id:r.m.actorId }; }
+    for(const r of L.rows){ if(inRect(x,y,r.leader)) return { where:'panel', btn:'leader', id:r.m.characterId }; if(inRect(x,y,r.kick)) return { where:'panel', btn:'kick', id:r.m.characterId }; }
     if(inRect(x,y,L.btns.leave)) return { where:'panel', btn:'leave' };
     if(inRect(x,y,L.btns.disband)) return { where:'panel', btn:'disband' };
     return { where:'panel', btn:null };
@@ -2149,6 +2158,8 @@ function partyClick(h){
   }
 }
 function personName(pp){ return nameText(pp.name, pp.displayChar); }
+// 파티원이 있는 자리 — 방 맵은 채널이 없어(0) 맵 이름만
+function partyPlace(m){ return m.visibleChannel>0 ? mapName(m.mapId)+' · '+m.visibleChannel+'채널' : mapName(m.mapId); }
 function mapName(id){ const k=(MAPS.get(id)||{}).kind; return k==='town' ? '마을' : k==='dungeon' ? '던전 '+id : k==='instance' ? '파티 방 '+id : '맵 '+id; }
 function smallBtn(r, label, on, danger){
   ctx.fillStyle = on ? (danger?'rgba(226,87,74,.35)':'rgba(143,214,160,.30)') : 'rgba(255,255,255,.07)'; rr(r.x,r.y,r.w,r.h,5); ctx.fill();
@@ -2176,21 +2187,25 @@ function drawPartyPanel(){
   }
   for(const r of L.rows){ const m=r.m, y=r.y, me = self && m.actorId===self.id;
     if(me){ ctx.fillStyle='rgba(143,214,160,.08)'; rr(px+6,y-2,pw-12,PT_ROW-2,5); ctx.fill(); }
-    if(m.actorId===party.info.leaderId){ ctx.fillStyle='#ffd84d'; ctx.font=uiFont(12,600); ctx.fillText('★', px+10, y+13); }   // 파티장
+    if(m.characterId===party.info.leaderId){ ctx.fillStyle='#ffd84d'; ctx.font=uiFont(12,600); ctx.fillText('★', px+10, y+13); }   // 파티장
     ctx.fillStyle = me ? 'rgba(40,90,60,.92)' : 'rgba(18,26,18,.72)'; rr(px+26,y,nameW,17,4); ctx.fill();   // 머리 위 이름표와 같은 바탕색
     ctx.textAlign='center'; ctx.fillStyle = me ? '#bff0c9' : '#eaf3e0'; ctx.font=uiFont(12,600,true); ctx.fillText(nameText(m.name,m.displayChar), px+26+nameW/2, y+13); ctx.textAlign='left';
     ctx.fillStyle='rgba(200,220,200,.8)'; ctx.font=uiFont(11,600,true); ctx.fillText('Lv.'+m.level, px+32+nameW, y+13);
-    // 체력 칸 — 경우가 셋이라 차례대로: 쓰러짐(글자) · 다른 맵(어디인지 — 목록에서만) · 그 밖(막대, 머리 위 막대와 같은 색 규칙).
+    // 체력 칸 — 경우가 셋이라 차례대로: 오프라인(글자) · 쓰러짐(글자) · 그 밖(막대, 머리 위 막대와 같은 색 규칙). 접속 중이면 줄 끝에 어디 있는지를 쓴다.
     //   글자를 막대 자리에 둔다 — 막대 위에 얹으면 줄 높이(20)를 넘어 윗줄과 붙어 어느 줄 것인지 헷갈렸다(10-29 확대 캡처)
     const bx=px+76+nameW, bw = party.open ? (r.leader ? 46 : 150) : 70, bh=6, by=y+6;
-    if(m.hp<=0){ ctx.fillStyle='#f0b8b8'; ctx.font=uiFont(11); ctx.fillText('쓰러짐', bx, y+13); }
-    else if(!party.open && m.mapId!==ZONE.mapId){ ctx.fillStyle='rgba(158,200,255,.85)'; ctx.font=uiFont(11); ctx.fillText(fitText(mapName(m.mapId), px+pw-12-bx), bx, y+13); }
+    if(!m.online){ ctx.fillStyle='rgba(180,190,180,.65)'; ctx.font=uiFont(11); ctx.fillText('오프라인', bx, y+13); }
+    else if(m.hp<=0){ ctx.fillStyle='#f0b8b8'; ctx.font=uiFont(11); ctx.fillText('쓰러짐', bx, y+13); }
     else {
       const ratio = m.maxHp>0 ? Math.max(0,Math.min(1,m.hp/m.maxHp)) : 0;
       ctx.fillStyle='rgba(28,38,28,.95)'; rr(bx,by,bw,bh,3); ctx.fill();
       ctx.fillStyle = ratio>0.5 ? '#54d46e' : ratio>0.25 ? '#e6c24a' : '#e2574a'; if(ratio>0){ rr(bx,by,Math.max(3,bw*ratio),bh,3); ctx.fill(); }
     }
-    if(r.leader){ smallBtn(r.leader,'넘기기',isHover('panel','leader',m.actorId),false); smallBtn(r.kick,'내보내기',isHover('panel','kick',m.actorId),true); }
+    if(m.online && (m.visibleChannel>0 || m.mapId)){   // 둘 다 0 = 명단만 오고 상태 줄이 아직이다. 맵 0 은 마을이라 맵 번호만으로는 못 가른다(채널 0 은 방 맵뿐 — 방 맵 번호는 0 이 아니다)
+      const lx=bx+bw+8, lr = r.leader ? r.leader.x-6 : px+pw-12;
+      ctx.fillStyle='rgba(158,200,255,.85)'; ctx.font=uiFont(11); ctx.fillText(fitText(partyPlace(m), lr-lx), lx, y+13);
+    }
+    if(r.leader){ smallBtn(r.leader,'넘기기',isHover('panel','leader',m.characterId),false); smallBtn(r.kick,'내보내기',isHover('panel','kick',m.characterId),true); }
   }
   if(L.btns.leave) smallBtn(L.btns.leave,'나가기',isHover('panel','leave'),false);
   if(L.btns.disband) smallBtn(L.btns.disband,'해산',isHover('panel','disband'),true);
@@ -2547,7 +2562,7 @@ function connect(){
   chan.open=false; chan.rows=[]; chan.zone=0; chan.hover=null; channelChanged();   // 번호는 새 접속의 답으로 다시 안다
   bag.slots.clear(); adminSent=false; me.money=null; me.moneyT=0; bagChanged();   // 가방·돈은 입장 때 전체가 다시 온다 · 운영자 켜기도 새 접속마다
   myJob=null; jobHover=null; jobChanged();   // 끊기면 새 접속의 MY_JOB 을 기다린다(그때까지 공용 기술만)
-  party.info=null; party.ask=null; party.menu=null; partyChanged();   // 끊기면 서버가 파티에서 뺐다(저장 안 함) — 새 접속은 파티 없이 시작
+  party.info=null; party.ask=null; party.menu=null; partyChanged();   // 끊겨도 월드 서버의 파티에는 오프라인으로 남는다 — 화면은 비우고 새 접속의 명단을 다시 받는다
   trade.ask=null; trade.win=null; tradeChanged();                       // 거래도 끊기면 서버가 끝냈다
   const re=new P.Reassembler(onPacket);
   ws=new WebSocket(WS_URL); ws.binaryType='arraybuffer';
