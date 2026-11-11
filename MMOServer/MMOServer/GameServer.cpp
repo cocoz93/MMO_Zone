@@ -184,12 +184,12 @@ void CGameServer::Stop()
 
 #if USE_DB_WORKER
 // 서버의 공개 입구 — main 이 부른다(Start 전). 몸은 저장소가 든다.
-bool CGameServer::InitDB(const DBConfig& dbConfig, int savePeriodSec, int workerCount, int queueMax)
+bool CGameServer::InitDB(const DBConfig& dbConfig, int savePeriodSec, int workerCount, int queueMax, ZoneServerId zoneServerId)
 {
-    return _characterStore.Init(dbConfig, savePeriodSec, workerCount, queueMax);
+    return _characterStore.Init(dbConfig, savePeriodSec, workerCount, queueMax, zoneServerId);
 }
 #else
-bool CGameServer::InitDB(const DBConfig&, int, int, int) { return true; }   // 토글 OFF: no-op
+bool CGameServer::InitDB(const DBConfig&, int, int, int, ZoneServerId) { return true; }   // 토글 OFF: no-op
 #endif
 
 // ==========================================================================

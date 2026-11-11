@@ -358,17 +358,19 @@ enum class SaveReplyResult : uint8_t
     OK,
     FAILED,
     ORPHAN,    // 주인 없음 — 나간 사람의 비행 중이던 묶음 · 같은 캐릭터 재접속 전의 묶음(번호가 안 맞음)
+    FENCED,    // 주인이 다른 존 서버로 옮겨 가 거절됨 — 살아 있는 사람은 끊고 떠난 기록은 지운다
     COUNT
 };
 
 inline const char* SaveReplyResultName(SaveReplyResult r)
 {
-    static_assert(static_cast<int>(SaveReplyResult::COUNT) == 3, "SaveReplyResult 를 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(SaveReplyResult::COUNT) == 4, "SaveReplyResult 를 늘렸으면 이름도 붙일 것");
     switch (r)
     {
     case SaveReplyResult::OK:     return "ok";
     case SaveReplyResult::FAILED: return "failed";
     case SaveReplyResult::ORPHAN: return "orphan";
+    case SaveReplyResult::FENCED: return "fenced";
     case SaveReplyResult::COUNT:  break;
     }
     return "?";
@@ -545,6 +547,7 @@ struct alignas(64) DBSaveCounters
 
     Counter _savedJobs;                 // UPSERT 성공 누적(저장 묶음은 묶음 하나에 하나)
     Counter _failedJobs;                // UPSERT 실패 누적(저장 묶음도 같음 — 실패 회신 수)
+    Counter _fencedJobs;                // 주인이 달라 거절된 저장 묶음 수(펜스 — 머리마다 하나)
     Counter _droppedJobs;               // 백프레셔 드롭 누적(슬롯 큐 상한 초과 — 저장 묶음은 묶음끼리 센 상한)
     Counter _saveRetried;               // 저장 묶음을 재연결 뒤 묶음째 다시 한 수(성공·실패 무관)
     Counter _saveSlotRows;              // 커밋된 저장 묶음의 칸 줄 수
@@ -862,7 +865,7 @@ public:
 
     // ══════════════════════════════════════════════════════════════
     // 저장 묶음 — 게임 스레드 몫(저장소 CCharacterStore 가 센다). 워커 몫(성공·실패·재시도·칸 줄)은 아래 _db.
-    //   등식(조용해진 뒤) — Σ txn = _db._savedJobs + _db._failedJobs = Σ reply(모든 묶음이 회신을 받는다).
+    //   등식(조용해진 뒤) — Σ txn = _db._savedJobs + _db._failedJobs + _db._fencedJobs = Σ reply(모든 묶음이 회신을 받는다).
     //   USE_DB_WORKER=0 이어도 0 으로 노출된다(위 _enter 와 같은 이유).
     // ══════════════════════════════════════════════════════════════
     struct alignas(64) SaveCounters

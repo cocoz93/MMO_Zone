@@ -147,6 +147,8 @@ private:
         const DBResult* cooldownsAndBuffs = nullptr;
         // 소유 표의 이름·몸이 든 결과 — 찾음·없음 분기에서 채운다. 같은 수명 · 풀기는 SpawnPlayer. nullptr = 안 읽음
         const DBResult* roster = nullptr;
+        int32_t         ownerZone         = 0;       // 불러온 주인 열 둘 — 찾음·없음 분기 공통(펜스)
+        uint64_t        ownerSeq          = 0;
         bool            dropBuffs         = false;   // 죽은 채 저장된 행 — 버프는 버린다(죽으면 버프가 지워지는 규칙). 쿨타임은 되살린다(죽어도 남는 규칙)
 #endif
     };

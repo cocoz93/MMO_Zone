@@ -345,6 +345,8 @@ void CEntryHandler::OnCharacterLoaded(const DBResult& result, int64_t nowNs)
     if (zone == nullptr)
         zone = _mapManager.FindOrCreateChannel(_mapManager.GetDefaultMapId());
 
+    place.ownerZone = result.ownerZone;
+    place.ownerSeq  = result.ownerSeq;
     if (SpawnPlayer(result.sessionId, pending.actorId, pending.characterId, pending.accountId, zone, place) == nullptr)
     {
         // 분기 카운터는 위에서 이미 올랐다. 여기 오는 길은 채널 생성 실패뿐이라 카운터를 따로 두지 않는다(로그만).
@@ -401,6 +403,8 @@ CPlayer* CEntryHandler::SpawnPlayer(SessionId sessionId, ActorId actorId, Charac
     //   USE_LOGIN=0 이면 접속 때 뽑은 actorId 와 같은 값(OnConnected)
     player->_characterId = characterId;
     player->_accountId   = accountId;   // 입장 번호 길만 값이 있다 — 시험 입장 길은 NO_ACCOUNT
+    player->_ownerZone   = place.ownerZone;
+    player->_ownerSeq    = place.ownerSeq;
     // 이름·몸 — 패킷을 보내기 "전"에 세운다(남의 화면에 나갈 값이다)
     if (place.roster != nullptr)
         ApplyRoster(player, *place.roster);

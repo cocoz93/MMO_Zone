@@ -22,7 +22,7 @@
 // DB 저장 파이프라인 — 바뀐 자리는 표시만, 계기가 묶음 하나를 워커에(저장 플랜 C · 아래 「저장 묶음」 절)
 // ==========================================================================
 
-bool CCharacterStore::Init(const DBConfig& dbConfig, int savePeriodSec, int workerCount, int queueMax)
+bool CCharacterStore::Init(const DBConfig& dbConfig, int savePeriodSec, int workerCount, int queueMax, ZoneServerId zoneServerId)
 {
     // 세 값은 INI 필수(코드에 기본값 없음) — 빠지면 조용히 다른 값으로 도는 대신 서버를 안 띄운다
     if (savePeriodSec <= 0 || workerCount <= 0 || queueMax <= 0)
@@ -33,7 +33,7 @@ bool CCharacterStore::Init(const DBConfig& dbConfig, int savePeriodSec, int work
     }
 
     _dbWorker = std::make_unique<CDBWorker>(_gameMonitor._db);   // 저장 파이프라인 지표는 게임 그릇(10-06 코어에서 옮김)
-    if (!_dbWorker->Start(dbConfig, workerCount, queueMax))
+    if (!_dbWorker->Start(dbConfig, workerCount, queueMax, zoneServerId))
     {
         SLOG_ERROR("[DB] InitDB failed - check MySQL connection/config");
         _dbWorker.reset();
@@ -436,7 +436,8 @@ bool CCharacterStore::CanSaveTradeNow(const CPlayer* a, const CPlayer* b) const
 {
     if (!_dbWorker)
         return true;   // DB 를 안 쓰는 빌드·설정 — 맞바꾸기만 한다
-    return a->_dbFlight.bundleNo == 0 && b->_dbFlight.bundleNo == 0 && !a->_dbFlight.paired && !b->_dbFlight.paired;
+    return a->_dbFlight.bundleNo == 0 && b->_dbFlight.bundleNo == 0 && !a->_dbFlight.paired && !b->_dbFlight.paired
+        && !a->_dbFlight.fenced && !b->_dbFlight.fenced;   // 펜스를 받은 사람의 거래는 저장이 안 되니 맞바꾸지도 않는다
 }
 
 void CCharacterStore::SaveTrade(CPlayer* a, CPlayer* b)
@@ -543,6 +544,7 @@ bool CCharacterStore::SendPair(PairLink& link, SaveTrigger trigger)
         link.replied[s]  = false;
     }
     link.ok       = true;
+    link.fenced   = false;
     link.inFlight = true;
     return true;
 }
@@ -554,22 +556,52 @@ void CCharacterStore::OnPairReply(const DBSaveReply& reply)
     if (link == nullptr || !link->inFlight || link->bundleNo[side] != reply.bundleNo || link->replied[side])
         return;   // 짝 묶음의 머리가 아니다(혼자 묶음 · 종료 때 다시 낸 짝 뒤에 온 옛 짝의 회신)
     link->replied[side] = true;
-    link->ok = link->ok && reply.ok;
+    link->ok = link->ok && reply.result == DBSaveResult::OK;
+    link->fenced = link->fenced || reply.result == DBSaveResult::FENCED;
     if (!link->replied[1 - side])
         return;   // 다른 쪽 회신을 기다린다(워커가 둘을 이어 넣어 대개 같은 꺼내기에 온다)
 
-    if (!link->ok)
+    if (!link->ok && !link->fenced)
     {
         // 실패 — 쪽마다 회신 길이 이미 되살렸다(살아 있는 사람 AbortBundle · 떠난 기록 inFlight=false). 고리를 두고 다음 주기에 짝째로.
         link->inFlight = false;
         return;
     }
 
-    // 성공 — 고리를 풀고, 쪽마다 붙잡아 둔 것을 다시 흐르게 한다
+    // 성공 — 고리를 풀고, 쪽마다 붙잡아 둔 것을 다시 흐르게 한다. 펜스 — 고리를 풀고, 쪽마다 거래 결과가 든 것을 버린다
     const PairLink done = *link;
     _pairs.erase(_pairs.begin() + (link - _pairs.data()));
     for (int s = 0; s < 2; ++s)
-        ReleasePairSide(done.character[s], done.session[s]);
+    {
+        if (done.fenced)
+            FencePairSide(done.character[s], done.session[s]);
+        else
+            ReleasePairSide(done.character[s], done.session[s]);
+    }
+}
+
+void CCharacterStore::FencePairSide(CharacterId characterId, SessionId sessionId)
+{
+    // 짝 묶음은 되감겼는데 메모리·붙잡힌 기록엔 거래 결과가 있다. 주인이 안 바뀐 쪽이 이것을 혼자 쓰면 물건이 복제된다(world-server-plan.md 2절 5번)
+    if (sessionId != NO_OWNER_SESSION)
+    {
+        CPlayer* player = _sessionHub.FindPlayer(sessionId);
+        if (player != nullptr && player->_characterId == characterId)
+        {
+            player->_dbFlight.paired = false;
+            player->_dbFlight.fenced = true;
+            _sessionHub.RequestDisconnect(sessionId);
+        }
+        return;
+    }
+    // 나간 쪽 — 짝 묶음에 실린 기록은 회신 길(OnSaveReply)이 이미 지웠다. 남아 있으면 짝이 떠 있는 동안 나가 붙잡힌 것이다
+    auto it = _leaveRecords.find(characterId);
+    if (it != _leaveRecords.end() && it->second.paired)
+    {
+        SLOG_WARN("[DB] held leave record dropped by pair fence (character={})", characterId);
+        _leaveRecords.erase(it);
+        _gameMonitor._save._pendingLeave.Store(static_cast<int64_t>(_leaveRecords.size()));
+    }
 }
 
 void CCharacterStore::ReleasePairSide(CharacterId characterId, SessionId sessionId)
@@ -612,6 +644,8 @@ void CCharacterStore::PrepareBundle(CPlayer* player, DBSaveBundle& head, std::ve
     head           = DBSaveBundle{};
     head.row       = MakeCharRow(player);
     head.sessionId = player->_sessionId;
+    head.ownerZone = player->_ownerZone;
+    head.ownerSeq  = player->_ownerSeq;
     head.bundleNo  = f.nextNo;
     f.nextNo = (f.nextNo == UINT32_MAX) ? 1 : f.nextNo + 1;   // 0 은 「비행 없음」이라 안 쓴다
 
@@ -665,6 +699,8 @@ void CCharacterStore::CommitBundle(CPlayer* player, const DBSaveBundle& head, Sa
 bool CCharacterStore::SendBundle(CPlayer* player, SaveTrigger trigger)
 {
     CPlayer::DbFlight& f = player->_dbFlight;
+    if (f.fenced)
+        return false;     // 펜스를 받았다 — 끊길 때까지 더 안 낸다
     if (f.paired)
         return false;     // 짝 고리 — 짝 묶음이 확정될 때까지 혼자 안 낸다(풀리면 ReleasePairSide 가 다시 요청한다)
     if (f.bundleNo != 0)
@@ -792,12 +828,23 @@ void CCharacterStore::LeaveFinal(CPlayer* player, SaveTrigger trigger)
     head.parts     = SAVE_PART_ALL;   // 판정 없이 다 쓴다(안전망) — ★ 0 은 「안 씀」이라 이 줄이 빠지면 나갈 때 행이 안 써진다
     head.row       = MakeCharRow(player);
     head.sessionId = NO_OWNER_SESSION;   // 주인 = 떠난 기록(회신은 캐릭터 번호로 찾는다)
+    head.ownerZone = player->_ownerZone;
+    head.ownerSeq  = player->_ownerSeq;
     std::vector<DBInvRow> rows;
     FillFinalRows(player, rows);
     if (player->_dbFlight.bundleNo != 0)
     {
         player->_dbFlight.bundleNo = 0;   // 비행 중이던 묶음의 회신은 주인 없음으로 떨어진다 — 칸은 위 마지막 묶음에 실렸다
         SetInflight(-1);
+    }
+    if (player->_dbFlight.fenced)
+    {
+        // 펜스를 받은 사람 — 기록을 안 남긴다. 고리가 아직 있으면(짝의 다른 쪽 회신이 뒤에 온다) 이쪽이 떠났다고만 적는다
+        int side = 0;
+        if (PairLink* link = FindPair(player->_characterId, &side))
+            link->session[side] = NO_OWNER_SESSION;
+        player->_dbFlight.paired = false;
+        return;
     }
     // 짝 고리 — 떠난 기록을 붙잡는다(큐에 안 넣음). 비행 중이던 것이 짝 묶음이면 그 짝은 다른 큐에 있을 수 있어,
     //   지금 내면 이 기록이 먼저 써지고 늦게 온 짝 묶음이 그보다 옛 값으로 덮는다(trade-plan.md 「위험」). 짝이 확정되면 그때 혼자 낸다.
@@ -868,8 +915,10 @@ void CCharacterStore::OnSaveReply(const DBSaveReply& reply)
         CPlayer::DbFlight& f = player->_dbFlight;
         f.bundleNo = 0;
         SetInflight(-1);
-        if (reply.ok)
+        static_assert(static_cast<int>(DBSaveResult::COUNT) == 3, "DBSaveResult 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
+        switch (reply.result)
         {
+        case DBSaveResult::OK:
 #if USE_INVENTORY
             f.slots.reset();   // 그 칸은 DB 에 확정됐다
 #endif
@@ -879,12 +928,26 @@ void CCharacterStore::OnSaveReply(const DBSaveReply& reply)
                 f.again = false;
                 RequestSave(player, SaveReason::AGAIN);   // 비행 중에 선 다시 필요 — 이번 틱 끝에
             }
-        }
-        else
-        {
+            break;
+        case DBSaveResult::FAILED:
             AbortBundle(player);   // 되살림 — 곧바로 다시 안 보낸다(다음 계기에 · 죽은 DB 를 틱마다 두드리지 않게)
             f.again = false;
             counters._reply[static_cast<int>(SaveReplyResult::FAILED)].Inc();
+            break;
+        case DBSaveResult::FENCED:
+            // 주인이 다른 존 서버로 옮겨 갔다 — 이 메모리는 이제 진실이 아니다. 되살리지 않고 끊는다(world-server-plan.md 2절 5번)
+            //   거래 짝이면 주인이 안 바뀐 쪽도 여기로 온다. 그쪽 메모리엔 되감긴 거래 결과가 들어 있어, 이어서 저장하면 복제다 — 그래서 표시로 막는다
+            f.again = false;
+            f.fenced = true;
+#if USE_INVENTORY
+            f.slots.reset();
+#endif
+            counters._reply[static_cast<int>(SaveReplyResult::FENCED)].Inc();
+            SLOG_WARN("[DB] owner moved -> disconnect (character={}, session={})", reply.characterId, reply.sessionId);
+            _sessionHub.RequestDisconnect(reply.sessionId);
+            break;
+        case DBSaveResult::COUNT:
+            break;   // 값이 아니라 개수 표시
         }
         return;
     }
@@ -896,15 +959,22 @@ void CCharacterStore::OnSaveReply(const DBSaveReply& reply)
         counters._reply[static_cast<int>(SaveReplyResult::ORPHAN)].Inc();
         return;
     }
-    if (reply.ok)
+    switch (reply.result)
     {
+    case DBSaveResult::OK:
         _leaveRecords.erase(it);
         counters._reply[static_cast<int>(SaveReplyResult::OK)].Inc();
-    }
-    else
-    {
+        break;
+    case DBSaveResult::FAILED:
         it->second.inFlight = false;   // 다음 주기 · 같은 캐릭터 불러오기 앞에 다시 싣는다
         counters._reply[static_cast<int>(SaveReplyResult::FAILED)].Inc();
+        break;
+    case DBSaveResult::FENCED:
+        _leaveRecords.erase(it);       // 주인이 옮겨 갔다 — 다시 실어도 또 거절된다. 이 기록의 값은 잃는다(world-server-plan.md 5.3)
+        counters._reply[static_cast<int>(SaveReplyResult::FENCED)].Inc();
+        break;
+    case DBSaveResult::COUNT:
+        break;   // 값이 아니라 개수 표시
     }
     counters._pendingLeave.Store(static_cast<int64_t>(_leaveRecords.size()));
 }

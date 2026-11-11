@@ -229,7 +229,7 @@ int main(int argc, char** argv)
         dbConfig.database          = config.dbDatabase;           // 사용할 스키마명 (기본 gamedb)
         dbConfig.connectTimeoutSec = config.dbConnectTimeoutSec;  // 접속 시도 타임아웃(초) — 이 시간 안에 연결 못 하면 실패 반환
         dbConfig.rwTimeoutSec      = config.dbRwTimeoutSec;       // 읽기/쓰기 소켓 타임아웃(초) — DB 무응답 시 쿼리 무한대기 방지
-        if (!server.InitDB(dbConfig, config.dbSavePeriodSec, config.dbWorkers, config.dbQueueMax))
+        if (!server.InitDB(dbConfig, config.dbSavePeriodSec, config.dbWorkers, config.dbQueueMax, ZoneServerId{ config.zoneServerId }))
         {
             SLOG_ERROR("[Error] DB init failed");
             return 1;

@@ -32,7 +32,7 @@ CDBWorker::~CDBWorker()
     Shutdown(0);
 }
 
-bool CDBWorker::Start(const DBConfig& config, int workerCount, int queueMax)
+bool CDBWorker::Start(const DBConfig& config, int workerCount, int queueMax, ZoneServerId zoneServerId)
 {
     assert(workerCount > 0 && queueMax > 0);   // 1 이상인지는 CCharacterStore::Init 이 봤다(CGameServer::InitDB 가 넘긴다) — 여기에 기본값을 두지 않는다
     _config      = config;
@@ -40,6 +40,7 @@ bool CDBWorker::Start(const DBConfig& config, int workerCount, int queueMax)
     if (_workerCount > DBSaveCounters::MAX_WORKERS)
         _workerCount = DBSaveCounters::MAX_WORKERS;   // 큐 깊이 게이지 배열 상한에 맞춤
     _queueMax    = queueMax;
+    _zoneServerId = zoneServerId;
 #if USE_DB_FAULT_INJECT
     LoadFaultPlan();   // 시험 빌드 — 워커 스레드가 뜨기 전에 한 번
 #endif
@@ -343,20 +344,29 @@ void CDBWorker::WorkerThread(int idx)
                     assert(static_cast<size_t>(heads[h]->slotBegin) + static_cast<size_t>(heads[h]->slotCount) <= localRows.size());
                     rows[h] = (heads[h]->slotCount > 0) ? localRows.data() + heads[h]->slotBegin : nullptr;
                 }
-                const bool ok = ExecBundle(slot, heads, rows, n, reconnectFailedThisBatch);
+                const DBSaveResult result = ExecBundle(slot, heads, rows, n, reconnectFailedThisBatch);
+                static_assert(static_cast<int>(DBSaveResult::COUNT) == 3, "DBSaveResult 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
                 for (int h = 0; h < n; ++h)
                 {
                     const DBSaveBundle& b = *heads[h];
-                    if (ok)
+                    switch (result)
                     {
+                    case DBSaveResult::OK:
                         _counters._savedJobs.Inc();
                         _counters._saveSlotRows.Add(b.slotCount);
                         if (b.parts & SAVE_PART_CHAR_ROW)
                             _counters._saveCharRows.Inc();
-                    }
-                    else
+                        break;
+                    case DBSaveResult::FAILED:
                         _counters._failedJobs.Inc();
-                    PushSaveReply(DBSaveReply{ CharacterId{ b.row.characterId }, b.sessionId, b.bundleNo, ok });
+                        break;
+                    case DBSaveResult::FENCED:
+                        _counters._fencedJobs.Inc();
+                        break;
+                    case DBSaveResult::COUNT:
+                        break;   // 값이 아니라 개수 표시
+                    }
+                    PushSaveReply(DBSaveReply{ CharacterId{ b.row.characterId }, b.sessionId, b.bundleNo, result });
                 }
                 break;
             }
@@ -524,6 +534,10 @@ static const std::string kLoadInvSql  = BuildSelectSql("inventory", kInvColumns,
 #endif
 static const std::string kLoadRosterSql = BuildSelectSql("character_roster", kRosterColumns, kRosterColCount, "");
 
+// 주인 열 둘(펜스) — 열 표 밖이다(DBOwnerBuf 주석). 잠금 읽기는 UPDATE 와 같은 잠금이라 불러오기와 저장이 캐릭터 행 하나에서 차례를 선다.
+static const char* const kOwnerSelectSql = "SELECT owner_zone,owner_seq FROM characters WHERE character_id=? FOR UPDATE";
+static const char* const kOwnerUpdateSql = "UPDATE characters SET owner_zone=?,owner_seq=? WHERE character_id=?";
+
 // 열 하나를 바인딩 칸에 댄다 — 저장 파라미터와 불러오기 결과가 같은 꼴이다(base = 저장 구조체 꼴의 슬롯 버퍼).
 //   숫자 열은 멤버 자리 하나, 바이트 열은 data(buffer)·len(length)·N(buffer_length) 셋.
 //   저장 때 MySQL 은 *length 만큼 보내고, 불러올 때는 *length 에 원래 길이를 적는다(N 보다 길면 잘림 — RunLoadOnce 주석).
@@ -616,6 +630,30 @@ static bool BindLoadRoster(MYSQL_STMT* st, DBWorkerSlot& slot)
     return BindSelect(st, &slot.bRoster, &slot.bRoster.characterId, kRosterColumns, kRosterColCount);
 }
 
+// 주인 잠금 읽기 — 파라미터는 character_id, 결과는 두 열. owner_seq 는 BIGINT UNSIGNED 다
+static bool BindOwnerSelect(MYSQL_STMT* st, DBWorkerSlot& slot)
+{
+    MYSQL_BIND p[1] = {};
+    p[0].buffer_type = MYSQL_TYPE_LONGLONG; p[0].buffer = &slot.bOwner.characterId;
+    if (mysql_stmt_bind_param(st, p) != 0)
+        return false;
+
+    MYSQL_BIND r[2] = {};
+    r[0].buffer_type = MYSQL_TYPE_LONG;     r[0].buffer = &slot.bOwner.ownerZone;
+    r[1].buffer_type = MYSQL_TYPE_LONGLONG; r[1].buffer = &slot.bOwner.ownerSeq; r[1].is_unsigned = true;
+    return mysql_stmt_bind_result(st, r) == 0;
+}
+
+// 주인 적기 — ? 순서는 owner_zone · owner_seq · character_id
+static bool BindOwnerUpdate(MYSQL_STMT* st, DBWorkerSlot& slot)
+{
+    MYSQL_BIND p[3] = {};
+    p[0].buffer_type = MYSQL_TYPE_LONG;     p[0].buffer = &slot.bOwnerSet.ownerZone;
+    p[1].buffer_type = MYSQL_TYPE_LONGLONG; p[1].buffer = &slot.bOwnerSet.ownerSeq; p[1].is_unsigned = true;
+    p[2].buffer_type = MYSQL_TYPE_LONGLONG; p[2].buffer = &slot.bOwnerSet.characterId;
+    return mysql_stmt_bind_param(st, p) == 0;
+}
+
 // DBStmt 순서 그대로 — 인덱스가 곧 문장이다. 문장은 열 표(kCharColumns · kInvColumns)에서 조립.
 static const StmtDesc kStmts[] = {
     /* CHAR_UPSERT */ { "char_upsert", kSaveSql.c_str(),     BindPositionParams },
@@ -625,6 +663,8 @@ static const StmtDesc kStmts[] = {
     /* INV_SELECT  */ { "inv_select",  kLoadInvSql.c_str(),  BindLoadInventory },
 #endif
     /* ROSTER_SELECT */ { "roster_select", kLoadRosterSql.c_str(), BindLoadRoster },
+    /* OWNER_SELECT  */ { "owner_select",  kOwnerSelectSql,        BindOwnerSelect },
+    /* OWNER_UPDATE  */ { "owner_update",  kOwnerUpdateSql,        BindOwnerUpdate },
 };
 static_assert(sizeof(kStmts) / sizeof(kStmts[0]) == DB_STMT_COUNT,
               "DBStmt 를 늘렸으면 kStmts 에도 같은 순서로 한 줄을 넣을 것");
@@ -636,6 +676,30 @@ static constexpr int kItemIdx    = static_cast<int>(DBStmt::SLOT_UPSERT);
 static constexpr int kInvLoadIdx = static_cast<int>(DBStmt::INV_SELECT);
 #endif
 static constexpr int kRosterIdx = static_cast<int>(DBStmt::ROSTER_SELECT);
+static constexpr int kOwnerSelectIdx = static_cast<int>(DBStmt::OWNER_SELECT);
+static constexpr int kOwnerUpdateIdx = static_cast<int>(DBStmt::OWNER_UPDATE);
+
+// 주인 열 잠금 읽기 — 값은 slot.bOwner 에, 행이 있나는 found 에. false = 실패(오류는 st 에 남아 있다 — 부르는 쪽이 유실·그 밖을 가른 뒤 결과를 닫는다).
+//   기본 키 조회라 행은 많아야 하나다. 숫자 두 열이라 잘림이 없다.
+static bool ReadOwnerLocked(MYSQL_STMT* st, DBWorkerSlot& slot, int64_t characterId, bool& found)
+{
+    slot.bOwner.characterId = characterId;
+    found = false;
+    if (mysql_stmt_execute(st) != 0)
+        return false;
+    switch (mysql_stmt_fetch(st))
+    {
+    case 0:
+        found = true;
+        break;
+    case MYSQL_NO_DATA:
+        break;
+    default:
+        return false;
+    }
+    mysql_stmt_free_result(st);   // 안 닫으면 같은 커넥션의 다음 명령이 "Commands out of sync" 로 실패한다
+    return true;
+}
 
 // 문장 준비 실패 로그 — 테이블이 없으면(ER_NO_SUCH_TABLE) 할 일을 같이 적는다.
 //   게임 계정에는 CREATE 권한이 없어 서버가 테이블을 만들 수 없다 — 사람이 root 로 한 번 돌려야 한다.
@@ -712,6 +776,68 @@ void CDBWorker::DropConnection(DBWorkerSlot& slot)
 
 CDBWorker::LoadOutcome CDBWorker::RunLoadOnce(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out)
 {
+    // 불러오기 하나 = 트랜잭션 하나 — 주인 잠금을 쥔 채 읽고, 주인 바꾸기까지 한 번에 확정한다(펜스).
+    MYSQL* m = static_cast<MYSQL*>(slot.mysql);
+    auto classifyConn = [&](const char* step) -> LoadOutcome
+    {
+        const unsigned int err = mysql_errno(m);
+        if (CDbConnection::IsConnectionLostErrno(err))
+        {
+            SLOG_WARN("[DB] connection lost during load {} (errno={}, character={})", step, err, job.characterId);
+            return LoadOutcome::CONNECTION_LOST;
+        }
+        SLOG_ERROR("[DB] load {} failed (character={}): {}", step, job.characterId, mysql_error(m));
+        return LoadOutcome::QUERY_ERROR;
+    };
+
+    if (mysql_real_query(m, "START TRANSACTION", static_cast<unsigned long>(strlen("START TRANSACTION"))) != 0)
+        return classifyConn("start");
+
+    const LoadOutcome outcome = RunLoadBody(slot, job, out);
+    if (outcome == LoadOutcome::CONNECTION_LOST)
+        return outcome;   // 열린 트랜잭션은 DB 가 되돌린다 — ExecLoad 가 커넥션을 버린다
+
+    // 읽기에 실패하면 되돌린다 — 주인을 바꾼 채 못 들어온 사람을 남기지 않는다. 되돌리기도 안 되면 커넥션을 버린다(저장 묶음의 실패 가르기와 같은 까닭).
+    const bool read = (outcome == LoadOutcome::FOUND || outcome == LoadOutcome::NOT_FOUND);
+    if ((read ? mysql_commit(m) : mysql_rollback(m)) != 0)
+    {
+        const LoadOutcome e = classifyConn(read ? "commit" : "rollback");
+        if (e != LoadOutcome::CONNECTION_LOST)
+            DropConnection(slot);
+        return e;
+    }
+    return outcome;
+}
+
+CDBWorker::LoadOutcome CDBWorker::RunLoadBody(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out)
+{
+    // 첫 문장 — 주인 잠금. 주인이 내가 아니면 나로 바꾸고 번호를 올린다. 나면 그대로 둔다 — 같은 존 서버로 다시 불러올 때 번호를 올리면
+    //   그 존 서버의 확정 전 짝 기록이 자기 불러오기 때문에 거절되어 거래 한쪽만 남는다(world-server-plan.md 2절 3번).
+    //   행이 없으면(시험 입장 길의 새 번호) 고칠 행이 없다 — (나, 0)을 들고 첫 저장이 적는다(2절 10번).
+    MYSQL_STMT* stOwner = static_cast<MYSQL_STMT*>(slot.stmt[kOwnerSelectIdx]);
+    bool ownerRow = false;
+    if (!ReadOwnerLocked(stOwner, slot, ToInt(job.characterId), ownerRow))
+    {
+        const LoadOutcome e = ClassifyStmtError(stOwner, "load owner", job.characterId);
+        if (e != LoadOutcome::CONNECTION_LOST)
+            mysql_stmt_free_result(stOwner);
+        return e;
+    }
+    out.ownerZone = ToInt(_zoneServerId);
+    out.ownerSeq  = 0;
+    if (ownerRow)
+    {
+        out.ownerSeq = slot.bOwner.ownerSeq;
+        if (slot.bOwner.ownerZone != out.ownerZone)
+        {
+            ++out.ownerSeq;
+            slot.bOwnerSet = DBOwnerBuf{ ToInt(job.characterId), out.ownerZone, out.ownerSeq };
+            MYSQL_STMT* stSet = static_cast<MYSQL_STMT*>(slot.stmt[kOwnerUpdateIdx]);
+            if (mysql_stmt_execute(stSet) != 0)
+                return ClassifyStmtError(stSet, "load owner update", job.characterId);
+        }
+    }
+
     MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmt[kLoadIdx]);
     slot.bLoad.characterId = ToInt(job.characterId);
 
@@ -913,6 +1039,8 @@ void CDBWorker::ExecLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out
     out.skillCooldowns.len = 0;   // 새 캐릭터·못 읽음 = 돌고 있는 것 없음
     out.buffs.len          = 0;
     out.job                = 0;   // 새 캐릭터·못 읽음 = 아직 안 고름
+    out.ownerZone          = 0;   // RunLoadBody 가 채운다(실패면 code 가 FAILED 라 안 쓰인다)
+    out.ownerSeq           = 0;
     out.money              = 0;   // 새 캐릭터 = 빈손(돈 열은 가방을 켠 빌드만 읽는다 — 열 표 kCharColumns)
 #if USE_INVENTORY
     out.invCount    = 0;   // 가방 줄 — RunInventoryLoad 가 채운다(실패면 code 가 FAILED 라 안 쓰인다)
@@ -961,9 +1089,9 @@ void CDBWorker::ExecLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out
 // ==========================================================================
 // 저장 묶음 — 묶음 하나 = 트랜잭션 하나 (save-unify-plan.md 「워커」)
 //   쓰는 것은 켜진 덩어리만 — 캐릭터 행은 parts 에 SAVE_PART_CHAR_ROW 가 있을 때만, 칸은 slotCount 줄(save-skip-row-plan.md).
-//   문장이 하나면(행만 — 주기 묶음의 대부분 · 칸 1줄만) 자동 커밋 아래서 그 자체가 트랜잭션이라 START/COMMIT 을 안 보낸다.
-//   둘 이상이면 START TRANSACTION → (캐릭터 행 UPSERT) → 칸 UPSERT × N → COMMIT. 칸 줄은 최종값이라 두 번 써도 같다.
-//   워커는 주인을 모른다 — 성공·실패를 회신할 뿐, 다시 싣기는 저장소가 정한다.
+//   늘 START TRANSACTION → 주인 잠금 읽기(머리마다) → (캐릭터 행 UPSERT) → 칸 UPSERT × N → COMMIT. 칸 줄은 최종값이라 두 번 써도 같다.
+//   주인이 묶음이 든 값과 다르면 ROLLBACK 하고 FENCED 로 답한다(펜스 · world-server-plan.md 2절 4번).
+//   워커는 묶음의 주인(세션)을 모른다 — 결말을 회신할 뿐, 다시 싣기는 저장소가 정한다.
 // ==========================================================================
 #if USE_DB_FAULT_INJECT
 // 이 묶음에 걸린 주입(문장 뒤 오류·끊김)이 아직 안 쓰였나 — 워커 스레드마다 따로(묶음 처리 한 번 동안만 산다)
@@ -975,9 +1103,6 @@ CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSave
     assert(n >= 1 && n <= MAX_BUNDLE_HEADS);
     MYSQL* m = static_cast<MYSQL*>(slot.mysql);
     const DBSaveBundle& b = *heads[0];   // 로그의 머리 — 짝이면 둘째 캐릭터도 같이 적는다(아래 fail)
-    // 문장이 둘 이상이면 트랜잭션 — 자동 커밋이면 반쪽이 남는다. 짝은 늘(머리 둘)
-    const int stmtCount = ((b.parts & SAVE_PART_CHAR_ROW) ? 1 : 0) + b.slotCount;
-    const bool txn = (n > 1 || stmtCount > 1);
     const int64_t pairCharacter = (n > 1) ? heads[1]->row.characterId : 0;
 
     // 실패 가르기 — 끊김이면 커넥션을 버린다(열린 트랜잭션은 DB 가 되돌린다). 그 밖이면 ROLLBACK,
@@ -991,7 +1116,7 @@ CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSave
             return SaveOutcome::CONNECTION_LOST;
         }
         SLOG_ERROR("[DB] save bundle {} failed (character={}, pair={}, bundle={}): {}", what, b.row.characterId, pairCharacter, b.bundleNo, msg);
-        if (txn && mysql_rollback(m) != 0)
+        if (mysql_rollback(m) != 0)
         {
             SLOG_ERROR("[DB] rollback failed -> drop connection (character={}): {}", b.row.characterId, mysql_error(m));
             DropConnection(slot);
@@ -1022,8 +1147,45 @@ CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSave
     SaveOutcome injected = SaveOutcome::OK;
 #endif
 
-    if (txn && mysql_real_query(m, "START TRANSACTION", static_cast<unsigned long>(strlen("START TRANSACTION"))) != 0)
+    if (mysql_real_query(m, "START TRANSACTION", static_cast<unsigned long>(strlen("START TRANSACTION"))) != 0)
         return fail(mysql_errno(m), "start", mysql_error(m));
+
+    // 주인 맞춰 보기 — 머리 전부를 쓰기 앞에 본다. 짝이면 한쪽이라도 다르면 묶음 전체를 되감는다(남은 사람 메모리에 거래 결과가 남으면 복제다).
+    //   작은 번호부터 잠근다 — 두 존 서버의 짝 묶음이 같은 사람을 반대 순서로 잡아 서로 기다리지 않게.
+    //   행이 없으면 통과한다 — 시험 입장 길의 새 번호뿐이다(world-server-plan.md 2절 10번).
+    bool rowMissing[MAX_BUNDLE_HEADS] = {};
+    MYSQL_STMT* stOwner = static_cast<MYSQL_STMT*>(slot.stmt[kOwnerSelectIdx]);
+    const int first = (n > 1 && heads[1]->row.characterId < heads[0]->row.characterId) ? 1 : 0;
+    for (int i = 0; i < n; ++i)
+    {
+        const int h = (first + i) % n;
+        const DBSaveBundle& hb = *heads[h];
+        bool ownerRow = false;
+        if (!ReadOwnerLocked(stOwner, slot, hb.row.characterId, ownerRow))
+        {
+            const unsigned int err = mysql_stmt_errno(stOwner);
+            const std::string msg = mysql_stmt_error(stOwner);   // free_result 가 지우기 전에
+            if (!CDbConnection::IsConnectionLostErrno(err))
+                mysql_stmt_free_result(stOwner);
+            return fail(err, "owner", msg.c_str());
+        }
+        if (!ownerRow)
+        {
+            rowMissing[h] = true;
+            continue;
+        }
+        if (slot.bOwner.ownerZone != hb.ownerZone || slot.bOwner.ownerSeq != hb.ownerSeq)
+        {
+            SLOG_WARN("[DB] save bundle FENCED (character={}, pair={}, bundle={}, mine={}/{}, owner={}/{})",
+                      hb.row.characterId, pairCharacter, hb.bundleNo, hb.ownerZone, hb.ownerSeq, slot.bOwner.ownerZone, slot.bOwner.ownerSeq);
+            if (mysql_rollback(m) != 0)
+            {
+                SLOG_ERROR("[DB] rollback failed -> drop connection (character={}): {}", hb.row.characterId, mysql_error(m));
+                DropConnection(slot);
+            }
+            return SaveOutcome::FENCED;
+        }
+    }
 
     // 머리마다 — 캐릭터 행(켜졌을 때만 · 지금 행 저장과 같은 문장 · 같은 버퍼) → 칸 문장 × N. 문장 번호는 머리를 넘어 이어 센다
     //   (주입 error@k · lost@k 의 k — 실제로 보낸 문장만 센다. 짝이면 A 의 문장 뒤 B 의 문장이다. 짝 가운데서 끊는 시험이 그 번호로 고른다)
@@ -1042,6 +1204,14 @@ CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSave
             if (injectAfter(stmtNo, injected))
                 return injected;
 #endif
+            // 이 묶음이 행을 만들었다 — 든 주인을 적는다(UPSERT 는 주인 열을 안 쓴다). 칸만 바뀐 묶음은 행을 안 만드니 다음 행 저장이 적는다
+            if (rowMissing[h])
+            {
+                MYSQL_STMT* stSet = static_cast<MYSQL_STMT*>(slot.stmt[kOwnerUpdateIdx]);
+                slot.bOwnerSet = DBOwnerBuf{ hb.row.characterId, hb.ownerZone, hb.ownerSeq };
+                if (mysql_stmt_execute(stSet) != 0)
+                    return fail(mysql_stmt_errno(stSet), "owner row", mysql_stmt_error(stSet));
+            }
         }
 
 #if USE_INVENTORY
@@ -1065,12 +1235,12 @@ CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSave
     }
 
     // COMMIT 도중 끊기면 됐는지 모른다 — 끊김으로 돌려 묶음째 다시 쓴다(최종값이라 두 번 써도 같다)
-    if (txn && mysql_commit(m) != 0)
+    if (mysql_commit(m) != 0)
         return fail(mysql_errno(m), "commit", mysql_error(m));
     return SaveOutcome::OK;
 }
 
-bool CDBWorker::ExecBundle(DBWorkerSlot& slot, const DBSaveBundle* const* heads, const DBInvRow* const* rows, int n, bool& reconnectFailedThisBatch)
+DBSaveResult CDBWorker::ExecBundle(DBWorkerSlot& slot, const DBSaveBundle* const* heads, const DBInvRow* const* rows, int n, bool& reconnectFailedThisBatch)
 {
     const DBSaveBundle& b = *heads[0];   // 로그·주입의 머리 — 짝이면 둘 중 하나라도 주입 캐릭터이면 건다
 #if USE_DB_FAULT_INJECT
@@ -1126,10 +1296,17 @@ bool CDBWorker::ExecBundle(DBWorkerSlot& slot, const DBSaveBundle* const* heads,
 
     if (retried)
         _counters._saveRetried.Inc();
-    if (r != SaveOutcome::OK)
-        SLOG_ERROR("[DB] save bundle FAILED (character={}, session={}, bundle={}, rows={}, pair={}) — 저장소가 다음 계기에 다시 싣는다",
-                   b.row.characterId, b.sessionId, b.bundleNo, b.slotCount, (n > 1) ? heads[1]->row.characterId : 0);
-    return r == SaveOutcome::OK;
+    switch (r)
+    {
+    case SaveOutcome::OK:     return DBSaveResult::OK;
+    case SaveOutcome::FENCED: return DBSaveResult::FENCED;   // 실패가 아니다 — 로그는 RunBundleOnce 가 남겼다
+    case SaveOutcome::QUERY_ERROR:
+    case SaveOutcome::CONNECTION_LOST:
+        break;
+    }
+    SLOG_ERROR("[DB] save bundle FAILED (character={}, session={}, bundle={}, rows={}, pair={}) — 저장소가 다음 계기에 다시 싣는다",
+               b.row.characterId, b.sessionId, b.bundleNo, b.slotCount, (n > 1) ? heads[1]->row.characterId : 0);
+    return DBSaveResult::FAILED;
 }
 
 #if USE_DB_FAULT_INJECT

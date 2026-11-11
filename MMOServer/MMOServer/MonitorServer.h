@@ -125,6 +125,8 @@ private:
                      "Total save bundles committed (one per bundle; character rows are counted by mmo_db_save_char_rows_total)", _gameMonitor._db._savedJobs);
         WriteCounter(ss, "mmo_db_failed_total",
                      "Total DB save failures", _gameMonitor._db._failedJobs);
+        WriteCounter(ss, "mmo_db_save_fenced_total",
+                     "Save bundles rejected because the character's owner moved to another zone server", _gameMonitor._db._fencedJobs);
         WriteCounter(ss, "mmo_db_dropped_total",
                      "Total jobs dropped by backpressure (slot queue full)", _gameMonitor._db._droppedJobs);
         WriteCounter(ss, "mmo_db_save_retried_total",
@@ -134,7 +136,7 @@ private:
         WriteCounter(ss, "mmo_db_save_char_rows_total",
                      "Character rows written inside committed save bundles (bundles whose row was unchanged skip it)", _gameMonitor._db._saveCharRows);
         {
-            // 저장 묶음 — 게임 스레드 몫(저장소). 등식(조용해진 뒤): sum(txn) = saved + failed = sum(reply)
+            // 저장 묶음 — 게임 스레드 몫(저장소). 등식(조용해진 뒤): sum(txn) = saved + failed + fenced = sum(reply)
             const auto& sv = _gameMonitor._save;
             ss << "# HELP mmo_db_save_txn_total Save bundles accepted by the DB queue, split by trigger (one per bundle)\n";
             ss << "# TYPE mmo_db_save_txn_total counter\n";

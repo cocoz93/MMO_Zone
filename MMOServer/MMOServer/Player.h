@@ -94,6 +94,7 @@ public:
         bool          again       = false;   // 비행 중에 계기가 와서 판정이 참이었다 = 다시 필요(성공 회신 뒤 틱 끝에 다시)
         bool          listed      = false;   // 이번 틱 끝 목록에 올라 있다(목록 중복 막기)
         bool          posDirty    = false;   // 실을 때의 _dbDirty — 실패면 되살린다
+        bool          fenced      = false;   // 펜스를 받았다 — 이 메모리는 진실이 아니다. 끊길 때까지 저장을 안 내고, 나갈 때 기록도 안 남긴다
         bool          paired      = false;   // 짝 고리(거래)가 걸려 있다 — 짝 묶음이 확정될 때까지 혼자 묶음을 안 낸다(CCharacterStore 「짝 저장」)
         DbSavedValues savedBefore;           // 실을 때의 _dbSaved(싣기 전 값) — 실패면 되돌린다
 #if USE_INVENTORY
@@ -101,6 +102,10 @@ public:
 #endif
     };
     DbFlight _dbFlight;
+
+    // USE_DB_WORKER: 주인 열 둘 — 불러올 때 받은 값을 들고 있다가 저장 묶음마다 싣는다. DB 의 값과 다르면 저장이 거절된다(펜스 · CDBWorker::RunBundleOnce)
+    int32_t  _ownerZone = 0;
+    uint64_t _ownerSeq  = 0;
 
     // ── 레벨과 경험치 ──
     // 사람만 쌓는다. CCharacter 에 안 올리는 이유 — 몬스터가 레벨을 쓸 자리가 아직 없고,

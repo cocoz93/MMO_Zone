@@ -116,15 +116,27 @@ struct DBSaveBundle
     int32_t   slotCount;   // 칸 줄 수(0 ~ 가방 칸 수)
     uint8_t   parts;       // 실을 덩어리 비트(SAVE_PART_*) — 칸은 slotCount 가 표시한다. 비트도 칸도 없는 묶음은 넣지 않는다(PushBundleLocked)
     uint8_t   pairNext;    // 1 = 큐에서 바로 뒤 머리와 한 트랜잭션(짝 묶음 — 거래 · EnqueueSavePair 만 켠다) · 0 = 혼자
+    int32_t   ownerZone;   // 주인 존 서버 번호 — 불러올 때 받은 값. 저장 때 DB 의 값과 맞춰 본다(펜스 · world-server-plan.md 2절 3·4번)
+    uint64_t  ownerSeq;    // 주인이 바뀐 횟수 — 위와 같다. 떠난 기록에도 같이 간다
 };
 
-// 저장 회신 — 모든 묶음이 하나씩 받는다(성공 · 실패). 무엇을 다시 실을지는 받는 쪽(저장소)이 정한다 — 워커는 주인을 모른다.
+// 저장 묶음의 결말 — 셋을 가른다. FENCED 는 실패와 다르다: 실패는 다시 실으면 되지만, FENCED 는 이 캐릭터의 주인이 다른 존 서버로
+//   옮겨 갔다는 사실이라 다시 실으면 안 된다(받는 쪽이 끊는다 · CCharacterStore::OnSaveReply).
+enum class DBSaveResult : uint8_t
+{
+    OK,
+    FAILED,
+    FENCED,
+    COUNT
+};
+
+// 저장 회신 — 모든 묶음이 하나씩 받는다(성공 · 실패 · 펜스). 무엇을 다시 실을지는 받는 쪽(저장소)이 정한다 — 워커는 주인을 모른다.
 struct DBSaveReply
 {
     CharacterId  characterId;
     SessionId  sessionId;   // 묶음에 실어 보낸 값 그대로
     uint32_t bundleNo;
-    bool     ok;
+    DBSaveResult result;
 };
 
 // 불러오기 잡 — 캐릭터 번호로 캐릭터 행을 읽는다. 저장과 달리 결과가 회신 큐로 돌아온다.
@@ -181,6 +193,15 @@ struct DBRosterRowBuf
     DBBytes<DB_ROSTER_LOOK_BYTES> rosterLook;
 };
 
+// 주인 열 둘의 버퍼 꼴 — 잠금 읽기(characterId 가 파라미터, 나머지가 결과) · 주인 적기(셋 다 파라미터).
+//   열 표(kCharColumns)에 안 넣는 까닭 — 표에 넣으면 UPSERT 의 ON DUPLICATE KEY UPDATE 에도 붙어 저장마다 주인을 덮어쓴다.
+struct DBOwnerBuf
+{
+    int64_t  characterId;
+    int32_t  ownerZone;
+    uint64_t ownerSeq;
+};
+
 // 준비해 두는 문장 — 작업 종류와 따로 센다. 저장 묶음은 캐릭터 행 + 칸 문장을, 불러오기는 캐릭터 행 + 가방 문장을 쓴다
 //   (전에는 종류마다 문장 하나 + 불러오기의 둘째 문장이 따로였다 — 묶음도 둘째 문장이 생겨 표로 모음).
 enum class DBStmt : uint8_t
@@ -192,6 +213,8 @@ enum class DBStmt : uint8_t
     INV_SELECT,        // inventory 줄 SELECT — 불러오기의 둘째 문장
 #endif
     ROSTER_SELECT,     // character_roster 이름·몸 SELECT — 불러오기의 마지막 문장(입장 번호 길만)
+    OWNER_SELECT,      // 주인 열 잠금 읽기(FOR UPDATE) — 불러오기·저장 묶음의 첫 문장
+    OWNER_UPDATE,      // 주인 열 적기 — 불러올 때 주인이 바뀌었으면 · 행 없던 캐릭터의 첫 저장 뒤
     COUNT
 };
 constexpr int DB_STMT_COUNT = static_cast<int>(DBStmt::COUNT);
@@ -240,6 +263,9 @@ struct DBResult
     DBBytes<DB_SKILL_COOLDOWNS_BYTES> skillCooldowns;   // 바이트 그대로 — 검사·풀기는 게임 스레드(SpawnPlayer). len > 버퍼 = 잘림(불량)
     DBBytes<DB_BUFFS_BYTES>           buffs;
     int32_t      job;         // DB 값 그대로 — 표에 있는 번호인지는 게임 스레드(OnCharacterLoaded)가 본다
+    // ↓ FOUND·NOT_FOUND 둘 다 유효 — 이 값을 들고 있다가 저장 묶음마다 싣는다(펜스). 행이 없으면 (내 존 서버 번호, 0)
+    int32_t      ownerZone;
+    uint64_t     ownerSeq;
     // ↓ FOUND·NOT_FOUND 둘 다 유효 — 소유 표는 characters 행과 따로 있다. 바이트 그대로 — 검사·풀기는 게임 스레드(SpawnPlayer).
     //   rosterFound = false 는 「행이 없다」는 사실이다. 조회가 실패하면 code 가 FAILED 다 — 없음과 못 읽음을 섞지 않는다.
     bool         rosterFound;
@@ -276,6 +302,8 @@ struct DBWorkerSlot
     DBInvRowBuf              bInvLoad{};            // 가방 SELECT — characterId 가 WHERE 파라미터, 나머지 멤버가 결과 열(fetch 가 줄마다 채운다)
 #endif
     DBRosterRowBuf           bRoster{};       // 소유 표 SELECT — characterId 가 WHERE 파라미터, 나머지 멤버가 결과
+    DBOwnerBuf               bOwner{};        // 주인 잠금 읽기 — characterId 가 파라미터, 나머지가 결과
+    DBOwnerBuf               bOwnerSet{};     // 주인 적기 — 셋 다 파라미터
     int                      index = 0;
 };
 
@@ -291,7 +319,8 @@ public:
     ~CDBWorker();
 
     // K 커넥션 + K 워커 스레드 시작. 하나라도 접속 실패 시 전체 롤백 후 false (fail-fast).
-    bool Start(const DBConfig& config, int workerCount, int queueMax);
+    //   zoneServerId = 이 존 서버의 번호 — 불러올 때 주인으로 적는다(펜스).
+    bool Start(const DBConfig& config, int workerCount, int queueMax, ZoneServerId zoneServerId);
 
     // 게임루프 전용 — 불러오기 1건. 저장과 같은 슬롯 큐(characterId%K)에 넣어 캐릭터별 순서를 지킨다.
     //   저장 상한(queueMax)은 건너뛴다 — 저장은 버려도 다음 주기가 덮지만, 불러오기는 버리면 그 사람이
@@ -340,7 +369,8 @@ private:
     void DropConnection(DBWorkerSlot& slot);  // stmt 전부 + 커넥션 닫고 null 로 — 유실 확인 시
     // 결과는 항상 채운다(실패도 결과다). reconnectFailedThisBatch = 이 묶음에서 재연결이 실패한 적 있나(WorkerThread 지역값).
     void ExecLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out, bool& reconnectFailedThisBatch);
-    LoadOutcome RunLoadOnce(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out);
+    LoadOutcome RunLoadOnce(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out);    // 트랜잭션 하나 — 아래 몸을 감싼다
+    LoadOutcome RunLoadBody(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out);    // 주인 잠금 → 캐릭터 행 → 가방 → 소유 표
 #if USE_INVENTORY
     // 불러오기의 둘째 문장 — 가방 줄을 out.inv 에 채운다. 결말은 LoadOutcome 로(FOUND = 성공, 줄이 0 이어도).
     LoadOutcome RunInventoryLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out);
@@ -354,11 +384,11 @@ private:
     void PushResult(const DBResult& result);  // 워커 스레드 → 회신 큐
 
     // 저장 묶음 — 불러오기와 같은 재연결 규칙(없으면 그 자리 재연결 · 도중에 끊기면 재연결 뒤 묶음째 한 번 더).
-    //   반환 = 성공. 회신은 부르는 쪽(WorkerThread)이 곧바로 넣는다.
+    //   반환 = 결말(성공 · 실패 · 펜스). 회신은 부르는 쪽(WorkerThread)이 곧바로 넣는다.
     //   heads·rows = 머리 n 개(1 = 혼자 · 2 = 짝 묶음)와 그 칸 줄 — n 개를 트랜잭션 하나로 쓴다.
-    enum class SaveOutcome : uint8_t { OK, QUERY_ERROR, CONNECTION_LOST };
+    enum class SaveOutcome : uint8_t { OK, QUERY_ERROR, CONNECTION_LOST, FENCED };
     static constexpr int MAX_BUNDLE_HEADS = 2;
-    bool ExecBundle(DBWorkerSlot& slot, const DBSaveBundle* const* heads, const DBInvRow* const* rows, int n, bool& reconnectFailedThisBatch);
+    DBSaveResult ExecBundle(DBWorkerSlot& slot, const DBSaveBundle* const* heads, const DBInvRow* const* rows, int n, bool& reconnectFailedThisBatch);
     SaveOutcome RunBundleOnce(DBWorkerSlot& slot, const DBSaveBundle* const* heads, const DBInvRow* const* rows, int n);
     void PushSaveReply(const DBSaveReply& reply);   // 워커 스레드 → 회신 큐(저장 회신 목록)
     // 묶음 하나를 슬롯 큐에 — 락을 쥔 채 부른다(EnqueueSave · EnqueueSaveBatch 공용). 거절이면 false.
@@ -386,6 +416,7 @@ private:
     DBConfig         _config;
     int              _workerCount = 0;   // Start 가 넣는다
     int              _queueMax    = 0;
+    ZoneServerId     _zoneServerId{ 0 };   // Start 가 넣는다 — 불러올 때 주인으로 적는 번호
 
     std::vector<std::unique_ptr<DBWorkerSlot>> _workers;
     std::atomic<bool> _stop{ false };

@@ -71,7 +71,7 @@ public:
         , _frameCount(frameCount), _loadEvents(loadEvents) {}
 
     // DB 저장 파이프라인 초기화. Start() 전에 호출(CGameServer::InitDB 가 넘긴다). 세 값은 1 이상 — 아니면 false(기동 거절).
-    bool Init(const DBConfig& dbConfig, int savePeriodSec, int workerCount, int queueMax);
+    bool Init(const DBConfig& dbConfig, int savePeriodSec, int workerCount, int queueMax, ZoneServerId zoneServerId);
     // 게임 스레드 종료 후(단일 스레드 시점) 전원 최종 저장 → 드레인 → 워커 종료. 워커가 없으면 아무 일도 안 한다.
     void Shutdown();
     // 워커가 떠 있나 — 띄우기 전·실패·멈춘 뒤는 false. 저장·불러오기를 부르는 쪽이 먼저 본다.
@@ -150,11 +150,13 @@ private:
         uint32_t bundleNo[2] = {};      // 떠 있는 짝 묶음의 머리 번호 — 회신 짝 맞추기(inFlight 일 때만 뜻이 있다)
         bool     replied[2]  = {};
         bool     ok          = true;    // 받은 회신이 다 성공인가(트랜잭션 하나라 둘은 같다)
+        bool     fenced      = false;   // 받은 회신에 펜스가 있나 — 있으면 다시 싣지 않고 고리를 푼다
         bool     inFlight    = false;
     };
     PairLink* FindPair(CharacterId characterId, int* outSide = nullptr);
     bool SendPair(PairLink& link, SaveTrigger trigger);   // 짝 묶음 하나를 낸다 — 반환 = 큐가 받았나
     void OnPairReply(const DBSaveReply& reply);           // 회신이 떠 있는 짝 묶음의 머리면 고리에 적고, 둘 다 오면 푼다(ProcessDbResults — OnSaveReply 바로 뒤)
+    void FencePairSide(CharacterId characterId, SessionId sessionId);     // 펜스로 풀린 한쪽 — 거래 결과가 든 메모리는 끊고 붙잡힌 기록은 버린다
     void ReleasePairSide(CharacterId characterId, SessionId sessionId);   // 고리가 풀린 한쪽 — 혼자 묶음·붙잡힌 떠난 기록을 다시 흐르게
 
     // 쿨타임·버프 ↔ DB 묶음(characters.skill_cooldowns · buffs, 형식은 CooldownBuffBlob.h). 게임 안의 시간은 틱이고 DB 는 실제 시각이다.
