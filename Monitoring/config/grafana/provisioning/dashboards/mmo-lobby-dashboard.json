@@ -636,6 +636,122 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "type": "row",
+      "title": "월드 서버",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 47
+      },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "월드 서버 지금",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 48
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "colorMode": "background",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "mmo_world_zones{job=\"world_server\"}",
+          "legendFormat": "등록된 존 서버",
+          "refId": "A"
+        },
+        {
+          "expr": "mmo_world_online{job=\"world_server\"}",
+          "legendFormat": "장부 인원",
+          "refId": "B"
+        },
+        {
+          "expr": "mmo_world_channel_rows{job=\"world_server\"}",
+          "legendFormat": "채널 줄",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "장부 인원 (접속 중 캐릭터)",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 48
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "mmo_world_online{job=\"world_server\"}",
+          "legendFormat": "장부 인원",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "등록된 존 서버 · 채널 줄",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 48
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "mmo_world_zones{job=\"world_server\"}",
+          "legendFormat": "등록된 존 서버",
+          "refId": "A"
+        },
+        {
+          "expr": "mmo_world_channel_rows{job=\"world_server\"}",
+          "legendFormat": "채널 줄",
+          "refId": "B"
+        }
+      ]
     }
   ],
   "schemaVersion": 39,
