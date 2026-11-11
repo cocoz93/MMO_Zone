@@ -121,6 +121,8 @@ struct DBSaveBundle
     uint8_t   pairNext;    // 1 = 큐에서 바로 뒤 머리와 한 트랜잭션(짝 묶음 — 거래 · EnqueueSavePair 만 켠다) · 0 = 혼자
     int32_t   ownerZone;   // 주인 존 서버 번호 — 불러올 때 받은 값. 저장 때 DB 의 값과 맞춰 본다(펜스 · world-server-plan.md 2절 3·4번)
     uint64_t  ownerSeq;    // 주인이 바뀐 횟수 — 위와 같다. 떠난 기록에도 같이 간다
+    uint32_t  mailBegin;   // 우편 문장 벡터 안 시작 자리 — 칸 줄처럼 넣는 함수가 매긴다(DBWorkerSlot::mails · 부르는 쪽 값은 무시)
+    uint8_t   mailCount;   // 우편 문장 수(0 또는 1 — 한 사람의 우편 동작은 한 번에 하나 · mail-plan.md 5절). 칸 문장 뒤에 실행한다
 };
 
 // 저장 묶음의 결말 — 셋을 가른다. FENCED 는 실패와 다르다: 실패는 다시 실으면 되지만, FENCED 는 이 캐릭터의 주인이 다른 존 서버로
@@ -179,6 +181,7 @@ enum class DBJobKind : uint8_t
 {
     LOAD_CHARACTER,    // 캐릭터 행 + 가방 SELECT — 왕복. 버리지 않는다(버리면 그 사람이 못 들어온다)
     SAVE_BUNDLE,       // 저장 묶음(캐릭터 행 0~1 + 칸 0~N · 실을 덩어리는 DBSaveBundle::parts) — 트랜잭션 하나 · 회신 하나(성공·실패). 다시 싣기는 저장소가 정한다
+    MAIL,              // 우편 잡(DBMailJob — 읽기·표시) — 왕복. 회신은 우편 회신 목록으로(ResultBox::mails). 우편을 끈 빌드는 안 낸다
     COUNT
 };
 constexpr int DB_JOB_KIND_COUNT = static_cast<int>(DBJobKind::COUNT);
@@ -205,6 +208,126 @@ struct DBOwnerBuf
     uint64_t ownerSeq;
 };
 
+// ── 우편(mail-plan.md 5절 · 8절) ──
+//   값 타입은 USE_MAIL 밖에 둔다 — 저장 묶음 넣기 함수가 이 꼴을 받는다(DBInvRow 와 같은 까닭). 우편을 끈 빌드는 묶음의 우편 문장이
+//   늘 0 개이고 우편 잡을 안 낸다. 문장 준비·실행만 USE_MAIL 안이다(DBWorker.cpp).
+//   글자 칸은 UTF-8 바이트다 — 열이 utf8mb4 VARCHAR 라 글자당 최대 4바이트(schema.sql character_mail).
+constexpr size_t DB_MAIL_NAME_BYTES     = DB_ROSTER_NAME_BYTES;   // from_name VARCHAR(6) — 소유 표 이름 칸과 같은 꼴(이름 읽기가 그 문장을 같이 쓴다)
+constexpr size_t DB_MAIL_TITLE_BYTES    = 20 * 4;    // title VARCHAR(20) — 글자 수는 Protocol.h MAIL_TITLE_MAX 와 같다(MailDraft.h static_assert)
+constexpr size_t DB_MAIL_BODY_BYTES     = 200 * 4;   // body VARCHAR(200) — MAIL_BODY_MAX 와 같다(같은 자리)
+constexpr size_t DB_MAIL_ATTACH_BYTES   = 66;        // attach — MailAttach::MAX_BYTES 와 같다(같은 자리). 열은 VARBINARY(255) — 더 긴 값은 len 이 넘쳐 불량으로 읽힌다
+constexpr size_t DB_MAIL_SEND_KEY_BYTES = 16;        // send_key BINARY(16)
+
+// 저장 묶음에 실리는 우편 문장의 종류 — 묶음 하나에 많아야 하나다(DBSaveBundle::mailCount).
+//   셋 다 두 번 써도 결과가 같다 — COMMIT 도중 끊기면 묶음째 다시 쓰기 때문이다(RunBundleOnce).
+enum class DBMailStmtKind : uint8_t
+{
+    SEND_INSERT,       // 보내기 — 받는 사람의 우편 한 줄. send_key 가 같으면 아무것도 안 바꾼다
+    TAKE_UPDATE,       // 받기 — 내 우편의 taken_at. COALESCE 라 처음 값이 남는다
+    ACC_TAKE_INSERT,   // 계정 우편 받기 — 받은 상태(taken_at)로 내 우편 한 줄. from_account_mail_id 가 같으면 아무것도 안 바꾼다
+    COUNT
+};
+
+// 우편 문장 값 — 묶음의 칸 줄처럼 원소 밖(DBWorkerSlot::mails)에 이어 붙이고 머리는 자리만 든다(DBSaveBundle::mailBegin).
+//   만드는 쪽은 게임 스레드(우편 규칙) · 싣는 쪽은 저장소 · 실행은 워커. 실행 직전 슬롯 버퍼(bMail)로 통째로 옮긴다.
+struct DBMailStmt
+{
+    DBMailStmtKind kind;
+    int64_t mailId;              // TAKE_UPDATE 의 대상 우편
+    int64_t characterId;         // 우편 줄의 주인 — SEND_INSERT = 받는 사람 · 나머지 = 묶음의 캐릭터(나)
+    int64_t accountId;           // ACC_TAKE_INSERT — 확정 뒤 계정 서버에 DONE 을 보낼 계정(떠난 기록으로 확정돼도 보낸다 · mail-plan.md 6절 7번)
+    int64_t fromCharacterId;     // SEND_INSERT — 보낸 캐릭터
+    int64_t money;
+    int64_t fromAccountMailId;   // ACC_TAKE_INSERT — 계정 우편 번호(UNIQUE 가 두 번 받기를 막는다)
+    int32_t expireDays;          // 기한 일수 — expires_at 은 DB 시각으로 센다(DATE_ADD(NOW(3), …) · 서버 시계를 안 쓴다)
+    DBBytes<DB_MAIL_NAME_BYTES>     fromName;   // SEND_INSERT — 보낸 사람 이름
+    DBBytes<DB_MAIL_TITLE_BYTES>    title;
+    DBBytes<DB_MAIL_BODY_BYTES>     body;
+    DBBytes<DB_MAIL_ATTACH_BYTES>   attach;     // 첨부 바이트(MailAttach.h) — 빈 값 = 없음
+    DBBytes<DB_MAIL_SEND_KEY_BYTES> sendKey;    // SEND_INSERT — 다시 쓰기 방지 난수(len 16)
+};
+
+// 우편 잡 — 저장 묶음 밖의 읽기·표시. 결과가 회신(DBMailReply)으로 돌아온다(mail-plan.md 8절).
+enum class DBMailOp : uint8_t
+{
+    FIND_RECEIVER,   // 받는 이름 → 캐릭터 번호 · 지움 표시 · 그 사람의 살아 있는 우편 수(받는 사람이 접속 중이 아닐 수 있어 DB 에서 센다)
+    LIST,            // 내 살아 있는 우편 줄 — 본문 없음 · 새것부터 · 최대 DB_MAIL_LIST_MAX
+    READ_BODY,       // 한 통 읽기 + read_at 적기
+    READ_ONE,        // 받기 판정용 한 통 읽기 — read_at 은 안 적는다
+    ERASE,           // deleted_at 적기 — 첨부·돈이 없는 우편만(DB 계정에 DELETE 권한이 없다)
+    COUNT_PENDING,   // 붉은 수 — 살아 있는 우편 중 안 읽었거나 첨부·돈이 남은 것
+    FIND_MOVED,      // 계정 우편 번호로 받은 줄이 있나 — 「이미 옮겼나」(mail-plan.md 6절)
+    FIND_NAME,       // 캐릭터 번호 → 이름 — 「다른 캐릭터가 받는 중」 안내
+    COUNT
+};
+constexpr int DB_MAIL_LIST_MAX = 100;   // 목록 줄 상한 — 핸들러가 10줄씩 나눠 보낸다(mail-plan.md 5절)
+
+// 우편 잡 값 — 큐 원소 union 에 든다(값 타입 · 저장 묶음 머리보다 작다 — DBJob 옆 static_assert)
+struct DBMailJob
+{
+    DBMailOp    op;
+    SessionId   sessionId;          // 회신의 주인 — 게임 스레드가 세션 번호 전체 + 캐릭터로 사람을 다시 찾는다
+    CharacterId characterId;        // 요청한 캐릭터 — 큐 고르기(같은 사람의 앞선 저장 뒤에 선다) · 「내 우편」 조건
+    int64_t     mailId;             // READ_BODY · READ_ONE · ERASE = 내 우편 번호 · FIND_MOVED = 계정 우편 번호
+    CharacterId otherCharacterId;   // FIND_NAME — 이름을 읽을 캐릭터
+    DBBytes<DB_MAIL_NAME_BYTES> name;   // FIND_RECEIVER — 받는 이름
+};
+
+// 우편 목록 한 줄 — 본문을 뺀 줄(S2C_MAIL_LIST 한 줄의 재료). 바이트는 DB 값 그대로 — 검사·풀기는 게임 스레드가 한다
+struct DBMailBrief
+{
+    int64_t mailId;
+    int64_t money;
+    int32_t remainSec;   // 기한까지 남은 초(DB 시각)
+    int32_t read;        // 1 = 읽음(read_at 이 있다)
+    DBBytes<DB_MAIL_NAME_BYTES>   fromName;
+    DBBytes<DB_MAIL_TITLE_BYTES>  title;
+    DBBytes<DB_MAIL_ATTACH_BYTES> attach;
+};
+
+// 우편 한 통 — 본문까지(READ_BODY · READ_ONE)
+struct DBMailRow
+{
+    int64_t mailId;
+    int64_t fromCharacterId;
+    int64_t money;
+    DBBytes<DB_MAIL_NAME_BYTES>   fromName;
+    DBBytes<DB_MAIL_TITLE_BYTES>  title;
+    DBBytes<DB_MAIL_BODY_BYTES>   body;
+    DBBytes<DB_MAIL_ATTACH_BYTES> attach;
+};
+
+// 우편 잡 회신 — 잡마다 하나(성공·실패 · 회신이 반드시 온다 — 사람별 우편 상태가 이것으로 풀린다).
+//   ★ ok=false(못 읽음)와 found=false(없음)를 섞지 않는다 — 없음은 GONE·NO_TARGET 이고 못 읽음은 DB_ERROR 다.
+struct DBMailReply
+{
+    DBMailOp    op;
+    SessionId   sessionId;       // 잡에 실어 보낸 값 그대로
+    CharacterId characterId;
+    int64_t     mailId;          // 잡에 실어 보낸 값 그대로
+    bool        ok = false;      // false = 조회 실패(커넥션 · 쿼리 오류) — 아래 값은 쓰지 않는다
+    bool        found = false;   // 행이 있나 — FIND_RECEIVER(이름) · READ_*(우편) · ERASE(바뀐 행) · FIND_MOVED(받은 줄) · FIND_NAME(캐릭터)
+    bool        targetDeleted = false;   // FIND_RECEIVER — 받는 캐릭터가 지움 표시돼 있다
+    int64_t     foundId = 0;     // FIND_RECEIVER = 받는 캐릭터 번호 · FIND_MOVED = 받은 줄의 mail_id
+    int64_t     count = 0;       // FIND_RECEIVER = 받는 사람의 살아 있는 우편 수 · COUNT_PENDING = 붉은 수 · ERASE = 바뀐 행 수
+    DBBytes<DB_MAIL_NAME_BYTES> name{};   // FIND_NAME — 이름
+    DBMailRow   row{};           // READ_BODY · READ_ONE
+    std::vector<DBMailBrief> lines;   // LIST — 새것부터
+};
+
+#if USE_MAIL
+// 우편 잡 문장의 버퍼 꼴 — 파라미터(캐릭터 · 우편 번호 · 이름)와 숫자 결과(번호 · 표시 · 수). 잡마다 쓰는 칸만 채운다
+struct DBMailJobBuf
+{
+    int64_t characterId;
+    int64_t mailId;
+    DBBytes<DB_MAIL_NAME_BYTES> name;
+    int64_t foundId;   // 결과 — 받는 캐릭터 번호 · 받은 줄 번호
+    int32_t flag;      // 결과 — 지움 표시(0·1)
+    int64_t count;     // 결과 — 우편 수
+};
+#endif
+
 // 준비해 두는 문장 — 작업 종류와 따로 센다. 저장 묶음은 캐릭터 행 + 칸 문장을, 불러오기는 캐릭터 행 + 가방 문장을 쓴다
 //   (전에는 종류마다 문장 하나 + 불러오기의 둘째 문장이 따로였다 — 묶음도 둘째 문장이 생겨 표로 모음).
 enum class DBStmt : uint8_t
@@ -218,6 +341,18 @@ enum class DBStmt : uint8_t
     ROSTER_SELECT,     // character_roster 이름·몸 SELECT — 불러오기의 마지막 문장(입장 번호 길만)
     OWNER_SELECT,      // 주인 열 잠금 읽기(FOR UPDATE) — 불러오기·저장 묶음의 첫 문장
     OWNER_UPDATE,      // 주인 열 적기 — 불러올 때 주인이 바뀌었으면 · 행 없던 캐릭터의 첫 저장 뒤
+#if USE_MAIL
+    MAIL_SEND_INSERT,      // 저장 묶음의 우편 문장 — 보내기
+    MAIL_TAKE_UPDATE,      // 저장 묶음의 우편 문장 — 받기
+    MAIL_ACC_TAKE_INSERT,  // 저장 묶음의 우편 문장 — 계정 우편 받기
+    MAIL_FIND_RECEIVER,    // 우편 잡 — 받는 이름 찾기 + 우편 수
+    MAIL_LIST,             // 우편 잡 — 목록
+    MAIL_READ,             // 우편 잡 — 한 통 읽기(READ_BODY · READ_ONE)
+    MAIL_MARK_READ,        // 우편 잡 — read_at 적기(READ_BODY)
+    MAIL_ERASE,            // 우편 잡 — deleted_at 적기
+    MAIL_COUNT_PENDING,    // 우편 잡 — 붉은 수
+    MAIL_FIND_MOVED,       // 우편 잡 — 받은 줄 찾기(FIND_NAME 은 ROSTER_SELECT 를 같이 쓴다)
+#endif
     COUNT
 };
 constexpr int DB_STMT_COUNT = static_cast<int>(DBStmt::COUNT);
@@ -231,11 +366,14 @@ struct DBJob
     {
         DBLoadJob    load;
         DBSaveBundle bundle;
+        DBMailJob    mail;
     };
 
     static DBJob Load(const DBLoadJob& l) { DBJob j; j.kind = DBJobKind::LOAD_CHARACTER; j.load = l; return j; }
     static DBJob Bundle(const DBSaveBundle& b) { DBJob j; j.kind = DBJobKind::SAVE_BUNDLE; j.bundle = b; return j; }
+    static DBJob Mail(const DBMailJob& m) { DBJob j; j.kind = DBJobKind::MAIL; j.mail = m; return j; }
 };
+static_assert(sizeof(DBMailJob) <= sizeof(DBSaveBundle), "우편 잡이 큐 원소를 키운다 — 큰 값은 원소 밖에 둘 것(우편 문장처럼)");
 
 // 불러오기 결과 — 셋을 가른다.
 //   ★ NOT_FOUND 와 FAILED 를 절대 섞지 않는다. 실패를 "없음"으로 받으면 새 캐릭터로 스폰되고,
@@ -295,8 +433,10 @@ struct DBWorkerSlot
     std::condition_variable  cv;
     std::vector<DBJob>       queue;           // 게임 push / 워커 swap-out
     std::vector<DBInvRow>    rows;            // 저장 묶음의 칸 줄 — queue 와 같은 락에서 같이 맞바꾼다(묶음 머리가 시작 자리·줄 수를 든다)
+    std::vector<DBMailStmt>  mails;           // 저장 묶음의 우편 문장 — rows 와 같은 꼴(묶음 머리의 mailBegin · mailCount)
     size_t                   loadCount = 0;   // queue 안의 불러오기 수(mutex 보호) — 저장 상한과 따로 센다
     size_t                   bundleCount = 0; // queue 안의 저장 묶음 수(mutex 보호) — 묶음끼리 센 상한(EnqueueSave)
+    size_t                   mailJobCount = 0;   // queue 안의 우편 잡 수(mutex 보호) — 불러오기처럼 따로 센 상한(EnqueueMail)
     void*                    mysql = nullptr; // 실제 MYSQL* (헤더 오염 차단 위해 void*)
     std::chrono::steady_clock::time_point lastFailedConnect{};   // 마지막 재연결 실패 시각 — 기본값이면 실패 기록 없음(ReconnectDue)
     void*                    stmt[DB_STMT_COUNT] = {};   // MYSQL_STMT* — 문장별 prepared 핸들 (커넥션 종속, DBStmt 순서)
@@ -309,6 +449,12 @@ struct DBWorkerSlot
     DBRosterRowBuf           bRoster{};       // 소유 표 SELECT — characterId 가 WHERE 파라미터, 나머지 멤버가 결과
     DBOwnerBuf               bOwner{};        // 주인 잠금 읽기 — characterId 가 파라미터, 나머지가 결과
     DBOwnerBuf               bOwnerSet{};     // 주인 적기 — 셋 다 파라미터
+#if USE_MAIL
+    DBMailStmt               bMail{};         // 묶음의 우편 문장 파라미터 — 실행 직전 우편 문장을 통째로 복사(셋이 같은 버퍼를 다른 열 조합으로 묶는다)
+    DBMailJobBuf             bMailJob{};      // 우편 잡의 파라미터·숫자 결과
+    DBMailBrief              bMailBrief{};    // 목록 결과 한 줄 — fetch 가 줄마다 채우고 회신 벡터로 옮긴다
+    DBMailRow                bMailRow{};      // 한 통 읽기 결과
+#endif
     int                      index = 0;
 };
 
@@ -338,12 +484,19 @@ public:
     // 게임루프 전용 — 저장 묶음 1건(실을 덩어리 비트 + 칸 줄 n). 같은 캐릭터 = 같은 슬롯 큐(characterId%K) — 불러오기와 차례가 맞물린다.
     //   묶음끼리 센 수로 QueueMax 를 건다(불러오기 loadCount 와 같은 꼴 · 남의 원소까지 세지 않는다).
     //   반환 false = 거절(dropped 를 센다). 묶음은 버려지지만 부르는 쪽이 표시를 되살리거나 기록을 남겨 다음 계기에 다시 싣는다.
-    bool EnqueueSave(const DBSaveBundle& head, const DBInvRow* rows, int rowCount);
+    //   mail = 같은 트랜잭션에 실을 우편 문장(없으면 nullptr — 기본값을 안 둔다 · 부르는 자리마다 실을지 정하게)
+    bool EnqueueSave(const DBSaveBundle& head, const DBInvRow* rows, int rowCount, const DBMailStmt* mail);
 
     // 게임루프·종료 전용 — 묶음 여럿(주기 · 종료). allRows = 묶음들의 칸 줄을 이어 붙인 것, heads[i].slotBegin = 그 안의 시작 자리.
+    //   allMails = 우편 문장을 이어 붙인 것, heads[i].mailBegin · mailCount = 그 안의 자리.
     //   슬롯마다 락 1회. outRefused 가 있으면 거절된 묶음의 heads 안 색인을 담는다(꼬리부터 거절 — 앞에서부터 받는다).
     void EnqueueSaveBatch(const std::vector<DBSaveBundle>& heads, const std::vector<DBInvRow>& allRows,
-                          std::vector<size_t>* outRefused = nullptr);
+                          const std::vector<DBMailStmt>& allMails, std::vector<size_t>* outRefused = nullptr);
+
+    // 게임루프 전용 — 우편 잡 1건(읽기·표시). 같은 캐릭터 = 같은 슬롯 큐(characterId%K) — 그 사람의 앞선 저장 뒤에 선다
+    //   (보낸 우편이 확정된 뒤의 목록 읽기가 그 우편을 본다). 불러오기처럼 잡끼리 센 수로 같은 상한을 건다.
+    //   반환 false = 거절(회신이 안 온다 — 부르는 쪽이 그 자리에서 DB_ERROR 로 닫는다).
+    bool EnqueueMail(const DBMailJob& job);
 
     // 게임루프·종료 전용 — 짝 묶음 1건(두 캐릭터 = 트랜잭션 하나 · 거래 — trade-plan.md 「저장」).
     //   ★ 큐는 두 캐릭터 중 작은 번호의 슬롯이다(같은 짝은 늘 같은 큐 — 종료 때 다시 낸 짝 묶음이 떠 있던 짝 묶음 뒤에 줄 선다).
@@ -353,12 +506,13 @@ public:
     bool EnqueueSavePair(const DBSaveBundle& a, const DBInvRow* aRows, int aCount,
                          const DBSaveBundle& b, const DBInvRow* bRows, int bCount);
 
-    // 게임루프 전용 — 쌓인 결과를 통째로 꺼낸다(락 1회). 두 벡터 다 비어 있어야 한다.
+    // 게임루프 전용 — 쌓인 결과를 통째로 꺼낸다(락 1회). 세 벡터 다 비어 있어야 한다.
     //   벡터를 맞바꾸므로 양쪽 다 용량이 보존된다 → 틱마다 할당하지 않는다
     //   (SwapOutNetworkEvents 와 같은 방식). 처리 중에 도착한 결과는 다음 틱으로 넘어간다.
     //   ★ 저장 회신과 불러오기 결과를 한 락에 같이 꺼낸다 — 같은 캐릭터의 묶음 회신이 뒤 불러오기 결과보다 먼저 들어오므로
     //     (같은 큐 차례 · 묶음마다 곧바로 회신) 받는 쪽이 회신을 먼저 처리하면 불러오기 결과를 볼 때 그 캐릭터의 저장 결말을 이미 안다.
-    void SwapOutResults(std::vector<DBResult>& loads, std::vector<DBSaveReply>& saves);
+    //   우편 회신도 같은 락에 꺼낸다 — 같은 사람의 저장 회신(보내기 확정)이 뒤 우편 잡 회신보다 먼저 처리된다.
+    void SwapOutResults(std::vector<DBResult>& loads, std::vector<DBSaveReply>& saves, std::vector<DBMailReply>& mails);
 
     // 모든 슬롯의 잔여 잡을 비우고 워커 종료 (멱등 — 소멸자에서도 호출).
     //   드레인 중에 끝난 불러오기의 결과는 회신 큐에 쌓인 채 버려진다(게임 스레드가 이미 끝난 뒤다).
@@ -395,11 +549,25 @@ private:
     //   heads·rows = 머리 n 개(1 = 혼자 · 2 = 짝 묶음)와 그 칸 줄 — n 개를 트랜잭션 하나로 쓴다.
     enum class SaveOutcome : uint8_t { OK, QUERY_ERROR, CONNECTION_LOST, FENCED };
     static constexpr int MAX_BUNDLE_HEADS = 2;
-    DBSaveResult ExecBundle(DBWorkerSlot& slot, const DBSaveBundle* const* heads, const DBInvRow* const* rows, int n, bool& reconnectFailedThisBatch);
-    SaveOutcome RunBundleOnce(DBWorkerSlot& slot, const DBSaveBundle* const* heads, const DBInvRow* const* rows, int n);
+    //   mails = 머리마다의 우편 문장(그 머리의 mailCount 가 0 이면 그 자리 값은 안 본다)
+    DBSaveResult ExecBundle(DBWorkerSlot& slot, const DBSaveBundle* const* heads, const DBInvRow* const* rows,
+                            const DBMailStmt* const* mails, int n, bool& reconnectFailedThisBatch);
+    SaveOutcome RunBundleOnce(DBWorkerSlot& slot, const DBSaveBundle* const* heads, const DBInvRow* const* rows,
+                              const DBMailStmt* const* mails, int n);
     void PushSaveReply(const DBSaveReply& reply);   // 워커 스레드 → 회신 큐(저장 회신 목록)
-    // 묶음 하나를 슬롯 큐에 — 락을 쥔 채 부른다(EnqueueSave · EnqueueSaveBatch 공용). 거절이면 false.
-    bool PushBundleLocked(DBWorkerSlot& slot, DBSaveBundle head, const DBInvRow* rows, int rowCount);
+    // 묶음 하나를 슬롯 큐에 — 락을 쥔 채 부른다(EnqueueSave · EnqueueSaveBatch · EnqueueSavePair 공용). 거절이면 false.
+    bool PushBundleLocked(DBWorkerSlot& slot, DBSaveBundle head, const DBInvRow* rows, int rowCount, const DBMailStmt* mail);
+
+    // 우편 잡 — 불러오기와 같은 재연결 규칙(읽기·표시라 두 번 해도 같다 · 유실이면 재연결 뒤 한 번 더). 회신은 늘 채운다.
+    void ExecMailJob(DBWorkerSlot& slot, const DBMailJob& job, DBMailReply& out, bool& reconnectFailedThisBatch);
+    void PushMailReply(DBMailReply&& reply);        // 워커 스레드 → 회신 큐(우편 회신 목록)
+#if USE_MAIL
+    // 잡 한 번 — FOUND = 성공(행이 없어도 성공 · out.found 가 가른다)
+    LoadOutcome RunMailOnce(DBWorkerSlot& slot, const DBMailJob& job, DBMailReply& out);
+    LoadOutcome RunMailList(DBWorkerSlot& slot, const DBMailJob& job, DBMailReply& out);
+    // 결과 한 줄짜리 문장(받는 이름 · 한 통 · 붉은 수 · 받은 줄 · 이름) — 실행 · 묶은 결과 버퍼에 한 줄 받기 · found = 줄이 있었나
+    LoadOutcome RunMailSelectOne(DBWorkerSlot& slot, int stmtIdx, const char* what, CharacterId characterId, bool& found);
+#endif
 
 #if USE_DB_FAULT_INJECT
     // 실패 주입(시험 빌드 전용 — BuildConfig.h). Start 가 환경 변수 MMO_DB_FAULT 를 읽어 채운다.
@@ -439,6 +607,7 @@ private:
         std::mutex               mutex;
         std::vector<DBResult>    items;   // 불러오기 결과
         std::vector<DBSaveReply> saves;   // 저장 회신 — 불러오기 결과(가방 줄 120 을 드는 큰 꼴)와 따로 작은 꼴로
+        std::vector<DBMailReply> mails;   // 우편 잡 회신
     };
     ResultBox _results;
 };

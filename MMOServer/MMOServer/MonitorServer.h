@@ -141,6 +141,8 @@ private:
                      "Bag slot rows written inside committed save bundles", _gameMonitor._db._saveSlotRows);
         WriteCounter(ss, "mmo_db_save_char_rows_total",
                      "Character rows written inside committed save bundles (bundles whose row was unchanged skip it)", _gameMonitor._db._saveCharRows);
+        WriteCounter(ss, "mmo_db_save_mail_stmts_total",
+                     "Mail statements written inside committed save bundles (including leave records)", _gameMonitor._db._saveMailStmts);
         {
             // 저장 묶음 — 게임 스레드 몫(저장소). 등식(조용해진 뒤): sum(txn) = saved + failed + fenced = sum(reply)
             const auto& sv = _gameMonitor._save;

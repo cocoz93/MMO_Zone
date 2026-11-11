@@ -9,6 +9,7 @@
 #include "GameDataFiles.h"      // 스킬 표 · 아이템 표
 #include "BuffSystem.h"         // USE_COMBAT — 버프 되살리기(Restore)
 #include "CooldownBuffBlob.h"   // 쿨타임·버프 열의 바이트 형식(토글을 안 보는 헤더)
+#include "MailDraft.h"          // USE_MAIL — 우편 대기 문장(묶음에 싣기 · 되돌리기 · 떠난 기록으로 옮기기)
 #include <Common/ErrorLog.h>
 #include <cassert>
 #include <chrono>
@@ -89,6 +90,11 @@ bool CCharacterStore::ShouldSave(const CPlayer* player) const
     //   가방 = 저장 안 된 칸이 있다(CInventory::HasUnsaved — 가방이 스스로 켠다 · 화면용 표시와 따로 — Inventory.h)
 #if USE_INVENTORY
     if (player->_inventory.HasUnsaved())
+        return true;
+#endif
+#if USE_MAIL
+    //   우편 = 준비된 대기 문장이 있다 — 이 줄이 없으면 수수료 0 인 글만 있는 우편은 서 있는 사람에게서 안 나간다(칸·행이 안 바뀌었다 · mail-plan.md 5절)
+    if (player->_mailDraft && player->_mailDraft->ready)
         return true;
 #endif
     return CharRowChanged(player);
@@ -452,11 +458,12 @@ void CCharacterStore::Shutdown()
 
         // 마지막 꺼내기 — 드레인이 끝나 회신이 다 들어와 있다. 확정된 떠난 기록을 지우고, 남은 것은 잃음.
         //   불러오기 결과는 버린다(게임 스레드가 이미 끝나 들여보낼 데가 없다 — 전에도 버려졌다).
-        _dbWorker->SwapOutResults(_dbResults, _dbSaveReplies);
+        _dbWorker->SwapOutResults(_dbResults, _dbSaveReplies, _dbMailReplies);
         for (const DBSaveReply& reply : _dbSaveReplies)
             OnSaveReply(reply);
         _dbSaveReplies.clear();
         _dbResults.clear();
+        _dbMailReplies.clear();   // 우편 잡 회신도 버린다 — 읽기·표시라 잃는 값이 없다(받을 사람이 이미 없다)
         for (const auto& kv : _leaveRecords)
         {
             SLOG_ERROR("[DB] save LOST at shutdown (character={}, rows={}) — DB 가 마지막 묶음을 확정하지 않았다",
@@ -493,6 +500,10 @@ void CCharacterStore::SaveTrade(CPlayer* a, CPlayer* b)
     if (!_dbWorker)
         return;
     assert(CanSaveTradeNow(a, b) && "부르는 쪽(거래)이 맞바꾸기 전에 물었다");
+#if USE_MAIL
+    // 우편 동작 중인 사람은 거래를 못 연다(CTradeSystem::Busy) — 대기 문장이 있으면 그 규칙이 깨진 것이다(mail-plan.md 5절)
+    assert(!a->_mailDraft && !b->_mailDraft && "거래를 맞바꾸는데 우편 대기 문장이 있다");
+#endif
     PairLink link;
     link.character[0] = a->_characterId;  link.session[0] = a->_sessionId;
     link.character[1] = b->_characterId;  link.session[1] = b->_sessionId;
@@ -533,7 +544,7 @@ bool CCharacterStore::SendPair(PairLink& link, SaveTrigger trigger)
             player[s] = _sessionHub.FindPlayer(link.session[s]);
             assert(player[s] != nullptr && player[s]->_characterId == link.character[s] && "나가면 LeaveFinal 이 세션을 0 으로 바꾼다");
             assert(player[s]->_dbFlight.paired && player[s]->_dbFlight.bundleNo == 0 && "고리가 걸린 동안 혼자 묶음을 안 냈다 · 실패면 되살렸다");
-            PrepareBundle(player[s], head[s], _pairRows[s]);
+            PrepareBundle(player[s], head[s], _pairRows[s], nullptr);   // 짝 묶음은 우편 문장을 안 싣는다(mail-plan.md 5절)
         }
         else
         {
@@ -681,7 +692,7 @@ void CCharacterStore::SetInflight(int delta)
     _gameMonitor._save._inflight.Store(_inflightCount);
 }
 
-void CCharacterStore::PrepareBundle(CPlayer* player, DBSaveBundle& head, std::vector<DBInvRow>& rows)
+void CCharacterStore::PrepareBundle(CPlayer* player, DBSaveBundle& head, std::vector<DBInvRow>& rows, std::vector<DBMailStmt>* mails)
 {
     CPlayer::DbFlight& f = player->_dbFlight;
     assert(f.bundleNo == 0 && "비행 중 묶음은 캐릭터당 하나 — 부르는 쪽이 먼저 본다");
@@ -719,7 +730,35 @@ void CCharacterStore::PrepareBundle(CPlayer* player, DBSaveBundle& head, std::ve
 
     // 실을 덩어리 — 행은 바뀌었을 때만(save-skip-row-plan.md). 칸이 0줄이면 행을 싣는다: 판정 없이 부르는 짝 묶음(SendPair)도
     //   빈 묶음이 되지 않게(PushBundleLocked 단언) · 주기·틱 끝은 판정이 참이었으니 칸이 없으면 행이 바뀐 것이다.
+    //   (우편 문장만 있는 묶음 — 글만 있는 우편 — 도 칸이 0줄이라 행을 싣는다. 같은 값을 한 번 더 쓸 뿐이다 · mail-plan.md 5절)
     head.parts = (rowChanged || head.slotCount == 0) ? SAVE_PART_CHAR_ROW : 0;
+
+    // 우편 문장 — 준비된 대기 문장을 비행 기록으로 옮겨 칸·돈과 같은 묶음에 싣는다(넣기 함수가 자리를 매긴다)
+    head.mailBegin = 0;
+    head.mailCount = 0;
+#if USE_MAIL
+    assert(!f.mail && "비행 중 묶음이 없으면 비행 중 우편 문장도 없다");
+    if (player->_mailDraft && player->_mailDraft->ready)
+    {
+        if (mails == nullptr)
+        {
+            // 짝 묶음 — 우편 동작 중인 사람은 거래를 못 열고 거래 고리가 걸린 사람은 우편을 못 하므로 닿지 않는다(mail-plan.md 5절 「거래와 함께 있을 수 없다」).
+            //   닿으면 문장은 대기에 남는다 — 짝 확정 뒤 혼자 묶음이 싣는다
+            assert(false && "짝 묶음을 만드는데 우편 대기 문장이 있다");
+            SLOG_ERROR("[MAIL] pending mail stmt at pair bundle — kept for next solo bundle (character={}, kind={})",
+                       player->_characterId, static_cast<int>(player->_mailDraft->stmt.kind));
+        }
+        else
+        {
+            f.mail = std::move(player->_mailDraft);
+            head.mailBegin = static_cast<uint32_t>(mails->size());
+            head.mailCount = 1;
+            mails->push_back(f.mail->stmt);
+        }
+    }
+#else
+    (void)mails;
+#endif
 }
 
 void CCharacterStore::AbortBundle(CPlayer* player)
@@ -732,6 +771,16 @@ void CCharacterStore::AbortBundle(CPlayer* player)
 #if USE_INVENTORY
     player->_inventory.MarkUnsaved(f.slots);
     f.slots.reset();
+#endif
+#if USE_MAIL
+    // 넷째 — 우편 문장을 대기로. 비행 중엔 새 우편 동작을 안 받으므로(_mailOp) 대기 칸은 비어 있다
+    if (f.mail)
+    {
+        assert(!player->_mailDraft && "우편 문장은 한 사람에게 많아야 하나다(mail-plan.md 5절)");
+        if (player->_mailDraft)
+            SLOG_ERROR("[MAIL] pending mail stmt overwritten by aborted bundle (character={})", player->_characterId);
+        player->_mailDraft = std::move(f.mail);
+    }
 #endif
 }
 
@@ -764,8 +813,10 @@ bool CCharacterStore::SendBundle(CPlayer* player, SaveTrigger trigger)
     }
     DBSaveBundle head;
     _batchRows.clear();   // 주기 묶음은 이미 넣었다(TickSaves 차례 주기 → 목록) — 같은 버퍼를 다시 쓴다
-    PrepareBundle(player, head, _batchRows);
-    if (!_dbWorker->EnqueueSave(head, _batchRows.empty() ? nullptr : _batchRows.data(), head.slotCount))
+    _batchMails.clear();
+    PrepareBundle(player, head, _batchRows, &_batchMails);
+    if (!_dbWorker->EnqueueSave(head, _batchRows.empty() ? nullptr : _batchRows.data(), head.slotCount,
+                                head.mailCount > 0 ? &_batchMails[head.mailBegin] : nullptr))
     {
         AbortBundle(player);   // 큐 거절(dropped 는 워커가 셌다) — 표시가 남아 다음 계기에
         MarkRetry(player);
@@ -812,6 +863,7 @@ void CCharacterStore::TickPeriodSaves()
 
     _batchHeads.clear();
     _batchRows.clear();
+    _batchMails.clear();
     _batchOwners.clear();
     const size_t slotCount = _sessionHub.SlotCount();
     for (size_t i = tick; i < slotCount; i += static_cast<size_t>(_dbSavePeriodFrames))
@@ -827,14 +879,14 @@ void CCharacterStore::TickPeriodSaves()
             continue;
         }
         DBSaveBundle head;
-        PrepareBundle(player, head, _batchRows);
+        PrepareBundle(player, head, _batchRows, &_batchMails);
         _batchHeads.push_back(head);
         _batchOwners.push_back(player);
     }
     if (_batchHeads.empty())
         return;
 
-    _dbWorker->EnqueueSaveBatch(_batchHeads, _batchRows, &_batchRefused);
+    _dbWorker->EnqueueSaveBatch(_batchHeads, _batchRows, _batchMails, &_batchRefused);
     for (size_t idx : _batchRefused)   // 거절된 묶음 — 그 자리에서 되살린다(상태 표 B·E2 거절)
     {
         AbortBundle(_batchOwners[idx]);
@@ -939,6 +991,14 @@ void CCharacterStore::LeaveWithoutSave(CPlayer* player)
         f.bundleNo = 0;
         SetInflight(-1);
     }
+#if USE_MAIL
+    // 넘김 저장이 확정한 뒤에만 이 길로 나간다 — 우편 동작 중인 사람은 채널을 못 바꾼다(CChannelMoveFlow BUSY · mail-plan.md 5절).
+    //   준비된 문장이 남아 있으면 칸·돈은 줄었는데 우편이 안 써진 채 사람이 사라진다 — 규칙이 깨진 것이라 크게 남긴다
+    const bool readyLeft = (player->_mailDraft && player->_mailDraft->ready) || f.mail;
+    assert(!readyLeft && "저장 없이 나가는데 우편 문장이 남았다");
+    if (readyLeft)
+        SLOG_ERROR("[MAIL] mail stmt dropped by leave without save (character={})", player->_characterId);
+#endif
 }
 
 void CCharacterStore::LeaveFinal(CPlayer* player, SaveTrigger trigger)
@@ -951,6 +1011,21 @@ void CCharacterStore::LeaveFinal(CPlayer* player, SaveTrigger trigger)
     head.ownerSeq  = player->_ownerSeq;
     std::vector<DBInvRow> rows;
     FillFinalRows(player, rows);
+    std::unique_ptr<DBMailStmt> mail;
+#if USE_MAIL
+    // 우편 문장 — 비행 중이던 것(칸처럼 마지막 묶음에 다시 싣는다 · 두 번 써도 같다) 또는 준비된 대기 문장.
+    //   ready=false 초안은 버린다 — 아직 아무것도 안 줄였다(mail-plan.md 5절). 둘이 함께 있을 수는 없다(한 사람에게 문장은 하나)
+    {
+        CPlayer::DbFlight& f = player->_dbFlight;
+        assert(!(f.mail && player->_mailDraft && player->_mailDraft->ready) && "우편 문장은 한 사람에게 많아야 하나다");
+        if (f.mail)
+            mail = std::make_unique<DBMailStmt>(f.mail->stmt);
+        else if (player->_mailDraft && player->_mailDraft->ready)
+            mail = std::make_unique<DBMailStmt>(player->_mailDraft->stmt);
+        f.mail.reset();
+        player->_mailDraft.reset();
+    }
+#endif
     if (player->_dbFlight.bundleNo != 0)
     {
         player->_dbFlight.bundleNo = 0;   // 비행 중이던 묶음의 회신은 주인 없음으로 떨어진다 — 칸은 위 마지막 묶음에 실렸다
@@ -975,11 +1050,20 @@ void CCharacterStore::LeaveFinal(CPlayer* player, SaveTrigger trigger)
         if (PairLink* link = FindPair(player->_characterId, &side))
             link->session[side] = NO_OWNER_SESSION;
         player->_dbFlight.paired = false;   // 플레이어는 곧 해제된다 — 고리는 기록 쪽이 든다
+        // 짝 고리가 걸린 사람은 우편을 못 한다(mail-plan.md 5절) — 붙잡힌 기록은 짝 묶음의 한쪽이 되는데 짝 묶음은 우편 문장을 안 싣는다
+        assert(!mail && "짝 고리가 걸린 사람에게 우편 문장이 있다");
+        if (mail)
+        {
+            SLOG_ERROR("[MAIL] mail stmt on held leave record — dropped (character={}, kind={})",
+                       player->_characterId, static_cast<int>(mail->kind));
+            mail.reset();
+        }
     }
-    PutLeaveRecord(head, std::move(rows), trigger, hold);
+    PutLeaveRecord(head, std::move(rows), trigger, hold, std::move(mail));
 }
 
-void CCharacterStore::PutLeaveRecord(DBSaveBundle head, std::vector<DBInvRow>&& rows, SaveTrigger trigger, bool hold)
+void CCharacterStore::PutLeaveRecord(DBSaveBundle head, std::vector<DBInvRow>&& rows, SaveTrigger trigger, bool hold,
+                                     std::unique_ptr<DBMailStmt> mail)
 {
     const CharacterId characterId{ head.row.characterId };
     auto it = _leaveRecords.find(characterId);
@@ -995,6 +1079,7 @@ void CCharacterStore::PutLeaveRecord(DBSaveBundle head, std::vector<DBInvRow>&& 
     rec.head.slotCount = static_cast<int32_t>(rec.rows.size());
     rec.inFlight       = false;
     rec.paired         = hold;
+    rec.mail           = std::move(mail);
     if (!hold)
         SendLeaveRecord(rec, trigger);
     _gameMonitor._save._pendingLeave.Store(static_cast<int64_t>(_leaveRecords.size()));
@@ -1007,7 +1092,7 @@ void CCharacterStore::SendLeaveRecord(LeaveRecord& rec, SaveTrigger trigger)
         _leaveSeq = 1;
     rec.head.bundleNo  = _leaveSeq;
     rec.head.slotBegin = 0;
-    if (_dbWorker->EnqueueSave(rec.head, rec.rows.empty() ? nullptr : rec.rows.data(), rec.head.slotCount))
+    if (_dbWorker->EnqueueSave(rec.head, rec.rows.empty() ? nullptr : rec.rows.data(), rec.head.slotCount, rec.mail.get()))
     {
         rec.inFlight = true;
         _gameMonitor._save._txn[static_cast<int>(trigger)].Inc();
@@ -1050,6 +1135,14 @@ void CCharacterStore::OnSaveReply(const DBSaveReply& reply)
                 f.again = false;
                 RequestSave(player, SaveReason::AGAIN);   // 비행 중에 선 다시 필요 — 이번 틱 끝에
             }
+#if USE_MAIL
+            if (f.mail)
+            {
+                // 우편 문장도 확정됐다 — 비행 칸을 비운 뒤 알린다(받는 쪽이 같은 부름 안에서 다음 우편 동작을 열 수 있게)
+                const std::unique_ptr<MailDraft> done = std::move(f.mail);
+                _mailEvents.OnMailSaved(player, done->stmt);
+            }
+#endif
             break;
         case DBSaveResult::FAILED:
             AbortBundle(player);   // 되살림 — 곧바로 다시 안 보낸다(다음 계기에 · 죽은 DB 를 틱마다 두드리지 않게)
@@ -1064,6 +1157,9 @@ void CCharacterStore::OnSaveReply(const DBSaveReply& reply)
             f.fenced = true;
 #if USE_INVENTORY
             f.slots.reset();
+#endif
+#if USE_MAIL
+            f.mail.reset();   // 묶음째 되감겼다 — 칸·돈과 함께 이 메모리의 우편도 진실이 아니다(곧 끊긴다)
 #endif
             counters._reply[static_cast<int>(SaveReplyResult::FENCED)].Inc();
             SLOG_WARN("[DB] owner moved -> disconnect (character={}, session={})", reply.characterId, reply.sessionId);
@@ -1087,6 +1183,17 @@ void CCharacterStore::OnSaveReply(const DBSaveReply& reply)
     switch (reply.result)
     {
     case DBSaveResult::OK:
+#if USE_MAIL
+        if (it->second.mail)
+        {
+            // 떠난 기록으로 확정된 우편 문장 — 사람은 없다(계정 우편 받기면 계정 서버에 끝을 알려야 한다 · mail-plan.md 6절 7번)
+            const std::unique_ptr<DBMailStmt> done = std::move(it->second.mail);
+            _leaveRecords.erase(it);
+            counters._reply[static_cast<int>(SaveReplyResult::OK)].Inc();
+            _mailEvents.OnMailSaved(nullptr, *done);
+            break;
+        }
+#endif
         _leaveRecords.erase(it);
         counters._reply[static_cast<int>(SaveReplyResult::OK)].Inc();
         break;
@@ -1141,8 +1248,8 @@ void CCharacterStore::ProcessDbResults()
     if (!_dbWorker)
         return;
 
-    // 둘 다 직전 틱에 모두 소비되어 비어 있다 — 빈 벡터를 워커 쪽과 맞바꾼다(락 1회 · 저장 회신과 불러오기 결과를 같이).
-    _dbWorker->SwapOutResults(_dbResults, _dbSaveReplies);
+    // 셋 다 직전 틱에 모두 소비되어 비어 있다 — 빈 벡터를 워커 쪽과 맞바꾼다(락 1회 · 저장 회신과 불러오기 결과 · 우편 회신을 같이).
+    _dbWorker->SwapOutResults(_dbResults, _dbSaveReplies, _dbMailReplies);
 
     // ★ 저장 회신 먼저 — 같은 캐릭터의 묶음 회신은 뒤 불러오기 결과보다 먼저 들어온다(같은 큐 차례 · 묶음마다 곧바로 회신).
     //   회신을 다 처리한 뒤 불러오기 결과를 보면, 그 캐릭터의 떠난 기록이 확정됐는지 이미 안다(아래 불러오기 차례).
@@ -1153,12 +1260,10 @@ void CCharacterStore::ProcessDbResults()
     }
     _dbSaveReplies.clear();
 
-    if (_dbResults.empty())
-        return;
+    // 불러오기 결과 — 비었으면 건너뛴다(우편 회신은 아래에서 따로 본다 — 예전처럼 여기서 돌아가면 우편 회신이 안 꺼내진다)
+    const int64_t nowNs = _dbResults.empty() ? 0 : SteadyNowNs();
 
-    const int64_t nowNs = SteadyNowNs();
-
-    static_assert(DB_JOB_KIND_COUNT == 2, "DBJobKind 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
+    static_assert(DB_JOB_KIND_COUNT == 3, "DBJobKind 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
     for (const DBResult& result : _dbResults)
     {
         switch (result.kind)
@@ -1179,13 +1284,33 @@ void CCharacterStore::ProcessDbResults()
             break;
 
         case DBJobKind::SAVE_BUNDLE:     // 저장 묶음의 회신은 저장 회신 목록으로 온다 — 불러오기 결과 목록에 오면 결함
+        case DBJobKind::MAIL:            // 우편 잡의 회신은 우편 회신 목록으로 온다 — 같은 까닭
         case DBJobKind::COUNT:
             SLOG_ERROR("[DB] unexpected result kind {}", static_cast<int>(result.kind));
             break;
         }
     }
     _dbResults.clear();
+
+    // 우편 회신 — 맨 뒤(mail-plan.md 8절 「꺼내는 차례」). 같은 사람의 저장 회신(보내기 확정)을 위에서 먼저 처리했다
+#if USE_MAIL
+    for (const DBMailReply& reply : _dbMailReplies)
+        _mailEvents.OnMailDbReply(reply);
+#else
+    if (!_dbMailReplies.empty())
+        SLOG_ERROR("[DB] mail replies in a build without USE_MAIL ({})", _dbMailReplies.size());
+#endif
+    _dbMailReplies.clear();
 }
+
+#if USE_MAIL
+bool CCharacterStore::RequestMailJob(const DBMailJob& job)
+{
+    if (!_dbWorker)
+        return false;   // 워커가 없다(띄우기 전·실패·멈춘 뒤) — 부르는 쪽이 그 자리에서 DB_ERROR 로 닫는다
+    return _dbWorker->EnqueueMail(job);
+}
+#endif
 
 #if USE_INVENTORY
 #if USE_DB_WORKER

@@ -1,4 +1,7 @@
 ﻿#include "Player.h"
+#if USE_MAIL
+#include "MailDraft.h"   // _mailDraft · _dbFlight.mail 의 지우기(unique_ptr 의 소멸자가 완전한 꼴을 본다)
+#endif
 
 CPlayer::CPlayer()
     : _isAdmin(false)

@@ -298,19 +298,21 @@ enum class SaveReason : uint8_t
     JOB,       // 직업을 골랐다(CJobHandler)
     HANDOFF,   // 다른 존 서버로 넘어가기 전 확정 저장(CChannelMoveFlow)
     ROOM_LOCK, // 보스방 보상과 잠금 — 같은 틱 끝 묶음에 실려 「보상은 받았는데 잠금은 없는」 상태가 안 남는다
+    MAIL,      // 우편 보내기 · 받기 — 칸 · 돈과 우편 문장이 같은 묶음에 실린다(mail-plan.md 5절)
     AGAIN,     // 비행 중에 계기가 와서 다시 필요가 섰다 — 성공 회신 때
     COUNT
 };
 
 inline const char* SaveReasonName(SaveReason r)
 {
-    static_assert(static_cast<int>(SaveReason::COUNT) == 6, "SaveReason 을 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(SaveReason::COUNT) == 7, "SaveReason 을 늘렸으면 이름도 붙일 것");
     switch (r)
     {
     case SaveReason::BAG:     return "bag";
     case SaveReason::LEVELUP: return "levelup";
     case SaveReason::JOB:     return "job";
     case SaveReason::ROOM_LOCK: return "room_lock";
+    case SaveReason::MAIL:    return "mail";
     case SaveReason::HANDOFF: return "handoff";
     case SaveReason::AGAIN:   return "again";
     case SaveReason::COUNT:   break;
@@ -518,6 +520,7 @@ struct alignas(64) DBSaveCounters
     Counter _saveRetried;               // 저장 묶음을 재연결 뒤 묶음째 다시 한 수(성공·실패 무관)
     Counter _saveSlotRows;              // 커밋된 저장 묶음의 칸 줄 수
     Counter _saveCharRows;              // 커밋된 저장 묶음의 캐릭터 행 수(행 비트가 켜진 묶음만 — 뺀 수 = _savedJobs − 이것)
+    Counter _saveMailStmts;             // 커밋된 저장 묶음의 우편 문장 수(떠난 기록으로 확정된 것까지 — 게임 스레드의 보냄·받음 수와 대조 · mail-plan.md 5절)
     Counter _queueDepth[MAX_WORKERS];   // 워커별 게이지: 마지막 배치 인출량
     Counter _workerCount;               // 노출 루프 상한(CDBWorker::Start 에서 설정)
 };

@@ -55,6 +55,22 @@ public:
     virtual void OnCharacterLoaded(const DBResult& result, int64_t nowNs) = 0;
 };
 
+#if USE_MAIL
+// 우편의 DB 회신을 넘기는 통로 — 받는 쪽(CMailHandler)이 사람을 다시 찾아 우편 절차를 잇는다(mail-plan.md 5절 · 8절).
+//   저장소는 우편 규칙을 모른다 — 회신을 꺼낸 차례대로 넘기기만 한다(불러오기 결과 통로와 같은 꼴).
+class IMailStoreEvents
+{
+public:
+    virtual ~IMailStoreEvents() = default;
+
+    // 우편 잡 회신 1건 — reply 는 이 부름 동안만 살아 있다(회신 큐 원소)
+    virtual void OnMailDbReply(const DBMailReply& reply) = 0;
+    // 우편 문장이 실린 묶음이 확정됐다 — player = 살아 있는 사람 · nullptr = 떠난 기록으로 확정(사람은 없지만 계정 우편 받기는
+    //   계정 서버에 끝났다고 알려야 한다 — mail-plan.md 6절 7번). stmt 는 이 부름 동안만 살아 있다.
+    virtual void OnMailSaved(CPlayer* player, const DBMailStmt& stmt) = 0;
+};
+#endif
+
 class CCharacterStore
 {
 public:
@@ -64,12 +80,20 @@ public:
 #if USE_COMBAT
                     CBuffSystem& buffSystem,
 #endif
-                    const uint64_t& frameCount, ICharacterLoadEvents& loadEvents)
+                    const uint64_t& frameCount, ICharacterLoadEvents& loadEvents
+#if USE_MAIL
+                    , IMailStoreEvents& mailEvents
+#endif
+                    )
         : _sessionHub(sessionHub), _gameMonitor(gameMonitor), _gameDataFiles(gameDataFiles)
 #if USE_COMBAT
         , _buffSystem(buffSystem)
 #endif
-        , _frameCount(frameCount), _loadEvents(loadEvents) {}
+        , _frameCount(frameCount), _loadEvents(loadEvents)
+#if USE_MAIL
+        , _mailEvents(mailEvents)
+#endif
+    {}
 
     // DB 저장 파이프라인 초기화. Start() 전에 호출(CGameServer::InitDB 가 넘긴다). 세 값은 1 이상 — 아니면 false(기동 거절).
     bool Init(const DBConfig& dbConfig, int savePeriodSec, int retrySec, int reconnectMinSec, int workerCount, int queueMax, ZoneServerId zoneServerId);
@@ -118,7 +142,11 @@ public:
 
     // DB 왕복 — 캐릭터 불러오기 (요청은 워커 큐로, 결과는 회신 큐로 돌아와 다음 틱에 꺼낸다)
     bool RequestCharacterLoad(SessionId sessionId, CharacterId characterId, bool readRoster);   // 조회 1건 투입 + 계수. false = 거절됨(결과가 안 온다)
-    void ProcessDbResults();                                           // 틱마다: 회신 큐를 통째로 꺼내 종류별로 넘긴다(불러오기 → _loadEvents)
+#if USE_MAIL
+    // DB 왕복 — 우편 잡(읽기·표시). 회신은 다음 틱 이후 _mailEvents 로. false = 워커 없음·거절(회신이 안 온다 — 부르는 쪽이 그 자리에서 닫는다)
+    bool RequestMailJob(const DBMailJob& job);
+#endif
+    void ProcessDbResults();                                           // 틱마다: 회신 큐를 통째로 꺼내 종류별로 넘긴다(불러오기 → _loadEvents · 우편 → _mailEvents)
 
 private:
     std::function<void(CPlayer*, bool)> _handoffSaved;   // 넘김 저장 회신을 받는 쪽(CChannelMoveFlow)
@@ -131,7 +159,9 @@ private:
 
     // ── 저장 묶음 · 비행 기록 · 떠난 기록 ──
     //   묶음 하나를 만든다 — 표시를 비행 기록으로 옮기고 머리·칸 줄을 채운다(넣기 전). 넣기가 거절되면 AbortBundle 이 되돌린다.
-    void PrepareBundle(CPlayer* player, DBSaveBundle& head, std::vector<DBInvRow>& rows);
+    //   mails = 우편 문장을 붙일 벡터 — 대기 문장이 준비돼 있으면 비행 기록으로 옮기고 여기에 값을 붙인다(머리의 mailBegin · mailCount).
+    //   nullptr = 우편을 실을 수 없는 묶음(짝 묶음) — 그때 대기 문장이 있으면 규칙 위반이다(assert · ERROR 로그 · 문장은 대기에 남는다)
+    void PrepareBundle(CPlayer* player, DBSaveBundle& head, std::vector<DBInvRow>& rows, std::vector<DBMailStmt>* mails);
     void AbortBundle(CPlayer* player);                                   // 넣기 거절 — 비행 기록을 표시로 되돌림
     void CommitBundle(CPlayer* player, const DBSaveBundle& head, SaveTrigger trigger);   // 넣기 받음 — 비행 중으로
     bool SendBundle(CPlayer* player, SaveTrigger trigger);               // 주기·틱 끝 하나 — 비행 중이면 다시 필요만. 반환 = 큐가 받았나
@@ -148,8 +178,10 @@ private:
         std::vector<DBInvRow> rows;
         bool                  inFlight = false;
         bool                  paired   = false;   // 짝 고리에 걸려 붙잡힘 — 혼자 안 낸다(짝 묶음의 한쪽으로만 · 고리가 풀리면 혼자)
+        std::unique_ptr<DBMailStmt> mail;          // 함께 실을 우편 문장(비행 중이던 것 · 준비된 대기 문장 — mail-plan.md 5절). 없으면 nullptr
     };
-    void PutLeaveRecord(DBSaveBundle head, std::vector<DBInvRow>&& rows, SaveTrigger trigger, bool hold = false);
+    void PutLeaveRecord(DBSaveBundle head, std::vector<DBInvRow>&& rows, SaveTrigger trigger, bool hold = false,
+                        std::unique_ptr<DBMailStmt> mail = nullptr);
     void SendLeaveRecord(LeaveRecord& rec, SaveTrigger trigger);
 
     // 짝 고리 — 거래 한 건의 확정 안 된 저장. 쪽마다 살아 있는 사람(세션) 또는 떠난 기록(캐릭터 열쇠)이다.
@@ -186,6 +218,9 @@ private:
 #endif
     const uint64_t&       _frameCount;      // 게임 루프의 틱 번호 — 빌린 것, 읽기만(틱 ↔ 실제 시각 환산의 「지금」)
     ICharacterLoadEvents& _loadEvents;      // 불러오기 결과를 받는 쪽
+#if USE_MAIL
+    IMailStoreEvents&     _mailEvents;      // 우편 잡 회신 · 우편 문장 확정을 받는 쪽(CMailHandler)
+#endif
 
     // DB 저장 파이프라인 — 워커(실행기)와 주기 계수
     std::unique_ptr<CDBWorker> _dbWorker;
@@ -198,6 +233,7 @@ private:
     //   _localEvents 와 같은 방식). 접근은 게임 스레드 단독.
     std::vector<DBResult> _dbResults;
     std::vector<DBSaveReply> _dbSaveReplies;   // 저장 회신 — 위와 같은 맞바꿈 버퍼(한 락에 같이 꺼낸다)
+    std::vector<DBMailReply> _dbMailReplies;   // 우편 잡 회신 — 같은 맞바꿈 버퍼(우편을 끈 빌드는 늘 비어 있다)
 
     // 저장 묶음 — 접근은 게임 스레드 단독(종료 때는 게임 스레드 join 뒤 메인 스레드 단독)
     std::vector<SessionId>                       _retrySessions;     // 되살린 묶음의 주인 — 다음 재시도 때 다시 판정한다
@@ -207,6 +243,7 @@ private:
     int64_t                                    _inflightCount = 0; // 비행 중 묶음이 있는 살아 있는 캐릭터 수(게이지의 원본)
     std::vector<DBSaveBundle>                  _batchHeads;        // 주기·종료 묶음 머리 — 멤버 재사용(매 주기 할당 회피)
     std::vector<DBInvRow>                      _batchRows;         // 그 칸 줄(머리의 slotBegin 이 가리킨다)
+    std::vector<DBMailStmt>                    _batchMails;        // 그 우편 문장(머리의 mailBegin · mailCount 가 가리킨다)
     std::vector<CPlayer*>                      _batchOwners;       // _batchHeads 와 나란한 주인(거절 때 되돌릴 사람)
     std::vector<size_t>                        _batchRefused;      // 거절된 색인
     std::vector<PairLink>                      _pairs;             // 걸린 짝 고리 — 많아야 동시에 확정을 기다리는 거래 수

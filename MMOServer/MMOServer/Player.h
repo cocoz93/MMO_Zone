@@ -6,12 +6,18 @@
 #include <cstdint>
 #include <string>
 #include <random>
+#include <memory>        // 우편 대기 문장 칸(std::unique_ptr<MailDraft>)
 
+#include "BuildConfig.h" // USE_MAIL — 간접 포함에 기대지 않는다
 #include "Character.h"   // CCharacter ← CActor · Direction · MoveState
 #include "CharacterComponents.h"   // 컴포넌트를 값으로 든다
 #include "SkillTable.h"  // USE_SKILL — MAX_SKILL_BOOK(저장 사본 칸 수). 헤더 안에서 스스로 토글을 본다
 #include "Inventory.h"   // USE_INVENTORY — 헤더 안에서 스스로 토글을 본다
 #include "RoomLockoutBlob.h"   // 보스방 잠금 목록의 칸 꼴
+
+#if USE_MAIL
+struct MailDraft;   // 우편 대기 문장 — 정의는 MailDraft.h(DB 헤더를 여기서 안 읽는다 · 생성자·소멸자가 Player.cpp 에 있어 앞 선언으로 된다)
+#endif
 
 // CPlayer — 사람이 조종하는 캐릭터.
 //   좌표·섹터·이동은 CActor 에, HP·표시는 CCharacter 에 있다.
@@ -106,8 +112,16 @@ public:
 #if USE_INVENTORY
         CInventory::SlotBits slots;          // 실은 가방 칸 — 실패면 가방 저장 표시로 되살리고, 나갈 때·종료 묶음엔 표시와 합쳐 싣는다
 #endif
+#if USE_MAIL
+        std::unique_ptr<MailDraft> mail;     // 실은 우편 문장 — 성공이면 확정 알림(IMailStoreEvents::OnMailSaved) · 실패면 _mailDraft 로 되돌린다
+#endif
     };
     DbFlight _dbFlight;
+#if USE_MAIL
+    // 우편 대기 문장 — 칸·돈을 줄인 뒤 다음 묶음에 실을 우편 문장(mail-plan.md 5절). 평소 비어 있다(사람마다 약 800바이트를 늘리지 않게).
+    //   ready=false = 받는 이름 찾기 왕복 중인 초안이라 묶음에 안 실린다. 저장소(CCharacterStore)가 묶음으로 옮기고 우편 규칙이 채운다.
+    std::unique_ptr<MailDraft> _mailDraft;
+#endif
     bool     _channelListAsking = false;   // 채널 목록을 월드 서버에 묻는 중 — CChannelListFlow 만 쓴다
 
     // 다른 존 서버로 채널 바꾸는 중 — IDLE 이 아니면 CGameServer::OnReceived 가 이 사람의 입력을 버린다.

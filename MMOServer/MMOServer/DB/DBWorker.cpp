@@ -127,12 +127,16 @@ bool CDBWorker::EnqueueLoad(const DBLoadJob& job)
 }
 
 // 묶음 하나를 슬롯 큐에(락을 쥔 채) — 묶음끼리 센 수로 상한. 칸 줄은 큐 옆 줄 벡터 끝에 붙이고 시작 자리를 머리에 적는다.
-bool CDBWorker::PushBundleLocked(DBWorkerSlot& slot, DBSaveBundle head, const DBInvRow* rows, int rowCount)
+//   우편 문장(mail)도 같은 꼴 — 우편 문장 벡터 끝에 붙이고 자리를 머리에 적는다.
+bool CDBWorker::PushBundleLocked(DBWorkerSlot& slot, DBSaveBundle head, const DBInvRow* rows, int rowCount, const DBMailStmt* mail)
 {
     assert(rowCount >= 0 && (rowCount == 0 || rows != nullptr));
     assert((head.parts != 0 || rowCount > 0) && "실을 덩어리가 하나도 없는 묶음 — 만드는 자리(PrepareBundle · LeaveFinal)가 parts 를 정한다");
 #if !USE_INVENTORY
     assert(rowCount == 0 && "가방을 끈 빌드의 묶음은 칸 줄이 없다");
+#endif
+#if !USE_MAIL
+    assert(mail == nullptr && "우편을 끈 빌드의 묶음은 우편 문장이 없다");
 #endif
     if (slot.bundleCount >= static_cast<size_t>(_queueMax))
         return false;
@@ -140,19 +144,23 @@ bool CDBWorker::PushBundleLocked(DBWorkerSlot& slot, DBSaveBundle head, const DB
     head.slotCount = rowCount;
     if (rowCount > 0)
         slot.rows.insert(slot.rows.end(), rows, rows + rowCount);
+    head.mailBegin = static_cast<uint32_t>(slot.mails.size());
+    head.mailCount = (mail != nullptr) ? 1 : 0;
+    if (mail != nullptr)
+        slot.mails.push_back(*mail);
     slot.queue.push_back(DBJob::Bundle(head));
     ++slot.bundleCount;
     return true;
 }
 
-bool CDBWorker::EnqueueSave(const DBSaveBundle& head, const DBInvRow* rows, int rowCount)
+bool CDBWorker::EnqueueSave(const DBSaveBundle& head, const DBInvRow* rows, int rowCount, const DBMailStmt* mail)
 {
     DBWorkerSlot& slot = *_workers[SlotIndex(CharacterId{ head.row.characterId })];   // 불러오기·저장과 같은 슬롯 — 캐릭터별 순서 보장
 
     bool taken;
     {
         std::lock_guard<std::mutex> lk(slot.mutex);
-        taken = PushBundleLocked(slot, head, rows, rowCount);
+        taken = PushBundleLocked(slot, head, rows, rowCount, mail);
     }
     if (!taken)
     {
@@ -181,7 +189,8 @@ bool CDBWorker::EnqueueSavePair(const DBSaveBundle& a, const DBInvRow* aRows, in
         {
             DBSaveBundle first = a;  first.pairNext = 1;
             DBSaveBundle second = b; second.pairNext = 0;
-            taken = PushBundleLocked(slot, first, aRows, aCount) && PushBundleLocked(slot, second, bRows, bCount);
+            // 짝 묶음은 우편 문장을 싣지 않는다 — 우편 동작 중인 사람은 거래를 못 연다(mail-plan.md 5절 · CTradeSystem::Busy)
+            taken = PushBundleLocked(slot, first, aRows, aCount, nullptr) && PushBundleLocked(slot, second, bRows, bCount, nullptr);
             assert(taken && "상한을 위에서 봤다");
         }
     }
@@ -197,7 +206,7 @@ bool CDBWorker::EnqueueSavePair(const DBSaveBundle& a, const DBInvRow* aRows, in
 }
 
 void CDBWorker::EnqueueSaveBatch(const std::vector<DBSaveBundle>& heads, const std::vector<DBInvRow>& allRows,
-                                 std::vector<size_t>* outRefused)
+                                 const std::vector<DBMailStmt>& allMails, std::vector<size_t>* outRefused)
 {
     if (outRefused != nullptr)
         outRefused->clear();
@@ -218,7 +227,9 @@ void CDBWorker::EnqueueSaveBatch(const std::vector<DBSaveBundle>& heads, const s
                     continue;
                 assert(static_cast<size_t>(h.slotBegin) + static_cast<size_t>(h.slotCount) <= allRows.size());
                 const DBInvRow* rows = (h.slotCount > 0) ? allRows.data() + h.slotBegin : nullptr;
-                if (PushBundleLocked(slot, h, rows, h.slotCount))
+                assert(h.mailCount <= 1 && (h.mailCount == 0 || static_cast<size_t>(h.mailBegin) < allMails.size()));
+                const DBMailStmt* mail = (h.mailCount > 0) ? &allMails[h.mailBegin] : nullptr;
+                if (PushBundleLocked(slot, h, rows, h.slotCount, mail))
                     ++taken;
                 else
                 {
@@ -251,11 +262,45 @@ void CDBWorker::PushSaveReply(const DBSaveReply& reply)
     _results.saves.push_back(reply);
 }
 
-void CDBWorker::SwapOutResults(std::vector<DBResult>& loads, std::vector<DBSaveReply>& saves)
+void CDBWorker::PushMailReply(DBMailReply&& reply)
 {
     std::lock_guard<std::mutex> lk(_results.mutex);
-    loads.swap(_results.items);   // 둘 다 비어 있어야 한다 — 그 빈 벡터(용량 보존)가 회신 큐의 새 몸이 된다
+    _results.mails.push_back(std::move(reply));
+}
+
+bool CDBWorker::EnqueueMail(const DBMailJob& job)
+{
+#if !USE_MAIL
+    (void)job;
+    SLOG_ERROR("[DB] mail job in a build without USE_MAIL — refused");
+    return false;
+#else
+    DBWorkerSlot& slot = *_workers[SlotIndex(job.characterId)];   // 그 사람의 저장·불러오기와 같은 슬롯 — 앞선 저장 뒤에 선다
+
+    {
+        std::lock_guard<std::mutex> lk(slot.mutex);
+        // 불러오기처럼 잡끼리 센 수로 같은 상한 — swap-out 때 0 으로 되돌아간다(WorkerThread)
+        if (slot.mailJobCount >= static_cast<size_t>(_queueMax))
+        {
+            SLOG_ERROR("[DB] backpressure — mail job refused (worker={}, character={}, op={}, max={})",
+                       slot.index, job.characterId, static_cast<int>(job.op), _queueMax);
+            return false;
+        }
+        slot.queue.push_back(DBJob::Mail(job));
+        ++slot.mailJobCount;
+    }
+
+    slot.cv.notify_one();
+    return true;
+#endif
+}
+
+void CDBWorker::SwapOutResults(std::vector<DBResult>& loads, std::vector<DBSaveReply>& saves, std::vector<DBMailReply>& mails)
+{
+    std::lock_guard<std::mutex> lk(_results.mutex);
+    loads.swap(_results.items);   // 셋 다 비어 있어야 한다 — 그 빈 벡터(용량 보존)가 회신 큐의 새 몸이 된다
     saves.swap(_results.saves);
+    mails.swap(_results.mails);
 }
 
 void CDBWorker::WorkerThread(int idx)
@@ -267,6 +312,7 @@ void CDBWorker::WorkerThread(int idx)
 
     std::vector<DBJob> local;
     std::vector<DBInvRow> localRows;   // 저장 묶음의 칸 줄 — local 과 같이 맞바꾼다(묶음 머리의 시작 자리가 이 벡터를 가리킨다)
+    std::vector<DBMailStmt> localMails;   // 저장 묶음의 우편 문장 — 같은 꼴(묶음 머리의 mailBegin)
     while (true)
     {
         {
@@ -276,8 +322,10 @@ void CDBWorker::WorkerThread(int idx)
                 break;                   // 정지 요청 + 잔여 없음 → 종료(드레인 완료)
             local.swap(slot.queue);       // 누적분 통째 인출 (여러 주기분 병합 가능)
             localRows.swap(slot.rows);    // 같은 락 안에서 — 묶음 머리와 칸 줄이 어긋나지 않게
+            localMails.swap(slot.mails);  // 우편 문장도 같은 까닭
             slot.loadCount = 0;           // 큐를 통째로 가져왔으므로 큐에 든 불러오기도 0 (EnqueueLoad 의 상한 기준)
             slot.bundleCount = 0;         // 같은 이유 — 저장 묶음 상한(EnqueueSave)의 기준
+            slot.mailJobCount = 0;        // 같은 이유 — 우편 잡 상한(EnqueueMail)의 기준
         }
 
         // 배치 처리 전 — 커넥션이 끊겨 있으면 재연결 1회 시도.
@@ -313,7 +361,7 @@ void CDBWorker::WorkerThread(int idx)
 
         _counters._queueDepth[idx].Store(static_cast<int64_t>(local.size()));  // 워커별 게이지
 
-        static_assert(DB_JOB_KIND_COUNT == 2, "DBJobKind 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
+        static_assert(DB_JOB_KIND_COUNT == 3, "DBJobKind 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
         for (size_t j = 0; j < local.size(); ++j)
         {
             const DBJob& job = local[j];
@@ -346,12 +394,15 @@ void CDBWorker::WorkerThread(int idx)
                     n = 2;
                 }
                 const DBInvRow* rows[MAX_BUNDLE_HEADS] = { nullptr, nullptr };
+                const DBMailStmt* mails[MAX_BUNDLE_HEADS] = { nullptr, nullptr };
                 for (int h = 0; h < n; ++h)
                 {
                     assert(static_cast<size_t>(heads[h]->slotBegin) + static_cast<size_t>(heads[h]->slotCount) <= localRows.size());
                     rows[h] = (heads[h]->slotCount > 0) ? localRows.data() + heads[h]->slotBegin : nullptr;
+                    assert(heads[h]->mailCount <= 1 && (heads[h]->mailCount == 0 || static_cast<size_t>(heads[h]->mailBegin) < localMails.size()));
+                    mails[h] = (heads[h]->mailCount > 0) ? &localMails[heads[h]->mailBegin] : nullptr;
                 }
-                const DBSaveResult result = ExecBundle(slot, heads, rows, n, reconnectFailedThisBatch);
+                const DBSaveResult result = ExecBundle(slot, heads, rows, mails, n, reconnectFailedThisBatch);
                 static_assert(static_cast<int>(DBSaveResult::COUNT) == 3, "DBSaveResult 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
                 for (int h = 0; h < n; ++h)
                 {
@@ -361,6 +412,7 @@ void CDBWorker::WorkerThread(int idx)
                     case DBSaveResult::OK:
                         _counters._savedJobs.Inc();
                         _counters._saveSlotRows.Add(b.slotCount);
+                        _counters._saveMailStmts.Add(b.mailCount);   // 확정된 우편 문장 — 떠난 기록으로 확정된 것까지(mail-plan.md 5절)
                         if (b.parts & SAVE_PART_CHAR_ROW)
                             _counters._saveCharRows.Inc();
                         break;
@@ -378,12 +430,22 @@ void CDBWorker::WorkerThread(int idx)
                 break;
             }
 
+            case DBJobKind::MAIL:
+            {
+                // 우편 잡 — 불러오기처럼 회신을 반드시 하나 돌려준다(사람별 우편 상태가 이 회신으로 풀린다). 묶음 끝을 기다리지 않는다
+                DBMailReply reply;
+                ExecMailJob(slot, job.mail, reply, reconnectFailedThisBatch);
+                PushMailReply(std::move(reply));
+                break;
+            }
+
             case DBJobKind::COUNT:
                 break;   // 값이 아니라 개수 표시 — 큐에 들어올 수 없다
             }
         }
         local.clear();
         localRows.clear();
+        localMails.clear();
     }
 
     mysql_thread_end();
@@ -662,6 +724,213 @@ static bool BindOwnerUpdate(MYSQL_STMT* st, DBWorkerSlot& slot)
     return mysql_stmt_bind_param(st, p) == 0;
 }
 
+#if USE_MAIL
+// ── 우편 문장 (mail-plan.md 5절 · 8절) ─────────────────────────────────────────────
+//   열 표를 안 쓴다 — 문장마다 열 조합이 달라(보내기 · 받기 · 계정 우편 받기 · 잡 일곱) 「열 하나 = 한 줄」로 늘어나는 꼴이 아니다.
+//   대신 ? 수와 결과 열 수를 바인딩 때 문장에서 직접 읽어 대조한다(MailBindCounts) — 손으로 센 배열이 SQL 과 어긋나면 기동이 멈춘다.
+//   글자 파라미터는 STRING(열의 utf8mb4 변환·비교를 탄다) · 바이트 파라미터(첨부 · send_key)는 BLOB ·
+//   글자 결과는 BLOB(소유 표 이름과 같은 꼴 — 바이트 그대로 받고 게임 스레드가 검사한다).
+//   살아 있는 우편 = 안 받았고 · 안 지웠고 · 기한 전(schema.sql character_mail) — 문장마다 같은 글자를 쓴다.
+#define MMO_MAIL_ALIVE "taken_at IS NULL AND deleted_at IS NULL AND expires_at>NOW(3)"
+static const char* const kMailSendSql =
+    "INSERT INTO character_mail (character_id,from_character_id,from_name,title,body,money,attach,send_key,expires_at) "
+    "VALUES (?,?,?,?,?,?,?,?,DATE_ADD(NOW(3), INTERVAL ? DAY)) ON DUPLICATE KEY UPDATE send_key=send_key";
+static const char* const kMailTakeSql =
+    "UPDATE character_mail SET taken_at=COALESCE(taken_at, NOW(3)) WHERE mail_id=? AND character_id=?";
+static const char* const kMailAccTakeSql =
+    "INSERT INTO character_mail (character_id,title,body,money,attach,from_account_mail_id,taken_at,expires_at) "
+    "VALUES (?,?,?,?,?,?,NOW(3),DATE_ADD(NOW(3), INTERVAL ? DAY)) ON DUPLICATE KEY UPDATE from_account_mail_id=from_account_mail_id";
+static const char* const kMailFindReceiverSql =
+    "SELECT r.character_id, r.deleted_at IS NOT NULL, "
+    "(SELECT COUNT(*) FROM character_mail m WHERE m.character_id=r.character_id AND m.taken_at IS NULL AND m.deleted_at IS NULL AND m.expires_at>NOW(3)) "
+    "FROM character_roster r WHERE r.name=?";
+static_assert(DB_MAIL_LIST_MAX == 100, "목록 문장의 LIMIT 글자도 같이 고칠 것");
+static const char* const kMailListSql =
+    "SELECT mail_id,money,TIMESTAMPDIFF(SECOND,NOW(3),expires_at),read_at IS NOT NULL,from_name,title,attach "
+    "FROM character_mail WHERE character_id=? AND " MMO_MAIL_ALIVE " ORDER BY mail_id DESC LIMIT 100";
+static const char* const kMailReadSql =
+    "SELECT mail_id,from_character_id,money,from_name,title,body,attach FROM character_mail "
+    "WHERE mail_id=? AND character_id=? AND " MMO_MAIL_ALIVE;
+static const char* const kMailMarkReadSql =
+    "UPDATE character_mail SET read_at=COALESCE(read_at, NOW(3)) WHERE mail_id=? AND character_id=?";
+// 지우기 = 표시만(DB 계정에 DELETE 권한이 없다). 첨부·돈이 남은 우편은 조건에서 걸러 바뀐 행이 0 이 된다(게임 스레드가 미리 막지만 DB 도 지킨다)
+static const char* const kMailEraseSql =
+    "UPDATE character_mail SET deleted_at=NOW(3) WHERE mail_id=? AND character_id=? AND money=0 AND attach='' AND deleted_at IS NULL";
+// 붉은 수 — 안 읽었거나 첨부·돈을 아직 안 받은 우편(mail-plan.md 11-11 결정)
+static const char* const kMailCountPendingSql =
+    "SELECT COUNT(*) FROM character_mail WHERE character_id=? AND " MMO_MAIL_ALIVE " AND (read_at IS NULL OR money>0 OR attach<>'')";
+static const char* const kMailFindMovedSql =
+    "SELECT mail_id FROM character_mail WHERE from_account_mail_id=?";
+#undef MMO_MAIL_ALIVE
+
+template <size_t N>
+static void BindMailBytes(MYSQL_BIND& b, DBBytes<N>& v, enum_field_types type)
+{
+    b.buffer_type   = type;
+    b.buffer        = v.data;
+    b.buffer_length = static_cast<unsigned long>(N);
+    b.length        = &v.len;
+}
+static void BindMailI64(MYSQL_BIND& b, int64_t& v) { b.buffer_type = MYSQL_TYPE_LONGLONG; b.buffer = &v; }
+static void BindMailI32(MYSQL_BIND& b, int32_t& v) { b.buffer_type = MYSQL_TYPE_LONG;     b.buffer = &v; }
+
+// 손으로 센 파라미터·결과 수가 준비된 문장과 같은가 — 다르면 바인딩 실패로(PrepareStmt 가 기동을 멈춘다)
+static bool MailBindCounts(MYSQL_STMT* st, unsigned long params, unsigned int fields)
+{
+    if (mysql_stmt_param_count(st) == params && mysql_stmt_field_count(st) == fields)
+        return true;
+    SLOG_ERROR("[DB] mail stmt bind count mismatch (params {}/{}, fields {}/{})",
+               mysql_stmt_param_count(st), params, mysql_stmt_field_count(st), fields);
+    return false;
+}
+
+// 보내기 — ? 순서는 SQL 그대로(받는 캐릭터 · 보낸 캐릭터 · 보낸 이름 · 제목 · 본문 · 돈 · 첨부 · send_key · 기한 일수)
+static bool BindMailSend(MYSQL_STMT* st, DBWorkerSlot& slot)
+{
+    if (!MailBindCounts(st, 9, 0))
+        return false;
+    DBMailStmt& s = slot.bMail;
+    MYSQL_BIND p[9] = {};
+    BindMailI64(p[0], s.characterId);
+    BindMailI64(p[1], s.fromCharacterId);
+    BindMailBytes(p[2], s.fromName, MYSQL_TYPE_STRING);
+    BindMailBytes(p[3], s.title,    MYSQL_TYPE_STRING);
+    BindMailBytes(p[4], s.body,     MYSQL_TYPE_STRING);
+    BindMailI64(p[5], s.money);
+    BindMailBytes(p[6], s.attach,   MYSQL_TYPE_BLOB);
+    BindMailBytes(p[7], s.sendKey,  MYSQL_TYPE_BLOB);
+    BindMailI32(p[8], s.expireDays);
+    return mysql_stmt_bind_param(st, p) == 0;
+}
+
+// 받기 — 우편 번호 · 주인
+static bool BindMailTake(MYSQL_STMT* st, DBWorkerSlot& slot)
+{
+    if (!MailBindCounts(st, 2, 0))
+        return false;
+    MYSQL_BIND p[2] = {};
+    BindMailI64(p[0], slot.bMail.mailId);
+    BindMailI64(p[1], slot.bMail.characterId);
+    return mysql_stmt_bind_param(st, p) == 0;
+}
+
+// 계정 우편 받기 — 주인 · 제목 · 본문 · 돈 · 첨부 · 계정 우편 번호 · 기한 일수
+static bool BindMailAccTake(MYSQL_STMT* st, DBWorkerSlot& slot)
+{
+    if (!MailBindCounts(st, 7, 0))
+        return false;
+    DBMailStmt& s = slot.bMail;
+    MYSQL_BIND p[7] = {};
+    BindMailI64(p[0], s.characterId);
+    BindMailBytes(p[1], s.title,  MYSQL_TYPE_STRING);
+    BindMailBytes(p[2], s.body,   MYSQL_TYPE_STRING);
+    BindMailI64(p[3], s.money);
+    BindMailBytes(p[4], s.attach, MYSQL_TYPE_BLOB);
+    BindMailI64(p[5], s.fromAccountMailId);
+    BindMailI32(p[6], s.expireDays);
+    return mysql_stmt_bind_param(st, p) == 0;
+}
+
+// 받는 이름 찾기 — ? 이름 · 결과 번호 · 지움 표시 · 우편 수
+static bool BindMailFindReceiver(MYSQL_STMT* st, DBWorkerSlot& slot)
+{
+    if (!MailBindCounts(st, 1, 3))
+        return false;
+    DBMailJobBuf& j = slot.bMailJob;
+    MYSQL_BIND p[1] = {};
+    BindMailBytes(p[0], j.name, MYSQL_TYPE_STRING);
+    if (mysql_stmt_bind_param(st, p) != 0)
+        return false;
+    MYSQL_BIND r[3] = {};
+    BindMailI64(r[0], j.foundId);
+    BindMailI32(r[1], j.flag);
+    BindMailI64(r[2], j.count);
+    return mysql_stmt_bind_result(st, r) == 0;
+}
+
+// 목록 — ? 캐릭터 · 결과는 한 줄 버퍼(bMailBrief)에 fetch 마다
+static bool BindMailList(MYSQL_STMT* st, DBWorkerSlot& slot)
+{
+    if (!MailBindCounts(st, 1, 7))
+        return false;
+    MYSQL_BIND p[1] = {};
+    BindMailI64(p[0], slot.bMailJob.characterId);
+    if (mysql_stmt_bind_param(st, p) != 0)
+        return false;
+    DBMailBrief& b = slot.bMailBrief;
+    MYSQL_BIND r[7] = {};
+    BindMailI64(r[0], b.mailId);
+    BindMailI64(r[1], b.money);
+    BindMailI32(r[2], b.remainSec);
+    BindMailI32(r[3], b.read);
+    BindMailBytes(r[4], b.fromName, MYSQL_TYPE_BLOB);
+    BindMailBytes(r[5], b.title,    MYSQL_TYPE_BLOB);
+    BindMailBytes(r[6], b.attach,   MYSQL_TYPE_BLOB);
+    return mysql_stmt_bind_result(st, r) == 0;
+}
+
+// 한 통 읽기 — ? 우편 번호 · 주인 · 결과는 bMailRow
+static bool BindMailRead(MYSQL_STMT* st, DBWorkerSlot& slot)
+{
+    if (!MailBindCounts(st, 2, 7))
+        return false;
+    MYSQL_BIND p[2] = {};
+    BindMailI64(p[0], slot.bMailJob.mailId);
+    BindMailI64(p[1], slot.bMailJob.characterId);
+    if (mysql_stmt_bind_param(st, p) != 0)
+        return false;
+    DBMailRow& w = slot.bMailRow;
+    MYSQL_BIND r[7] = {};
+    BindMailI64(r[0], w.mailId);
+    BindMailI64(r[1], w.fromCharacterId);
+    BindMailI64(r[2], w.money);
+    BindMailBytes(r[3], w.fromName, MYSQL_TYPE_BLOB);
+    BindMailBytes(r[4], w.title,    MYSQL_TYPE_BLOB);
+    BindMailBytes(r[5], w.body,     MYSQL_TYPE_BLOB);
+    BindMailBytes(r[6], w.attach,   MYSQL_TYPE_BLOB);
+    return mysql_stmt_bind_result(st, r) == 0;
+}
+
+// 읽음 적기 · 지우기 — 둘 다 ? 우편 번호 · 주인
+static bool BindMailIdOwner(MYSQL_STMT* st, DBWorkerSlot& slot)
+{
+    if (!MailBindCounts(st, 2, 0))
+        return false;
+    MYSQL_BIND p[2] = {};
+    BindMailI64(p[0], slot.bMailJob.mailId);
+    BindMailI64(p[1], slot.bMailJob.characterId);
+    return mysql_stmt_bind_param(st, p) == 0;
+}
+
+// 붉은 수 — ? 캐릭터 · 결과 수
+static bool BindMailCountPending(MYSQL_STMT* st, DBWorkerSlot& slot)
+{
+    if (!MailBindCounts(st, 1, 1))
+        return false;
+    MYSQL_BIND p[1] = {};
+    BindMailI64(p[0], slot.bMailJob.characterId);
+    if (mysql_stmt_bind_param(st, p) != 0)
+        return false;
+    MYSQL_BIND r[1] = {};
+    BindMailI64(r[0], slot.bMailJob.count);
+    return mysql_stmt_bind_result(st, r) == 0;
+}
+
+// 받은 줄 찾기 — ? 계정 우편 번호(잡의 mailId 칸) · 결과 번호
+static bool BindMailFindMoved(MYSQL_STMT* st, DBWorkerSlot& slot)
+{
+    if (!MailBindCounts(st, 1, 1))
+        return false;
+    MYSQL_BIND p[1] = {};
+    BindMailI64(p[0], slot.bMailJob.mailId);
+    if (mysql_stmt_bind_param(st, p) != 0)
+        return false;
+    MYSQL_BIND r[1] = {};
+    BindMailI64(r[0], slot.bMailJob.foundId);
+    return mysql_stmt_bind_result(st, r) == 0;
+}
+#endif // USE_MAIL
+
 // DBStmt 순서 그대로 — 인덱스가 곧 문장이다. 문장은 열 표(kCharColumns · kInvColumns)에서 조립.
 static const StmtDesc kStmts[] = {
     /* CHAR_UPSERT */ { "char_upsert", kSaveSql.c_str(),     BindPositionParams },
@@ -673,6 +942,18 @@ static const StmtDesc kStmts[] = {
     /* ROSTER_SELECT */ { "roster_select", kLoadRosterSql.c_str(), BindLoadRoster },
     /* OWNER_SELECT  */ { "owner_select",  kOwnerSelectSql,        BindOwnerSelect },
     /* OWNER_UPDATE  */ { "owner_update",  kOwnerUpdateSql,        BindOwnerUpdate },
+#if USE_MAIL
+    /* MAIL_SEND_INSERT     */ { "mail_send",          kMailSendSql,         BindMailSend },
+    /* MAIL_TAKE_UPDATE     */ { "mail_take",          kMailTakeSql,         BindMailTake },
+    /* MAIL_ACC_TAKE_INSERT */ { "mail_acc_take",      kMailAccTakeSql,      BindMailAccTake },
+    /* MAIL_FIND_RECEIVER   */ { "mail_find_receiver", kMailFindReceiverSql, BindMailFindReceiver },
+    /* MAIL_LIST            */ { "mail_list",          kMailListSql,         BindMailList },
+    /* MAIL_READ            */ { "mail_read",          kMailReadSql,         BindMailRead },
+    /* MAIL_MARK_READ       */ { "mail_mark_read",     kMailMarkReadSql,     BindMailIdOwner },
+    /* MAIL_ERASE           */ { "mail_erase",         kMailEraseSql,        BindMailIdOwner },
+    /* MAIL_COUNT_PENDING   */ { "mail_count_pending", kMailCountPendingSql, BindMailCountPending },
+    /* MAIL_FIND_MOVED      */ { "mail_find_moved",    kMailFindMovedSql,    BindMailFindMoved },
+#endif
 };
 static_assert(sizeof(kStmts) / sizeof(kStmts[0]) == DB_STMT_COUNT,
               "DBStmt 를 늘렸으면 kStmts 에도 같은 순서로 한 줄을 넣을 것");
@@ -686,6 +967,31 @@ static constexpr int kInvLoadIdx = static_cast<int>(DBStmt::INV_SELECT);
 static constexpr int kRosterIdx = static_cast<int>(DBStmt::ROSTER_SELECT);
 static constexpr int kOwnerSelectIdx = static_cast<int>(DBStmt::OWNER_SELECT);
 static constexpr int kOwnerUpdateIdx = static_cast<int>(DBStmt::OWNER_UPDATE);
+#if USE_MAIL
+static constexpr int kMailSendIdx         = static_cast<int>(DBStmt::MAIL_SEND_INSERT);
+static constexpr int kMailTakeIdx         = static_cast<int>(DBStmt::MAIL_TAKE_UPDATE);
+static constexpr int kMailAccTakeIdx      = static_cast<int>(DBStmt::MAIL_ACC_TAKE_INSERT);
+static constexpr int kMailFindReceiverIdx = static_cast<int>(DBStmt::MAIL_FIND_RECEIVER);
+static constexpr int kMailListIdx         = static_cast<int>(DBStmt::MAIL_LIST);
+static constexpr int kMailReadIdx         = static_cast<int>(DBStmt::MAIL_READ);
+static constexpr int kMailMarkReadIdx     = static_cast<int>(DBStmt::MAIL_MARK_READ);
+static constexpr int kMailEraseIdx        = static_cast<int>(DBStmt::MAIL_ERASE);
+static constexpr int kMailCountPendingIdx = static_cast<int>(DBStmt::MAIL_COUNT_PENDING);
+static constexpr int kMailFindMovedIdx    = static_cast<int>(DBStmt::MAIL_FIND_MOVED);
+
+// 묶음의 우편 문장 종류 → 문장 자리. 값이 아닌 COUNT 는 -1(부르는 쪽이 실패로 돌린다)
+static int MailStmtIndex(DBMailStmtKind kind)
+{
+    switch (kind)
+    {
+    case DBMailStmtKind::SEND_INSERT:     return kMailSendIdx;
+    case DBMailStmtKind::TAKE_UPDATE:     return kMailTakeIdx;
+    case DBMailStmtKind::ACC_TAKE_INSERT: return kMailAccTakeIdx;
+    case DBMailStmtKind::COUNT:           break;
+    }
+    return -1;
+}
+#endif
 
 // 주인 열 잠금 읽기 — 값은 slot.bOwner 에, 행이 있나는 found 에. false = 실패(오류는 st 에 남아 있다 — 부르는 쪽이 유실·그 밖을 가른 뒤 결과를 닫는다).
 //   기본 키 조회라 행은 많아야 하나다. 숫자 두 열이라 잘림이 없다.
@@ -1108,6 +1414,211 @@ void CDBWorker::ExecLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out
 }
 
 // ==========================================================================
+// 우편 잡 — 읽기·표시(mail-plan.md 8절). 트랜잭션 없이 문장 하나(READ_BODY 만 둘 — 읽기 + 읽음 적기)다.
+//   읽기는 두 번 해도 같고, 표시(read_at · deleted_at)도 COALESCE · 「deleted_at IS NULL」 조건이라 두 번 해도 같다 →
+//   불러오기와 같은 재연결 규칙(없으면 그 자리 재연결 · 도중에 끊기면 재연결 뒤 한 번 더). 결말은 회신의 ok 하나로.
+// ==========================================================================
+void CDBWorker::ExecMailJob(DBWorkerSlot& slot, const DBMailJob& job, DBMailReply& out, bool& reconnectFailedThisBatch)
+{
+    out.op          = job.op;
+    out.sessionId   = job.sessionId;
+    out.characterId = job.characterId;
+    out.mailId      = job.mailId;
+    out.ok          = false;
+#if !USE_MAIL
+    (void)slot; (void)reconnectFailedThisBatch;
+    SLOG_ERROR("[DB] mail job in a build without USE_MAIL (character={}, op={})", job.characterId, static_cast<int>(job.op));
+#else
+    if (slot.mysql == nullptr || slot.stmt[kMailReadIdx] == nullptr)
+    {
+        DropConnection(slot);   // 반쪽 상태는 PrepareStmt 가 안 만들지만 짝을 맞춰 비운다(ExecLoad 와 같다)
+        if (!TryReconnectForLoad(slot, reconnectFailedThisBatch))
+            return;             // 즉시 실패 — 매달리지 않는다
+    }
+
+    LoadOutcome outcome = RunMailOnce(slot, job, out);
+    if (outcome == LoadOutcome::CONNECTION_LOST)
+    {
+        DropConnection(slot);
+        if (TryReconnectForLoad(slot, reconnectFailedThisBatch))
+        {
+            outcome = RunMailOnce(slot, job, out);
+            if (outcome == LoadOutcome::CONNECTION_LOST)
+                DropConnection(slot);
+        }
+    }
+    out.ok = (outcome == LoadOutcome::FOUND);   // FOUND = 성공(행이 없어도 — found 가 가른다)
+#endif
+}
+
+#if USE_MAIL
+CDBWorker::LoadOutcome CDBWorker::RunMailSelectOne(DBWorkerSlot& slot, int stmtIdx, const char* what, CharacterId characterId, bool& found)
+{
+    found = false;
+    MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmt[stmtIdx]);
+    if (st == nullptr)
+        return LoadOutcome::QUERY_ERROR;   // PrepareStmt 가 전부 함께 세우므로 닿지 않는다 — 닿으면 실패로
+    if (mysql_stmt_execute(st) != 0)
+        return ClassifyStmtError(st, what, characterId);
+
+    // 결과는 많아야 한 줄(이름 · 기본 키 · UNIQUE · COUNT). switch 인 까닭은 RunLoadOnce 와 같다(오류가 「없음」에 삼켜지면 안 된다)
+    LoadOutcome outcome = LoadOutcome::FOUND;
+    switch (mysql_stmt_fetch(st))
+    {
+    case 0:
+    case MYSQL_DATA_TRUNCATED:   // 글자·바이트 칸보다 긴 값 — len 에 원래 길이가 남아 게임 스레드가 불량으로 본다(소유 표 이름과 같다)
+        found = true;
+        break;
+    case MYSQL_NO_DATA:
+        break;
+    default:
+        outcome = ClassifyStmtError(st, what, characterId);
+        break;
+    }
+    if (outcome != LoadOutcome::CONNECTION_LOST)
+        mysql_stmt_free_result(st);   // 안 닫으면 같은 커넥션의 다음 명령이 "Commands out of sync" 로 실패한다
+    return outcome;
+}
+
+CDBWorker::LoadOutcome CDBWorker::RunMailList(DBWorkerSlot& slot, const DBMailJob& job, DBMailReply& out)
+{
+    MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmt[kMailListIdx]);
+    if (st == nullptr)
+        return LoadOutcome::QUERY_ERROR;
+    if (mysql_stmt_execute(st) != 0)
+        return ClassifyStmtError(st, "mail list execute", job.characterId);
+
+    // 줄 여럿 — 끝(MYSQL_NO_DATA)까지 다 읽는다(가방 불러오기와 같다). LIMIT 이 상한을 지키지만 벡터도 상한에서 멈춘다
+    out.lines.reserve(DB_MAIL_LIST_MAX);
+    for (;;)
+    {
+        const int rc = mysql_stmt_fetch(st);
+        if (rc == MYSQL_NO_DATA)
+            break;
+        if (rc != 0 && rc != MYSQL_DATA_TRUNCATED)
+        {
+            const LoadOutcome e = ClassifyStmtError(st, "mail list fetch", job.characterId);
+            if (e != LoadOutcome::CONNECTION_LOST)
+                mysql_stmt_free_result(st);
+            return e;
+        }
+        if (out.lines.size() < static_cast<size_t>(DB_MAIL_LIST_MAX))
+            out.lines.push_back(slot.bMailBrief);   // 잘린 칸은 len 이 칸보다 커서 게임 스레드가 그 줄을 불량으로 본다
+    }
+    mysql_stmt_free_result(st);
+    out.found = !out.lines.empty();
+    return LoadOutcome::FOUND;   // 줄이 0 이어도 성공 — 「우편함이 비었다」는 사실이다
+}
+
+CDBWorker::LoadOutcome CDBWorker::RunMailOnce(DBWorkerSlot& slot, const DBMailJob& job, DBMailReply& out)
+{
+    // 재연결 뒤 한 번 더 돌 수 있다 — 결과 칸을 매번 비우고 시작한다(앞선 시도의 반쪽 줄이 섞이지 않게)
+    out.found = false;
+    out.targetDeleted = false;
+    out.foundId = 0;
+    out.count = 0;
+    out.name.len = 0;
+    out.row = DBMailRow{};
+    out.lines.clear();
+
+    slot.bMailJob = DBMailJobBuf{};   // 값만 비운다 — 바인딩은 멤버 자리를 가리키므로 그대로다
+    slot.bMailJob.characterId = ToInt(job.characterId);
+    slot.bMailJob.mailId      = job.mailId;
+
+    bool found = false;
+    static_assert(static_cast<int>(DBMailOp::COUNT) == 8, "DBMailOp 를 늘렸으면 아래 switch 에도 갈래를 넣을 것");
+    switch (job.op)
+    {
+    case DBMailOp::FIND_RECEIVER:
+    {
+        slot.bMailJob.name = job.name;
+        const LoadOutcome r = RunMailSelectOne(slot, kMailFindReceiverIdx, "mail find receiver", job.characterId, found);
+        if (r == LoadOutcome::FOUND && found)
+        {
+            out.found         = true;
+            out.foundId       = slot.bMailJob.foundId;
+            out.targetDeleted = (slot.bMailJob.flag != 0);
+            out.count         = slot.bMailJob.count;
+        }
+        return r;
+    }
+
+    case DBMailOp::LIST:
+        return RunMailList(slot, job, out);
+
+    case DBMailOp::READ_BODY:
+    case DBMailOp::READ_ONE:
+    {
+        const LoadOutcome r = RunMailSelectOne(slot, kMailReadIdx, "mail read", job.characterId, found);
+        if (r != LoadOutcome::FOUND || !found)
+            return r;
+        out.found = true;
+        out.row   = slot.bMailRow;
+        if (job.op == DBMailOp::READ_BODY)
+        {
+            // 읽음 적기 — 실패하면 잡 전체가 실패다(본문은 보였는데 붉은 수가 안 줄면 다시 열 까닭이 없다 — 다시 읽게 둔다)
+            MYSQL_STMT* stMark = static_cast<MYSQL_STMT*>(slot.stmt[kMailMarkReadIdx]);
+            if (mysql_stmt_execute(stMark) != 0)
+                return ClassifyStmtError(stMark, "mail mark read", job.characterId);
+        }
+        return LoadOutcome::FOUND;
+    }
+
+    case DBMailOp::ERASE:
+    {
+        MYSQL_STMT* st = static_cast<MYSQL_STMT*>(slot.stmt[kMailEraseIdx]);
+        if (mysql_stmt_execute(st) != 0)
+            return ClassifyStmtError(st, "mail erase", job.characterId);
+        const uint64_t affected = static_cast<uint64_t>(mysql_stmt_affected_rows(st));
+        out.count = static_cast<int64_t>(affected);
+        out.found = (affected > 0);
+        return LoadOutcome::FOUND;
+    }
+
+    case DBMailOp::COUNT_PENDING:
+    {
+        const LoadOutcome r = RunMailSelectOne(slot, kMailCountPendingIdx, "mail count pending", job.characterId, found);
+        if (r == LoadOutcome::FOUND && found)
+        {
+            out.found = true;
+            out.count = slot.bMailJob.count;
+        }
+        return r;
+    }
+
+    case DBMailOp::FIND_MOVED:
+    {
+        const LoadOutcome r = RunMailSelectOne(slot, kMailFindMovedIdx, "mail find moved", job.characterId, found);
+        if (r == LoadOutcome::FOUND && found)
+        {
+            out.found   = true;
+            out.foundId = slot.bMailJob.foundId;
+        }
+        return r;
+    }
+
+    case DBMailOp::FIND_NAME:
+    {
+        // 소유 표 문장을 같이 쓴다(이름 · 몸을 읽는다 — 몸은 버린다). 같은 워커 스레드의 일이라 불러오기 버퍼와 겹치지 않는다
+        slot.bRoster.characterId = ToInt(job.otherCharacterId);
+        const LoadOutcome r = RunMailSelectOne(slot, kRosterIdx, "mail find name", job.characterId, found);
+        if (r == LoadOutcome::FOUND && found)
+        {
+            out.found = true;
+            out.name  = slot.bRoster.rosterName;
+        }
+        return r;
+    }
+
+    case DBMailOp::COUNT:
+        break;   // 값이 아니라 개수 표시
+    }
+    SLOG_ERROR("[DB] bad mail op {} (character={})", static_cast<int>(job.op), job.characterId);
+    return LoadOutcome::QUERY_ERROR;
+}
+#endif // USE_MAIL
+
+// ==========================================================================
 // 저장 묶음 — 묶음 하나 = 트랜잭션 하나 (save-unify-plan.md 「워커」)
 //   쓰는 것은 켜진 덩어리만 — 캐릭터 행은 parts 에 SAVE_PART_CHAR_ROW 가 있을 때만, 칸은 slotCount 줄(save-skip-row-plan.md).
 //   늘 START TRANSACTION → 주인 잠금 읽기(머리마다) → (캐릭터 행 UPSERT) → 칸 UPSERT × N → COMMIT. 칸 줄은 최종값이라 두 번 써도 같다.
@@ -1119,7 +1630,8 @@ void CDBWorker::ExecLoad(DBWorkerSlot& slot, const DBLoadJob& job, DBResult& out
 static thread_local bool t_faultArmed = false;
 #endif
 
-CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSaveBundle* const* heads, const DBInvRow* const* rows, int n)
+CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSaveBundle* const* heads, const DBInvRow* const* rows,
+                                                const DBMailStmt* const* mails, int n)
 {
     assert(n >= 1 && n <= MAX_BUNDLE_HEADS);
     MYSQL* m = static_cast<MYSQL*>(slot.mysql);
@@ -1253,6 +1765,30 @@ CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSave
 #else
         (void)rows;
 #endif
+
+#if USE_MAIL
+        // 우편 문장 — 칸 문장 뒤(mail-plan.md 5절). 칸·돈과 같은 트랜잭션이라 둘이 갈라지지 않는다.
+        //   세 문장 다 두 번 써도 같다(send_key · COALESCE · from_account_mail_id) — COMMIT 끊김 뒤 묶음째 다시 써도 한 줄이다.
+        if (hb.mailCount > 0)
+        {
+            assert(hb.mailCount == 1 && mails != nullptr && mails[h] != nullptr);
+            const int mi = MailStmtIndex(mails[h]->kind);
+            if (mi < 0)
+                return fail(0, "mail stmt", "bad mail stmt kind");
+            MYSQL_STMT* stMail = static_cast<MYSQL_STMT*>(slot.stmt[mi]);
+            slot.bMail = *mails[h];
+            if (mysql_stmt_execute(stMail) != 0)
+                return fail(mysql_stmt_errno(stMail), "mail stmt", mysql_stmt_error(stMail));
+            ++stmtNo;
+#if USE_DB_FAULT_INJECT
+            if (injectAfter(stmtNo, injected))
+                return injected;
+#endif
+        }
+#else
+        (void)mails;
+        assert(hb.mailCount == 0 && "우편을 끈 빌드의 묶음은 우편 문장이 없다");
+#endif
     }
 
     // COMMIT 도중 끊기면 됐는지 모른다 — 끊김으로 돌려 묶음째 다시 쓴다(최종값이라 두 번 써도 같다)
@@ -1261,7 +1797,8 @@ CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSave
     return SaveOutcome::OK;
 }
 
-DBSaveResult CDBWorker::ExecBundle(DBWorkerSlot& slot, const DBSaveBundle* const* heads, const DBInvRow* const* rows, int n, bool& reconnectFailedThisBatch)
+DBSaveResult CDBWorker::ExecBundle(DBWorkerSlot& slot, const DBSaveBundle* const* heads, const DBInvRow* const* rows,
+                                   const DBMailStmt* const* mails, int n, bool& reconnectFailedThisBatch)
 {
     const DBSaveBundle& b = *heads[0];   // 로그·주입의 머리 — 짝이면 둘 중 하나라도 주입 캐릭터이면 건다
 #if USE_DB_FAULT_INJECT
@@ -1293,19 +1830,19 @@ DBSaveResult CDBWorker::ExecBundle(DBWorkerSlot& slot, const DBSaveBundle* const
         if (TryReconnectForLoad(slot, reconnectFailedThisBatch))
         {
             retried = true;
-            r = RunBundleOnce(slot, heads, rows, n);
+            r = RunBundleOnce(slot, heads, rows, mails, n);
         }
     }
     else
     {
-        r = RunBundleOnce(slot, heads, rows, n);
+        r = RunBundleOnce(slot, heads, rows, mails, n);
         if (r == SaveOutcome::CONNECTION_LOST)
         {
             DropConnection(slot);   // 실패 가르기가 이미 버렸다 — 짝을 맞춰 비운다(멱등)
             if (TryReconnectForLoad(slot, reconnectFailedThisBatch))
             {
                 retried = true;
-                r = RunBundleOnce(slot, heads, rows, n);
+                r = RunBundleOnce(slot, heads, rows, mails, n);
             }
         }
     }

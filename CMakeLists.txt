@@ -192,6 +192,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/NpcHandler.cpp
     ${SRV_DIR}/ShopHandler.cpp
     ${SRV_DIR}/TradeHandler.cpp
+    ${SRV_DIR}/MailHandler.cpp
     ${SRV_DIR}/MoveHandler.cpp
     ${SRV_DIR}/EnterGate.cpp
     ${SRV_DIR}/ZoneLink.cpp

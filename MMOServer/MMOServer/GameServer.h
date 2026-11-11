@@ -61,6 +61,7 @@
 #include "SightBroadcaster.h" // 시야 방송(섹터 바뀜 · 주변 방송 · 송신 묶음 · 존 알림) — 게임 서버 나누기 3 단계(B2)
 #include "StatSync.h"         // 스탯 알림(바뀐 사람 표시 → 틱 끝 한 번 — USE_COMBAT · IStatEvents 구현) — warrior-skills-plan 1단계
 #include "CharacterStore.h"   // 캐릭터 저장소(DB 워커 · 저장 계기 넷과 묶음 · 불러오기 — USE_DB_WORKER) — 게임 서버 나누기 4 단계(B3)
+#include "MailHandler.h"      // 우편(저장소의 우편 회신 받기 — USE_MAIL) — mail-plan.md
 #include "PlayerPlacement.h"  // 배치(존에 넣기·옮기기·빼기·떠나보내기 · 도착 차례) — 게임 서버 나누기 5 단계(B4)
 #include "ItemHandler.h"      // 가방·땅(물약 · 장착 · 줍기 · 땅 아이템 알림 — USE_INVENTORY) — 게임 서버 나누기 6 단계(C6)
 #include "PartyHandler.h"     // 파티·방(파티 요청 · 파티 알림 · 방 입장·거절 · 다시 들어가기 잠금 — USE_PARTY) — 게임 서버 나누기 7 단계(C7)
@@ -256,15 +257,25 @@ private:
     CStatSync _statSync{ _selfNotifier, _sightBroadcaster, _mapManager };
 #endif
 
+#if USE_MAIL
+    // 우편 — 저장소의 우편 회신을 받는다(MailHandler.h). 저장소보다 앞 — 저장소가 이것의 참조를 받는다
+    CMailHandler _mailHandler;
+#endif
+
 #if USE_DB_WORKER
     // 캐릭터 저장소 — DB 워커의 주인 · 저장 계기 넷과 묶음 · 불러오기 요청과 회신 꺼내기(CharacterStore.h). 불러오기 결과는 CEntryHandler(_entryHandler · ICharacterLoadEvents)로 간다.
     //   ★ _sessionHub · _gameMonitor · _gameDataFiles · _buffSystem · _frameCount 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
     //     _entryHandler 는 한참 뒤에 선언된다 — 참조만 넘긴다(생성 중엔 부르지 않는다 — 규칙 셋이 CCombatHandler 를 받는 것과 같은 규칙).
+    //     우편 회신은 _mailHandler(IMailStoreEvents)로 간다 — 위에 먼저 선언했다.
     CCharacterStore _characterStore{ _sessionHub, _gameMonitor, _gameDataFiles,
 #if USE_COMBAT
                                      _buffSystem,
 #endif
-                                     _frameCount, _entryHandler };
+                                     _frameCount, _entryHandler
+#if USE_MAIL
+                                     , _mailHandler
+#endif
+                                     };
 #endif
 
     // 배치 — 존에 넣기·옮기기·빼기·떠나보내기 · 도착 차례(PlayerPlacement.h). 틱 너머 목록 정리는 이 클래스(IPlacementEvents)로 알려 온다.
