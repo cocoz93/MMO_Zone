@@ -572,7 +572,8 @@ private:
 #if USE_DB_FAULT_INJECT
     // 실패 주입(시험 빌드 전용 — BuildConfig.h). Start 가 환경 변수 MMO_DB_FAULT 를 읽어 채운다.
     //   꼴: "<종류>:<값>,character=<캐릭터>,times=<횟수>" — 종류 error:k · lost:k(묶음의 k 번째 문장 뒤) · down:n(재연결 n 번 실패) · delay:ms
-    enum class FaultKind : uint8_t { NONE, ERROR_AFTER, LOST_AFTER, DOWN, DELAY };
+    //     · commitlost:1(COMMIT 은 됐는데 답이 끊긴 흉내 — 묶음째 다시 쓴다 · 값은 안 씀 · 우편 send_key 시험 mail-plan.md 13절 m2)
+    enum class FaultKind : uint8_t { NONE, ERROR_AFTER, LOST_AFTER, DOWN, DELAY, COMMIT_LOST };
     FaultKind            _faultKind = FaultKind::NONE;
     int                  _faultArg = 0;
     CharacterId              _faultCharacter = NO_CHARACTER;

@@ -1794,6 +1794,16 @@ CDBWorker::SaveOutcome CDBWorker::RunBundleOnce(DBWorkerSlot& slot, const DBSave
     // COMMIT 도중 끊기면 됐는지 모른다 — 끊김으로 돌려 묶음째 다시 쓴다(최종값이라 두 번 써도 같다)
     if (mysql_commit(m) != 0)
         return fail(mysql_errno(m), "commit", mysql_error(m));
+#if USE_DB_FAULT_INJECT
+    // commitlost — COMMIT 은 됐는데 답이 끊긴 흉내. 됐는지 모르는 끊김이라 위 COMMIT 실패 갈래와 같은 뒤처리(끊김 → 재연결 뒤 묶음째 다시)
+    if (t_faultArmed && _faultKind == FaultKind::COMMIT_LOST)
+    {
+        t_faultArmed = false;
+        SLOG_WARN("[DB][fault] trigger commitlost (character={}, bundle={})", b.row.characterId, b.bundleNo);
+        DropConnection(slot);
+        return SaveOutcome::CONNECTION_LOST;
+    }
+#endif
     return SaveOutcome::OK;
 }
 
@@ -1904,6 +1914,7 @@ void CDBWorker::LoadFaultPlan()
                 else if (key == "lost")    { kind = FaultKind::LOST_AFTER;  arg = std::stoi(val); }
                 else if (key == "down")    { kind = FaultKind::DOWN;        arg = std::stoi(val); }
                 else if (key == "delay")   { kind = FaultKind::DELAY;       arg = std::stoi(val); }
+                else if (key == "commitlost") { kind = FaultKind::COMMIT_LOST; arg = 0; }   // 값은 안 쓴다 — arg 0 이라 문장 뒤 주입(injectAfter)에 안 걸린다
                 else if (key == "character") { character = std::stoll(val); }
                 else if (key == "times")   { times = std::stoi(val); }
             }
