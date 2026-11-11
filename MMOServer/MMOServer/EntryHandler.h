@@ -45,6 +45,9 @@ class CPartyHandler;
 #if USE_COMBAT
 class CStatSystem;
 #endif
+#if USE_MAIL
+class CMailHandler;
+#endif
 
 // 불러오기 결과 알림은 공개 상속 — 게임 서버가 캐릭터 저장소(_characterStore)에 이것을 알림 받는 쪽으로 꽂는다
 //   (CSightBroadcaster 의 IZoneEvents 와 같은 꼴). 알림 함수 자체는 비공개 — 저장소가 인터페이스로만 부른다.
@@ -54,13 +57,16 @@ class CEntryHandler
 #endif
 {
 public:
-    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(세션 허브 · 배치 · 저장소 · CPartyHandler · 스탯 규칙 · 맵 관리자 · 게임 지표 · 기획 데이터)보다
+    // ★ 참조만 든다 — 부르는 쪽(CGameServer)은 넘기는 것들(세션 허브 · 배치 · 저장소 · 우편 처리기 · CPartyHandler · 스탯 규칙 · 맵 관리자 · 게임 지표 · 기획 데이터)보다
     //   뒤에 이것을 선언해야 한다(멤버는 선언 순서로 세워진다). 생성 중엔 쓰지 않는다.
     //   거꾸로 저장소는 이것보다 앞에 세워지며 이것의 참조를 묶기만 한다(알림 받는 쪽 — 게임 서버가 *this 를 넘기던 것과 같은 꼴).
     //   기본 맵 번호(새 캐릭터 · 마을 부활 · 저장 맵 없음)는 맵 관리자에게 묻는다(CMapManager::GetDefaultMapId — 게임 서버 나누기 14 단계 전에는 게임 서버가 들고 빌려 줬다).
     CEntryHandler(CSessionHub& sessionHub, CPlayerPlacement& placement,
 #if USE_DB_WORKER
                   CCharacterStore& characterStore,
+#endif
+#if USE_MAIL
+                  CMailHandler& mailHandler,
 #endif
 #if USE_PARTY
                   CPartyHandler& partyHandler,
@@ -73,6 +79,9 @@ public:
         : _sessionHub(sessionHub), _placement(placement)
 #if USE_DB_WORKER
         , _characterStore(characterStore)
+#endif
+#if USE_MAIL
+        , _mailHandler(mailHandler)
 #endif
 #if USE_PARTY
         , _partyHandler(partyHandler)
@@ -244,6 +253,9 @@ private:
     CPlayerPlacement&     _placement;        // 도착 차례 · 존 옮기기 · 떠나보내기(같은 캐릭터 걷어내기) · 존 이동 실패
 #if USE_DB_WORKER
     CCharacterStore&      _characterStore;   // 불러오기 요청 · 가방 줄 넣기 · 쿨타임·버프 되살리기
+#endif
+#if USE_MAIL
+    CMailHandler&         _mailHandler;      // 입장 때 우편 수(탭마다 S2C_MAIL_COUNT 한 장)
 #endif
 #if USE_PARTY
     CPartyHandler&        _partyHandler;     // 방 맵 포털 → 방 입장

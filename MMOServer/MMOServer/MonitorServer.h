@@ -408,6 +408,30 @@ private:
         }
 #endif
 
+#if USE_MAIL
+        // 우편. 대조(조용해진 뒤 · GameMonitor.h): sent + Σ taken 을 mmo_db_save_mail_stmts_total 과 맞춰 본다(떠난 기록에 두 번 실린 만큼 확정 쪽이 클 수 있다)
+        {
+            const auto& ml = _gameMonitor._mail;
+            WriteCounter(ss, "mmo_mail_sent_total", "Mails sent (items and money taken from the bag, statement queued)", ml._sent);
+            ss << "# HELP mmo_mail_taken_total Mails taken into the bag, split by tab\n# TYPE mmo_mail_taken_total counter\n";
+            for (int i = 0; i < static_cast<int>(MailTab::COUNT); ++i)
+                ss << "mmo_mail_taken_total{tab=\"" << MailTabName(static_cast<MailTab>(i)) << "\"} " << ml._taken[i] << "\n";
+            ss << "\n# HELP mmo_mail_erased_total Mails erased, split by tab\n# TYPE mmo_mail_erased_total counter\n";
+            for (int i = 0; i < static_cast<int>(MailTab::COUNT); ++i)
+                ss << "mmo_mail_erased_total{tab=\"" << MailTabName(static_cast<MailTab>(i)) << "\"} " << ml._erased[i] << "\n";
+            // OK 는 거절이 아니라 뺀다 — 나머지 사유는 0 이어도 줄이 있다
+            ss << "\n# HELP mmo_mail_rejected_total Mail requests refused, split by reason (one S2C_MAIL_RESULT each)\n# TYPE mmo_mail_rejected_total counter\n";
+            for (int i = 1; i < static_cast<int>(MailResult::COUNT); ++i)
+                ss << "mmo_mail_rejected_total{reason=\"" << MailResultName(static_cast<MailResult>(i)) << "\"} " << ml._rejected[i] << "\n";
+            ss << "\n";
+            WriteCounter(ss, "mmo_mail_result_sent_total", "S2C_MAIL_RESULT packets sent (ok and refused)", ml._resultSent);
+            WriteCounter(ss, "mmo_mail_list_pages_sent_total", "S2C_MAIL_LIST pages sent (an empty list is one page)", ml._listPagesSent);
+            WriteCounter(ss, "mmo_mail_body_sent_total", "S2C_MAIL_BODY packets sent", ml._bodySent);
+            WriteCounter(ss, "mmo_mail_count_sent_total", "S2C_MAIL_COUNT packets sent", ml._countSent);
+            WriteCounter(ss, "mmo_mail_late_replies_total", "Mail DB replies dropped (owner left, or the state was not waiting for it)", ml._lateReplies);
+        }
+#endif
+
 #if USE_MONSTER
         // 위 값들은 "플레이어만" 센다 — 몬스터를 섞으면 기존 A/B 실측의 기준선이 오염된다.
         //   공격은 때린 쪽, 죽음·부활은 당한 쪽 기준으로 갈린다(GameMonitor.h 참조).

@@ -122,7 +122,7 @@ public:
     // 존에서 빠짐(끊김 · 맵 이동) — 낀 신청·거래를 끝낸다(LEFT). 이 사람에게도 보낸다(맵 이동이면 아직 접속 중이다)
     void OnLeavingZone(CPlayer* player);
 
-    bool Busy(const CPlayer* p) const;               // 보낸·받은 신청 · 거래창 중 하나라도 있나
+    bool Busy(const CPlayer* p) const;               // 보낸·받은 신청 · 거래창 중 하나라도 있나 · 우편 동작이 진행 중인가(USE_MAIL — CPlayer::_mailOp)
     // 떠남 — 위와 같되 이 사람에게는 안 보낸다(세션이 없다). 두 번 불러도 무해
     void Forget(CPlayer* player);
 

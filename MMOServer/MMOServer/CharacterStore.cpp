@@ -1307,7 +1307,7 @@ void CCharacterStore::ProcessDbResults()
 bool CCharacterStore::RequestMailJob(const DBMailJob& job)
 {
     if (!_dbWorker)
-        return false;   // 워커가 없다(띄우기 전·실패·멈춘 뒤) — 부르는 쪽이 그 자리에서 DB_ERROR 로 닫는다
+        return false;   // 워커가 없다(띄우기 전·실패·멈춘 뒤) — 부르는 쪽이 그 자리에서 BUSY 로 닫는다(큐 가득과 같은 답 · mail-plan.md 7절 「빠져나오는 길」)
     return _dbWorker->EnqueueMail(job);
 }
 #endif

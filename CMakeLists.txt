@@ -224,6 +224,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/ItemSystem.cpp
     ${SRV_DIR}/ShopSystem.cpp
     ${SRV_DIR}/TradeSystem.cpp
+    ${SRV_DIR}/MailSystem.cpp
     ${SRV_DIR}/SkillSystem.cpp
     ${SRV_DIR}/BuffSystem.cpp
     ${SRV_DIR}/PartyCopy.cpp

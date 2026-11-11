@@ -631,5 +631,9 @@ bool CGameServer::RegisterRoutes()
     // 거래 요청 여섯 — CTradeHandler 가 자기 줄을 등록한다(CTradeHandler::RegisterRoutes · trade-plan.md). 끄면 크기 줄도 없어 요청이 조용히 버려진다
     ok &= _tradeHandler.RegisterRoutes(_routes);
 #endif
+#if USE_MAIL
+    // 우편 요청 여섯 — CMailHandler 가 자기 줄을 등록한다(CMailHandler::RegisterRoutes · mail-plan.md 3단계). 끄면 크기 줄도 없어 요청이 조용히 버려진다
+    ok &= _mailHandler.RegisterRoutes(_routes);
+#endif
     return ok;
 }

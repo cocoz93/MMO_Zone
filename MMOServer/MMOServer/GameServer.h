@@ -11,12 +11,13 @@
 //  - 생애 알림 나눠 부르기 — 존에서 빠짐 · 떠남(IPlacementEvents) · 존 지우기 직전(OnErasingZone).
 //    틱 너머 목록이 여러 모듈·시스템에 흩어져 있어, 한 클래스가 받으면 그 클래스가 남의 목록을 알게 된다 — 그래서 조립하는 쪽이 받아 차례대로 부른다
 //
-// [모듈] 멤버 이름(헤더) — 기반 여섯과 컨텐츠 열둘. 존·맵은 맵 관리자(_mapManager)가 든다
+// [모듈] 멤버 이름(헤더) — 기반 여섯과 컨텐츠 열셋. 존·맵은 맵 관리자(_mapManager)가 든다
 //  기반: _sessionHub(세션 칸 · 보내기) · _selfNotifier(본인 알림) · _sightBroadcaster(시야 방송) · _statSync(스탯 알림 — USE_COMBAT) ·
 //        _characterStore(저장·불러오기 — USE_DB_WORKER) · _placement(존에 넣기·옮기기·빼기 · 도착 차례)
 //  컨텐츠: _entryHandler(입장·존 이동) · _moveHandler(이동) · _combatHandler(전투 — USE_COMBAT) · _monsterHandler(몬스터 — USE_MONSTER) ·
 //          _rewardHandler(처치 보상 — USE_COMBAT && USE_MONSTER) · _itemHandler(가방·땅 — USE_INVENTORY) · _partyHandler(파티·방 — USE_PARTY) · _chatHandler(채팅·운영) ·
-//          _commandHandler(채팅 명령 — 토글 없음 · 명령 줄만 토글) · _npcHandler(NPC — 토글 없음) · _shopHandler(상점 — USE_SHOP) · _tradeHandler(거래 — USE_TRADE)
+//          _commandHandler(채팅 명령 — 토글 없음 · 명령 줄만 토글) · _npcHandler(NPC — 토글 없음) · _shopHandler(상점 — USE_SHOP) · _tradeHandler(거래 — USE_TRADE) ·
+//          _mailHandler(우편 — USE_MAIL)
 //
 // [모르는 것]
 //  패킷 조립(PacketBuild.h · 각 모듈)과 컨텐츠 규칙. 받은 패킷의 처리기는 여기 하나도 없다.
@@ -61,7 +62,8 @@
 #include "SightBroadcaster.h" // 시야 방송(섹터 바뀜 · 주변 방송 · 송신 묶음 · 존 알림) — 게임 서버 나누기 3 단계(B2)
 #include "StatSync.h"         // 스탯 알림(바뀐 사람 표시 → 틱 끝 한 번 — USE_COMBAT · IStatEvents 구현) — warrior-skills-plan 1단계
 #include "CharacterStore.h"   // 캐릭터 저장소(DB 워커 · 저장 계기 넷과 묶음 · 불러오기 — USE_DB_WORKER) — 게임 서버 나누기 4 단계(B3)
-#include "MailHandler.h"      // 우편(저장소의 우편 회신 받기 — USE_MAIL) — mail-plan.md
+#include "MailSystem.h"       // 우편 규칙(판정 · 사람별 우편 상태 전이 · 운영 값 MailRules — USE_MAIL) — mail-plan.md 3단계
+#include "MailHandler.h"      // 우편(우편 요청 · 저장소의 우편 회신 · 결과 패킷 · 입장 때 수 — USE_MAIL) — mail-plan.md
 #include "PlayerPlacement.h"  // 배치(존에 넣기·옮기기·빼기·떠나보내기 · 도착 차례) — 게임 서버 나누기 5 단계(B4)
 #include "ItemHandler.h"      // 가방·땅(물약 · 장착 · 줍기 · 땅 아이템 알림 — USE_INVENTORY) — 게임 서버 나누기 6 단계(C6)
 #include "PartyHandler.h"     // 파티·방(파티 요청 · 파티 알림 · 방 입장·거절 · 다시 들어가기 잠금 — USE_PARTY) — 게임 서버 나누기 7 단계(C7)
@@ -156,6 +158,11 @@ public:
     {
         _entryHandler.SetPlayerSpeed(playerSpeed);   // 새로 만드는 캐릭터에 쓰는 값이라 CEntryHandler 가 든다(게임 서버 나누기 12 단계)
     }
+
+#if USE_MAIL
+    // 우편 운영 값(수수료 · 기한 · 받는 사람 상한) — ServerConfig [Mail]. Start() 전에 호출
+    void ConfigureMail(const MailRules& rules) { _mailSystem.Configure(rules); }
+#endif
 
     // 기획 데이터 파일(맵 표·레벨 표·아이템 표·몬스터 표·스폰 구역 표·드랍 표)을 읽는다 — 기동 때 한 번, 세계(맵·존)를 만드는 Init "앞"에서 부른다.
     //   표는 존이 생기기 전에 서 있어야 한다(Init 의 맵 등록이 기본 채널을 만든다 — 10-08).
@@ -257,16 +264,11 @@ private:
     CStatSync _statSync{ _selfNotifier, _sightBroadcaster, _mapManager };
 #endif
 
-#if USE_MAIL
-    // 우편 — 저장소의 우편 회신을 받는다(MailHandler.h). 저장소보다 앞 — 저장소가 이것의 참조를 받는다
-    CMailHandler _mailHandler;
-#endif
-
 #if USE_DB_WORKER
     // 캐릭터 저장소 — DB 워커의 주인 · 저장 계기 넷과 묶음 · 불러오기 요청과 회신 꺼내기(CharacterStore.h). 불러오기 결과는 CEntryHandler(_entryHandler · ICharacterLoadEvents)로 간다.
     //   ★ _sessionHub · _gameMonitor · _gameDataFiles · _buffSystem · _frameCount 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
     //     _entryHandler 는 한참 뒤에 선언된다 — 참조만 넘긴다(생성 중엔 부르지 않는다 — 규칙 셋이 CCombatHandler 를 받는 것과 같은 규칙).
-    //     우편 회신은 _mailHandler(IMailStoreEvents)로 간다 — 위에 먼저 선언했다.
+    //     우편 회신은 _mailHandler(IMailStoreEvents)로 간다 — 그것도 한참 뒤에 선언된다(_entryHandler 와 같이 참조만 넘긴다 · 우편 3단계).
     CCharacterStore _characterStore{ _sessionHub, _gameMonitor, _gameDataFiles,
 #if USE_COMBAT
                                      _buffSystem,
@@ -400,7 +402,7 @@ private:
     CMoveHandler _moveHandler{ _sightBroadcaster, _mapManager, _gameMonitor, _frameCount };
 
     // 입장·존 이동 요청 — 접속 · 대기표 · 불러오기 결과(ICharacterLoadEvents) · 스폰 · 같은 캐릭터 걷어내기 · 존 이동 · 포털(EntryHandler.h).
-    //   ★ _sessionHub · _placement · _characterStore · _partyHandler · _statSystem · _mapManager · _gameMonitor · _gameDataFiles
+    //   ★ _sessionHub · _placement · _characterStore · _mailHandler · _partyHandler · _statSystem · _mapManager · _gameMonitor · _gameDataFiles
     //     보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다). 저장소(_characterStore)는 거꾸로 이것의 참조를 받는다 — 묶기만 한다.
     // 직업 고르기(JobHandler.h) — ★ _selfNotifier · _statSystem · _characterStore · _gameMonitor · _gameDataFiles 보다 뒤에 선언
     CJobHandler _jobHandler{ _selfNotifier,
@@ -430,9 +432,27 @@ private:
                                        _gameMonitor };
 #endif
 
+#if USE_MAIL
+    // 우편 규칙 — 판정과 사람별 우편 상태 전이(MailSystem.h). 운영 값은 main 이 ConfigureMail 로 넣는다.
+    //   ★ _gameDataFiles · _tradeSystem · _gameMonitor 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
+    CMailSystem _mailSystem{ _gameDataFiles,
+#if USE_TRADE
+                             _tradeSystem,
+#endif
+                             _gameMonitor };
+
+    // 우편 — 우편 요청 · 저장소의 우편 회신(IMailStoreEvents) · 결과 패킷 · 입장 때 수(MailHandler.h).
+    //   ★ _sessionHub · _itemHandler · _characterStore · _mailSystem · _gameMonitor 보다 뒤에 선언 — 그 참조를 받는다.
+    //     저장소(_characterStore)는 거꾸로 이것의 참조를 받는다 — 묶기만 한다. _entryHandler 가 이것의 참조를 받으므로 그보다 앞이다.
+    CMailHandler _mailHandler{ _sessionHub, _itemHandler, _characterStore, _mailSystem, _gameMonitor };
+#endif
+
     CEntryHandler _entryHandler{ _sessionHub, _placement,
 #if USE_DB_WORKER
                                  _characterStore,
+#endif
+#if USE_MAIL
+                                 _mailHandler,
 #endif
 #if USE_PARTY
                                  _partyHandler,

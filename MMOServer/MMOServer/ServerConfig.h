@@ -112,6 +112,11 @@ struct ServerConfig
     int         channelBlock    = 100;     // 존 서버 한 대가 쓰는 보이는 채널 번호 수 — 필드 맵 채널 수 상한(최대 접속 ÷ 정원 = 60)에 여유를 둔 값(플랜 2절 13번). 모든 존 서버가 같아야 한다
     std::string publicWsAddr    = "ws://127.0.0.1:9000";   // 웹 브라우저가 접속할 주소 — relay.js 기본 포트. 캐릭터 서버가 웹에 그대로 넘긴다
 
+    // [Mail] 우편 운영 값 — 기본값은 사용자 결정(mail-plan.md 1절 · 11-05) 그대로. 값은 USE_MAIL 과 무관하게 늘 읽는다([DB] 와 같은 꼴) · main 이 MailRules 로 넘긴다
+    int         mailSendFee    = 100;   // 보내기 수수료(전) — 0 ~ 돈 상한(Item.h MONEY_MAX 1억)
+    int         mailExpireDays = 30;    // 기한(일) — 1 ~ 365. 상한 1년 = 그보다 길면 기한이 사실상 없는 것과 같고 행만 쌓인다
+    int         mailMaxUnread  = 50;    // 받는 사람의 살아 있는 우편 상한 — 1 ~ 100. 상한 100 = 목록이 한 번에 보여 주는 통 수(Protocol.h MAIL_LIST_MAX) — 넘으면 안 보이는 우편이 생긴다
+
     // 실행 파일 경로 기준으로 MMOServerConfig.ini 로드. 두 번째 존 서버는 --config 로 다른 파일 이름을 준다
     bool Load(const std::string& iniFileName = "MMOServerConfig.ini")
     {
@@ -224,6 +229,26 @@ struct ServerConfig
                 SLOG_ERROR("[ServerConfig] PublicWsAddr length {} out of range (1~{}). Using {}.", addr.size(), LINK_WS_ADDR_BYTES - 1, publicWsAddr);
             else
                 publicWsAddr = addr;
+        }
+
+        // [Mail] 섹션 — 우편 운영 값. 범위 밖이면 기본값으로(오류 로그)
+        mailSendFee = ini.GetInt("Mail", "MailSendFee", mailSendFee);
+        if (mailSendFee < 0 || mailSendFee > 100000000)
+        {
+            SLOG_ERROR("[ServerConfig] MailSendFee({}) out of range (0~100000000). Using default 100.", mailSendFee);
+            mailSendFee = 100;
+        }
+        mailExpireDays = ini.GetInt("Mail", "MailExpireDays", mailExpireDays);
+        if (mailExpireDays < 1 || mailExpireDays > 365)
+        {
+            SLOG_ERROR("[ServerConfig] MailExpireDays({}) out of range (1~365). Using default 30.", mailExpireDays);
+            mailExpireDays = 30;
+        }
+        mailMaxUnread = ini.GetInt("Mail", "MailMaxUnread", mailMaxUnread);
+        if (mailMaxUnread < 1 || mailMaxUnread > 100)
+        {
+            SLOG_ERROR("[ServerConfig] MailMaxUnread({}) out of range (1~100). Using default 50.", mailMaxUnread);
+            mailMaxUnread = 50;
         }
 
         // [MapDefault] 섹션 로드 — 맵 목록·크기는 맵 표(MapTable.csv)라 여기 없다
@@ -361,5 +386,6 @@ private:
                   enterCodeTtlSec, allowDevEnter ? "on" : "off", allowDevAdmin ? "on" : "off");
         SLOG_INFO("  ServerLink  : {} · zone server {} · web {}",
                   useServerLink ? "on" : "off", zoneServerId, publicWsAddr);
+        SLOG_INFO("  Mail        : fee {} · expire {}d · max unread {}", mailSendFee, mailExpireDays, mailMaxUnread);
     }
 };

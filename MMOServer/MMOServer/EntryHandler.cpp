@@ -3,6 +3,7 @@
 #include "SessionHub.h"
 #include "PlayerPlacement.h"
 #include "PartyHandler.h"     // USE_PARTY — 방 맵 포털
+#include "MailHandler.h"      // USE_MAIL — 입장 때 우편 수
 #include "StatSystem.h"       // USE_COMBAT — 레벨 정산 · 스탯 세우기
 #include "Combat.h"           // USE_COMBAT — 부활 자리 규칙(RespawnsToTown — 죽은 채 저장된 행)
 #include "MapManager.h"
@@ -484,6 +485,9 @@ CPlayer* CEntryHandler::SpawnPlayer(SessionId sessionId, ActorId actorId, Charac
     _partyHandler.AddPlayer(player);   // 입장 알림 앞 — 월드 서버의 명단이 왔을 때 이 사람을 찾을 수 있어야 한다
 #endif
     _worldLink.NotifyEnter(*player);
+#if USE_MAIL
+    _mailHandler.OnEntered(player);   // 입장 때 우편 수 — 탭마다 한 장(시험 입장 길은 안 보낸다)
+#endif
 
     return player;
 }

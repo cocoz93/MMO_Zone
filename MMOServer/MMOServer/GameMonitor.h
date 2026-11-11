@@ -89,6 +89,58 @@ inline const char* TradeEndName(TradeEnd r)
 }
 #endif
 
+#if USE_MAIL
+// 우편의 지표 라벨 둘 — 결과(MailResult)는 와이어 enum 그대로다(Protocol.h 우편 절 · 거래와 같은 규칙). 지표가 모든 값을 0 부터 내보낸다
+inline const char* MailResultName(MailResult r)
+{
+    static_assert(static_cast<int>(MailResult::COUNT) == 27, "MailResult 를 늘렸으면 이름도 붙일 것");
+    switch (r)
+    {
+    case MailResult::OK:               return "ok";
+    case MailResult::BUSY:             return "busy";
+    case MailResult::NOT_HERE:         return "not_here";
+    case MailResult::DEAD:             return "dead";
+    case MailResult::NO_CHARACTER:     return "no_character";
+    case MailResult::DB_ERROR:         return "db_error";
+    case MailResult::BAD_NAME:         return "bad_name";
+    case MailResult::BAD_TEXT:         return "bad_text";
+    case MailResult::BAD_MONEY:        return "bad_money";
+    case MailResult::BAD_SLOT:         return "bad_slot";
+    case MailResult::BAD_COUNT:        return "bad_count";
+    case MailResult::NOT_TRADABLE:     return "not_tradable";
+    case MailResult::NOT_ENOUGH_MONEY: return "not_enough_money";
+    case MailResult::NO_TARGET:        return "no_target";
+    case MailResult::SELF:             return "self";
+    case MailResult::TARGET_DELETED:   return "target_deleted";
+    case MailResult::TARGET_FULL:      return "target_full";
+    case MailResult::BAG_CHANGED:      return "bag_changed";
+    case MailResult::GONE:             return "gone";
+    case MailResult::NO_ATTACH:        return "no_attach";
+    case MailResult::CANNOT_DELETE:    return "cannot_delete";
+    case MailResult::ITEM_UNKNOWN:     return "item_unknown";
+    case MailResult::BAG_FULL:         return "bag_full";
+    case MailResult::MONEY_FULL:       return "money_full";
+    case MailResult::ACC_OFFLINE:      return "acc_offline";
+    case MailResult::ACC_TIMEOUT:      return "acc_timeout";
+    case MailResult::OTHER_CHARACTER:  return "other_character";
+    case MailResult::COUNT:            break;
+    }
+    return "?";
+}
+
+inline const char* MailTabName(MailTab t)
+{
+    static_assert(static_cast<int>(MailTab::COUNT) == 2, "MailTab 을 늘렸으면 이름도 붙일 것");
+    switch (t)
+    {
+    case MailTab::CHARACTER: return "character";
+    case MailTab::ACCOUNT:   return "account";
+    case MailTab::COUNT:     break;
+    }
+    return "?";
+}
+#endif
+
 #if USE_DROP
 // 줍기 거절 사유의 지표 라벨 — 와이어 enum(Protocol.h PickupFail) 그대로 센다. 존의 판정(PickupReject)은 게임 서버가
 //   와이어 값으로 바꾸고, 가방이 찬 것(TAB_FULL)은 게임 서버가 정하므로 세는 자리가 게임 서버(RecvPickup) 하나다.
@@ -377,19 +429,21 @@ inline const char* InvLoadSkipName(InvLoadSkip r)
 }
 
 // 돈이 들어온 길 · 나간 길 — 지표 라벨(mmo_money_in_total{source} · mmo_money_out_total{sink}). 세는 곳은 돈이 실제로 바뀐 자리마다 한 줄
-//   (들어옴 = 줍기 · 팔기 · 방 보상 · 운영 명령 /item · 나감 = 사기). 「넣은 돈 − 뺀 돈 = 지금 가진 돈의 합(접속 중 · 불러온 몫 제외)」을 시험이 맞춘다.
-enum class MoneySource : uint8_t { PICKUP, SELL, REWARD, COMMAND, COUNT };
-enum class MoneySink   : uint8_t { BUY, COUNT };
+//   (들어옴 = 줍기 · 팔기 · 방 보상 · 운영 명령 /item · 우편 받기 · 나감 = 사기 · 우편 보내기 · 우편 수수료). 「넣은 돈 − 뺀 돈 = 지금 가진 돈의 합(접속 중 · 불러온 몫 제외)」을 시험이 맞춘다.
+//   우편은 보낸 사람의 돈이 MAIL_SEND 로 나가고 받는 사람이 받을 때 MAIL 로 들어온다 — 그 사이(안 받은 우편)는 DB 에만 있다. 수수료는 사라진다(MAIL_FEE).
+enum class MoneySource : uint8_t { PICKUP, SELL, REWARD, COMMAND, MAIL, COUNT };
+enum class MoneySink   : uint8_t { BUY, MAIL_SEND, MAIL_FEE, COUNT };
 
 inline const char* MoneySourceName(MoneySource s)
 {
-    static_assert(static_cast<int>(MoneySource::COUNT) == 4, "MoneySource 를 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(MoneySource::COUNT) == 5, "MoneySource 를 늘렸으면 이름도 붙일 것");
     switch (s)
     {
     case MoneySource::PICKUP:  return "pickup";
     case MoneySource::SELL:    return "sell";
     case MoneySource::REWARD:  return "reward";
     case MoneySource::COMMAND: return "command";
+    case MoneySource::MAIL:    return "mail";
     case MoneySource::COUNT:   break;
     }
     return "?";
@@ -397,11 +451,13 @@ inline const char* MoneySourceName(MoneySource s)
 
 inline const char* MoneySinkName(MoneySink s)
 {
-    static_assert(static_cast<int>(MoneySink::COUNT) == 1, "MoneySink 를 늘렸으면 이름도 붙일 것");
+    static_assert(static_cast<int>(MoneySink::COUNT) == 3, "MoneySink 를 늘렸으면 이름도 붙일 것");
     switch (s)
     {
-    case MoneySink::BUY:   return "buy";
-    case MoneySink::COUNT: break;
+    case MoneySink::BUY:       return "buy";
+    case MoneySink::MAIL_SEND: return "mail_send";
+    case MoneySink::MAIL_FEE:  return "mail_fee";
+    case MoneySink::COUNT:     break;
     }
     return "?";
 }
@@ -971,6 +1027,27 @@ public:
         Counter _stateSent;                                               // S2C_TRADE_STATE 보낸 수
         Counter _endSent;                                                 // S2C_TRADE_END 보낸 수
     } _trade;
+#endif
+
+#if USE_MAIL
+    // ══════════════════════════════════════════════════════════════
+    // 우편 (USE_MAIL) — 세는 곳: 성사 둘(_sent · _taken)은 가방을 바꾼 함수(CMailSystem::FinishSend · ApplyTake) ·
+    //   나머지는 패킷을 보내는 CMailHandler 한 곳씩.
+    //   ★ 대조(조용해진 뒤): _sent + Σ _taken 를 확정된 우편 문장 수(mmo_db_save_mail_stmts_total)와 맞춰 본다.
+    //     비행 중에 나간 사람의 문장은 묶음과 떠난 기록에 두 번 실릴 수 있어 확정 쪽이 그만큼 클 수 있다(mail-plan.md 5절 「한 사람에게 우편 문장은 많아야 하나다」).
+    // ══════════════════════════════════════════════════════════════
+    struct alignas(64) MailCounters
+    {
+        Counter _sent;                                                    // 보내기 성사 — 칸·돈을 줄이고 문장을 대기로 올린 수
+        Counter _taken[static_cast<int>(MailTab::COUNT)];                 // 받기 성사, 탭별 — 가방에 넣고 문장을 대기로 올린 수
+        Counter _erased[static_cast<int>(MailTab::COUNT)];                // 지우기 성사, 탭별
+        Counter _rejected[static_cast<int>(MailResult::COUNT)];           // 거절 결과 패킷, 사유별(OK 칸은 늘 0)
+        Counter _resultSent;                                              // S2C_MAIL_RESULT 보낸 수(성공 포함)
+        Counter _listPagesSent;                                           // S2C_MAIL_LIST 보낸 장 수(빈 목록도 한 장)
+        Counter _bodySent;                                                // S2C_MAIL_BODY 보낸 수
+        Counter _countSent;                                               // S2C_MAIL_COUNT 보낸 수
+        Counter _lateReplies;                                             // 버린 회신 — 주인이 나갔거나(정상) 상태가 그 회신을 안 기다렸다(오류 로그도 남김)
+    } _mail;
 #endif
 
     // DB 저장 파이프라인 — 정의는 위 DBSaveCounters(DB 워커가 참조로 받는다)

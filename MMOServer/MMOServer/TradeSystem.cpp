@@ -45,6 +45,12 @@ namespace
 // ==========================================================================
 bool CTradeSystem::Busy(const CPlayer* p) const
 {
+#if USE_MAIL
+    // 우편 동작이 진행 중인 사람 — 우편으로 줄어든 칸이 짝 묶음에 실리지 않게 거래 신청을 막는다(mail-plan.md 5절 「거래와 함께 있을 수 없다」).
+    //   상태를 CPlayer 에 두어 이 규칙이 우편 규칙을 안 부른다
+    if (p->_mailOp != CPlayer::MailOp::IDLE)
+        return true;
+#endif
     for (const PendingTrade& r : _requests)
     {
         if (r.from == p || r.to == p)

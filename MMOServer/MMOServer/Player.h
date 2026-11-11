@@ -33,6 +33,7 @@ class CPlayer : public CCharacter
     friend class CCharacterStore; // 캐릭터 저장소 — 저장 묶음에 주인(세션)을 적고, 회신과 틱 끝 목록이 그 세션으로 주인을 찾는다(저장 플랜 C)
     friend class CChannelListFlow; // 채널 목록 — 월드 서버의 답이 올 때 세션으로 다시 찾으려고 세션 번호를 적어 둔다
     friend class CChannelMoveFlow; // 다른 존 서버로 채널 바꾸기 — 저장·답을 기다리는 동안 세션 번호로 사람을 다시 찾는다
+    friend class CMailHandler;     // 우편 — 우편 잡에 세션 번호를 실어 회신이 오면 그 번호로 사람을 다시 찾는다(USE_MAIL)
 
 public:
     CPlayer();
@@ -121,6 +122,23 @@ public:
     // 우편 대기 문장 — 칸·돈을 줄인 뒤 다음 묶음에 실을 우편 문장(mail-plan.md 5절). 평소 비어 있다(사람마다 약 800바이트를 늘리지 않게).
     //   ready=false = 받는 이름 찾기 왕복 중인 초안이라 묶음에 안 실린다. 저장소(CCharacterStore)가 묶음으로 옮기고 우편 규칙이 채운다.
     std::unique_ptr<MailDraft> _mailDraft;
+
+    // 사람별 우편 상태 — 한 사람의 우편 동작을 한 번에 하나로 묶는다(mail-plan.md 7절 전이 표). IDLE 이 아니면 새 우편 요청을 BUSY 로 거절하고,
+    //   거래 신청(CTradeSystem::Busy)과 다른 존 서버로 채널 바꾸기(CChannelMoveFlow::Check)도 BUSY 로 막는다.
+    //   바꾸는 쪽 = 우편 규칙(CMailSystem) · 우편 핸들러(잡을 못 넣었을 때 IDLE 로 되돌리기). 이름에 DELETE 를 안 쓴다(윈도 헤더 매크로).
+    //   계정 우편 상태(ACC_*)는 계정 우편 단계(mail-plan.md 12절 8단계)에서 더한다.
+    enum class MailOp : uint8_t
+    {
+        IDLE,
+        LIST,        // LIST 회신을 기다린다
+        READ,        // READ_BODY 회신을 기다린다
+        ERASE,       // ERASE 회신을 기다린다
+        FIND,        // 보내기 — 받는 이름 찾기(FIND_RECEIVER) 회신을 기다린다. 대기 문장은 ready=false 초안
+        SEND_SAVE,   // 보내기 — 칸·돈을 줄였다. 문장이 든 묶음의 성공 회신을 기다린다(실패면 다시 실려 상태 유지)
+        TAKE_READ,   // 받기 — READ_ONE 회신을 기다린다
+        TAKE_SAVE,   // 받기 — 가방에 넣었다. 묶음의 성공 회신을 기다린다
+    };
+    MailOp _mailOp = MailOp::IDLE;
 #endif
     bool     _channelListAsking = false;   // 채널 목록을 월드 서버에 묻는 중 — CChannelListFlow 만 쓴다
 

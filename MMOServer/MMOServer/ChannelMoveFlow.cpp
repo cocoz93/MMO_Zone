@@ -77,6 +77,10 @@ ChannelMoveResult CChannelMoveFlow::Check(const CPlayer* player, int32_t visible
 #endif
     if (player->_dbFlight.paired)
         return ChannelMoveResult::BUSY;          // 거래는 끝났어도 짝 묶음이 확정 전이다
+#if USE_MAIL
+    if (player->_mailOp != CPlayer::MailOp::IDLE)
+        return ChannelMoveResult::BUSY;          // 우편 동작 중 — 넘김이 저장 없이 나가도 우편 문장이 안 빠지게(mail-plan.md 7절 「맵 이동」). 거래를 끈 빌드도 여기서 막는다
+#endif
 #if USE_TRADE
     if (_tradeSystem.Busy(player))
         return ChannelMoveResult::BUSY;

@@ -212,6 +212,18 @@ int main(int argc, char** argv)
     }
     server.ConfigureChannels(config.zoneServerId, config.channelBlock);   // 연결을 꺼도 자기 채널 목록은 답한다
     server.SetPlayerSpeed(config.playerSpeed);   // 0 = 기본(부하 시험 기준) — ServerConfig [Game]. 몬스터 사양은 표에 있다
+#if USE_MAIL
+    {
+        // 우편 운영 값 — ServerConfig [Mail]. 범위는 읽을 때 봤다(아래 단언 둘이 그 범위의 근거가 바뀌면 알린다)
+        static_assert(MONEY_MAX == 100000000, "돈 상한을 바꿨으면 ServerConfig 의 MailSendFee 범위도 고칠 것");
+        static_assert(MAIL_LIST_MAX == 100, "목록 상한을 바꿨으면 ServerConfig 의 MailMaxUnread 범위도 고칠 것");
+        MailRules mail;
+        mail.sendFee    = config.mailSendFee;
+        mail.expireDays = config.mailExpireDays;
+        mail.maxUnread  = config.mailMaxUnread;
+        server.ConfigureMail(mail);
+    }
+#endif
 
     // DB 저장 파이프라인 초기화 (USE_DB_WORKER=0이면 no-op)
     {
