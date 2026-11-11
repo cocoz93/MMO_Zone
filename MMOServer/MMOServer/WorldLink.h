@@ -31,6 +31,9 @@ class CPlayer;
 class CSerialBuffer;
 class CSessionHub;
 struct LINK_CHANNEL_LIST_ACK;
+struct LINK_PARTY_OP;
+struct LinkPartyRestoreRow;
+struct LinkPartyStateRow;
 struct LinkZoneChannelRow;
 
 class CWorldLink
@@ -76,6 +79,13 @@ public:
     bool IsUp() const { return _connector && _connector->IsUp(); }
     bool SendChannels(MapId mapId, const LinkZoneChannelRow* rows, int count);   // 끊겨 있으면 false
     bool AskChannels(uint64_t requestId, MapId mapId);                           // 끊겨 있으면 false
+    bool SendPartyOp(const LINK_PARTY_OP& packet);                               // 끊겨 있으면 false
+    bool SendPartyState(const LinkPartyStateRow* rows, int count);               // 끊겨 있으면 false
+    bool SendPartyRestore(const LinkPartyRestoreRow* rows, int count);           // 끊겨 있으면 false
+
+    // 컨텐츠가 자기 받는 패킷을 등록하는 자리 — 등록은 Start 전
+    CPacketTable& Routes() { return _table; }
+    void CountPacketError();
 
     // 꺼져 있으면 nullptr — 지표는 CLinkConnector::WriteMetrics 가 연결 여럿을 한 번에 쓴다
     const CLinkConnector* Connector() const { return _connector.get(); }

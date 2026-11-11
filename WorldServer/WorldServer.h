@@ -22,6 +22,7 @@
 #include <Monitoring/MetricsEndpoint.h>
 
 #include "ChannelTable.h"
+#include "PartyFlow.h"
 #include "WorldMetrics.h"
 #include "WorldPresence.h"
 #include "WorldServerConfig.h"
@@ -49,6 +50,7 @@ private:
     void OnZoneChannels(SessionId sessionId, CSerialBuffer* msg);
     void OnChannelListReq(SessionId sessionId, CSerialBuffer* msg);
     bool CheckRegistered(SessionId sessionId);
+    void OfflineAll(const std::vector<CharacterId>& removed);
     void SendWorldRegister();
 
     WorldServerConfig _config;
@@ -63,6 +65,7 @@ private:
     CWorldMetrics  _metrics;
     CWorldPresence _presence;
     CChannelTable  _channels;
+    CPartyFlow     _partyFlow;   // _peers · _presence · _metrics 뒤에 둔다 — 그 참조를 받는다
 
     CPacketTable _accountTable;
     CPacketTable _zoneTable;

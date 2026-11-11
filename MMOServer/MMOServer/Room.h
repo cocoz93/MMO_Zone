@@ -13,7 +13,7 @@
 //        보상을 줄 때 잠금을 넣는 것은 방 보상(CRewardHandler::RewardRoom → LockRoom)이다. 방 안에서 도는 일(전투·몬스터)은 방 밖을 직접 만지지 않는다 —
 //        방 밖과 닿는 곳은 세 자리(입장 판정 — CPartyHandler · 보상의 잠금 기록 — CRewardHandler · 나가는 포털 — CEntryHandler 의 포털 요청)뿐이다.
 //
-// [왜 여기 따로] 판정은 파티(CPartySystem — 파티원 목록)와 파티원의 잠금을 같이 본다. 파티 규칙 클래스에 넣으면 파티가 방을 알게 되고,
+// [왜 여기 따로] 판정은 파티(CPartyCopy — 파티원 목록의 사본)와 파티원의 잠금을 같이 본다. 파티 규칙 클래스에 넣으면 파티가 방을 알게 되고,
 //        맵 관리자에 넣으면 맵이 파티를 알게 된다. 둘 다 아는 것은 CPartyHandler(파티 규칙을 빌리고 잠금 표를 든다)뿐이라 판정은 둘을 인자로 받는 순수 함수로 둔다.
 // ==========================================================================
 #pragma once
@@ -23,7 +23,7 @@
 #include <cstdint>
 
 #include "BuildConfig.h"     // USE_PARTY — 안 읽으면 아래 #if 가 조용히 0 이 된다
-#include "PartySystem.h"     // Party — 판정이 파티원 목록(가입 순서)을 읽는다
+#include "PartyCopy.h"       // Party — 판정이 파티원 목록(가입 순서)을 읽는다
 
 #if USE_PARTY
 
@@ -46,7 +46,7 @@ enum class RoomEntryReject : uint8_t
 struct RoomEntryResult
 {
     RoomEntryReject reject  = RoomEntryReject::NONE;
-    const CPlayer*  blocker = nullptr;   // 막는 파티원(NOT_GATHERED · DEAD · LOCKED) — 가입 순서로 처음 걸린 사람. 나머지 사유는 nullptr
+    const Party::Member* blocker = nullptr;   // 막는 파티원(NOT_GATHERED · DEAD · LOCKED) — 가입 순서로 처음 걸린 사람. 나머지 사유는 nullptr
 };
 
 // 잠그기 — 같은 맵이 이미 있으면 끝나는 시각을 새 값으로 덮는다(보상을 또 받은 것). 끝난 칸은 이참에 뺀다.

@@ -229,6 +229,156 @@ struct LINK_ZONE_KICK_ACCOUNT
     int64_t   accountId;
 };
 
+// ── 파티 (존 서버 ↔ 월드 서버) ──
+//   규칙은 월드 서버 CPartySystem 이 맡는다. 존 서버는 요청을 넘기고, 받은 알림을 웹 패킷으로 옮기고, 사본을 든다.
+//   사람은 캐릭터 번호로 가리킨다 — 액터 번호는 존 서버마다 따로 세서 겹친다. 번호가 PartyNotice · PartyAskKind 인 칸은 Protocol.h 의 값 그대로다
+
+// 파티 요청의 종류 — 초대 · 신청 · 추천은 두 사람의 처지로 월드 서버가 가르므로 Request 하나다
+enum class LinkPartyOpKind : uint8_t
+{
+    Request = 0,      // 화면에서 누른 사람과 파티
+    InviteByName = 1, // /party 이름 — 월드 서버가 장부에서 이름을 찾는다
+    Answer = 2,       // 받은 요청에 답
+    Leave = 3,
+    Kick = 4,
+    SetLeader = 5,
+    Disband = 6,
+    TakeLeader = 7,   // 파티장이 오프라인일 때 보스방 포털을 누른 파티원이 파티장을 맡는다
+};
+
+// 사람 하나 — 26바이트. 액터 번호는 싣지 않는다(존 서버가 웹 패킷으로 옮길 때 자기 세션을 찾아 채운다)
+struct LinkPartyPerson
+{
+    int64_t  characterId;   // 0 = 없음
+    uint8_t  displayChar;
+    uint8_t  colorIndex;
+    int32_t  level;
+    char16_t name[LINK_NAME_CHARS];
+};
+
+// 파티원 상태 — 존 서버가 0.5초마다 지난 값과 견줘 바뀐 사람만 보낸다
+struct LinkPartyStateRow
+{
+    int64_t  characterId;
+    int32_t  hp;
+    int32_t  maxHp;
+    int32_t  level;
+    int32_t  mapId;
+    uint16_t visibleChannel;   // 방 맵은 0
+};
+
+// 파티원 한 줄 — 명단(3027)과 바뀐 줄(3029)이 같이 쓴다
+struct LinkPartyMemberRow
+{
+    LinkPartyPerson who;
+    int32_t  hp;
+    int32_t  maxHp;
+    int32_t  mapId;
+    uint16_t visibleChannel;   // 방 맵과 오프라인은 0
+    uint8_t  online;
+};
+
+inline constexpr int LINK_PARTY_MEMBERS_MAX = 8;   // PARTY_MAX_MEMBERS 와 같아야 한다(WorldServer/PartySystem.cpp 가 static_assert 로 맞춘다)
+
+// 상태 패킷 하나에 드는 줄 수 — (1458 − 머리 4 − 칸 수 1) ÷ 26 = 55
+inline constexpr int LINK_PARTY_STATE_MAX = 55;
+// 복원 패킷 하나에 드는 줄 수 — (1458 − 머리 4 − 칸 수 2) ÷ 32 = 45
+inline constexpr int LINK_PARTY_RESTORE_MAX = 45;
+
+// 존 → 월드: 플레이어의 파티 요청. 레벨 둘은 월드 서버 장부의 값이 입장 때 그대로라 요청 창에 옛 레벨이 나가지 않게 실어 보낸다
+struct LINK_PARTY_OP
+{
+    static constexpr uint16_t TYPE = 3023;
+    MsgHeader header;
+    uint8_t   op;                  // LinkPartyOpKind
+    int64_t   characterId;         // 보낸 사람
+    int32_t   level;               // 보낸 사람의 지금 레벨
+    int64_t   targetCharacterId;   // Request · Kick · SetLeader
+    int32_t   targetLevel;         // Request 만
+    char16_t  targetName[LINK_NAME_CHARS];   // InviteByName 만
+    uint32_t  requestId;           // Answer 만
+    uint8_t   accept;              // Answer 만
+};
+
+// 월드 → 존: 답할 요청이 왔다
+struct LINK_PARTY_ASK
+{
+    static constexpr uint16_t TYPE = 3024;
+    MsgHeader       header;
+    int64_t         to;
+    uint32_t        requestId;
+    uint8_t         kind;       // PartyAskKind
+    LinkPartyPerson from;
+    LinkPartyPerson about;      // 없으면 characterId 0
+    uint32_t        remainMs;
+};
+
+// 월드 → 존: 그 요청이 무효가 됐다
+struct LINK_PARTY_ASK_END
+{
+    static constexpr uint16_t TYPE = 3025;
+    MsgHeader header;
+    int64_t   to;
+    uint32_t  requestId;
+    uint8_t   why;   // PartyNotice — EXPIRED · CANCELLED
+};
+
+// 월드 → 존: 알림 한 줄
+struct LINK_PARTY_NOTICE
+{
+    static constexpr uint16_t TYPE = 3026;
+    MsgHeader       header;
+    int64_t         to;
+    uint8_t         code;   // PartyNotice
+    LinkPartyPerson who;    // 없으면 characterId 0
+};
+
+// 월드 → 존: 파티 전체 명단(사본 갱신 겸 화면) — 머리 + 줄 N개(가변).
+//   파티에 접속 중인 사람이 있는 존 서버마다 한 장씩 간다. to != 0 이면 파티가 없어진 한 사람에게(partyId 0 · 줄 없음)
+struct LINK_PARTY_INFO
+{
+    static constexpr uint16_t TYPE = 3027;
+    MsgHeader header;
+    int64_t   to;
+    int32_t   partyId;
+    int64_t   leader;
+    uint8_t   count;
+};
+
+// 존 → 월드: 자기 쪽 파티원의 바뀐 줄 — 머리 + 줄 N개(가변)
+struct LINK_PARTY_STATE
+{
+    static constexpr uint16_t TYPE = 3028;
+    MsgHeader header;
+    uint8_t   count;
+};
+
+// 월드 → 존: 파티원 한 명의 바뀐 줄 — 그 파티에 접속 중인 사람이 있는 존 서버마다
+struct LINK_PARTY_MEMBER
+{
+    static constexpr uint16_t TYPE = 3029;
+    MsgHeader          header;
+    int32_t            partyId;
+    LinkPartyMemberRow row;
+};
+
+// 복원 한 줄 — 존 서버는 자기 사람만 증언하므로 두 곳이 같은 사람을 다르게 말하는 일이 없다
+struct LinkPartyRestoreRow
+{
+    int32_t           partyId;
+    uint8_t           isLeader;
+    uint8_t           joinOrder;
+    LinkPartyStateRow state;
+};
+
+// 존 → 월드: 다시 붙을 때 자기 쪽 사람의 소속 — 머리 + 줄 N개(가변)
+struct LINK_PARTY_RESTORE
+{
+    static constexpr uint16_t TYPE = 3030;
+    MsgHeader header;
+    uint16_t  count;
+};
+
 #pragma pack(pop)
 
 static_assert(sizeof(LINK_HEARTBEAT) == 4);
@@ -240,6 +390,21 @@ static_assert(sizeof(LINK_ENTER_NOTICE_REQ) == 4 + 8 + 8 + 8 + 64 + 4);
 static_assert(sizeof(LINK_ENTER_NOTICE_ACK) == 4 + 8 + 1 + 4);
 static_assert(sizeof(LINK_WORLD_REGISTER) == 4 + 4);
 static_assert(sizeof(LINK_ZONE_KICK_ACCOUNT) == 4 + 8);
+static_assert(sizeof(LinkPartyPerson) == 8 + 1 + 1 + 4 + 12);
+static_assert(sizeof(LinkPartyStateRow) == 8 + 4 + 4 + 4 + 4 + 2);
+static_assert(sizeof(LinkPartyMemberRow) == 26 + 4 + 4 + 4 + 2 + 1);
+static_assert(sizeof(LinkPartyRestoreRow) == 4 + 1 + 1 + 26);
+static_assert(sizeof(LINK_PARTY_OP) == 4 + 1 + 8 + 4 + 8 + 4 + 12 + 4 + 1);
+static_assert(sizeof(LINK_PARTY_ASK) == 4 + 8 + 4 + 1 + 26 + 26 + 4);
+static_assert(sizeof(LINK_PARTY_ASK_END) == 4 + 8 + 4 + 1);
+static_assert(sizeof(LINK_PARTY_NOTICE) == 4 + 8 + 1 + 26);
+static_assert(sizeof(LINK_PARTY_INFO) == 4 + 8 + 4 + 8 + 1);
+static_assert(sizeof(LINK_PARTY_STATE) == 4 + 1);
+static_assert(sizeof(LINK_PARTY_MEMBER) == 4 + 4 + 41);
+static_assert(sizeof(LINK_PARTY_RESTORE) == 4 + 2);
+static_assert(sizeof(LINK_PARTY_INFO) + LINK_PARTY_MEMBERS_MAX * sizeof(LinkPartyMemberRow) <= 1458, "코어 패킷 상한을 넘는다");
+static_assert(sizeof(LINK_PARTY_STATE) + LINK_PARTY_STATE_MAX * sizeof(LinkPartyStateRow) <= 1458, "코어 패킷 상한을 넘는다");
+static_assert(sizeof(LINK_PARTY_RESTORE) + LINK_PARTY_RESTORE_MAX * sizeof(LinkPartyRestoreRow) <= 1458, "코어 패킷 상한을 넘는다");
 static_assert(sizeof(LinkOnlineEntry) == 8 + 8 + 4 + 4 + 1 + 1 + 12);
 static_assert(sizeof(LINK_ZONE_CHAR_ENTER) == 4 + sizeof(LinkOnlineEntry));
 static_assert(sizeof(LINK_ZONE_ONLINE_LIST) + LINK_ONLINE_LIST_MAX * sizeof(LinkOnlineEntry) <= 1458, "코어 패킷 상한(IOCPServer.h)");

@@ -147,8 +147,8 @@ public:
     CharacterLookBlob::Look _body{};
 
 #if USE_PARTY
-    // ── 파티 ── 0 = 파티 없음. 쓰는 곳은 CPartySystem 뿐이다(가입·빠짐·해산). 저장하지 않는다(접속마다 0 — 끊기면 파티에서 빠진다).
-    //   파티원 목록의 진실은 CPartySystem 이고 이것은 사본이다 — 공격 후보 거르기(CombatSystem.cpp)가 매번 파티 목록을 안 뒤지게 하려는 것.
+    // ── 파티 ── 0 = 파티 없음. 쓰는 곳은 CPartyCopy 뿐이다(월드 서버의 명단을 받을 때). 저장하지 않는다(접속마다 0 — 월드 서버의 명단이 채운다).
+    //   파티원 목록의 진실은 월드 서버 CPartySystem 이고 이것은 사본이다 — 공격 후보 거르기(CombatSystem.cpp)가 매번 파티 목록을 안 뒤지게 한다.
     int32_t _partyId = 0;
 #endif
 

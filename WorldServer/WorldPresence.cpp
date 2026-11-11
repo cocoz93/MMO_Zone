@@ -71,6 +71,13 @@ bool CWorldPresence::Leave(SessionId session, CharacterId characterId)
     return true;
 }
 
+void CWorldPresence::SetLevel(CharacterId characterId, int32_t level)
+{
+    const auto it = _people.find(ToInt(characterId));
+    if (it != _people.end())
+        it->second.level = level;
+}
+
 const CWorldPresence::Person* CWorldPresence::Find(CharacterId characterId) const
 {
     const auto it = _people.find(ToInt(characterId));

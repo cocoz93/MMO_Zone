@@ -225,7 +225,7 @@ set(GAME_SOURCES
     ${SRV_DIR}/TradeSystem.cpp
     ${SRV_DIR}/SkillSystem.cpp
     ${SRV_DIR}/BuffSystem.cpp
-    ${SRV_DIR}/PartySystem.cpp
+    ${SRV_DIR}/PartyCopy.cpp
     ${SRV_DIR}/Room.cpp
     ${SRV_DIR}/LevelTable.cpp
     ${SRV_DIR}/GameDataFiles.cpp
@@ -430,6 +430,8 @@ set(WORLD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/WorldServer)
 set(WORLD_LOGIC_SOURCES
     ${WORLD_DIR}/WorldPresence.cpp
     ${WORLD_DIR}/ChannelTable.cpp
+    ${WORLD_DIR}/PartySystem.cpp
+    ${WORLD_DIR}/WorldMetrics.cpp
 )
 
 set(WORLD_SOURCES
@@ -437,7 +439,7 @@ set(WORLD_SOURCES
     ${WORLD_DIR}/main.cpp
     ${WORLD_DIR}/WorldServer.cpp
     ${WORLD_DIR}/WorldServerConfig.cpp
-    ${WORLD_DIR}/WorldMetrics.cpp
+    ${WORLD_DIR}/PartyFlow.cpp
 )
 
 if(WIN32)
@@ -480,6 +482,11 @@ target_link_libraries(enter_gate_test PRIVATE ServerCommonLib)
 add_executable(room_lockout_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/RoomLockoutTest.cpp ${SRV_DIR}/RoomLockoutBlob.cpp)
 target_include_directories(room_lockout_test PRIVATE ${SRV_DIR})
 target_link_libraries(room_lockout_test PRIVATE ServerCommonLib)
+
+# 월드 서버의 파티 규칙 — 오프라인 규칙 표 · 복원 합치기. 서버를 안 띄운다
+add_executable(world_party_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/WorldPartyTest.cpp ${WORLD_DIR}/PartySystem.cpp ${WORLD_DIR}/WorldPresence.cpp ${WORLD_DIR}/WorldMetrics.cpp)
+target_include_directories(world_party_test PRIVATE ${WORLD_DIR})
+target_link_libraries(world_party_test PRIVATE ServerCommonLib)
 
 # 보이는 채널 번호 · 월드 서버의 채널 표 — 서버를 안 띄운다
 add_executable(channel_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/ChannelNumberTest.cpp ${WORLD_DIR}/ChannelTable.cpp)

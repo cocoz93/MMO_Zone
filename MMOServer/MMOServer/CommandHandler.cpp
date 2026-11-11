@@ -15,6 +15,10 @@
 #include "StatSystem.h"       // /gm 의 스탯 다시 세우기
 #include "CombatSystem.h"     // /die 의 쓰러뜨리기
 #endif
+#if USE_PARTY
+#include "PartyHandler.h"     // /party
+#include <Identity/CharacterName.h>
+#endif
 #if USE_INVENTORY
 #include "ItemHandler.h"
 #include "GameDataFiles.h"
@@ -31,8 +35,7 @@ using namespace PacketBuild;   // 아래 조립 함수(MakeActorSpeed)가 머리
 
 namespace
 {
-    // 채팅(UTF-16) → 낱말들. 명령과 인자가 ASCII 라 그 밖의 글자는 '?' 로 바꾼다
-    //   (한글 인자를 받는 명령이 생기면 그때 UTF-8 로 옮긴다).
+    // 채팅(UTF-16) → 낱말들(UTF-8). 한글 인자는 /party 이름이 쓴다.
     //   ★ NUL 에서 멈춘다 — 웹·콘솔 클라는 끝에 NUL 을 붙여 보내고(proto.js chat()), RecvChat 의
     //     글자 수는 헤더 크기로 역산해 그 NUL 까지 센다. 안 멈추면 마지막 낱말이 "5\0" 이 되어 숫자로 안 읽힌다.
     void SplitCommandWords(const ChatChar* msg, uint16_t len, std::vector<std::string>& out)
@@ -53,7 +56,21 @@ namespace
                 }
                 continue;
             }
-            cur += (c < 0x80) ? static_cast<char>(c) : '?';
+            if (c < 0x80)
+            {
+                cur += static_cast<char>(c);
+            }
+            else if (c < 0x800)
+            {
+                cur += static_cast<char>(0xC0 | (c >> 6));
+                cur += static_cast<char>(0x80 | (c & 0x3F));
+            }
+            else
+            {
+                cur += static_cast<char>(0xE0 | (c >> 12));
+                cur += static_cast<char>(0x80 | ((c >> 6) & 0x3F));
+                cur += static_cast<char>(0x80 | (c & 0x3F));
+            }
         }
         if (!cur.empty())
             out.push_back(cur);
@@ -98,6 +115,9 @@ void CCommandHandler::Handle(CPlayer* player, const ChatChar* msg, uint16_t len)
         { "/gm",   &CCommandHandler::RunGmCommand   },   // /gm — GM 모드 켜고 끄기
         { "/die",  &CCommandHandler::RunDieCommand  },   // /die — 그 자리에서 쓰러지기
 #endif
+#if USE_PARTY
+        { "/party", &CCommandHandler::RunPartyCommand },   // /party <이름> — 다른 존 서버의 사람도 부른다
+#endif
         { nullptr, nullptr },   // 빈 줄 — 명령이 하나도 없는 빌드(전투를 끈 빌드)에서도 표가 크기 0 이 되지 않게(C++ 는 크기 0 배열을 못 둔다)
     };
 
@@ -127,6 +147,22 @@ void CCommandHandler::Handle(CPlayer* player, const ChatChar* msg, uint16_t len)
 
     (this->*(found->run))(player, words);
 }
+
+#if USE_PARTY
+// /party <이름> — 이름으로 파티에 부른다. 찾기 · 초대 규칙은 월드 서버 몫이다
+void CCommandHandler::RunPartyCommand(CPlayer* player, const std::vector<std::string>& words)
+{
+    char16_t name[CHAR_NAME_MAX_LEN];
+    if (words.size() != 2 || !CharacterName::FromUtf8(words[1].data(), words[1].size(), name))
+    {
+        _gameMonitor._chat._commandRejected[static_cast<int>(ChatCommandReject::BAD_ARGS)].Inc();
+        _selfNotifier.SendSystemMessage(player, "사용법: /party 이름");
+        return;
+    }
+    _partyHandler.InviteByName(player, name);
+    SLOG_INFO("[CMD] /party {} (character={})", words[1], player->_characterId);
+}
+#endif
 
 #if USE_COMBAT
 // /gm — GM 모드 켜고 끄기(토글). 값과 저장하지 않는 까닭은 Player.h 의 GM 칸.

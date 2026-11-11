@@ -480,6 +480,9 @@ CPlayer* CEntryHandler::SpawnPlayer(SessionId sessionId, ActorId actorId, Charac
 
     // 캐릭터 서버의 게임 중 장부 — 세운 뒤에 알린다. 불러오다 나간 사람은 여기를 안 지나니 퇴장 알림도 없어 짝이 맞는다.
     _zoneLink.NotifyEnter(*player);
+#if USE_PARTY
+    _partyHandler.AddPlayer(player);   // 입장 알림 앞 — 월드 서버의 명단이 왔을 때 이 사람을 찾을 수 있어야 한다
+#endif
     _worldLink.NotifyEnter(*player);
 
     return player;

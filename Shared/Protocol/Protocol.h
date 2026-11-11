@@ -1217,8 +1217,8 @@ static_assert(static_cast<uint16_t>(MsgType::S2C_ACTOR_SPEED) == 1049, "새 타�
 // 파티 (USE_PARTY)
 //==================================================
 // 규칙(10-17 사용자 결정) — 최대 8명 · 받는 사람은 늘 수락해야 들어간다 · 파티원이 부른 사람은 파티장 승인을 먼저 거친다 ·
-//   파티 밖 사람의 가입 신청은 파티장이 수락하면 바로 들어간다(신청이 곧 본인 동의) · 끊기면 바로 빠진다 · 저장하지 않는다.
-//   규칙의 몸은 서버 CPartySystem(PartySystem.h) — 여기는 와이어만.
+//   파티 밖 사람의 가입 신청은 파티장이 수락하면 바로 들어간다(신청이 곧 본인 동의) · 끊겨도 파티에 남는다(오프라인 — 월드 서버가 캐릭터 번호로 든다) · 저장하지 않는다.
+//   규칙의 몸은 월드 서버 CPartySystem(WorldServer/PartySystem.h) — 여기는 와이어만.
 //   ★ 캐릭터에 이름이 없다 — 사람은 번호(actorId)와 머리 위 글자·색(CREATE 와 같은 값)으로만 가리킨다. 글자는 62종이라 겹칠 수 있다.
 //   ★ 부하 더미도 받을 수 있다 — 사람이 더미를 눌러 초대하면 더미에게 S2C_PARTY_ASK 가 간다. 더미에 S2C 다섯을 다 등록할 것(DummyClient.cpp).
 constexpr int PARTY_MAX_MEMBERS = 8;   // 사용자 결정 값(10-16) — S2C_PARTY_INFO 의 줄 수 상한이기도 하다
@@ -1237,6 +1237,7 @@ enum class PartyAskKind : uint8_t
 //   S2C_PARTY_ASK_END 의 사유도 이 번호다(EXPIRED · CANCELLED).
 enum class PartyNotice : uint8_t
 {
+    // ★ 아래 주석의 actorId 는 S2C_PARTY_NOTICE 의 who(관련 사람)를 가리킨다 — 다른 존 서버 사람이면 who.actorId 는 0 이고 who.characterId 로 가린다
     // 보냄 — 내 요청이 상대에게 갔다(actorId = 받는 사람: 초대면 대상 · 신청이면 그 파티장 · 추천이면 내 파티장)
     //   추천을 파티장이 승인하면 추천한 사람에게 SENT_INVITE(actorId = 초대받은 사람)가 간다
     SENT_INVITE,
@@ -1256,10 +1257,10 @@ enum class PartyNotice : uint8_t
     NO_REQUEST,      // 답한 요청이 없다(이미 끝났거나 내 것이 아니다)
     // 결과 — 요청·파티에 일어난 일
     DECLINED,        // actorId 가 거절했다
-    EXPIRED,         // 시간이 지났다(PartySystem.h ASK_TIMEOUT_FRAMES)
+    EXPIRED,         // 시간이 지났다(WorldServer/PartySystem.h ASK_TIMEOUT_MS) · 월드 서버가 끊겨 요청이 사라졌다
     CANCELLED,       // 요청이 무효가 됐다(보낸·받은 사람이 나감 · 그새 처지가 바뀜)
     JOINED,          // actorId 가 파티에 들어왔다(본인이면 내가 들어갔다)
-    LEFT,            // actorId 가 나갔다(끊김 포함)
+    LEFT,            // actorId 가 나갔다(끊김은 나감이 아니다 — 오프라인으로 남는다)
     KICKED,          // actorId 가 내보내졌다(본인이면 내가 내보내졌다)
     LEADER,          // actorId 가 파티장이 됐다
     DISBANDED,       // 파티가 해산됐다(파티장이 해산 · 한 명만 남음)
@@ -1268,29 +1269,35 @@ enum class PartyNotice : uint8_t
     ROOM_NOT_GATHERED, // actorId 가 다른 존(다른 맵 · 같은 맵 다른 채널)에 있다 — 전원이 파티장과 같은 존이어야 같이 들어간다
     ROOM_DEAD,         // actorId 가 쓰러져 있다
     ROOM_LOCKED,       // actorId 가 그 방 맵의 다시 들어가기 잠금 중이다(보상을 받은 뒤 MapTable.csv lockoutSec 동안)
+    // 월드 서버 연결이 없어 파티를 바꿀 수 없다(UseServerLink=0 · [World] 없음 · 끊김 · 복원 중). 있던 파티는 사본으로 계속 돈다
+    NO_WORLD,
     COUNT
 };
 
-// 사람 하나를 가리키는 구조체 — 번호·글자·색·레벨·이름(22B, pack(1))
+// 사람 하나를 가리키는 구조체 — 캐릭터 번호·액터 번호·글자·색·레벨·이름(30B, pack(1))
+//   파티의 열쇠는 characterId 다. actorId 는 존 서버마다 따로 세서(CSessionHub::AllocActorId) 받는 사람과 같은 존 서버일 때만 채운다(아니면 0)
 //   이름은 파티창·요청 창이 다른 맵 사람도 그려야 해서 여기에 싣는다 — 시야 패킷(S2C_ACTOR_NAME)으로는 시야 밖 사람의 이름을 모른다.
 //   이름이 없는 사람(소유 표에 없는 옛 행 · 더미)은 이름 칸이 전부 0 이고 웹은 글자 한 자로 보여 준다.
 struct PartyPerson
 {
-    int32_t actorId;      // 0 = 없음
+    int64_t characterId;  // 0 = 없음
+    int32_t actorId;      // 0 = 없음 · 다른 존 서버 사람
     uint8_t displayChar;  // CREATE 의 displayChar 와 같은 값
     uint8_t colorIndex;   // CREATE 의 colorIndex 와 같은 값
     int32_t level;
     ChatChar name[CHAR_NAME_MAX_LEN];   // 6칸을 다 쓰면 끝 표시 0 이 없다 — 글자 수는 앞에서 세어 0 까지(CharacterName.h)
 };
 
-// 파티원 한 줄 — 파티창이 그리는 것(34B, pack(1)). 맵이 달라도 온다(파티는 존을 넘는다).
+// 파티원 한 줄 — 파티창이 그리는 것(45B, pack(1)). 맵이 달라도 온다(파티는 존을 넘는다).
 //   ★ 늘리면 S2C_PARTY_INFO 의 보폭이 바뀐다 — proto.js PARTY_MEMBER_BYTES 를 같은 커밋에서 고칠 것(가변 묶음 엔트리 규칙, 위 전투 절 머리말).
 struct PartyMemberEntry
 {
     PartyPerson who;
     int32_t     hp;
     int32_t     maxHp;
-    int32_t     mapId;   // 지금 있는 맵(MapTable.csv) — 채널은 안 싣는다
+    int32_t     mapId;   // 지금 있는 맵(MapTable.csv)
+    uint16_t    visibleChannel;   // 보이는 채널 번호(ChannelNumber::ToVisible) — 방 맵과 오프라인은 0
+    uint8_t     online;           // 1 = 접속 중 · 0 = 오프라인(파티에는 남아 있다)
 };
 
 // C2S: 이 사람과 파티 — 화면에서 누른 캐릭터. 서버가 두 사람의 처지로 셋 중 하나를 보낸다(PartyAskKind · 결과는 S2C_PARTY_NOTICE SENT_*)
@@ -1322,7 +1329,7 @@ struct MSG_C2S_PARTY_KICK
 {
     static constexpr MsgType TYPE = MsgType::C2S_PARTY_KICK;
     MsgHeader header;
-    int32_t   targetId;
+    int64_t   targetCharacterId;   // 파티 창의 줄 — 다른 존 서버 파티원 · 오프라인 파티원도 지정한다
 };
 
 // C2S: 이 파티원에게 파티장을 넘긴다(파티장만)
@@ -1330,7 +1337,7 @@ struct MSG_C2S_PARTY_LEADER
 {
     static constexpr MsgType TYPE = MsgType::C2S_PARTY_LEADER;
     MsgHeader header;
-    int32_t   targetId;
+    int64_t   targetCharacterId;   // 파티 창의 줄 — 오프라인 파티원이면 TARGET_BUSY 다
 };
 
 // C2S: 파티를 해산한다(파티장만) — 몸 없음
@@ -1371,10 +1378,10 @@ struct MSG_S2C_PARTY_NOTICE
 {
     static constexpr MsgType TYPE = MsgType::S2C_PARTY_NOTICE;
     MsgHeader header;
-    uint8_t   code;       // PartyNotice
-    int32_t   actorId;    // 관련 사람(없으면 0)
+    uint8_t     code;     // PartyNotice
+    PartyPerson who;      // 관련 사람(없으면 전부 0) — 이름을 실어 웹이 화면 밖 사람도 부른다
 
-    MSG_S2C_PARTY_NOTICE() : header{ sizeof(*this), TYPE }, code(0), actorId(0) {}
+    MSG_S2C_PARTY_NOTICE() : header{ sizeof(*this), TYPE }, code(0), who{} {}
 };
 
 // S2C: 파티 전체 — 가입·탈퇴·내보냄·넘기기·해산 때 파티원 전원에게(빠진 사람에게도 한 장 — count 0 · partyId 0 = 파티 없음).
@@ -1385,11 +1392,11 @@ struct MSG_S2C_PARTY_INFO
     static constexpr MsgType TYPE = MsgType::S2C_PARTY_INFO;
     MsgHeader        header;
     int32_t          partyId;    // 0 = 파티 없음
-    int32_t          leaderId;   // 파티장 actorId
+    int64_t          leaderCharacterId;   // 파티장 캐릭터 번호
     uint8_t          count;
     PartyMemberEntry entries[PARTY_MAX_MEMBERS];
 
-    MSG_S2C_PARTY_INFO() : header{ sizeof(*this), TYPE }, partyId(0), leaderId(0), count(0), entries{} {}
+    MSG_S2C_PARTY_INFO() : header{ sizeof(*this), TYPE }, partyId(0), leaderCharacterId(0), count(0), entries{} {}
 };
 
 // S2C: 파티원 한 명의 체력·최대 체력·레벨·맵이 바뀜 — 파티원 전원에게(본인 줄도 온다). 서버가 0.5초마다 지난번 보낸 값과 견줘 바뀐 줄만 보낸다.
@@ -1402,20 +1409,20 @@ struct MSG_S2C_PARTY_MEMBER
     MSG_S2C_PARTY_MEMBER() : header{ sizeof(*this), TYPE }, entry{} {}
 };
 
-static_assert(sizeof(PartyPerson)           == 22, "PartyPerson 은 22B (proto.js 와 맞출 것)");
-static_assert(sizeof(PartyMemberEntry)      == 34, "PartyMemberEntry 는 34B (proto.js PARTY_MEMBER_BYTES 와 맞출 것)");
+static_assert(sizeof(PartyPerson)           == 30, "PartyPerson 은 30B (proto.js 와 맞출 것)");
+static_assert(sizeof(PartyMemberEntry)      == 45, "PartyMemberEntry 는 45B (proto.js PARTY_MEMBER_BYTES 와 맞출 것)");
 static_assert(sizeof(MSG_C2S_PARTY_REQUEST) == 8,  "C2S_PARTY_REQUEST 는 8B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_C2S_PARTY_ANSWER)  == 9,  "C2S_PARTY_ANSWER 는 9B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_C2S_PARTY_LEAVE)   == 4,  "C2S_PARTY_LEAVE 는 헤더뿐");
-static_assert(sizeof(MSG_C2S_PARTY_KICK)    == 8,  "C2S_PARTY_KICK 은 8B (proto.js 와 맞출 것)");
-static_assert(sizeof(MSG_C2S_PARTY_LEADER)  == 8,  "C2S_PARTY_LEADER 는 8B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_PARTY_KICK)    == 12, "C2S_PARTY_KICK 은 12B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_C2S_PARTY_LEADER)  == 12, "C2S_PARTY_LEADER 는 12B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_C2S_PARTY_DISBAND) == 4,  "C2S_PARTY_DISBAND 는 헤더뿐");
-static_assert(sizeof(MSG_S2C_PARTY_ASK)     == 57, "PARTY_ASK 는 57B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_PARTY_ASK)     == 73, "PARTY_ASK 는 73B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_S2C_PARTY_ASK_END) == 9,  "PARTY_ASK_END 는 9B (proto.js 와 맞출 것)");
-static_assert(sizeof(MSG_S2C_PARTY_NOTICE)  == 9,  "PARTY_NOTICE 는 9B (proto.js 와 맞출 것)");
-static_assert(offsetof(MSG_S2C_PARTY_INFO, entries) == 13, "PARTY_INFO 머리는 13B (proto.js 와 맞출 것)");
-static_assert(sizeof(MSG_S2C_PARTY_INFO)    == 13 + 34 * PARTY_MAX_MEMBERS, "PARTY_INFO 는 머리 13B + 34B x 인원");
-static_assert(sizeof(MSG_S2C_PARTY_MEMBER)  == 38, "PARTY_MEMBER 는 38B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_PARTY_NOTICE)  == 35, "PARTY_NOTICE 는 35B (proto.js 와 맞출 것)");
+static_assert(offsetof(MSG_S2C_PARTY_INFO, entries) == 17, "PARTY_INFO 머리는 17B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_PARTY_INFO)    == 17 + 45 * PARTY_MAX_MEMBERS, "PARTY_INFO 는 머리 17B + 45B x 인원");
+static_assert(sizeof(MSG_S2C_PARTY_MEMBER)  == 49, "PARTY_MEMBER 는 49B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::C2S_PARTY_REQUEST) == 1050, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::S2C_PARTY_MEMBER)  == 1060, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");
 
@@ -1667,9 +1674,9 @@ static_assert(sizeof(MSG_C2S_TRADE_OFFER)    == 10,  "C2S_TRADE_OFFER 는 10B (p
 static_assert(sizeof(MSG_C2S_TRADE_MONEY)    == 12,  "C2S_TRADE_MONEY 는 12B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_C2S_TRADE_COMMIT)   == 4,   "C2S_TRADE_COMMIT 은 헤더뿐");
 static_assert(sizeof(MSG_C2S_TRADE_CANCEL)   == 4,   "C2S_TRADE_CANCEL 은 헤더뿐");
-static_assert(sizeof(MSG_S2C_TRADE_ASK)      == 34,  "TRADE_ASK 는 34B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_TRADE_ASK)      == 42,  "TRADE_ASK 는 42B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_S2C_TRADE_ASK_END)  == 9,   "TRADE_ASK_END 는 9B (proto.js 와 맞출 것)");
-static_assert(sizeof(MSG_S2C_TRADE_STATE)    == 450, "TRADE_STATE 는 450B (proto.js 와 맞출 것)");
+static_assert(sizeof(MSG_S2C_TRADE_STATE)    == 458, "TRADE_STATE 는 458B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_S2C_TRADE_END)      == 9,   "TRADE_END 는 9B (proto.js 와 맞출 것)");
 static_assert(sizeof(MSG_S2C_TRADE_FAIL)     == 5,   "TRADE_FAIL 은 5B (proto.js 와 맞출 것)");
 static_assert(static_cast<uint16_t>(MsgType::C2S_TRADE_REQUEST) == 1065, "새 타입 번호가 밀렸다 (proto.js 번호표와 맞출 것)");

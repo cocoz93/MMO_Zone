@@ -65,9 +65,9 @@
   const PARTY_NOTICE = ['SENT_INVITE','SENT_APPLY','SENT_SUGGEST',
     'NO_TARGET','SELF','SAME_PARTY','BOTH_IN_PARTY','FULL','NOT_LEADER','NOT_IN_PARTY','NOT_MEMBER','TARGET_BUSY','SELF_BUSY','NO_REQUEST',
     'DECLINED','EXPIRED','CANCELLED','JOINED','LEFT','KICKED','LEADER','DISBANDED',
-    'ROOM_NOT_GATHERED','ROOM_DEAD','ROOM_LOCKED'];
+    'ROOM_NOT_GATHERED','ROOM_DEAD','ROOM_LOCKED','NO_WORLD'];
   const PARTY_MAX_MEMBERS = 8;      // Protocol.h PARTY_MAX_MEMBERS — INFO 줄 수 상한
-  const PARTY_MEMBER_BYTES = 34;    // Protocol.h PartyMemberEntry = PartyPerson 22 + hp·maxHp·mapId 12
+  const PARTY_MEMBER_BYTES = 45;    // Protocol.h PartyMemberEntry = PartyPerson 30 + hp·maxHp·mapId 12 + visibleChannel 2 + online 1
   // 아이템 쓰기 거절 사유 — Protocol.h UseItemFail 순서 그대로(값이 와이어에 실린다). 서버가 이 순서로 보고 먼저 걸린 하나를 보낸다
   const USE_FAIL = ['BAD_SLOT','EMPTY','NOT_USABLE','DEAD','COOLDOWN','FULL_HP','FULL_MP','IN_TRADE'];
   // 땅의 아이템 — Protocol.h GroundItemAppear · GroundItemGone · PickupFail 순서 그대로(값이 와이어에 실린다)
@@ -127,13 +127,14 @@
   }
   // 겉모습 구조체 — Protocol.h ActorLook 8B = weaponItemId u16(0 = 맨손) · BodyLook 6B. 칸을 늘리면 여기 한 곳(ACTOR_LOOK 크기 단언이 알려 준다)
   function readLook(dv, o) { return { weaponItemId:dv.getUint16(o,true), body:readBody(dv, o+2) }; }
-  // 파티원 정보 구조체 — Protocol.h PartyPerson 22B = actorId i32 · displayChar u8 · colorIndex u8 · level i32 · 이름 u16×6
+  // 파티원 정보 구조체 — Protocol.h PartyPerson 30B = characterId i64 · actorId i32(같은 존 서버일 때만, 아니면 0) · displayChar u8 · colorIndex u8 · level i32 · 이름 u16×6.
+  //   characterId 는 문자열로 든다 — Number 로 바꾸면 2^53 을 넘는 번호가 깨진다
   function readPartyPerson(dv, o) {
-    return { actorId:dv.getInt32(o,true), displayChar:dv.getUint8(o+4), colorIndex:dv.getUint8(o+5), level:dv.getInt32(o+6,true), name:readName(dv, o+10) };
+    return { characterId:dv.getBigInt64(o,true).toString(), actorId:dv.getInt32(o+8,true), displayChar:dv.getUint8(o+12), colorIndex:dv.getUint8(o+13), level:dv.getInt32(o+14,true), name:readName(dv, o+18) };
   }
-  // 파티원 한 줄 — Protocol.h PartyMemberEntry 34B = PartyPerson 22 · hp i32 · maxHp i32 · mapId i32. INFO 의 줄이자 MEMBER 의 몸통
+  // 파티원 한 줄 — Protocol.h PartyMemberEntry 45B = PartyPerson 30 · hp i32 · maxHp i32 · mapId i32 · visibleChannel u16(방 맵과 오프라인은 0) · online u8. INFO 의 줄이자 MEMBER 의 몸통
   function readPartyMember(dv, o) {
-    return { ...readPartyPerson(dv, o), hp:dv.getInt32(o+22,true), maxHp:dv.getInt32(o+26,true), mapId:dv.getInt32(o+30,true) };
+    return { ...readPartyPerson(dv, o), hp:dv.getInt32(o+30,true), maxHp:dv.getInt32(o+34,true), mapId:dv.getInt32(o+38,true), visibleChannel:dv.getUint16(o+42,true), online:dv.getUint8(o+44)!==0 };
   }
   // 거래창 한쪽 — Protocol.h TradeSide 210B. 칸 줄은 가방 칸과 같은 꼴(slot u16 · itemId i32 · count i32). count 는 상한으로 한 번 더 막는다
   function readTradeSide(dv, o) {
@@ -305,27 +306,27 @@
       case MSG.S2C_ACTOR_SPEED:
         p.actorId=dv.getInt32(o,true); p.speed=dv.getInt32(o+4,true); break;
       // ---- 파티 (USE_PARTY) ----
-      //   PARTY_ASK 57B = requestId u32 · kind u8 · from PartyPerson(22) · about PartyPerson(22) · remainMs u32 — 받는 사람에게만
+      //   PARTY_ASK 73B = requestId u32 · kind u8 · from PartyPerson(30) · about PartyPerson(30) · remainMs u32 — 받는 사람에게만
       case MSG.S2C_PARTY_ASK:
         p.requestId=dv.getUint32(o,true); p.kind=dv.getUint8(o+4); p.kindName=PARTY_ASK_KIND[p.kind] || ('?'+p.kind);
-        p.from=readPartyPerson(dv, o+5); p.about=readPartyPerson(dv, o+27); p.remainMs=dv.getUint32(o+49,true); break;
+        p.from=readPartyPerson(dv, o+5); p.about=readPartyPerson(dv, o+35); p.remainMs=dv.getUint32(o+65,true); break;
       //   PARTY_ASK_END 9B = requestId u32 · reason u8 (PARTY_NOTICE — EXPIRED · CANCELLED). 창을 닫는다
       case MSG.S2C_PARTY_ASK_END:
         p.requestId=dv.getUint32(o,true); p.reason=dv.getUint8(o+4); p.reasonName=PARTY_NOTICE[p.reason] || ('?'+p.reason); break;
-      //   PARTY_NOTICE 9B = code u8 (PARTY_NOTICE) · actorId i32 (관련 사람, 없으면 0)
+      //   PARTY_NOTICE 35B = code u8 (PARTY_NOTICE) · who PartyPerson(30) (관련 사람, 없으면 characterId "0") — 이름이 실려 화면 밖 사람도 부른다
       case MSG.S2C_PARTY_NOTICE:
-        p.code=dv.getUint8(o); p.codeName=PARTY_NOTICE[p.code] || ('?'+p.code); p.actorId=dv.getInt32(o+1,true); break;
-      //   PARTY_INFO 가변 = partyId i32 · leaderId i32 · count u8 · 파티원 줄(34B) × count — count 0 = 파티 없음.
+        p.code=dv.getUint8(o); p.codeName=PARTY_NOTICE[p.code] || ('?'+p.code); p.who=readPartyPerson(dv, o+1); break;
+      //   PARTY_INFO 가변 = partyId i32 · leaderCharacterId i64 · count u8 · 파티원 줄(45B) × count — count 0 = 파티 없음.
       //   count 는 header.size 와 상한으로 한 번 더 막는다(서버 이상 시 넘겨 읽지 않게 — S2C_INVENTORY 와 같은 꼴)
       case MSG.S2C_PARTY_INFO: {
-        p.partyId=dv.getInt32(o,true); p.leaderId=dv.getInt32(o+4,true);
-        let count=dv.getUint8(o+8);
-        const avail=Math.floor((size-13)/PARTY_MEMBER_BYTES); if(count>avail) count=avail; if(count>PARTY_MAX_MEMBERS) count=PARTY_MAX_MEMBERS;
+        p.partyId=dv.getInt32(o,true); p.leaderId=dv.getBigInt64(o+4,true).toString();
+        let count=dv.getUint8(o+12);
+        const avail=Math.floor((size-17)/PARTY_MEMBER_BYTES); if(count>avail) count=avail; if(count>PARTY_MAX_MEMBERS) count=PARTY_MAX_MEMBERS;
         p.count=count; p.members=[];
-        for(let i=0;i<count;i++) p.members.push(readPartyMember(dv, o+9+i*PARTY_MEMBER_BYTES));
+        for(let i=0;i<count;i++) p.members.push(readPartyMember(dv, o+13+i*PARTY_MEMBER_BYTES));
         break;
       }
-      //   PARTY_MEMBER 38B = 파티원 한 줄(34B) — 바뀐 사람만(0.5초마다 서버가 견준다)
+      //   PARTY_MEMBER 49B = 파티원 한 줄(45B) — 바뀐 사람만(0.5초마다 서버가 견준다)
       case MSG.S2C_PARTY_MEMBER:
         Object.assign(p, readPartyMember(dv, o)); break;
       // ---- 상점 · 돈 ----
@@ -334,16 +335,16 @@
       case MSG.S2C_MONEY:   // int64 최종값 — 상한 1억이라 Number 로 옮겨도 정확하다
         p.money=Number(dv.getBigInt64(o,true)); break;
       // ---- 거래 (USE_TRADE) ----
-      //   TRADE_ASK 34B = requestId u32 · from PartyPerson(22) · remainMs u32 — 받는 사람에게만
+      //   TRADE_ASK 42B = requestId u32 · from PartyPerson(30) · remainMs u32 — 받는 사람에게만
       case MSG.S2C_TRADE_ASK:
-        p.requestId=dv.getUint32(o,true); p.from=readPartyPerson(dv, o+4); p.remainMs=dv.getUint32(o+26,true); break;
+        p.requestId=dv.getUint32(o,true); p.from=readPartyPerson(dv, o+4); p.remainMs=dv.getUint32(o+34,true); break;
       //   TRADE_ASK_END 9B = requestId u32 · reason u8 (TRADE_END). 창을 닫는다
       case MSG.S2C_TRADE_ASK_END:
         p.requestId=dv.getUint32(o,true); p.reason=dv.getUint8(o+4); p.reasonName=TRADE_END[p.reason] || ('?'+p.reason); break;
-      //   TRADE_STATE 450B = tradeId u32 · partner PartyPerson(22) · mine TradeSide(210) · theirs TradeSide(210) — 최종값
+      //   TRADE_STATE 458B = tradeId u32 · partner PartyPerson(30) · mine TradeSide(210) · theirs TradeSide(210) — 최종값
       case MSG.S2C_TRADE_STATE:
         p.tradeId=dv.getUint32(o,true); p.partner=readPartyPerson(dv, o+4);
-        p.mine=readTradeSide(dv, o+26); p.theirs=readTradeSide(dv, o+26+TRADE_SIDE_BYTES); break;
+        p.mine=readTradeSide(dv, o+34); p.theirs=readTradeSide(dv, o+34+TRADE_SIDE_BYTES); break;
       //   TRADE_END 9B = reason u8 (TRADE_END) · actorId i32 (끝낸 사람 · 없으면 0)
       case MSG.S2C_TRADE_END:
         p.reason=dv.getUint8(o); p.reasonName=TRADE_END[p.reason] || ('?'+p.reason); p.actorId=dv.getInt32(o+1,true); break;
@@ -439,10 +440,10 @@
     shopSell(npcActorId, slot, count){ const {b,d}=hdr(14,MSG.C2S_SHOP_SELL); d.setInt32(4, npcActorId, true); d.setUint16(8, slot, true); d.setInt32(10, count, true); return b; },
     // C2S_PARTY_ANSWER: header(4) + requestId u32 + accept u8 = 9B
     partyAnswer(requestId, accept){ const {b,d}=hdr(9,MSG.C2S_PARTY_ANSWER); d.setUint32(4, requestId>>>0, true); d.setUint8(8, accept?1:0); return b; },
-    // C2S_PARTY_LEAVE · DISBAND: 몸 없음 / KICK · LEADER: header(4) + targetId i32 = 8B (파티장만)
+    // C2S_PARTY_LEAVE · DISBAND: 몸 없음 / KICK · LEADER: header(4) + targetCharacterId i64 = 12B (파티장만 — 다른 존 서버 파티원과 오프라인 파티원도 지정한다)
     partyLeave(){ return hdr(4, MSG.C2S_PARTY_LEAVE).b; },
-    partyKick(targetId){ const {b,d}=hdr(8,MSG.C2S_PARTY_KICK); d.setInt32(4, targetId, true); return b; },
-    partyLeader(targetId){ const {b,d}=hdr(8,MSG.C2S_PARTY_LEADER); d.setInt32(4, targetId, true); return b; },
+    partyKick(characterId){ const {b,d}=hdr(12,MSG.C2S_PARTY_KICK); d.setBigInt64(4, BigInt(characterId), true); return b; },
+    partyLeader(characterId){ const {b,d}=hdr(12,MSG.C2S_PARTY_LEADER); d.setBigInt64(4, BigInt(characterId), true); return b; },
     partyDisband(){ return hdr(4, MSG.C2S_PARTY_DISBAND).b; },
     // ---- 거래 (USE_TRADE) ----
     // C2S_TRADE_REQUEST: header(4) + targetId i32 = 8B · ANSWER: + requestId u32 + accept u8 = 9B

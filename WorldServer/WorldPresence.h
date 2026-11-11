@@ -63,6 +63,9 @@ public:
     // 퇴장 통지 — 보낸 존 서버가 그 줄의 존 서버일 때만 지운다. 지웠으면 true
     bool Leave(SessionId session, CharacterId characterId);
 
+    // 레벨은 입장 뒤에도 바뀐다 — 파티 요청이 지금 값을 실어 온다. 없는 사람이면 아무것도 안 한다
+    void SetLevel(CharacterId characterId, int32_t level);
+
     const Person* Find(CharacterId characterId) const;
     const Person* FindByName(const std::u16string& name) const;
 

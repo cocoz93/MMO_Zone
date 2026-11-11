@@ -39,6 +39,8 @@ class CItemHandler;
 class CGameDataFiles;
 #endif
 
+class CPartyHandler;
+
 class CCommandHandler
 {
 public:
@@ -52,6 +54,9 @@ public:
 #if USE_INVENTORY
                     CItemHandler& itemHandler, const CGameDataFiles& gameDataFiles,
 #endif
+#if USE_PARTY
+                    CPartyHandler& partyHandler,
+#endif
                     CMapManager& mapManager)
         : _sightBroadcaster(sightBroadcaster), _selfNotifier(selfNotifier), _gameMonitor(gameMonitor),
 #if USE_COMBAT
@@ -59,6 +64,9 @@ public:
 #endif
 #if USE_INVENTORY
           _itemHandler(itemHandler), _gameDataFiles(gameDataFiles),
+#endif
+#if USE_PARTY
+          _partyHandler(partyHandler),
 #endif
           _mapManager(mapManager) {}
 
@@ -71,6 +79,9 @@ public:
     void SetAllowDevAdmin(bool allow) { _allowDevAdmin = allow; }
 
 private:
+#if USE_PARTY
+    void RunPartyCommand(CPlayer* player, const std::vector<std::string>& words);  // /party <이름> — 파티에 부르기
+#endif
 #if USE_INVENTORY
     void RunItemCommand(CPlayer* player, const std::vector<std::string>& words);   // /item <아이템번호> [개수] — 가방에 바로 넣기
 #endif
@@ -90,6 +101,9 @@ private:
 #if USE_INVENTORY
     CItemHandler&          _itemHandler;        // /item 뒤 바뀐 칸 내보내기(칸 패킷 + DB)
     const CGameDataFiles&  _gameDataFiles;      // 아이템 표(/item 번호 찾기)
+#endif
+#if USE_PARTY
+    CPartyHandler&         _partyHandler;       // /party 이름
 #endif
     CMapManager&           _mapManager;         // 존 찾기(/gm · /die)
     bool                   _allowDevAdmin = false;   // SetAllowDevAdmin

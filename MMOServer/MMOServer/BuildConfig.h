@@ -246,7 +246,7 @@
 	#error "USE_SKILL requires USE_COMBAT=1 (맞힌 뒤 처리를 전투에서 빌린다)"
 #endif
 
-// 파티 — 사람끼리 최대 8명(Protocol.h PARTY_MAX_MEMBERS). 규칙은 CPartySystem(PartySystem.h), 와이어는 Protocol.h 파티 절.
+// 파티 — 사람끼리 최대 8명(Protocol.h PARTY_MAX_MEMBERS). 규칙은 월드 서버 CPartySystem(WorldServer/PartySystem.h), 존 서버는 사본(PartyCopy.h), 와이어는 Protocol.h 파티 절.
 //   1: 파티 활성 — C2S_PARTY_* 를 받고, 틱마다 요청 시간 지남·파티원 상태 비교를 돈다(파티·요청이 없으면 바로 끝난다) [기본]
 //   0: 파티 경로가 컴파일에서 빠짐 — 요청은 조용히 버려진다(크기 등록이 빠짐). 와이어 정의(Protocol.h)는 그대로 남는다
 //   기대는 토글이 없다 — 맺기·나가기는 전투 없이도 말이 된다. 파티원끼리 공격 후보에서 빼기만 전투가 켜졌을 때 붙는다(CombatSystem.cpp).

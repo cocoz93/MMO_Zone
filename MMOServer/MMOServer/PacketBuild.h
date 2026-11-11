@@ -217,30 +217,16 @@ namespace PacketBuild
 #endif // USE_COMBAT
 
 #if USE_PARTY
-    // 파티원 정보 구조체(Protocol.h PartyPerson 22B) — p 가 nullptr 이면 0 으로 채운다(ASK 의 about 이 없을 때).
+    // 파티원 정보 구조체(Protocol.h PartyPerson 30B) — 거래의 상대 칸. p 가 nullptr 이면 0 으로 채운다
     inline void WritePartyPerson(CSerialBuffer* buf, const CPlayer* p)
     {
+        *buf << static_cast<int64_t>(p != nullptr ? ToInt(p->_characterId) : 0);
         *buf << static_cast<int>(p != nullptr ? p->_actorId : NO_ACTOR);
         *buf << static_cast<uint8_t>(p != nullptr ? p->_displayChar : 0);
         *buf << static_cast<uint8_t>(p != nullptr ? p->_colorIndex : 0);
         *buf << static_cast<int>(p != nullptr ? p->_level : 0);
         for (int i = 0; i < CHAR_NAME_MAX_LEN; ++i)
             *buf << static_cast<uint16_t>(p != nullptr ? p->_name[i] : 0);
-    }
-
-    // 파티원 한 줄(Protocol.h PartyMemberEntry 34B) — INFO 의 줄이자 MEMBER 의 몸통. 줄을 늘리면 여기 한 곳 · proto.js readPartyMember.
-    //   체력은 등장 상태 쓰기(WriteSnapshot)와 같은 규칙 — 전투가 꺼진 빌드는 0. 맵은 존 번호를 풀어 싣는다(채널은 안 싣는다).
-    inline void WritePartyMember(CSerialBuffer* buf, const CPlayer* p)
-    {
-        WritePartyPerson(buf, p);
-#if USE_COMBAT
-        *buf << static_cast<int>(p->_health.Hp());
-        *buf << static_cast<int>(p->_health.MaxHp());
-#else
-        *buf << static_cast<int>(0);
-        *buf << static_cast<int>(0);
-#endif
-        *buf << static_cast<int>(CMapManager::GetMapIdFromZoneId(p->_zoneId));
     }
 #endif // USE_PARTY
 }

@@ -7,6 +7,7 @@
 #include <cstring>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -16,6 +17,8 @@ namespace
     constexpr int COMPLETION_BATCH = 0;
     constexpr int SEND_DEPTH = 1;
     constexpr int64_t SWEEP_PERIOD_MS = 1000;   // 게이지 갱신 주기 — 로비 서버와 같은 값
+    // 파티 복원을 확정하기까지 재접속 주기에 더해 기다리는 시간 — 존 서버들이 재접속 주기 안에 다 붙고, 등록 명단을 보내는 시간까지 2초를 잡았다. 재 본 값은 아니다
+    constexpr int RESTORE_MARGIN_SEC = 2;
 
     CLinkConnector::Config AccountLink(const ServerLinkConfig& link)
     {
@@ -37,6 +40,7 @@ CWorldServer::CWorldServer(const WorldServerConfig& config, const ServerLinkConf
     , _loop(_network, _monitor, config.logicPeriodMs)
     , _account(_network, _monitor, AccountLink(link))
     , _peers(_network, _monitor, link.heartbeatSec)
+    , _partyFlow(_peers, _monitor, _presence, _metrics, (link.retrySec + RESTORE_MARGIN_SEC) * int64_t{ 1000 })
     , _accountTable(LINK_PACKET_FIRST, LINK_PACKET_LAST)
     , _zoneTable(LINK_PACKET_FIRST, LINK_PACKET_LAST)
     , _coreMetrics(_monitor)
@@ -55,6 +59,7 @@ bool CWorldServer::RegisterRoutes()
     ok = _zoneTable.Register<LINK_ZONE_CHAR_LEAVE>([this](SessionId id, CSerialBuffer* msg) { OnCharLeave(id, msg); }) && ok;
     ok = _zoneTable.Register<LINK_ZONE_CHANNELS>([this](SessionId id, CSerialBuffer* msg) { OnZoneChannels(id, msg); }) && ok;
     ok = _zoneTable.Register<LINK_CHANNEL_LIST_REQ>([this](SessionId id, CSerialBuffer* msg) { OnChannelListReq(id, msg); }) && ok;
+    ok = _partyFlow.RegisterRoutes(_zoneTable) && ok;
     return ok;
 }
 
@@ -106,7 +111,9 @@ bool CWorldServer::Start()
             const ZoneServerId zone = _presence.ZoneOf(id);
             if (ToInt(zone) != 0)
                 _channels.RemoveZone(zone);
-            _presence.OnDisconnected(id);
+            std::vector<CharacterId> removed;
+            _presence.OnDisconnected(id, &removed);
+            OfflineAll(removed);
         });
 
     _loop.Start();
@@ -135,6 +142,7 @@ void CWorldServer::Periodic(int64_t nowMs)
 {
     _account.Tick(nowMs);
     _peers.Tick(nowMs);
+    _partyFlow.Tick(nowMs);
 
     if (nowMs >= _nextSweepMs)
     {
@@ -159,7 +167,9 @@ void CWorldServer::OnZoneRegister(SessionId sessionId, CSerialBuffer* msg)
         ++length;
     const std::string wsAddr(packet.publicWsAddr, length);
 
-    const SessionId previous = _presence.Register(sessionId, ZoneServerId{ packet.zoneServerId }, packet.maxClients, wsAddr);
+    std::vector<CharacterId> removed;
+    const SessionId previous = _presence.Register(sessionId, ZoneServerId{ packet.zoneServerId }, packet.maxClients, wsAddr, &removed);
+    OfflineAll(removed);
     if (previous != NO_SESSION)
     {
         SLOG_WARN("[WorldServer] 존 서버 {} 가 다시 등록 — 옛 연결을 끊음 (session={})", packet.zoneServerId, ToInt(previous));
@@ -167,6 +177,12 @@ void CWorldServer::OnZoneRegister(SessionId sessionId, CSerialBuffer* msg)
         _channels.RemoveZone(ZoneServerId{ packet.zoneServerId });   // 새 연결이 전부 다시 알린다
     }
     SLOG_INFO("[WorldServer] 존 서버 {} 등록 — {} · 정원 {}", packet.zoneServerId, wsAddr, packet.maxClients);
+}
+
+void CWorldServer::OfflineAll(const std::vector<CharacterId>& removed)
+{
+    for (const CharacterId id : removed)
+        _partyFlow.Offline(id);
 }
 
 bool CWorldServer::CheckRegistered(SessionId sessionId)
@@ -200,7 +216,8 @@ void CWorldServer::OnOnlineList(SessionId sessionId, CSerialBuffer* msg)
     {
         LinkOnlineEntry entry;
         std::memcpy(&entry, data + size_t{ i } * sizeof(LinkOnlineEntry), sizeof(entry));
-        _presence.Enter(sessionId, entry);
+        if (_presence.Enter(sessionId, entry))
+            _partyFlow.Online(CharacterId{ entry.characterId });
     }
 }
 
@@ -215,7 +232,8 @@ void CWorldServer::OnCharEnter(SessionId sessionId, CSerialBuffer* msg)
         _monitor._packetErrors.Inc();
         return;
     }
-    _presence.Enter(sessionId, packet.entry);
+    if (_presence.Enter(sessionId, packet.entry))
+        _partyFlow.Online(CharacterId{ packet.entry.characterId });
 }
 
 void CWorldServer::OnCharLeave(SessionId sessionId, CSerialBuffer* msg)
@@ -229,7 +247,12 @@ void CWorldServer::OnCharLeave(SessionId sessionId, CSerialBuffer* msg)
         _monitor._packetErrors.Inc();
         return;
     }
-    _presence.Leave(sessionId, CharacterId{ packet.characterId });
+    // 채널 이동은 새 존 서버의 입장 알림이 먼저 올 수 있다 — 그러면 장부의 줄이 새 존 서버 것이라 Leave 가 false 고 오프라인이 아니다
+    const CharacterId id{ packet.characterId };
+    if (_presence.Leave(sessionId, id))
+        _partyFlow.Offline(id);
+    else
+        _partyFlow.ResendToOldZone(sessionId, id);
 }
 
 void CWorldServer::OnZoneChannels(SessionId sessionId, CSerialBuffer* msg)

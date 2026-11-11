@@ -49,7 +49,6 @@
 #include "BuffSystem.h"    // 지속 효과 규칙 — 멤버로 들고 부른다(그 알림 IBuffEvents 는 CCombatHandler 가 구현한다)
 #include "ItemSystem.h"    // 아이템 쓰기·장착 규칙 — 멤버로 들고 부른다
 #include "SkillSystem.h"   // 스킬 규칙 — 멤버로 든다(그 알림 ISkillEvents 는 CCombatHandler 가 구현한다)
-#include "PartySystem.h"   // 파티 규칙 — 멤버로 든다(그 알림 IPartyEvents 는 CPartyHandler 가 구현한다 — PartyHandler.h)
 #include "ShopSystem.h"    // 사고팔기 규칙(USE_SHOP) — 멤버로 들고 CShopHandler 에 넘긴다
 #include "MonitorManager.h"
 #include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
@@ -130,6 +129,9 @@ public:
     void ConfigureChannels(int zoneServerId, int channelBlock)
     {
         _channelListFlow.Configure(zoneServerId, channelBlock);
+#if USE_PARTY
+        _partyHandler.Configure(zoneServerId, channelBlock);
+#endif
 #if USE_DB_WORKER
         _channelMoveFlow.Configure(zoneServerId, channelBlock);
 #endif
@@ -329,12 +331,9 @@ private:
 #if USE_PARTY
     // 파티·방 — 파티 요청 · 파티 알림(IPartyEvents) · 방 입장·거절 · 다시 들어가기 잠금 표(PartyHandler.h).
     //   ★ _sessionHub · _placement · _mapManager · _gameMonitor · _frameCount 보다 뒤에 선언 — 그 참조를 받는다(멤버는 선언 순서로 세워진다).
-    //   _partySystem 만 거꾸로 이 뒤다 — 그 알림 받는 쪽이 이 클래스라 이것이 먼저 세워져야 한다. 이 클래스는 그 참조를 묶기만 하고 생성 중엔 안 쓴다.
-    CPartyHandler _partyHandler{ _sessionHub, _placement, _partySystem, _mapManager, _gameMonitor, _frameCount };
+    //   _worldLink 만 거꾸로 이 뒤다 — 이 클래스는 그 참조를 묶기만 하고 생성 중엔 안 쓴다.
+    CPartyHandler _partyHandler{ _sessionHub, _placement, _worldLink, _mapManager, _gameMonitor, _frameCount };
 
-    // 파티 규칙 — 알림은 CPartyHandler(_partyHandler)로 간다. 파티원·요청의 주소를 틱 너머로 들므로 놓기의 「떠남」 알림(OnLeavingGame)이 Forget 을 부른다.
-    //   ★ _gameMonitor · _partyHandler 보다 뒤에 선언해야 한다(위 _combatSystem 주석과 같은 까닭).
-    CPartySystem _partySystem{ _gameMonitor, _partyHandler };
 #endif
 
 #if USE_COMBAT && USE_MONSTER
@@ -441,6 +440,9 @@ private:
 #endif
 #if USE_INVENTORY
                                      _itemHandler, _gameDataFiles,
+#endif
+#if USE_PARTY
+                                     _partyHandler,
 #endif
                                      _mapManager };
 

@@ -164,6 +164,64 @@ bool CWorldLink::AskChannels(uint64_t requestId, MapId mapId)
     return _connector->Send(packet);
 }
 
+bool CWorldLink::SendPartyOp(const LINK_PARTY_OP& packet)
+{
+    return IsUp() && _connector->Send(packet);
+}
+
+bool CWorldLink::SendPartyState(const LinkPartyStateRow* rows, int count)
+{
+    if (!IsUp() || count > LINK_PARTY_STATE_MAX)
+        return false;
+
+    // pack 필수 — 없으면 줄이 경계로 밀려 머리와 첫 줄 사이에 빈 칸이 낀다
+#pragma pack(push, 1)
+    struct StatePacket
+    {
+        LINK_PARTY_STATE  head;
+        LinkPartyStateRow rows[LINK_PARTY_STATE_MAX];
+    };
+#pragma pack(pop)
+    static_assert(sizeof(StatePacket) == sizeof(LINK_PARTY_STATE) + sizeof(LinkPartyStateRow) * LINK_PARTY_STATE_MAX, "상태 패킷에 빈 칸이 끼었다");
+
+    StatePacket packet{};
+    packet.head.count = static_cast<uint8_t>(count);
+    std::memcpy(packet.rows, rows, sizeof(LinkPartyStateRow) * static_cast<size_t>(count));
+    const int size = static_cast<int>(sizeof(packet.head) + sizeof(LinkPartyStateRow) * static_cast<size_t>(count));
+    packet.head.header.size = static_cast<uint16_t>(size);
+    packet.head.header.type = static_cast<MsgType>(LINK_PARTY_STATE::TYPE);
+    return _connector->SendBytes(&packet, size);
+}
+
+bool CWorldLink::SendPartyRestore(const LinkPartyRestoreRow* rows, int count)
+{
+    if (!IsUp() || count > LINK_PARTY_RESTORE_MAX)
+        return false;
+
+    // pack 필수 — 위 상태 패킷과 같은 까닭
+#pragma pack(push, 1)
+    struct RestorePacket
+    {
+        LINK_PARTY_RESTORE  head;
+        LinkPartyRestoreRow rows[LINK_PARTY_RESTORE_MAX];
+    };
+#pragma pack(pop)
+    static_assert(sizeof(RestorePacket) == sizeof(LINK_PARTY_RESTORE) + sizeof(LinkPartyRestoreRow) * LINK_PARTY_RESTORE_MAX, "복원 패킷에 빈 칸이 끼었다");
+
+    RestorePacket packet{};
+    packet.head.count = static_cast<uint16_t>(count);
+    std::memcpy(packet.rows, rows, sizeof(LinkPartyRestoreRow) * static_cast<size_t>(count));
+    const int size = static_cast<int>(sizeof(packet.head) + sizeof(LinkPartyRestoreRow) * static_cast<size_t>(count));
+    packet.head.header.size = static_cast<uint16_t>(size);
+    packet.head.header.type = static_cast<MsgType>(LINK_PARTY_RESTORE::TYPE);
+    return _connector->SendBytes(&packet, size);
+}
+
+void CWorldLink::CountPacketError()
+{
+    _monitor._packetErrors.Inc();
+}
+
 void CWorldLink::RecvChannelListAck(CSerialBuffer* msg)
 {
     LINK_CHANNEL_LIST_ACK head;

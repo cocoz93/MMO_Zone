@@ -129,8 +129,20 @@ bool CGameServer::Start()
         });
 
         _worldLink.SetCallbacks({
-            [this]() { _channelListFlow.OnWorldUp(); },
-            [this]() { _channelListFlow.OnWorldDown(); },
+            [this]()
+            {
+                _channelListFlow.OnWorldUp();
+#if USE_PARTY
+                _partyHandler.OnWorldUp();
+#endif
+            },
+            [this]()
+            {
+                _channelListFlow.OnWorldDown();
+#if USE_PARTY
+                _partyHandler.OnWorldDown();
+#endif
+            },
             [this](const LINK_CHANNEL_LIST_ACK& head, const char* rows) { _channelListFlow.OnListAck(head, rows, CEnterGate::NowMs()); },
         });
 
@@ -278,8 +290,8 @@ void CGameServer::GameLoopThread()
 
 #if USE_PARTY
         // 3-2c) 파티 — 요청 시간 지남 · 파티원 상태 비교(약 0.5초마다). 파티·요청이 없으면 바로 끝난다(부하 시험엔 파티가 없다).
-        //   존마다 돌지 않는다 — 파티는 존을 넘는다(목록이 게임 서버에 하나, PartySystem.h [왜 따로인가]).
-        _partySystem.Tick(_frameCount);
+        //   존마다 돌지 않는다 — 파티는 존을 넘는다(사본이 게임 서버에 하나, PartyCopy.h).
+        _partyHandler.Tick();
 #endif
 
 #if USE_TRADE
@@ -487,9 +499,8 @@ void CGameServer::OnLeavingGame(CPlayer* player)
 #endif
 
 #if USE_PARTY
-    // 파티원·요청 표도 같은 까닭으로 여기서 뺀다 — 남은 파티원·요청 상대에게는 알림이 간다(이 사람에게는 안 간다 — 세션이 없다).
-    //   끊기면 바로 파티에서 빠지는 규칙(10-16 사용자 결정)이 이 한 줄이다. 존 이동·죽음은 이 길을 안 지난다(파티는 존을 넘는다).
-    _partySystem.Forget(player);
+    // 파티 사본의 주소도 같은 까닭으로 여기서 지운다. 파티에서 빠지는 것이 아니다 — 끊겨도 월드 서버의 명단에 오프라인으로 남는다(11-11 사용자 결정).
+    _partyHandler.Forget(player);
 #endif
 
 #if USE_TRADE
@@ -609,7 +620,7 @@ bool CGameServer::RegisterRoutes()
     ok &= _itemHandler.RegisterRoutes(_routes);
 #endif
 #if USE_PARTY
-    // 파티 요청 여섯 — CPartyHandler 가 자기 줄을 등록한다(CPartyHandler::RegisterRoutes · 게임 서버 나누기 7 단계)
+    // 파티 요청 여섯 · 월드 서버 패킷 다섯 — CPartyHandler 가 자기 줄을 등록한다(CPartyHandler::RegisterRoutes · 게임 서버 나누기 7 단계)
     ok &= _partyHandler.RegisterRoutes(_routes);
 #endif
 #if USE_SHOP

@@ -40,26 +40,27 @@ RoomEntryResult CheckRoomEntry(const CPlayer* me, const Party* party, MapId room
 {
     if (party == nullptr)
         return { RoomEntryReject::NOT_IN_PARTY, nullptr };
-    if (party->leader != me)
+    if (party->leader != me->_characterId)
         return { RoomEntryReject::NOT_LEADER, nullptr };
 
-    // 모였나 — 파티장과 같은 존(같은 맵 · 같은 채널). 파티장 자신은 늘 통과한다
+    // 모였나 — 파티장과 같은 존(같은 맵 · 같은 채널). 파티장 자신은 늘 통과한다.
+    //   다른 존 서버의 파티원과 오프라인 파티원은 주소가 없다 — 파티장이 내보내면 들어갈 수 있다
     for (const Party::Member& m : party->members)
     {
-        if (m.player->_zoneId != me->_zoneId)
-            return { RoomEntryReject::NOT_GATHERED, m.player };
+        if (m.player == nullptr || m.player->_zoneId != me->_zoneId)
+            return { RoomEntryReject::NOT_GATHERED, &m };
     }
     // 살았나 — 쓰러진 채 옮기면 부활 대기가 옛 존을 가리킨다(포털이 죽은 사람을 막는 까닭과 같다 — CEntryHandler::RecvPortalUse)
     for (const Party::Member& m : party->members)
     {
         if (m.player->_health.IsDead())
-            return { RoomEntryReject::DEAD, m.player };
+            return { RoomEntryReject::DEAD, &m };
     }
     // 잠금 — 캐릭터마다(다시 접속해도 이어진다)
     for (const Party::Member& m : party->members)
     {
         if (IsRoomLocked(m.player, roomMapId, nowMs))
-            return { RoomEntryReject::LOCKED, m.player };
+            return { RoomEntryReject::LOCKED, &m };
     }
     return { RoomEntryReject::NONE, nullptr };
 }

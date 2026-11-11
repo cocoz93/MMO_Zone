@@ -11,33 +11,43 @@
 #include "GameMonitor.h"
 #include "PacketRoutes.h"
 #include "SerialBuffer.h"
+#include "WorldLink.h"
+#include <Identity/ChannelNumber.h>
+#include <Lobby/PacketSend.h>
 #include <Protocol/Protocol.h>
 #include <Common/ErrorLog.h>
 #include <cassert>
-#include "PacketBuild.h" // 머리 쓰기·닫기 · 파티원 정보·파티원 한 줄(WritePartyPerson · WritePartyMember) — 게임 서버 나누기 0-②
+#include "PacketBuild.h" // 머리 쓰기·닫기 — 게임 서버 나누기 0-②
 
 using namespace PacketBuild;   // 아래 조립 함수들이 머리 쓰기·닫기를 이름만으로 부른다
 
 // ==========================================================================
-// 파티 S2C 조립 — 이 클래스만 부른다(GameServer.cpp 에서 옮김 · 몸·주석 그대로).
+// 파티 S2C 조립 — 이 클래스만 부른다(GameServer.cpp 에서 옮김).
 //   쓰는 법(스칼라는 << · 고정배열·문자열은 SetData(raw) · pack(1))은 PacketBuild.h 머리의 [규칙] 주석과 같다.
 // ==========================================================================
 namespace
 {
-    // 파티원 정보·파티원 한 줄(WritePartyPerson · WritePartyMember)은 PacketBuild.h — 파티 패킷 여럿이 몸통에 끼워 쓴다
-
-    CSerialBuffer* MakePartyAsk(uint32_t requestId, PartyAskKind kind, const CPlayer* from, const CPlayer* about, uint32_t remainMs)
+    // 파티원 정보(Protocol.h PartyPerson 30B) — 액터 번호는 받는 사람과 같은 존 서버일 때만 채운다
+    void WritePerson(CSerialBuffer* buf, const LinkPartyPerson& p, ActorId actorId)
     {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_PARTY_ASK::TYPE);
-        *buf << static_cast<uint32_t>(requestId);
-        *buf << static_cast<uint8_t>(kind);
-        WritePartyPerson(buf, from);
-        WritePartyPerson(buf, about);
-        *buf << static_cast<uint32_t>(remainMs);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_PARTY_ASK));
-        return buf;
+        *buf << static_cast<int64_t>(p.characterId);
+        *buf << static_cast<int>(actorId);
+        *buf << static_cast<uint8_t>(p.displayChar);
+        *buf << static_cast<uint8_t>(p.colorIndex);
+        *buf << static_cast<int>(p.level);
+        for (int i = 0; i < CHAR_NAME_MAX_LEN; ++i)
+            *buf << static_cast<uint16_t>(p.name[i]);
+    }
+
+    // 파티원 한 줄(Protocol.h PartyMemberEntry 45B) — INFO 의 줄이자 MEMBER 의 몸통. 줄을 늘리면 여기 한 곳 · proto.js readPartyMember.
+    void WriteRow(CSerialBuffer* buf, const LinkPartyMemberRow& row, ActorId actorId)
+    {
+        WritePerson(buf, row.who, actorId);
+        *buf << static_cast<int>(row.hp);
+        *buf << static_cast<int>(row.maxHp);
+        *buf << static_cast<int>(row.mapId);
+        *buf << static_cast<uint16_t>(row.visibleChannel);
+        *buf << static_cast<uint8_t>(row.online);
     }
 
     CSerialBuffer* MakePartyAskEnd(uint32_t requestId, PartyNotice why)
@@ -51,12 +61,12 @@ namespace
         return buf;
     }
 
-    CSerialBuffer* MakePartyNotice(PartyNotice code, ActorId actorId)
+    CSerialBuffer* MakePartyNotice(PartyNotice code, const LinkPartyPerson& who, ActorId actorId)
     {
         CSerialBuffer* buf = CSerialBuffer::Alloc();
         BeginPacket(buf, MSG_S2C_PARTY_NOTICE::TYPE);
         *buf << static_cast<uint8_t>(code);
-        *buf << static_cast<int>(actorId);
+        WritePerson(buf, who, actorId);
         FinalizePacket(buf);
         assert(buf->GetDataSize() == sizeof(MSG_S2C_PARTY_NOTICE));
         return buf;
@@ -65,37 +75,68 @@ namespace
     // 파티 전체는 한 장으로 간다 — 꽉 찬 파티(8명)도 한 패킷에 들어가야 한다(가방 전체와 같은 단언, SelfNotifier.cpp MakeInventory 앞).
     static_assert(sizeof(MSG_S2C_PARTY_INFO) <= MAX_PACKET_SIZE,
                   "꽉 찬 파티 전체가 한 패킷(MAX_PACKET_SIZE)에 안 들어간다 — 나눠 보내는 길을 만들 것");
+}
 
-    // 파티 전체 — 가변 길이(가입 순서 줄만). party 가 nullptr 이면 파티 없음(번호·파티장 0 · 인원 0 — 머리 13B 뿐).
-    CSerialBuffer* MakePartyInfo(const Party* party)
+ActorId CPartyHandler::ActorOf(const LinkPartyPerson& person) const
+{
+    const CPlayer* player = _copy.FindPlayer(CharacterId{ person.characterId });
+    return player != nullptr ? player->_actorId : NO_ACTOR;
+}
+
+int CPartyHandler::VisibleChannelOf(const CPlayer* player) const
+{
+    if (_mapManager.IsRoomMap(CMapManager::GetMapIdFromZoneId(player->_zoneId)))
+        return 0;
+    return ChannelNumber::ToVisible(_zoneServerId, _channelBlock, CMapManager::GetChannelIndexFromZoneId(player->_zoneId));
+}
+
+LinkPartyMemberRow CPartyHandler::LiveRow(const Party::Member& m) const
+{
+    LinkPartyMemberRow row = m.row;
+    const CPlayer* p = m.player;
+    if (p == nullptr)
+        return row;
+    // 체력은 등장 상태 쓰기(WriteSnapshot)와 같은 규칙 — 전투가 꺼진 빌드는 0
+#if USE_COMBAT
+    row.hp    = p->_health.Hp();
+    row.maxHp = p->_health.MaxHp();
+#endif
+    row.who.level = p->_level;
+    row.mapId = ToInt(CMapManager::GetMapIdFromZoneId(p->_zoneId));
+    row.visibleChannel = static_cast<uint16_t>(VisibleChannelOf(p));
+    row.online = 1;
+    return row;
+}
+
+// 파티 전체 — 가변 길이(가입 순서 줄만). party 가 nullptr 이면 파티 없음(번호·파티장 0 · 인원 0 — 머리 17B 뿐).
+CSerialBuffer* CPartyHandler::MakePartyInfo(const Party* party) const
+{
+    const int count = (party != nullptr) ? static_cast<int>(party->members.size()) : 0;
+
+    CSerialBuffer* buf = CSerialBuffer::Alloc();
+    BeginPacket(buf, MSG_S2C_PARTY_INFO::TYPE);
+    *buf << static_cast<int>(party != nullptr ? party->id : 0);
+    *buf << static_cast<int64_t>(party != nullptr ? ToInt(party->leader) : 0);
+    *buf << static_cast<uint8_t>(count);
+    if (party != nullptr)
     {
-        const int count = (party != nullptr) ? static_cast<int>(party->members.size()) : 0;
-
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_PARTY_INFO::TYPE);
-        *buf << static_cast<int>(party != nullptr ? party->id : 0);
-        *buf << static_cast<int>(party != nullptr ? party->leader->_actorId : NO_ACTOR);
-        *buf << static_cast<uint8_t>(count);
-        if (party != nullptr)
-        {
-            for (const Party::Member& m : party->members)
-                WritePartyMember(buf, m.player);
-        }
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() ==
-            offsetof(MSG_S2C_PARTY_INFO, entries) + static_cast<size_t>(count) * sizeof(PartyMemberEntry));
-        return buf;
+        for (const Party::Member& m : party->members)
+            WriteRow(buf, LiveRow(m), m.player != nullptr ? m.player->_actorId : NO_ACTOR);
     }
+    FinalizePacket(buf);
+    assert(buf->GetDataSize() ==
+        offsetof(MSG_S2C_PARTY_INFO, entries) + static_cast<size_t>(count) * sizeof(PartyMemberEntry));
+    return buf;
+}
 
-    CSerialBuffer* MakePartyMember(const CPlayer* member)
-    {
-        CSerialBuffer* buf = CSerialBuffer::Alloc();
-        BeginPacket(buf, MSG_S2C_PARTY_MEMBER::TYPE);
-        WritePartyMember(buf, member);
-        FinalizePacket(buf);
-        assert(buf->GetDataSize() == sizeof(MSG_S2C_PARTY_MEMBER));
-        return buf;
-    }
+CSerialBuffer* CPartyHandler::MakePartyMember(const Party::Member& m) const
+{
+    CSerialBuffer* buf = CSerialBuffer::Alloc();
+    BeginPacket(buf, MSG_S2C_PARTY_MEMBER::TYPE);
+    WriteRow(buf, LiveRow(m), m.player != nullptr ? m.player->_actorId : NO_ACTOR);
+    FinalizePacket(buf);
+    assert(buf->GetDataSize() == sizeof(MSG_S2C_PARTY_MEMBER));
+    return buf;
 }
 
 // 받은 패킷 등록 — 옛 등록의 함정 주석을 그대로 옮겼다(게임 서버 나누기 0-④ 의 등록에서 이 클래스 몫 여섯 · 7 단계).
@@ -111,6 +152,13 @@ bool CPartyHandler::RegisterRoutes(CPacketRoutes& routes)
     ok &= routes.OnPlayer(MsgType::C2S_PARTY_LEADER,  sizeof(MSG_C2S_PARTY_LEADER),  [this](CPlayer* p, CSerialBuffer* m) { RecvPartyLeader(p, m); });
     ok &= routes.OnPlayer(MsgType::C2S_PARTY_DISBAND, sizeof(MSG_C2S_PARTY_DISBAND), // 몸 없음 — 헤더뿐
                            [this](CPlayer* p, CSerialBuffer*) { RecvPartyDisband(p); });
+
+    CPacketTable& world = _worldLink.Routes();
+    ok &= world.Register<LINK_PARTY_ASK>([this](SessionId, CSerialBuffer* m) { RecvWorldAsk(m); });
+    ok &= world.Register<LINK_PARTY_ASK_END>([this](SessionId, CSerialBuffer* m) { RecvWorldAskEnd(m); });
+    ok &= world.Register<LINK_PARTY_NOTICE>([this](SessionId, CSerialBuffer* m) { RecvWorldNotice(m); });
+    ok &= world.Register<LINK_PARTY_INFO>([this](SessionId, CSerialBuffer* m) { RecvWorldInfo(m); });
+    ok &= world.Register<LINK_PARTY_MEMBER>([this](SessionId, CSerialBuffer* m) { RecvWorldMember(m); });
     return ok;
 }
 
@@ -120,7 +168,16 @@ void CPartyHandler::EnterRoom(CPlayer* leader, CZone* oldZone, const PortalDef& 
     auto& pc = _gameMonitor._portal;
     auto& rc = _gameMonitor._room;
 
-    const Party* party = _partySystem.FindParty(leader);
+    const Party* party = _copy.FindParty(leader);
+    if (party != nullptr && party->leader != leader->_characterId && !party->LeaderOnline())
+    {
+        // 파티장이 오프라인이면 누른 파티원이 맡는다 — 판정에는 맡은 뒤의 명단이 필요해 이번 입장은 여기서 끝낸다
+        rc._entries[static_cast<int>(RoomEntryReject::NOT_LEADER)].Inc();
+        pc._rejected[static_cast<int>(PortalReject::ROOM)].Inc();
+        SendOp(leader, LinkPartyOpKind::TakeLeader, LINK_PARTY_OP{});
+        return;
+    }
+
     RoomEntryResult result = CheckRoomEntry(leader, party, portal.targetMapId, RoomLockoutBlob::NowMs());
 
     CZone* room = nullptr;
@@ -165,15 +222,17 @@ void CPartyHandler::EnterRoom(CPlayer* leader, CZone* oldZone, const PortalDef& 
 
 void CPartyHandler::SendRoomReject(CPlayer* leader, const RoomEntryResult& result)
 {
-    const ActorId blocker = (result.blocker != nullptr) ? result.blocker->_actorId : NO_ACTOR;
+    const LinkPartyPerson none{};
+    const LinkPartyPerson& who = (result.blocker != nullptr) ? result.blocker->row.who : none;
+    const ActorId actor = (result.blocker != nullptr && result.blocker->player != nullptr) ? result.blocker->player->_actorId : NO_ACTOR;
     switch (result.reject)
     {
-    case RoomEntryReject::NOT_IN_PARTY: _partySystem.Notice(leader, PartyNotice::NOT_IN_PARTY, NO_ACTOR);            return;
-    case RoomEntryReject::NOT_LEADER:   _partySystem.Notice(leader, PartyNotice::NOT_LEADER, NO_ACTOR);              return;
-    case RoomEntryReject::NOT_GATHERED: _partySystem.Notice(leader, PartyNotice::ROOM_NOT_GATHERED, blocker); return;
-    case RoomEntryReject::DEAD:         _partySystem.Notice(leader, PartyNotice::ROOM_DEAD, blocker);         return;
-    case RoomEntryReject::LOCKED:       _partySystem.Notice(leader, PartyNotice::ROOM_LOCKED, blocker);       return;
-    case RoomEntryReject::FULL:         _placement.SendZoneChangeFail(leader, 1);                                        return;   // 1: 모든 채널 가득 참
+    case RoomEntryReject::NOT_IN_PARTY: NoticeLocal(leader, PartyNotice::NOT_IN_PARTY, none, NO_ACTOR);       return;
+    case RoomEntryReject::NOT_LEADER:   NoticeLocal(leader, PartyNotice::NOT_LEADER, none, NO_ACTOR);         return;
+    case RoomEntryReject::NOT_GATHERED: NoticeLocal(leader, PartyNotice::ROOM_NOT_GATHERED, who, actor);      return;
+    case RoomEntryReject::DEAD:         NoticeLocal(leader, PartyNotice::ROOM_DEAD, who, actor);              return;
+    case RoomEntryReject::LOCKED:       NoticeLocal(leader, PartyNotice::ROOM_LOCKED, who, actor);            return;
+    case RoomEntryReject::FULL:         _placement.SendZoneChangeFail(leader, 1);                             return;   // 1: 모든 채널 가득 참
     case RoomEntryReject::NONE:
     case RoomEntryReject::COUNT:        break;
     }
@@ -192,47 +251,83 @@ void CPartyHandler::OnErasingZone(CZone* zone)
 }
 
 // ==========================================================================
-// 파티 — 규칙은 CPartySystem(PartySystem.cpp), 여기는 받기와 알림을 패킷으로 바꿔 보내기만
+// 플레이어 요청 — 규칙은 월드 서버 CPartySystem, 여기는 상대를 찾아 넘기기만
 // ==========================================================================
 
-// 화면에서 누른 캐릭터 — 내 주변 9섹터에서 찾아 넘긴다(없으면 nullptr → 규칙이 NO_TARGET 으로 답한다)
+void CPartyHandler::SendOp(CPlayer* me, LinkPartyOpKind kind, LINK_PARTY_OP op)
+{
+    op.op = static_cast<uint8_t>(kind);
+    op.characterId = ToInt(me->_characterId);
+    op.level = me->_level;
+    if (!_worldLink.SendPartyOp(op))
+        NoticeLocal(me, PartyNotice::NO_WORLD, LinkPartyPerson{}, NO_ACTOR);
+}
+
+// 화면에서 누른 캐릭터 — 내 주변 9섹터에서 찾아 넘긴다(없으면 NO_TARGET)
 void CPartyHandler::RecvPartyRequest(CPlayer* player, CSerialBuffer* pMsg)
 {
     MSG_C2S_PARTY_REQUEST recvMsg{};
     pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
-    _partySystem.Request(player, FindPlayerAround(player, ActorId{ recvMsg.targetId }), _frameCount);
+    const CPlayer* target = FindPlayerAround(player, ActorId{ recvMsg.targetId });
+    if (target == nullptr)
+    {
+        NoticeLocal(player, PartyNotice::NO_TARGET, LinkPartyPerson{}, NO_ACTOR);
+        return;
+    }
+    LINK_PARTY_OP op{};
+    op.targetCharacterId = ToInt(target->_characterId);
+    op.targetLevel = target->_level;
+    SendOp(player, LinkPartyOpKind::Request, op);
+}
+
+void CPartyHandler::InviteByName(CPlayer* me, const char16_t (&name)[LINK_NAME_CHARS])
+{
+    LINK_PARTY_OP op{};
+    std::memcpy(op.targetName, name, sizeof(op.targetName));
+    SendOp(me, LinkPartyOpKind::InviteByName, op);
 }
 
 void CPartyHandler::RecvPartyAnswer(CPlayer* player, CSerialBuffer* pMsg)
 {
     MSG_C2S_PARTY_ANSWER recvMsg{};
     pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
-    _partySystem.Answer(player, recvMsg.requestId, recvMsg.accept != 0, _frameCount);
+    const auto open = _openAsks.find(ToInt(player->_characterId));
+    if (open != _openAsks.end() && open->second == recvMsg.requestId)
+        _openAsks.erase(open);
+
+    LINK_PARTY_OP op{};
+    op.requestId = recvMsg.requestId;
+    op.accept = recvMsg.accept != 0 ? 1 : 0;
+    SendOp(player, LinkPartyOpKind::Answer, op);
 }
 
 void CPartyHandler::RecvPartyLeave(CPlayer* player)
 {
-    _partySystem.Leave(player);
+    SendOp(player, LinkPartyOpKind::Leave, LINK_PARTY_OP{});
 }
 
-// 내보내기·넘기기 — 대상은 우리 파티원 중에서 찾는다(맵이 달라도 된다 — 화면에서 누르지 않고 파티 창에서 고른다)
+// 내보내기·넘기기 — 대상은 캐릭터 번호다(다른 존 서버의 파티원과 오프라인 파티원도 지정한다)
 void CPartyHandler::RecvPartyKick(CPlayer* player, CSerialBuffer* pMsg)
 {
     MSG_C2S_PARTY_KICK recvMsg{};
     pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
-    _partySystem.Kick(player, ActorId{ recvMsg.targetId });
+    LINK_PARTY_OP op{};
+    op.targetCharacterId = recvMsg.targetCharacterId;
+    SendOp(player, LinkPartyOpKind::Kick, op);
 }
 
 void CPartyHandler::RecvPartyLeader(CPlayer* player, CSerialBuffer* pMsg)
 {
     MSG_C2S_PARTY_LEADER recvMsg{};
     pMsg->GetData(reinterpret_cast<char*>(&recvMsg), sizeof(recvMsg));
-    _partySystem.SetLeader(player, ActorId{ recvMsg.targetId });
+    LINK_PARTY_OP op{};
+    op.targetCharacterId = recvMsg.targetCharacterId;
+    SendOp(player, LinkPartyOpKind::SetLeader, op);
 }
 
 void CPartyHandler::RecvPartyDisband(CPlayer* player)
 {
-    _partySystem.Disband(player);
+    SendOp(player, LinkPartyOpKind::Disband, LINK_PARTY_OP{});
 }
 
 CPlayer* CPartyHandler::FindPlayerAround(CPlayer* player, ActorId actorId)
@@ -257,33 +352,270 @@ CPlayer* CPartyHandler::FindPlayerAround(CPlayer* player, ActorId actorId)
     return nullptr;
 }
 
-void CPartyHandler::OnPartyAsk(CPlayer* to, uint32_t requestId, PartyAskKind kind, const CPlayer* from, const CPlayer* about, uint32_t remainMs)
+void CPartyHandler::NoticeLocal(CPlayer* to, PartyNotice code, const LinkPartyPerson& who, ActorId actorId)
 {
-    _sessionHub.SendPacket(to, MakePartyAsk(requestId, kind, from, about, remainMs));
-    _gameMonitor._party._askSent.Inc();
+    _gameMonitor._party._notices[static_cast<int>(code)].Inc();
+    _sessionHub.SendPacket(to, MakePartyNotice(code, who, actorId));
 }
 
-void CPartyHandler::OnPartyAskEnd(CPlayer* to, uint32_t requestId, PartyNotice why)
+// ==========================================================================
+// 월드 서버 패킷 — 사본을 고치고 웹 패킷으로 옮긴다
+// ==========================================================================
+
+void CPartyHandler::RecvWorldAsk(CSerialBuffer* msg)
 {
-    _sessionHub.SendPacket(to, MakePartyAskEnd(requestId, why));
-    _gameMonitor._party._askEndSent.Inc();
+    LINK_PARTY_ASK packet;
+    if (!PacketSend::Read(msg, packet))
+    {
+        _worldLink.CountPacketError();
+        return;
+    }
+    CPlayer* to = _copy.FindPlayer(CharacterId{ packet.to });
+    if (to == nullptr)
+        return;   // 패킷이 오는 사이 나갔다 — 월드 서버가 곧 그 요청을 취소한다
+    _openAsks[packet.to] = packet.requestId;
+
+    CSerialBuffer* buf = CSerialBuffer::Alloc();
+    BeginPacket(buf, MSG_S2C_PARTY_ASK::TYPE);
+    *buf << static_cast<uint32_t>(packet.requestId);
+    *buf << static_cast<uint8_t>(packet.kind);
+    WritePerson(buf, packet.from, ActorOf(packet.from));
+    WritePerson(buf, packet.about, ActorOf(packet.about));
+    *buf << static_cast<uint32_t>(packet.remainMs);
+    FinalizePacket(buf);
+    assert(buf->GetDataSize() == sizeof(MSG_S2C_PARTY_ASK));
+    _sessionHub.SendPacket(to, buf);
 }
 
-void CPartyHandler::OnPartyNotice(CPlayer* to, PartyNotice code, ActorId actorId)
+void CPartyHandler::RecvWorldAskEnd(CSerialBuffer* msg)
 {
-    _sessionHub.SendPacket(to, MakePartyNotice(code, actorId));   // 세기는 규칙 쪽(CPartySystem::Notice — 번호별)
+    LINK_PARTY_ASK_END packet;
+    if (!PacketSend::Read(msg, packet))
+    {
+        _worldLink.CountPacketError();
+        return;
+    }
+    CPlayer* to = _copy.FindPlayer(CharacterId{ packet.to });
+    if (to == nullptr)
+        return;
+    const auto open = _openAsks.find(packet.to);
+    if (open != _openAsks.end() && open->second == packet.requestId)
+        _openAsks.erase(open);
+    _sessionHub.SendPacket(to, MakePartyAskEnd(packet.requestId, static_cast<PartyNotice>(packet.why)));
 }
 
-void CPartyHandler::OnPartyInfo(CPlayer* to, const Party* party)
+void CPartyHandler::RecvWorldNotice(CSerialBuffer* msg)
 {
-    _sessionHub.SendPacket(to, MakePartyInfo(party));
-    _gameMonitor._party._infoSent.Inc();
+    LINK_PARTY_NOTICE packet;
+    if (!PacketSend::Read(msg, packet))
+    {
+        _worldLink.CountPacketError();
+        return;
+    }
+    CPlayer* to = _copy.FindPlayer(CharacterId{ packet.to });
+    if (to == nullptr)
+        return;
+    _sessionHub.SendPacket(to, MakePartyNotice(static_cast<PartyNotice>(packet.code), packet.who, ActorOf(packet.who)));
 }
 
-void CPartyHandler::OnPartyMember(CPlayer* to, const CPlayer* member)
+void CPartyHandler::RecvWorldInfo(CSerialBuffer* msg)
 {
-    _sessionHub.SendPacket(to, MakePartyMember(member));
-    _gameMonitor._party._memberSent.Inc();
+    LINK_PARTY_INFO head;
+    if (!PacketSend::Read(msg, head) || head.count > LINK_PARTY_MEMBERS_MAX
+        || static_cast<size_t>(msg->GetDataSize()) < sizeof(head) + size_t{ head.count } * sizeof(LinkPartyMemberRow))
+    {
+        _worldLink.CountPacketError();
+        return;
+    }
+
+    if (head.to != 0)
+    {
+        CPlayer* to = _copy.FindPlayer(CharacterId{ head.to });
+        if (to == nullptr)
+            return;
+        _copy.ApplyNone(to);
+        _sessionHub.SendPacket(to, MakePartyInfo(nullptr));
+        return;
+    }
+
+    // 줄은 pack(1) 이라 정렬 요구가 없다 — 받은 버퍼를 그대로 읽는다
+    const auto* rows = reinterpret_cast<const LinkPartyMemberRow*>(msg->GetReadBufferPtr() + sizeof(head));
+    Party* party = _copy.ApplyInfo(head.partyId, CharacterId{ head.leader }, rows, head.count);
+    if (party == nullptr)
+        return;
+    SendInfoToLocals(*party);
+
+    // 월드 서버의 줄은 입장 전 값이거나 비어 있다 — 바로 견줘서 다른 존 서버의 파티원이 0.5초를 기다리지 않게 한다
+    LinkPartyStateRow batch[LINK_PARTY_STATE_MAX];
+    int count = 0;
+    ScanParty(*party, batch, count);
+    if (count > 0)
+        _worldLink.SendPartyState(batch, count);
+}
+
+void CPartyHandler::RecvWorldMember(CSerialBuffer* msg)
+{
+    LINK_PARTY_MEMBER packet;
+    if (!PacketSend::Read(msg, packet))
+    {
+        _worldLink.CountPacketError();
+        return;
+    }
+    Party* party = _copy.FindById(packet.partyId);
+    if (party == nullptr)
+        return;
+    for (Party::Member& m : party->members)
+    {
+        if (m.row.who.characterId != packet.row.who.characterId)
+            continue;
+        if (m.player == nullptr)
+            m.row = packet.row;   // 이 존 서버 사람의 값은 이 존 서버가 정본이다 — 되돌아온 옛 값으로 덮으면 다시 보내게 된다
+        SendMemberToLocals(*party, m);
+        return;
+    }
+}
+
+void CPartyHandler::SendInfoToLocals(const Party& party)
+{
+    for (const Party::Member& m : party.members)
+    {
+        if (m.player != nullptr)
+            _sessionHub.SendPacket(m.player, MakePartyInfo(&party));
+    }
+}
+
+void CPartyHandler::SendMemberToLocals(const Party& party, const Party::Member& changed)
+{
+    for (const Party::Member& m : party.members)
+    {
+        if (m.player != nullptr)
+            _sessionHub.SendPacket(m.player, MakePartyMember(changed));
+    }
+}
+
+// ==========================================================================
+// 틱 · 입퇴장 · 연결
+// ==========================================================================
+
+void CPartyHandler::ScanParty(Party& party, LinkPartyStateRow* batch, int& count)
+{
+    const bool up = _worldLink.IsUp();
+    for (Party::Member& m : party.members)
+    {
+        if (m.player == nullptr)
+            continue;
+        const LinkPartyMemberRow live = LiveRow(m);
+        if (live.hp == m.row.hp && live.maxHp == m.row.maxHp && live.who.level == m.row.who.level
+            && live.mapId == m.row.mapId && live.visibleChannel == m.row.visibleChannel)
+            continue;
+        m.row = live;
+
+        if (!up)
+        {
+            SendMemberToLocals(party, m);
+            continue;
+        }
+        LinkPartyStateRow& state = batch[count++];
+        state.characterId = live.who.characterId;
+        state.hp = live.hp;
+        state.maxHp = live.maxHp;
+        state.level = live.who.level;
+        state.mapId = live.mapId;
+        state.visibleChannel = live.visibleChannel;
+        if (count == LINK_PARTY_STATE_MAX)
+        {
+            _worldLink.SendPartyState(batch, count);
+            count = 0;
+        }
+    }
+}
+
+void CPartyHandler::ScanAll()
+{
+    LinkPartyStateRow batch[LINK_PARTY_STATE_MAX];
+    int count = 0;
+    for (auto& entry : _copy.Parties())
+        ScanParty(entry.second, batch, count);
+    if (count > 0)
+        _worldLink.SendPartyState(batch, count);
+}
+
+void CPartyHandler::Tick()
+{
+    if (_copy.Parties().empty() || _frameCount - _lastScanFrame < MEMBER_SCAN_FRAMES)
+        return;
+    _lastScanFrame = _frameCount;
+    ScanAll();
+}
+
+void CPartyHandler::AddPlayer(CPlayer* player)
+{
+    _copy.AddPlayer(player);
+    if (_worldLink.IsUp())
+        return;   // 월드 서버가 붙어 있으면 입장 알림의 답으로 명단이 온다
+    // 월드 서버가 없는 동안 다시 들어왔다 — 사본에 줄이 남아 있으면 다시 이어야 복원 때 이 사람도 소속을 보낸다
+    Party* party = _copy.Relink(player);
+    if (party != nullptr)
+        SendInfoToLocals(*party);
+}
+
+void CPartyHandler::Forget(CPlayer* player)
+{
+    const CharacterId id = player->_characterId;
+    // 창은 이 사람 것이다 — 같은 캐릭터가 새로 들어와 있으면 그 창을 지우면 안 되므로 지금 주소가 이 사람일 때만
+    if (_copy.FindPlayer(id) == player)
+        _openAsks.erase(ToInt(id));
+
+    Party* party = _copy.Forget(player);
+    if (party == nullptr || _worldLink.IsUp())
+        return;   // 월드 서버가 붙어 있으면 퇴장 알림의 답으로 명단이 온다
+    CPartyCopy::MarkOffline(*party, id);
+    SendInfoToLocals(*party);
+}
+
+void CPartyHandler::OnWorldUp()
+{
+    LinkPartyRestoreRow batch[LINK_PARTY_RESTORE_MAX];
+    int count = 0;
+    for (const auto& entry : _copy.Parties())
+    {
+        const Party& party = entry.second;
+        for (size_t i = 0; i < party.members.size(); ++i)
+        {
+            const Party::Member& m = party.members[i];
+            if (m.player == nullptr)
+                continue;
+            const LinkPartyMemberRow live = LiveRow(m);
+            LinkPartyRestoreRow& row = batch[count++];
+            row.partyId = party.id;
+            row.isLeader = party.leader == m.player->_characterId ? 1 : 0;
+            row.joinOrder = static_cast<uint8_t>(i);
+            row.state.characterId = live.who.characterId;
+            row.state.hp = live.hp;
+            row.state.maxHp = live.maxHp;
+            row.state.level = live.who.level;
+            row.state.mapId = live.mapId;
+            row.state.visibleChannel = live.visibleChannel;
+            if (count == LINK_PARTY_RESTORE_MAX)
+            {
+                _worldLink.SendPartyRestore(batch, count);
+                count = 0;
+            }
+        }
+    }
+    if (count > 0)
+        _worldLink.SendPartyRestore(batch, count);
+}
+
+void CPartyHandler::OnWorldDown()
+{
+    for (const auto& [characterId, requestId] : _openAsks)
+    {
+        CPlayer* to = _copy.FindPlayer(CharacterId{ characterId });
+        if (to != nullptr)
+            _sessionHub.SendPacket(to, MakePartyAskEnd(requestId, PartyNotice::EXPIRED));
+    }
+    _openAsks.clear();
 }
 
 #endif // USE_PARTY
