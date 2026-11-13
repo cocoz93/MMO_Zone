@@ -741,10 +741,10 @@ struct MSG_S2C_ACTOR_STATS
 // 입장 (USE_LOGIN)
 //==================================================
 
-// 입장권 자리 — 지금은 늘 빈 값이다. 인증 서버가 붙으면 그 토큰이 여기 들어가고, 서버는
-//   토큰으로 계정 번호를 꺼낸다. 쓰지도 않을 자리를 지금 비워 두는 이유는, 나중에 필드를
-//   더하면 Protocol.h 한 벌을 쓰는 클라 넷을 같이 고쳐야 하기 때문이다(접속당 한 번이라 값이 싸다).
-//   ※ 자리만 둔다. 토큰을 검사하는 코드는 붙일 상대가 생길 때 쓴다.
+// 입장 번호 칸 — 캐릭터 서버가 캐릭터 고르기 때 낸 일회용 번호를 웹이 싣는다. 존 서버는 이 번호를
+//   입장 대기 명단(CEnterGate)에서 찾아 캐릭터 번호를 얻는다 — 일회용이라 쓰면 지운다.
+//   비어 있으면 시험 입장 길([Zone] AllowDevEnter=1)일 때만 devCharacterId 로 들어온다 — 콘솔·부하 더미가 이 길이다.
+//   칸 크기는 CEnterGate::CODE_BYTES 와 같아야 한다(EntryHandler.cpp 의 static_assert).
 constexpr int32_t ENTER_TICKET_MAX_LEN = 64;
 
 // C2S: 입장 요청 — 접속 직후 한 번. 이 패킷이 와야 서버가 캐릭터를 불러온다.
@@ -752,7 +752,7 @@ struct MSG_C2S_ENTER_GAME
 {
     MsgHeader header;
     int64_t   devCharacterId;                 // 0 = "번호를 지정하지 않음"(서버가 붙인다). "새 캐릭터"라는 뜻은 아니다
-    char      ticket[ENTER_TICKET_MAX_LEN];   // 지금은 안 쓴다 — 전부 0
+    char      ticket[ENTER_TICKET_MAX_LEN];   // 입장 번호 — 전부 0 이면 시험 입장 길(위 주석)
 };
 
 //==================================================
