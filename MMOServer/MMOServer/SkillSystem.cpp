@@ -251,7 +251,9 @@ void CSkillSystem::ApplyEffect(CZone* zone, CCharacter* caster, const SkillDef& 
     case SkillEffect::BUFF:
     {
         // 대상(self · target · around_ally — 표 읽기가 막는다)마다 power 번 버프를 걸거나 되감는다(같은 번호는 시간만 다시 — 값·지속은 버프 표 몫).
-        //   스탯 다시 세우기와 알림(ACTOR_BUFF → MY_STATS)은 CBuffSystem 이 한다. 와이어 = SKILL_CAST → ACTOR_MP → ACTOR_BUFF → MY_STATS.
+        //   스탯 다시 세우기는 CBuffSystem 이 한다. ACTOR_BUFF 는 그 자리에서(CCombatHandler::OnBuffChanged) 나가고, 바뀐 스탯과 시전자 마력은
+        //   표시만 남아 틱 끝 CStatSync 가 보낸다(OnCast 의 SELF_MP 도 같다). 와이어 = SKILL_CAST → 대상마다 (속도·묶임 변화 알림) → ACTOR_BUFF(사람만) → SKILL_EFFECT(self 제외)
+        //   → (틱 끝) 바뀐 스탯 → ACTOR_MP. 이중공격 = SKILL_CAST → ACTOR_BUFF → (틱 끝) MY_STATS → ACTOR_MP.
         //   _hits 는 안 센다 — 「맞힌 수」는 피해 스킬 것이다. 걸린 수는 mmo_buff_applied_total·refreshed 가 센다.
         for (CCharacter* target : _targets)
         {

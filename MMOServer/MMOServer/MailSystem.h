@@ -16,7 +16,7 @@
 //  서버 간 답(LinkAccMailFull)은 읽기만 한다 — 시한 · 끊김 · 연결 없음은 핸들러가 ACC_TIMEOUT · ACC_OFFLINE 으로 닫는다.
 //  거래와 달리 먼저 움직일 일(틱 · 시한)이 없어 알림 통로가 없다(mail-plan.md 4절 「거래와 다른 점 하나」).
 //
-// [가방을 바꾸는 곳은 둘] FinishSend(빼기) · ApplyTake(넣기). 둘 다 같은 함수 안에서 문장을 대기(CPlayer::_mailDraft, ready)로 올리고
+// [가방을 바꾸는 곳은 셋] FinishSend(빼기) · ApplyTake(캐릭터 우편 넣기) · AfterAccClaim(계정 우편 넣기). 셋 다 같은 함수 안에서 문장을 대기(CPlayer::_mailDraft, ready)로 올리고
 //  로그를 남긴다 — 그래서 플레이어가 곧바로 나가도 문장이 떠난 기록으로 실리고(CCharacterStore::LeaveFinal) 로그도 안 빠진다.
 //  칸·돈 패킷과 저장 요청은 부르는 쪽(핸들러)이 FlushInventory · RequestSave 로 낸다.
 // ==========================================================================

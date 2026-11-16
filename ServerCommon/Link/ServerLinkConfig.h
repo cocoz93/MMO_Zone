@@ -25,7 +25,8 @@ struct ServerLinkConfig
     Address world;       // [World] InternalAddr — 섹션이 없으면 월드 서버 없이 도는 것이다(존 서버는 파티를 끈다). 값이 틀리면 거절
 
     int retrySec = 3;          // 아래층이 위층에 다시 접속하는 주기 — 근거 없이 고른 값(플랜 4절)
-    int heartbeatSec = 20;     // 코어 세션 시한 60초(IOCPServer.h)의 3분의 1 — 세 번은 놓쳐도 된다
+    int heartbeatSec = 20;     // 코어 세션 시한 60초(IOCPServer.h)의 3분의 1 — 시한 안에 세 번 보낸다. 받는 쪽은 받을 때마다 시한을 다시 잰다(ProcessRecv).
+                               //   다른 패킷이 없을 때 한 번 빠져도 다음 것이 40초에 닿지만, 연달아 두 번 빠지면 다음 것이 시한 끝(60초)에 닿아 끊길 수 있다
     int replyTimeoutSec = 3;   // 위층 응답 시한 — 근거 없이 고른 값(플랜 4절)
     int sessionReserve = 8;    // 세션 표에 서버 간 연결 몫으로 더하는 칸 — 근거 없이 고른 값(플랜 4절)
 
