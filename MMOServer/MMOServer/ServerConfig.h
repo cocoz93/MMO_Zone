@@ -33,7 +33,7 @@
 #include <Config/DbPassword.h>    // DB 암호 — 커밋되는 INI 밖의 파일에서 읽는다
 #include "Platform/Platform.h"    // Platform::GetExecutableDir
 #include "EnterGate.h"            // CEnterGate::TTL_SEC_DEFAULT
-#include "Common.h"
+#include "ServerMode.h"
 #include <Common/ErrorLog.h>
 
 // 맵 하나의 운영 값 — 섹터 크기는 시야·송신량, 채널 정원은 부하를, 빈 채널 유예는 쉬는 채널이 쥔 메모리를 조절한다.
@@ -371,16 +371,8 @@ private:
 
     void PrintConfig() const
     {
-        const char* modeName = "Unknown";
-        switch (mode)
-        {
-        case ServerMode::GameCodiEchoTest:    modeName = "GameCodiEchoTest";    break;
-        case ServerMode::NetWorkLib_EchoTest: modeName = "NetWorkLib_EchoTest"; break;
-        case ServerMode::GameServer:          modeName = "GameServer";          break;
-        }
-
         SLOG_INFO("[ServerConfig] Loaded from INI");
-        SLOG_INFO("  Mode        : {}", modeName);
+        SLOG_INFO("  Mode        : {}", ServerModeName(mode));
         SLOG_INFO("  Port        : {}", port);
         SLOG_INFO("  MaxClients  : {}", maxClients);
         SLOG_INFO("  MonitorPort : {}", monitorPort);

@@ -35,7 +35,7 @@ namespace
 CWorldServer::CWorldServer(const WorldServerConfig& config, const ServerLinkConfig& link)
     : _config(config)
     , _link(link)
-    , _network(config.port, config.maxClients + link.sessionReserve, ServerMode::GameServer, _monitor,
+    , _network(config.port, config.maxClients + link.sessionReserve, "WorldServer", _monitor,
                config.workerThreads, SEND_WORKERS, RIO_WORKERS, COMPLETION_BATCH, SEND_DEPTH)
     , _loop(_network, _monitor, config.logicPeriodMs)
     , _account(_network, _monitor, AccountLink(link))

@@ -428,7 +428,7 @@ namespace
                     LockFree::CExternalTlsFreeList<CLargeSerialBuffer>::CHUNK_SIZE, MSG_LARGE_SIZE);
 
         CMonitorManager monitor;
-        CIOCPServer server(PORT_LINE, 4, ServerMode::GameServer, monitor, 2, 2, 2, 0, 1);
+        CIOCPServer server(PORT_LINE, 4, "FramerTest", monitor, 2, 2, 2, 0, 1);
 
         Check(!server.SetFramer(nullptr), "④ SetFramer — 빈 부품 거절");
         Check(server.SetFramer(std::make_unique<CTooBigFramer>()), "④ SetFramer — Start 전에는 받음");

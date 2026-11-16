@@ -42,7 +42,7 @@ namespace
 CCharacterServer::CCharacterServer(const CharacterServerConfig& config, const ServerLinkConfig& link)
     : _config(config)
     , _link(link)
-    , _network(config.lobby.port, config.lobby.maxClients + link.sessionReserve, ServerMode::GameServer, _monitor,
+    , _network(config.lobby.port, config.lobby.maxClients + link.sessionReserve, "CharacterServer", _monitor,
                config.lobby.workerThreads, SEND_WORKERS, RIO_WORKERS, COMPLETION_BATCH, SEND_DEPTH)
     , _db(config.lobby.db, config.lobby.dbWorkers, config.lobby.dbQueueMax, OpNames())
     , _loop(_network, _monitor, config.lobby.logicPeriodMs)

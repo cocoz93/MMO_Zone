@@ -53,7 +53,7 @@
 #include "ShopSystem.h"    // 사고팔기 규칙(USE_SHOP) — 멤버로 들고 CShopHandler 에 넘긴다
 #include "MonitorManager.h"
 #include "GameMonitor.h"   // 게임 컨텐츠 지표 — 코어(CMonitorManager)와 별개 객체
-#include "Common.h"
+#include "ServerMode.h"     // 서버 동작 모드 — 에코 둘 · 게임 서버
 #include "GameDataFiles.h"  // 기획 데이터 파일(맵·레벨·아이템·몬스터·스폰 구역·드랍 표)
 #include "DB/DBWorker.h"
 #include "PacketRoutes.h"  // 받은 패킷의 분기 표(번호 → 최소 크기 · 처리기) — 게임 서버 나누기 0-④

@@ -229,7 +229,7 @@ int main()
     std::printf("transport = %s\n", kNetIoModelName);
 
     CMonitorManager monitor;
-    CIOCPServer server(PORT_WEB, WEB_LIMIT + RESERVE, ServerMode::GameServer, monitor, 2, 2, 2, 0, 1);
+    CIOCPServer server(PORT_WEB, WEB_LIMIT + RESERVE, "CoreLinkTest", monitor, 2, 2, 2, 0, 1);
 
     // 시작 전에는 틀린 주소를 거절하고 맞는 주소를 받는다
     Check(!server.AddListener("not-an-ip", PORT_LINK, TAG_DOWN), "AddListener: 틀린 주소 거절");

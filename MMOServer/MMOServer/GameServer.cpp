@@ -6,6 +6,7 @@
 #include <Common/ErrorLog.h>
 #include <Link/SessionTag.h>
 #include "CoreAffinity.h"
+#include "EchoSink.h"   // 에코 모드의 받은 것 넘길 곳
 #include <chrono>
 #include <cassert>  // 불변식 검증(틱 끝 이동 표시 · 받은 패킷 머리)
 #include <string>
@@ -40,8 +41,22 @@ bool CGameServer::Init(ServerMode mode, int port, int maxClients,
         return false;
     }
 
-    _network = std::make_unique<NetIoModel>(port, maxClients, _mode, _monitor,
+    _network = std::make_unique<NetIoModel>(port, maxClients, ServerModeName(_mode), _monitor,
                                             workerThreads, sendWorkers, rioWorkers, completionBatch, sendDepth);
+
+    // 모드별 네트워크 구성 — 코어는 모드를 모른다(자르기 부품 · 받은 것 넘길 곳을 여기서 골라 넘긴다)
+    switch (_mode)
+    {
+    case ServerMode::GameCodiEchoTest:
+        _network->SetFramer(std::make_unique<CBodyLengthFramer>());   // GameCodi 더미 = 몸 길이 머리(2바이트)
+        _network->SetRecvSink(std::make_unique<CEchoSink>(*_network, _monitor));
+        break;
+    case ServerMode::NetWorkLib_EchoTest:
+        _network->SetRecvSink(std::make_unique<CEchoSink>(*_network, _monitor));   // 전체 길이 머리(기본)
+        break;
+    case ServerMode::GameServer:
+        break;   // 기본 — 전체 길이 머리 · 이벤트 큐(게임 루프가 꺼낸다)
+    }
 
     // 게임 서버 모드일 때만 맵 등록
     if (_mode == ServerMode::GameServer)
@@ -118,7 +133,7 @@ bool CGameServer::Start()
         return false;
 
     // 게임 서버 모드일 때만 게임 루프 스레드 시작
-    // 에코 테스트는 CIOCPServer 내부에서 자체 처리
+    // 에코 테스트는 워커가 받은 것 넘길 곳(CEchoSink)에서 바로 되돌려 보낸다 — Init 이 골랐다
     if (_mode == ServerMode::GameServer)
     {
         // 내보내기 — 입장 번호를 지우고 앞 접속을 끊는다. 입장 번호를 먼저 지워야 끊긴 사이 그 번호로 못 들어온다
@@ -164,14 +179,7 @@ bool CGameServer::Start()
         _gameThread = std::thread(&CGameServer::GameLoopThread, this);
     }
 
-    const char* modeName = "Unknown";
-    switch (_mode)
-    {
-    case ServerMode::GameCodiEchoTest:    modeName = "GameCodiEchoTest";    break;
-    case ServerMode::NetWorkLib_EchoTest: modeName = "NetWorkLib_EchoTest"; break;
-    case ServerMode::GameServer:          modeName = "GameServer";          break;
-    }
-    SLOG_INFO("[GameServer] Started - Mode: {}", modeName);
+    SLOG_INFO("[GameServer] Started - Mode: {}", ServerModeName(_mode));
 
     return true;
 }

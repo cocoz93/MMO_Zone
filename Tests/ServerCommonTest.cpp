@@ -437,7 +437,7 @@ namespace
         constexpr int PORT_METRICS = 16402;
 
         CMonitorManager monitor;
-        CIOCPServer network(PORT_WEB, 16, ServerMode::GameServer, monitor, 2, 2, 2, 0, 1);
+        CIOCPServer network(PORT_WEB, 16, "ServerCommonTest", monitor, 2, 2, 2, 0, 1);
         Check(network.AddListener("127.0.0.1", PORT_LINK, static_cast<int>(SessionTag::LinkDown)), "서버 간 포트 추가");
         network.SetUntaggedSessionLimit(8);
         Check(network.Start(), "코어 Start");

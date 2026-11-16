@@ -114,7 +114,7 @@ namespace
 
     void Build(Harness& h, int connectPort, int heartbeatSec, int retrySec)
     {
-        h.network = std::make_unique<CIOCPServer>(PORT_WEB, 16, ServerMode::GameServer, h.monitor, 2, 2, 2, 0, 1);
+        h.network = std::make_unique<CIOCPServer>(PORT_WEB, 16, "ServerLinkTest", h.monitor, 2, 2, 2, 0, 1);
         h.network->AddListener("127.0.0.1", PORT_LINK, static_cast<int>(SessionTag::LinkDown));
         h.network->SetUntaggedSessionLimit(8);
 

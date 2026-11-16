@@ -476,6 +476,9 @@ target_link_libraries(core_link_test PRIVATE ServerNetworkLib)
 # 자르기 부품(전체 길이 머리 · 몸 길이 머리 · 줄 단위)은 부품과 링만 · 큰 버퍼 풀은 서버를 띄워 본다
 add_executable(framer_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/FramerTest.cpp)
 target_link_libraries(framer_test PRIVATE ServerNetworkLib)
+# 받은 것 넘길 곳(CRecvSink) — 서버를 하나 띄워 접속 · 받음 · 끊김이 큐 대신 부품으로 가는지 (서버는 프로세스에 하나라 자르기 시험과 따로)
+add_executable(recv_sink_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/RecvSinkTest.cpp)
+target_link_libraries(recv_sink_test PRIVATE ServerNetworkLib)
 
 add_executable(server_common_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/ServerCommonTest.cpp)
 target_link_libraries(server_common_test PRIVATE ServerCommonLib)
