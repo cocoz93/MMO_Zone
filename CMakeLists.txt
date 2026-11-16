@@ -485,6 +485,13 @@ target_link_libraries(recv_sink_test PRIVATE ServerNetworkLib)
 # UDP 부품(CUdpEndpoint) — 루프백 끝점 둘 · Windows 는 보통 · RIO 두 팔을 같은 대본으로 돌려 결과를 대조
 add_executable(udp_endpoint_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/UdpEndpointTest.cpp)
 target_link_libraries(udp_endpoint_test PRIVATE ServerNetworkLib)
+# 접속 보탬 — 생성자 포트 0(듣기 없음) · 접속 알림 주소 · 끊긴 까닭 · 거절 알림. 판마다 프로세스를 따로 띄운다(서버는 프로세스에 하나)
+#   Windows 는 이 프로세스의 듣기 소켓을 세려고 iphlpapi(GetExtendedTcpTable)
+add_executable(conn_extras_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/ConnExtrasTest.cpp)
+target_link_libraries(conn_extras_test PRIVATE ServerNetworkLib)
+if(WIN32)
+    target_link_libraries(conn_extras_test PRIVATE iphlpapi)
+endif()
 
 add_executable(server_common_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/ServerCommonTest.cpp)
 target_link_libraries(server_common_test PRIVATE ServerCommonLib)
