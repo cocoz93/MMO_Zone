@@ -112,16 +112,19 @@ endif()
 # ═════════════════════════════════════════════════════════════
 add_library(ServerNetworkLib STATIC
     ${CORE_NET}/IOCPServer.cpp
+    ${CORE_NET}/UdpEndpoint.cpp          # UDP 부품 — 설정 확인 · 통계 · 팔로 넘기기
 )
 
 if(WIN32)
     target_sources(ServerNetworkLib PRIVATE
         ${CORE_NET}/Transport_Iocp.cpp   # 완료포트 팔 (RIO 빌드에서는 빈 번역단위)
         ${CORE_NET}/Transport_Rio.cpp    # RIO 팔 (IOCP 빌드에서는 빈 번역단위)
+        ${CORE_NET}/UdpEndpoint_Win.cpp  # UDP 부품 Windows 팔 둘(보통 · RIO — 빌드가 아니라 실행 때 고름)
     )
 else()
     target_sources(ServerNetworkLib PRIVATE
         ${CORE_NET}/Transport_Epoll.cpp
+        ${CORE_NET}/UdpEndpoint_Linux.cpp   # UDP 부품 리눅스 팔(recvmmsg · sendmmsg · epoll)
     )
 endif()
 
@@ -479,6 +482,9 @@ target_link_libraries(framer_test PRIVATE ServerNetworkLib)
 # 받은 것 넘길 곳(CRecvSink) — 서버를 하나 띄워 접속 · 받음 · 끊김이 큐 대신 부품으로 가는지 (서버는 프로세스에 하나라 자르기 시험과 따로)
 add_executable(recv_sink_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/RecvSinkTest.cpp)
 target_link_libraries(recv_sink_test PRIVATE ServerNetworkLib)
+# UDP 부품(CUdpEndpoint) — 루프백 끝점 둘 · Windows 는 보통 · RIO 두 팔을 같은 대본으로 돌려 결과를 대조
+add_executable(udp_endpoint_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/UdpEndpointTest.cpp)
+target_link_libraries(udp_endpoint_test PRIVATE ServerNetworkLib)
 
 add_executable(server_common_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/ServerCommonTest.cpp)
 target_link_libraries(server_common_test PRIVATE ServerCommonLib)
