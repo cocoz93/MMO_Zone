@@ -3,6 +3,7 @@
 //   인자 없이 부르면 자기 자신을 판 이름마다 다시 불러 모은다(회귀 목록이 인자 없이 부른다).
 //     none = 듣는 포트가 하나도 없는 서버 — 붙기(ConnectTo)만
 //     a    = 듣기는 모두 AddListener(포트 0 = OS 가 고름) — 주소 · 끊긴 까닭 · 거절
+//     b    = 보낸 뒤 끊기 — 링에 64KB 가까이 쌓인 채 불러도 끝까지 받고 FIN 으로 끝남
 //   상대는 시험이 직접 연 맨 소켓이다(받는 쪽 · 거는 쪽 둘 다).
 //   외부 라이브러리 없음, 실패하면 종료 값 1.
 #include "TestHelp.h"   // WinSock2 — Windows.h 보다 먼저 와야 해서 맨 앞
@@ -52,6 +53,7 @@ namespace
         case DisconnectReason::IdleTimeout:  return "IdleTimeout";
         case DisconnectReason::BadMessage:   return "BadMessage";
         case DisconnectReason::SendOverflow: return "SendOverflow";
+        case DisconnectReason::AfterSend:    return "AfterSend";
         }
         return "?";
     }
@@ -482,15 +484,15 @@ namespace
                   + " · 구분 값 " + std::to_string(found ? d.tag : -1) + ")");
         }
         // 갈래마다 개수 — 같은 까닭이 둘 나오거나 빠진 갈래가 없나
-        int counts[6] = { 0, 0, 0, 0, 0, 0 };
+        int counts[7] = { 0, 0, 0, 0, 0, 0, 0 };
         const std::vector<SinkDisconnected> ds = sink->Disconnected();
         for (const SinkDisconnected& d : ds)
             ++counts[static_cast<int>(d.reason)];
         std::string countText;
-        for (int i = 0; i < 6; ++i)
+        for (int i = 0; i < 7; ++i)
             countText += std::string(i ? " · " : "") + ReasonName(static_cast<DisconnectReason>(i)) + " " + std::to_string(counts[i]);
-        Check(ds.size() == 6 && counts[0] == 1 && counts[1] == 1 && counts[2] == 1 && counts[3] == 1 && counts[4] == 1 && counts[5] == 1,
-              "a · ⑥ 끊김 6 · 까닭마다 1 (" + countText + ")");
+        Check(ds.size() == 6 && counts[0] == 1 && counts[1] == 1 && counts[2] == 1 && counts[3] == 1 && counts[4] == 1 && counts[5] == 1 && counts[6] == 0,
+              "a · ⑥ 끊김 6 · 까닭마다 1 · AfterSend 0 (" + countText + ")");
         for (const Want& w : wants)
         {
             const std::string order = sink->OrderOf(w.sid);
@@ -572,6 +574,112 @@ namespace
         Platform::CloseSocket(l);
         server.ShutdownServer();
     }
+
+    // 받기 버퍼를 작게 잡고 붙는다 — 서버 커널에 못 보낸 것이 남은 채 닫히게 해, 강제 끊기(RST)면 꼬리를 잃게 한다
+    SOCKET ConnectSmallRecv(int port, int recvBuf)
+    {
+        SOCKET s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (s == INVALID_SOCKET)
+            return INVALID_SOCKET;
+        ::setsockopt(s, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&recvBuf), sizeof(recvBuf));
+        sockaddr_in a{};
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = LoopbackNet();
+        a.sin_port = htons(static_cast<uint16_t>(port));
+        if (::connect(s, reinterpret_cast<sockaddr*>(&a), sizeof(a)) != 0)
+        {
+            Platform::CloseSocket(s);
+            return INVALID_SOCKET;
+        }
+        return s;
+    }
+
+    // 끝까지 읽는다 — 끝 = 받기 0(FIN) 이면 lastRc 0 · 실패(RST 등)면 -1 · 시한이면 1
+    std::string ReadToEnd(SOCKET s, int timeoutMs, int& lastRc)
+    {
+        std::string out;
+        lastRc = 1;
+        const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+        char buf[4096];
+        while (std::chrono::steady_clock::now() < until)
+        {
+            if (!Readable(s, 50))
+                continue;
+            const int n = static_cast<int>(::recv(s, buf, static_cast<int>(sizeof(buf)), 0));
+            if (n > 0)
+            {
+                out.append(buf, static_cast<size_t>(n));
+                continue;
+            }
+            lastRc = (n == 0) ? 0 : -1;
+            break;
+        }
+        return out;
+    }
+
+    // ── 판 b — 보낸 뒤 끊기 ──
+    void CaseB()
+    {
+        CMonitorManager monitor;
+        auto sinkOwned = std::make_unique<CRecordingSink>();
+        CRecordingSink* sink = sinkOwned.get();
+
+        CIOCPServer server(0, MAX_CLIENTS, "ConnExtrasTest", monitor, 2, 2, 2, 0, 1);
+        Check(server.AddListener("127.0.0.1", 0, TAG_IN), "b · AddListener 127.0.0.1:0");
+        Check(server.SetIdleTimeoutSec(0), "b · 쉬는 접속 끊기 끔");
+        Check(server.SetRecvSink(std::move(sinkOwned)), "b · SetRecvSink");
+        if (!server.Start())
+        {
+            Check(false, "b · Start");
+            return;
+        }
+        const int port = server.GetListenerPort(0);
+
+        // ③-1 링에 60,000 바이트(65,535 아래 · 64KB 가까이)를 쌓아 두고 부른다
+        //   RequestSendRaw 는 틱 끝 묶음 보내기라 FlushPendingSends 전에는 링에 머문다 — 보내기는 이 함수가 일으킨다
+        SOCKET c = ConnectSmallRecv(port, 4096);
+        SinkConnected ci{};
+        const uint16_t cport = (c != INVALID_SOCKET) ? LocalPort(c) : 0;
+        TestHelp::WaitUntil([&] { return sink->FindByPeerPort(cport, ci); }, 3000);
+        Check(c != INVALID_SOCKET && ci.sessionId != 0, "b · ③ 접속(받기 버퍼 4,096)");
+        std::string payload(60000, '\0');
+        for (size_t i = 0; i < payload.size(); ++i)
+            payload[i] = static_cast<char>((i * 31 + 7) & 0xFF);
+        Check(server.RequestSendRaw(ci.sessionId, payload.data(), static_cast<int>(payload.size())), "b · ③ 링에 60,000 바이트 넣음(아직 안 보냄)");
+        Check(server.RequestDisconnectAfterSend(ci.sessionId), "b · ③ 보낸 뒤 끊기 부름");
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));   // 상대는 아직 안 읽는다 — 서버 쪽에 못 보낸 것이 남게
+        int lastRc = 1;
+        const std::string got = ReadToEnd(c, 5000, lastRc);
+        Check(got.size() == payload.size() && got == payload,
+              "b · ③ 끝까지 받음 — " + std::to_string(got.size()) + " / " + std::to_string(payload.size()) + " 바이트 · 내용 같음 " + (got == payload ? "예" : "아니오"));
+        Check(lastRc == 0, std::string("b · ③ 끝이 FIN(받기 0) — 강제 끊기(RST) 아님 (") + (lastRc == 0 ? "FIN" : lastRc < 0 ? "실패" : "시한") + ")");
+        TestHelp::WaitUntil([&] { return !sink->Disconnected().empty(); }, 3000);
+        SinkDisconnected d;
+        Check(sink->FindDisconnect(ci.sessionId, d) && d.reason == DisconnectReason::AfterSend && d.tag == TAG_IN,
+              std::string("b · ③ 끊긴 까닭 AfterSend (") + (sink->FindDisconnect(ci.sessionId, d) ? ReasonName(d.reason) : "없음") + ")");
+        Check(!server.RequestDisconnectAfterSend(ci.sessionId), "b · ③ 끊긴 세션에 다시 부르면 false");
+        Platform::CloseSocket(c);
+
+        // ③-2 보낼 것이 없을 때 — 바로 끊긴다
+        SOCKET e = TestHelp::ConnectRaw("127.0.0.1", port);
+        SinkConnected ei{};
+        const uint16_t eport = (e != INVALID_SOCKET) ? LocalPort(e) : 0;
+        TestHelp::WaitUntil([&] { return sink->FindByPeerPort(eport, ei); }, 3000);
+        Check(ei.sessionId != 0 && server.RequestDisconnectAfterSend(ei.sessionId), "b · ③ 빈 링에서 부름");
+        int lastE = 1;
+        const std::string gotE = ReadToEnd(e, 3000, lastE);
+        Check(gotE.empty() && lastE == 0, "b · ③ 빈 링 — 받은 것 0 · 끝이 FIN (" + std::to_string(gotE.size()) + " · " + std::to_string(lastE) + ")");
+        TestHelp::WaitUntil([&] { return sink->Disconnected().size() >= 2; }, 3000);
+        Check(sink->FindDisconnect(ei.sessionId, d) && d.reason == DisconnectReason::AfterSend, "b · ③ 빈 링 — 까닭 AfterSend");
+        Platform::CloseSocket(e);
+
+        // ③-3 없는 세션
+        Check(!server.RequestDisconnectAfterSend(0x0000123456789), "b · ③ 없는 세션 번호 → false");
+
+        // 끊김은 둘뿐 — 한 세션에 두 번 안 옴
+        Check(sink->Disconnected().size() == 2, "b · ③ 끊김 알림 2 (" + std::to_string(sink->Disconnected().size()) + ")");
+        server.ShutdownServer();
+    }
 }
 
 int main(int argc, char** argv)
@@ -583,9 +691,11 @@ int main(int argc, char** argv)
             CaseNone();
         else if (which == "a")
             CaseA();
+        else if (which == "b")
+            CaseB();
         else
         {
-            std::printf("모르는 판 '%s' — none · a\n", which.c_str());
+            std::printf("모르는 판 '%s' — none · a · b\n", which.c_str());
             return 2;
         }
         return TestHelp::Finish(("conn_extras_test " + which).c_str());
@@ -604,7 +714,7 @@ int main(int argc, char** argv)
     if (selfLen > 0)
         self.assign(selfBuf, static_cast<size_t>(selfLen));
 #endif
-    const char* cases[] = { "none", "a" };
+    const char* cases[] = { "none", "a", "b" };
     for (const char* c : cases)
     {
         const std::string cmd = std::string("\"") + self + "\" " + c;
