@@ -473,6 +473,10 @@ set_target_properties(${WORLD_TARGET} PROPERTIES
 add_executable(core_link_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/CoreLinkTest.cpp)
 target_link_libraries(core_link_test PRIVATE ServerNetworkLib)
 
+# 자르기 부품(전체 길이 머리 · 몸 길이 머리 · 줄 단위)은 부품과 링만 · 큰 버퍼 풀은 서버를 띄워 본다
+add_executable(framer_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/FramerTest.cpp)
+target_link_libraries(framer_test PRIVATE ServerNetworkLib)
+
 add_executable(server_common_test ${CMAKE_CURRENT_SOURCE_DIR}/Tests/ServerCommonTest.cpp)
 target_link_libraries(server_common_test PRIVATE ServerCommonLib)
 
