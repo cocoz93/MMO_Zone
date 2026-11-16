@@ -2,6 +2,7 @@
 //   ①~③ 은 서버 없이 부품만 본다. 링은 진짜 CRingBufferST 를 써서 ParsePackets 와 같은 차례(두 구간 보이기 →
 //   자르기 → 앞부분 복사 → 링에서 지우기)로 돌린다.
 //   ④ 는 서버를 띄워 줄 단위로 받고, 기본 버퍼를 넘는 줄이 큰 풀에서 나와 큰 풀로 돌아가는지 본다.
+//     그 서버는 쉬는 접속 끊기를 끈다(0) — 휠이 없는 길을 지나가고, 쉬는 세션이 안 끊기는지 본다.
 //   CIOCPServer 는 프로세스에 하나라서(Start 가 공용 메시지 풀을 덮어쓴다) 서버는 ④ 에서 하나만 띄운다.
 //   외부 라이브러리 없음, 실패하면 종료 값 1.
 #include "TestHelp.h"   // WinSock2 — Windows.h 보다 먼저 와야 해서 맨 앞
@@ -434,6 +435,7 @@ namespace
         Check(server.SetFramer(std::make_unique<CTooBigFramer>()), "④ SetFramer — Start 전에는 받음");
         Check(!server.Start(), "④ 최대 4,097 부품이면 Start 거절(큰 버퍼 4,096 을 넘는다)");
         Check(server.SetFramer(std::make_unique<CLineFramer>()), "④ 거절 뒤 줄 단위로 다시 고름");
+        Check(server.SetIdleTimeoutSec(0), "④ 쉬는 접속 끊기 끔(0) — 휠 없이 등록 · 갱신 · 해제 자리를 지나간다");
         if (!server.Start())
         {
             Check(false, "④ Start(줄 단위)");
@@ -451,6 +453,8 @@ namespace
             server.ShutdownServer();
             return;
         }
+        SOCKET quiet = TestHelp::ConnectRaw("127.0.0.1", PORT_LINE);   // 끝까지 아무것도 안 보내는 세션
+        const auto quietStart = std::chrono::steady_clock::now();
 
         // 1,458 이하 · 딱 4,096 · 그 사이 — 앞 하나는 기본 버퍼, 뒤 둘은 큰 버퍼
         const std::string big(CLineFramer::MAX_LINE, 'L');
@@ -498,6 +502,14 @@ namespace
         Drain(server, got, false);
         Check(CSerialBuffer::GetLargeAllocCount() - alloc0 == CSerialBuffer::GetLargeFreeCount() - free0,
               "④ 끝 — 큰 풀 낸 수 = 돌려받은 수");
+
+        // 끄기(0) — 아무것도 안 보낸 세션이 3.5초 넘게 쉬어도 붙어 있다
+        //   끄기가 짧은 값으로 새면 걸린다. 기본 60초로 새는 것은 60초를 기다려야 해서 여기서 못 본다
+        while (std::chrono::steady_clock::now() - quietStart < std::chrono::milliseconds(3500))
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        Check(quiet != INVALID_SOCKET && !ClosedByPeer(quiet, 200) && monitor._sessionTimedOut.Load() == 0,
+              "④ 쉬는 접속 끊기 끔 — 3.5초 쉰 세션이 붙어 있음 · 쉬어서 끊긴 수 0 (" + std::to_string(monitor._sessionTimedOut.Load()) + ")");
+        Platform::CloseSocket(quiet);
         server.ShutdownServer();
     }
 }

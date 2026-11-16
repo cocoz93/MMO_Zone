@@ -227,7 +227,7 @@ try {
 
     # ════ T3: 유휴 타임아웃 킥 + 트래픽 한창중 graceful 셧다운 ════
     # 둘 다 "비소유 스레드발 Disconnect 핸드오프" 체인(RIO의 CancelIoEx 대체 기계장치)을 실증:
-    #  - 킥: 타이머 스레드 → 단건 핸드오프 (SESSION_TIMEOUT_SEC=60, recv 없으면 ~60초에 발화)
+    #  - 킥: 타이머 스레드 → 단건 핸드오프 (DEFAULT_IDLE_TIMEOUT_SEC=60 · SetIdleTimeoutSec, recv 없으면 ~60초에 발화)
     #  - 셧다운: 콘솔 스레드 → 활성 세션 대량 핸드오프 → IOCount 수렴 → 워커 join
     Write-Host "`n=== T3: idle-timeout kick + mid-traffic graceful shutdown ===" -ForegroundColor Cyan
     Set-IniKey $echoIni 'TestDurationSec' '90'
