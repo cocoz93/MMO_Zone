@@ -192,8 +192,8 @@ private:
     void OnLeavingZone(CCharacter* player) override;   // 부활 대기열에서 빼기 (전투)
     void OnLeavingGame(CPlayer* player) override;      // 부활 대기열 · 지속 효과 목록 · 파티원·요청 표에서 빼기 (전투 · 파티)
 
-    // 「존 지우기 직전」 알림 — 빈 방 정리(CMapManager::CloseEmptyRooms)가 지울 존마다 부른다. 계약은 MapManager.h.
-    void OnErasingZone(CZone* zone);                   // 땅 아이템 세기 · 지속 효과 목록에서 빼기 · 방 닫힘 세기 (땅 · 전투 · 파티)
+    // 「존 지우기 직전」 알림 — 빈 방 정리(CMapManager::CloseEmptyRooms) · 일반 맵 빈 채널 정리(CloseIdleChannels)가 지울 존마다 부른다. 계약은 MapManager.h.
+    void OnErasingZone(CZone* zone);                   // 땅 아이템 세기 · 지속 효과 목록에서 빼기 · 방 닫힘 / 채널 닫힘 세기 (땅 · 전투 · 파티)
 
     // 받은 패킷의 분기 표를 채운다 — 패킷 번호마다 최소 크기와 처리기 한 줄(전에는 크기 표 GetExpectedSize 와 분기 switch 가 따로였다).
     //   Init 이 맨 앞에서 부른다. 등록이 실패하면(범위 밖 · 두 번 등록) false — 기동 거절.
@@ -220,7 +220,7 @@ private:
     std::thread _gameThread;
     std::atomic<bool> _running;
     // 틱 주기(FRAME_PER_SEC · FRAME_INTERVAL_MS)는 BuildConfig.h — 아래 층 헤더도 같이 쓰는 단위라 여기 두지 않는다.
-    static constexpr int CLEANUP_INTERVAL_FRAMES = 30 * FRAME_PER_SEC;  // 30초마다 빈 채널 정리
+    static constexpr int CLEANUP_INTERVAL_FRAMES = 30 * FRAME_PER_SEC;  // 30초마다 빈 존 정리 — 빈 방은 바로 · 일반 맵 빈 채널은 유예(ChannelIdleCloseSec)를 이 주기로 확인
 
 #if USE_COMBAT
     // 스탯·레벨 규칙 — 표(_gameDataFiles)를 참조한다.

@@ -66,7 +66,7 @@ public:
     //   파티장이 오프라인이면 누른 파티원이 파티장을 맡고 이번 입장은 끝난다 — 맡은 뒤 포털을 다시 누른다.
     void EnterRoom(CPlayer* leader, CZone* oldZone, const PortalDef& portal);
 
-    // 존 지우기 직전(빈 채널 정리 — CGameServer::OnErasingZone 이 부른다) — 방 맵의 존이면 열린 방 −1 · 닫힘 +1.
+    // 존 지우기 직전(빈 방 정리 — CGameServer::OnErasingZone 이 방 맵의 존일 때만 부른다) — 열린 방 −1 · 닫힘 +1.
     //   등식: 들어감(_entries[NONE]) = 닫힘 + 열림(GameMonitor.h _room). 방 번호는 이 뒤 다시 쓸 수 있다(CRoomMap::CreateRoom).
     void OnErasingZone(CZone* zone);
 

@@ -85,8 +85,19 @@ void CZone::EnterZoneAt(CCharacter* player, float x, float y)
     _characterList.push_back(player);
 
     // 정원 카운터는 목록에 실제로 넣은 이 자리에서만 올린다 (Zone.h _playerCount)
+    //   빈 채널 유예 표시도 같은 자리 — 다음 확인 전에 나가도 「봤다」로 친다(NoteOccupancy)
     if (player->_kind == CharacterKind::PLAYER)
+    {
         ++_playerCount;
+        _playerSeenSinceCheck = true;
+    }
+}
+
+void CZone::NoteOccupancy(uint64_t nowFrame)
+{
+    if (_playerSeenSinceCheck || _playerCount > 0)
+        _lastOccupiedFrame = nowFrame;
+    _playerSeenSinceCheck = (_playerCount > 0);   // 지금 있는 사람이 다음 확인 전에 나가도 그 확인이 「봤다」가 되게
 }
 
 void CZone::LeaveZone(CCharacter* player)

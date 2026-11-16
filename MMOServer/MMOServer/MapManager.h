@@ -5,12 +5,12 @@
 //  - 맵 설정 등록 및 맵별 채널(존) 관리 · 기본 접속 맵(처음 등록한 맵)
 //  - 채널 자동 배정 (인원 초과 시 동적 생성)
 //  - 존 이동 목적지 고르기 (지정 채널 · 자동 배정 · 무작위 맵) — 거절 사유까지 정하고, 패킷 값으로 바꾸는 건 게임 서버
-//  - 빈 방 정리 — 일반 맵 채널은 비어도 안 지운다(쉬기만 — CZone::IsIdle)
+//  - 빈 방 정리 · 일반 맵 빈 채널 정리(유예 뒤 — 비어 있는 동안은 쉬기만 — CZone::IsIdle)
 //
 // [짜임] 맵 종류로 정책 클래스가 둘이다(channel-split-plan.md · 10-27). 공통인 채널 표는 둘이 값으로 든다(상속 아님 · 가상 함수 없음).
 //
 //   CMapManager
-//    ├─ _fieldMaps : mapId → CFieldMap   (마을·사냥터) — 채널 0 · 다 차면 자동 생성 · 단조 번호 · 정원 · 안 지움
+//    ├─ _fieldMaps : mapId → CFieldMap   (마을·사냥터) — 채널 0 · 다 차면 빈 번호로 자동 생성 · 정원 · 비고 유예가 지나면 지움(채널 0 은 안 지움)
 //    ├─ _roomMaps  : mapId → CRoomMap    (방 맵 instance) — 빈 번호로 방 만들기 · 비면 지움
 //    └─ _zoneCache : zoneId → CZone*
 //   CFieldMap · CRoomMap 은 각자 CChannelTable(채널 표 — 담기·찾기·틱·순회, 정책 없음)을 든다.
@@ -47,6 +47,7 @@ struct MapConfig
     int32_t maxPlayersPerChannel;  // 채널당 최대 인원 (소프트 리밋)
     StartArea start;               // 맵 표의 시작 구역 — 채널(존)마다 그대로 넘긴다(CZone::CalcSpawnPos)
     MapKind kind = MapKind::DUNGEON;   // 맵 표의 종류 — 방 맵(INSTANCE)이면 CRoomMap, 나머지는 CFieldMap 으로 등록된다(CMapManager::RegisterMap)
+    int32_t channelIdleCloseFrames = 0; // 빈 동적 채널 유예(틱) · 0 = 안 지움 — INI ChannelIdleCloseSec × FRAME_PER_SEC(main). 맵 관리자는 틱만 안다(CFieldMap::CloseIdleChannels)
 };
 
 // 존 이동 목적지 고르기의 거절 사유 — CMapManager::PickZoneChangeTarget
@@ -86,6 +87,10 @@ public:
 
     // 그 번호로 채널 하나 — 번호가 상한(CMapManager::CHANNELS_PER_MAP) 이상이거나 이미 있거나 존 초기화가 실패하면 nullptr
     CZone* Create(int32_t channelIndex);
+
+    // 1 부터 비어 있는 가장 작은 번호로 채널 하나 — 번호가 다 찼으면 nullptr. 방 만들기와 일반 맵 동적 채널이 같이 쓴다
+    //   (둘 다 지웠다 만들기를 되풀이하므로 단조 증가로는 상한에 닿는다 · 일반 맵은 채널 목록 칸(ChannelBlock)도 넘는다)
+    CZone* CreateLowestFree();
 
     // 특정 채널 조회 (없으면 nullptr)
     CZone* Find(int32_t channelIndex);
@@ -149,12 +154,12 @@ private:
 // CFieldMap — 일반 맵(마을 town · 사냥터 dungeon)의 채널 정책
 //
 // [책임]
-//  - 기본 채널(0)을 Init 에서 만든다 · 자동 배정(정원이 찬 채널을 건너뛰고, 다 찼으면 새 번호로 만든다)
-//  - channelIndex 단조 증가로 ID 충돌 방지
+//  - 기본 채널(0)을 Init 에서 만든다 · 자동 배정(정원이 찬 채널을 건너뛰고, 다 찼으면 1 부터 빈 번호로 만든다 — CChannelTable::CreateLowestFree)
 //  - 정원 규칙(IsChannelFull) — 자동 배정과 지정 채널 이동이 이것 하나로 본다
-//  - ★ 안 지운다 — 사람이 다 나가도 채널을 그대로 두고 쉬게만 한다(CZone::IsIdle — 걷기·몬스터 판단 건너뜀).
-//    채널 수는 몰릴 때 최대 접속 ÷ 정원으로 묶인다 — 자동 배정이 빈 채널도 다시 쓴다(FindOrCreateChannel).
-//    10-27 전엔 빈 동적 채널(번호 > 0)도 지웠다(channel-split-plan.md)
+//  - ★ 빈 동적 채널은 유예 뒤 지운다(CloseIdleChannels — 채널 0 은 안 지움). 비어 있는 동안은 쉬게만 한다(CZone::IsIdle — 걷기·몬스터 판단 건너뜀).
+//    유예가 있는 까닭 = 포털·부활·채널 지정으로 같은 맵에 곧 다시 온다 — 바로 지우면 들락날락마다 존을 새로 만들고 몬스터를 전 구역 한 번에 깐다.
+//    안 지우면 쉬는 채널이 「맵마다 가장 몰렸던 때 인원 ÷ 정원」의 합까지 쌓인다(이벤트 맵 몰림 뒤 마을 몰림이면 둘 다 남는다).
+//    이력: 10-27 전엔 빈 동적 채널을 30초 정리마다 바로 지웠고, 10-27~11-16 은 안 지웠다(channel-split-plan.md · channel-close-plan.md)
 // ==========================================================================
 class CFieldMap
 {
@@ -173,6 +178,12 @@ public:
     // 정원 규칙 — 운영자가 아니고 인원 >= 정원이면 가득 찬 것이다(운영자는 항상 false). 자동 배정과 지정 채널 이동이 이것 하나로 본다
     bool IsChannelFull(const CZone* zone, bool isAdmin) const;
 
+    // 빈 동적 채널 정리 — 번호 1 이상 · 사람 0 · 마지막으로 사람을 본 확인(CZone::NoteOccupancy)에서 유예(설정 channelIdleCloseFrames) 이상 지났으면 지운다.
+    //   판정은 여기 한 곳(방의 CRoomMap::CloseEmptyRooms 와 같은 꼴). 유예 0 이면 아무것도 안 한다.
+    //   nowFrame = 게임 루프 틱 번호 — 부를 때마다 모든 채널에 확인을 남기므로 부르는 주기가 「본 때」의 해상도다(게임 루프 30초 정리).
+    //   그래서 지워지는 때는 마지막 사람이 나간 뒤 유예 이상 · 유예 + 주기 두 번 이하. 지우는 길의 계약(onBeforeErase)은 방과 같다 — CRoomMap::CloseEmptyRooms 주석
+    void CloseIdleChannels(uint64_t nowFrame, const std::function<void(CZone*)>& onBeforeErase);
+
     void TickAll(float deltaTime, IZoneEvents& events) { _table.TickAll(deltaTime, events); }
     const MapConfig& GetConfig() const { return _table.GetConfig(); }
 
@@ -184,7 +195,6 @@ public:
 
 private:
     CChannelTable _table;
-    int32_t _nextChannelIndex = 1;  // 단조 증가 — 충돌 원천 차단 (채널 0은 Init에서 별도 생성). 지우지 않으므로 빈 번호가 생기지 않는다
 };
 
 // ==========================================================================
@@ -194,10 +204,12 @@ private:
 //  - 채널 0 을 안 만든다 — 만들면 누구나 들어가는 공용 방이 된다
 //  - 자동 배정이 없다 — 방은 CreateRoom 으로만 생긴다(파티장이 포털을 쓸 때, 게임 서버가 판정한 뒤).
 //    CMapManager::FindOrCreateChannel 이 방 맵 번호에 nullptr 을 돌려준다(일반 표에 없어서)
-//  - 빈 번호를 다시 쓴다(CreateRoom) — 방은 들어갈 때마다 하나라 단조 증가면 서버가 뜬 뒤 상한만큼 들어가고 끝난다.
+//  - 빈 번호를 다시 쓴다(CreateRoom → CChannelTable::CreateLowestFree) — 방은 들어갈 때마다 하나라 단조 증가면 서버가 뜬 뒤 상한만큼 들어가고 끝난다.
+//    (11-16 부터 일반 맵 동적 채널도 같은 함수로 빈 번호를 다시 쓴다 — 아래 근거가 그대로 맞는다)
 //    번호를 다시 써도 되는 근거 = 존 번호를 틱 너머로 드는 곳이 전부 존과 같이 사라지거나(몬스터 · 땅 아이템) 지우기 직전에 비워지고
 //    (조회표 · 버프 목록 — 송신 대기 칸은 틱 끝마다), 사람은 존이 사람 0 일 때만 지워져 옛 번호를 든 채 남지 않는다(room-progress.md 1-0 표)
-//  - 비면 지운다(CloseEmptyRooms)
+//  - 비면 유예 없이 지운다(CloseEmptyRooms) — 일반 맵은 유예 뒤(CFieldMap::CloseIdleChannels).
+//    방은 그 파티 것이라 나간 뒤 다시 들어올 길이 없어 기다릴 까닭이 없다
 //  - 채널 지정·무작위 맵은 CMapManager 가 막는다(PickZoneChangeTarget · GetRandomMapId)
 // ==========================================================================
 class CRoomMap
@@ -276,10 +288,13 @@ public:
     //   자동 배정은 채널을 새로 만들 수 있다(FindOrCreateChannel)
     ZoneChangeTarget PickZoneChangeTarget(ZoneId currentZoneId, MapId targetMapId, int32_t targetChannelIndex, bool isAdmin);
 
-    // 빈 방 정리 (플레이어 0명인 방) — 판정은 CRoomMap 한 곳. 일반 맵 채널은 안 지운다(CFieldMap [책임] ★).
+    // 빈 방 정리 (플레이어 0명인 방) — 판정은 CRoomMap 한 곳. 일반 맵 채널은 아래 CloseIdleChannels(유예 뒤 — CFieldMap [책임] ★).
     //   여기는 지우기 직전 알림을 가로채 조회표(_zoneCache)에서 빼고 onBeforeErase 를 이어 부른다 — 뜻·계약은 CRoomMap::CloseEmptyRooms 주석 참조.
     //   그래서 onBeforeErase 안에서는 그 존이 GetZone 으로 안 찾아진다(nullptr) — zone 포인터와 그 번호로만 할 것.
     void CloseEmptyRooms(const std::function<void(CZone*)>& onBeforeErase);
+
+    // 일반 맵 빈 동적 채널 정리 — 판정은 CFieldMap::CloseIdleChannels 한 곳(유예는 맵마다 설정). 조회표 빼기·알림 이어 부르기는 위 CloseEmptyRooms 와 같다
+    void CloseIdleChannels(uint64_t nowFrame, const std::function<void(CZone*)>& onBeforeErase);
 
     // 존 조회 (zoneId로 직접 접근)
     CZone* GetZone(ZoneId zoneId);

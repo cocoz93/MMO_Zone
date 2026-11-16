@@ -177,6 +177,14 @@ public:
     //   대기열은 비우는 자리라 건너뛰면 남은 항목이 깨어날 때 옛 좌표로 나간다(channel-split-plan.md 「1단계」).
     bool IsIdle() const { return _playerCount == 0; }
 
+    // 빈 채널 유예용 「마지막으로 사람을 본 확인 틱」 — 일반 맵 채널 정리(CFieldMap::CloseIdleChannels)가 확인마다 부른다.
+    //   존은 틱 번호를 모르므로 확인하는 쪽이 건넨다. 사람이 나간 틱을 정확히 재지 않고 확인 해상도(30초)로 본다 — 유예가 분 단위라 충분하다.
+    //   규칙: 지난 확인 뒤 사람이 들어온 적이 있거나(EnterZoneAt 이 켜는 표시) 지금 사람이 있으면 이번 확인 틱을 남긴다.
+    //     지금 있는 사람은 다음 확인 전에 나갈 수 있으므로 표시를 켠 채 둔다 → 나간 뒤 첫 확인도 「봤다」.
+    //     그래서 남는 틱 >= 마지막 사람이 실제로 나간 틱 — 「비어 있던 시간 >= 유예」가 보장된다(확인 사이 들락날락도 안 놓친다)
+    void NoteOccupancy(uint64_t nowFrame);
+    uint64_t GetLastOccupiedFrame() const { return _lastOccupiedFrame; }
+
     // 섹터매니저 접근 (이동 처리 등 외부에서 필요)
     CSectorManager& GetSectorManager() { return _sectorManager; }
     const CSectorManager& GetSectorManager() const { return _sectorManager; }
@@ -229,6 +237,10 @@ private:
     // _characterList 중 _kind == PLAYER 인 것의 수 (채널 정원·빈 채널 판정 전용).
     //   목록에 넣고 빼는 그 자리에서만 증감한다 — 어긋나면 채널이 안 지워지거나 정원이 새어 나간다.
     int32_t _playerCount;
+
+    // 빈 채널 유예 — NoteOccupancy 주석. 표시는 켠 채 시작한다: 만든 직후(사람이 들어오기 전) 첫 확인에서 지워지지 않게
+    bool     _playerSeenSinceCheck = true;   // 지난 확인 뒤 사람이 들어온 적 있음 — EnterZoneAt(PLAYER)이 켜고 NoteOccupancy 가 「지금 있나」로 다시 쓴다
+    uint64_t _lastOccupiedFrame    = 0;      // 마지막으로 사람을 본 확인 틱
 
     // 섹터 이동 대기열 (틱 안에 모음 → 게임 루프 3)에서 일괄 처리). 이 존 캐릭터만 들어온다(PushSectorChange 단언)
     std::vector<SectorChangeInfo> _pendingSectorChanges;

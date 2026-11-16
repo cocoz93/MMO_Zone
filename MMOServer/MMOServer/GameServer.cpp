@@ -356,7 +356,8 @@ void CGameServer::GameLoopThread()
         // [계측 오버헤드 절감] handle-latency 지역 누적분 → 전역 1회 반영
         _monitor._gameLoop.FlushHandleLatency();
 
-        // 5) 빈 방 정리 — 일반 맵 채널은 비어도 안 지운다(쉬기만 — CZone::IsIdle · 10-27 전엔 빈 동적 채널도 여기서 지웠다)
+        // 5) 빈 존 정리 — 방은 비면 바로 · 일반 맵 동적 채널은 비고 유예(ChannelIdleCloseSec)가 지나면. 비어 있는 동안은 쉬기만(CZone::IsIdle)
+        //   (10-27 전엔 빈 동적 채널도 바로 지웠고 · 10-27~11-16 은 안 지웠다)
         ++_cleanupFrameCount;
         if (_cleanupFrameCount >= CLEANUP_INTERVAL_FRAMES)
         {
@@ -368,6 +369,8 @@ void CGameServer::GameLoopThread()
             assert(!_sightBroadcaster.HasDirtyMovers());
             // 지우기 직전 알림 — 존 밖에서 이 존의 것을 든 곳을 정리하는 마지막 기회다. 받는 쪽은 아래 OnErasingZone 한 곳(모듈마다 한 줄)
             _mapManager.CloseEmptyRooms([this](CZone* zone) { OnErasingZone(zone); });
+            // 일반 맵 — 이 주기(30초)가 「마지막으로 사람을 본 때」의 해상도다(CFieldMap::CloseIdleChannels). 알림은 방과 같은 한 곳
+            _mapManager.CloseIdleChannels(_frameCount, [this](CZone* zone) { OnErasingZone(zone); });
         }
 
 #if USE_DB_WORKER
@@ -513,11 +516,11 @@ void CGameServer::OnLeavingGame(CPlayer* player)
     (void)player;   // 전투·파티를 다 끈 빌드엔 할 일이 없다
 }
 
-// ── 「존 지우기 직전」 알림 ── 빈 방 정리(게임 루프 5 — CMapManager::CloseEmptyRooms)가 지울 존마다 부른다. 계약은 MapManager.h 의 CRoomMap::CloseEmptyRooms 주석.
-//   지워지는 존은 이제 늘 방이다(일반 맵 채널은 안 지운다 — 10-27). 받는 쪽 셋은 방에도 다 걸린다(방 땅 아이템 · 뱀왕 격노 · 열린 방 수).
-//   받는 쪽을 게임 서버로 두는 까닭은 위 「떠남」과 같다 — 정리할 것이 CItemHandler · 지속 효과 규칙 · CPartyHandler 에 흩어져 있다. 차례(땅 → 효과 → 방)는 여기 한 곳.
+// ── 「존 지우기 직전」 알림 ── 게임 루프 5 의 두 정리(CMapManager::CloseEmptyRooms · CloseIdleChannels)가 지울 존마다 부른다. 계약은 MapManager.h 의 CRoomMap::CloseEmptyRooms 주석.
+//   지워지는 존은 방(비면 바로)과 일반 맵 동적 채널(비고 유예 뒤 — 11-16)이다. 땅 아이템 · 효과 목록 정리는 둘 다 지나고, 세기만 갈린다(열린 방 수 / 닫힌 채널 수).
+//   받는 쪽을 게임 서버로 두는 까닭은 위 「떠남」과 같다 — 정리할 것이 CItemHandler · 지속 효과 규칙 · CPartyHandler 에 흩어져 있다. 차례(땅 → 효과 → 세기)는 여기 한 곳.
 //   이 함수는 토글 없이 늘 있다 — 전에 땅 아이템 정리만 USE_DROP 안에 묶어 두었더니 USE_DROP 0 이면 콜백이 아예 없어 버프 목록 정리도 같이 빠질 뻔했다.
-//   이때 그 존은 이미 조회표에서 빠졌다(GetZone 이 nullptr) — 받는 쪽은 zone 포인터와 그 번호로만 한다.
+//   이때 그 존은 이미 조회표에서 빠졌다(GetZone 이 nullptr) — 받는 쪽은 zone 포인터와 그 번호로만 한다. 맵 표는 그대로라 IsRoomMap 은 된다.
 void CGameServer::OnErasingZone(CZone* zone)
 {
 #if USE_DROP
@@ -525,12 +528,18 @@ void CGameServer::OnErasingZone(CZone* zone)
 #endif
 #if USE_COMBAT
     // 효과 목록은 틱 너머로 주소를 든다 — 이 존의 몬스터가 같이 해제되니 목록에서 먼저 뺀다(BuffSystem.h 「셋째 길」). 사람은 이미 퇴장으로 빠졌다
+    //   일반 맵 채널도 같다 — 쉬는 채널의 보스는 판단을 안 해도 걸린 효과를 든 채 남아 있다(b4_zone · c4_channel_close 가 본다)
     _buffSystem.ForgetZone(zone->GetZoneId());
 #endif
+    // 무엇을 지웠나 세기 — 방이면 열린 방 수(파티 처리기 — 방은 파티 처리기만 연다), 일반 맵 채널이면 닫힌 채널 수
+    if (_mapManager.IsRoomMap(zone->GetMapId()))
+    {
 #if USE_PARTY
-    _partyHandler.OnErasingZone(zone);   // 빈 방이면 열린 방 −1 · 닫힘 +1 — 열 때(+1, EnterRoom)와 같은 클래스
+        _partyHandler.OnErasingZone(zone);   // 열린 방 −1 · 닫힘 +1 — 열 때(+1, EnterRoom)와 같은 클래스
 #endif
-    (void)zone;   // 땅·전투·파티를 다 끈 빌드엔 할 일이 없다
+    }
+    else
+        _gameMonitor._enter._channelsClosed.Inc();   // mmo_channel_closed_total — 일반 맵 동적 채널(CFieldMap::CloseIdleChannels)
 }
 
 void CGameServer::OnReceived(SessionId sessionId, CSerialBuffer* pMsg)

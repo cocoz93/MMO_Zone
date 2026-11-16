@@ -243,8 +243,9 @@ void CPartyHandler::SendRoomReject(CPlayer* leader, const RoomEntryResult& resul
 void CPartyHandler::OnErasingZone(CZone* zone)
 {
     // 빈 방 — 열린 방 수를 내린다(등식: 들어감 = 닫힘 + 열림 — GameMonitor.h _room). 방 번호는 이 뒤 다시 쓸 수 있다(CRoomMap::CreateRoom)
-    //   지워지는 존은 늘 방이다(빈 방 정리 CRoomMap::CloseEmptyRooms — 일반 맵 채널은 안 지운다). 10-27 전엔 빈 동적 채널도 와서 방 맵인지 갈랐다
-    assert(_mapManager.IsRoomMap(zone->GetMapId()) && "지우는 존은 방뿐이다 — CMapManager::CloseEmptyRooms");
+    //   여기 오는 존은 늘 방이다 — 게임 서버가 방 맵일 때만 부른다(CGameServer::OnErasingZone). 일반 맵 채널(11-16 부터 유예 뒤 지움)은 게임 서버가 따로 센다.
+    //   10-27 전엔 빈 동적 채널도 여기로 와서 방 맵인지 여기서 갈랐다
+    assert(_mapManager.IsRoomMap(zone->GetMapId()) && "방만 온다 — CGameServer::OnErasingZone 이 가른다");
     (void)zone;   // 릴리즈(NDEBUG)에선 위 단언이 사라진다
     _gameMonitor._room._active.Add(-1);
     _gameMonitor._room._closed.Inc();

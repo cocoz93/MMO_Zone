@@ -126,15 +126,21 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    // 맵 설정 = 맵 표의 줄(번호·크기 — 기획 데이터) + INI 의 운영 값(섹터 크기·채널 정원). 둘을 엮는 곳은 여기 한 곳이다.
+    // 맵 설정 = 맵 표의 줄(번호·크기 — 기획 데이터) + INI 의 운영 값(섹터 크기·채널 정원·빈 채널 유예). 둘을 엮는 곳은 여기 한 곳이다.
     //   순서는 맵 표 그대로 — 첫 줄이 기본 접속 맵이다(CGameServer::Init).
     std::vector<MapConfig> maps;
     for (const MapDef& def : server.GameData().Maps().All())
     {
         const MapOps ops = config.MapOpsOf(def.mapId);
-        maps.push_back({ def.mapId, def.width, def.height, ops.sectorSize, ops.maxPlayersPerChannel, def.start, def.kind });
-        SLOG_INFO("[Map] {} — {}×{} · sector {} · channel cap {}{}", def.mapId, def.width, def.height, ops.sectorSize, ops.maxPlayersPerChannel,
-                  def.kind == MapKind::INSTANCE ? " · room map (no channel 0)" : "");
+        // 유예는 초 → 틱 — 맵 관리자는 틱만 안다. 상한 86400초 × 25 = 216만(int32 안 — ServerConfig::CHANNEL_IDLE_CLOSE_SEC_MAX)
+        const int32_t idleCloseFrames = ops.channelIdleCloseSec * FRAME_PER_SEC;
+        maps.push_back({ def.mapId, def.width, def.height, ops.sectorSize, ops.maxPlayersPerChannel, def.start, def.kind, idleCloseFrames });
+        if (def.kind == MapKind::INSTANCE)
+            SLOG_INFO("[Map] {} — {}×{} · sector {} · channel cap {} · room map (no channel 0)", def.mapId, def.width, def.height,
+                      ops.sectorSize, ops.maxPlayersPerChannel);
+        else
+            SLOG_INFO("[Map] {} — {}×{} · sector {} · channel cap {} · empty channel close {}s (0=off)", def.mapId, def.width, def.height,
+                      ops.sectorSize, ops.maxPlayersPerChannel, ops.channelIdleCloseSec);
     }
 
     // 서버 간 연결 — 게임 서버 모드에서 UseServerLink=1 일 때만. 에코 모드는 게임 스레드가 없어 사건을 받을 곳이 없다.

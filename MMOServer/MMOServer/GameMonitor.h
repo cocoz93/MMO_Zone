@@ -849,6 +849,8 @@ public:
                                  //   세션은 없는데 플레이어만 남은 것(나간 세션의 결과로 스폰된 유령)은 이 등식으로만 보인다.
         Counter _zones;          // [게이지] 지금 있는 존(채널·방) 수 — 위 _inGame 과 같은 순회·같은 주기
         Counter _zonesIdle;      // [게이지] 그중 쉬는 존(사람 0 — CZone::IsIdle · 걷기·몬스터 판단 건너뜀). 사람이 다 나가면 _zones 와 같아야 한다
+        Counter _channelsClosed; // 지운 일반 맵 동적 채널 — 비고 유예(ChannelIdleCloseSec)가 지나서(CFieldMap::CloseIdleChannels). 방은 _room._closed
+                                 //   사람이 다 나가고 유예 + 1분이 지나면 _zones = 일반 맵 수 + 열린 방 수로 돌아와야 한다
 
         // [입장 번호] 판정 갈래별 수 — 위 등식 밖이다(입장 요청 단위라 불러오기 결과와 단위가 다르다).
         Counter _codeResult[static_cast<int>(EnterCodeResult::COUNT)];

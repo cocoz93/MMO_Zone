@@ -766,6 +766,7 @@ private:
         ss << "# HELP mmo_zones_idle Zones with no player right now - their movement and monster thinking are skipped\n";
         ss << "# TYPE mmo_zones_idle gauge\n";
         ss << "mmo_zones_idle " << e._zonesIdle << "\n\n";
+        WriteCounter(ss, "mmo_channel_closed_total", "Field map dynamic channels removed after staying empty for ChannelIdleCloseSec (rooms are mmo_room_closed_total)", e._channelsClosed);
 
         // 비누적 버킷 스냅샷 → 누적 변환 (mmo_tick_duration_seconds 와 같은 방식)
         int64_t cum[EC::LATENCY_BUCKET_COUNT];

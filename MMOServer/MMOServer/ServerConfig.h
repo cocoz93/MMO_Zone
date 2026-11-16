@@ -36,12 +36,14 @@
 #include "Common.h"
 #include <Common/ErrorLog.h>
 
-// 맵 하나의 운영 값 — 섹터 크기는 시야·송신량, 채널 정원은 부하를 조절한다.
+// 맵 하나의 운영 값 — 섹터 크기는 시야·송신량, 채널 정원은 부하를, 빈 채널 유예는 쉬는 채널이 쥔 메모리를 조절한다.
 //   맵 크기는 세계의 모양이라 기획 데이터(맵 표 MapTable.csv)다. 둘을 엮어 MapConfig 를 만드는 곳은 main.
 struct MapOps
 {
     int32_t sectorSize;
     int32_t maxPlayersPerChannel;   // 채널당 최대 인원 (소프트 리밋)
+    int32_t channelIdleCloseSec;    // 일반 맵 동적 채널(번호 1 이상)이 사람 0 으로 이만큼 지나면 지운다(초) · 0 = 안 지움.
+                                    //   채널 0 과 방 맵은 안 본다(방은 30초 정리마다 비면 바로 — CRoomMap::CloseEmptyRooms). 뜻은 CFieldMap::CloseIdleChannels
 };
 
 struct ServerConfig
@@ -51,7 +53,10 @@ struct ServerConfig
     //   아래 멤버 초기값과 이 상수들을 쓴다. Load 안에 숫자를 다시 적지 말 것 — 한쪽만 고쳐지면 두 경우가 갈린다.
     static constexpr int    MAX_CLIENTS_DEFAULT = 1000;          // 범위 밖 값을 되돌릴 때도 이 값
     static constexpr int    MAX_CLIENTS_LIMIT   = 65535;         // 세션 인덱스가 SessionID 상위 16bit
-    static constexpr MapOps DEFAULT_MAP_OPS     = { 20, 100 };   // 섹터 크기 · 채널 정원
+    static constexpr MapOps DEFAULT_MAP_OPS     = { 20, 100, 600 };   // 섹터 크기 · 채널 정원 · 빈 채널 유예 10분
+    //   유예 10분(11-16 사용자 결정) — 포털·부활·채널 지정으로 같은 맵에 곧 다시 오는 사람이 새 채널(몬스터를 전 구역 한 번에 깖)을 만들지 않을 만큼 길고,
+    //   몰림(이벤트 맵 → 뒤이어 마을)이 끝난 채널이 다음 몰림까지 남아 쌓이지 않을 만큼 짧다. 시간 단위면 두 몰림의 채널이 함께 남는다
+    static constexpr int32_t CHANNEL_IDLE_CLOSE_SEC_MAX = 86400;   // 하루 — 넘는 값은 오타로 본다(틱으로 바꿔도 int32 안: × 25 = 216만)
 
     ServerMode  mode         = ServerMode::GameServer;
     int         port         = 6000;
@@ -254,6 +259,13 @@ struct ServerConfig
         // [MapDefault] 섹션 로드 — 맵 목록·크기는 맵 표(MapTable.csv)라 여기 없다
         mapDefault.sectorSize           = ini.GetInt("MapDefault", "SectorSize", mapDefault.sectorSize);
         mapDefault.maxPlayersPerChannel = ini.GetInt("MapDefault", "MaxPlayersPerChannel", mapDefault.maxPlayersPerChannel);
+        mapDefault.channelIdleCloseSec  = ini.GetInt("MapDefault", "ChannelIdleCloseSec", mapDefault.channelIdleCloseSec);
+        if (mapDefault.channelIdleCloseSec < 0 || mapDefault.channelIdleCloseSec > CHANNEL_IDLE_CLOSE_SEC_MAX)
+        {
+            SLOG_ERROR("[ServerConfig] [MapDefault] ChannelIdleCloseSec({}) out of range (0~{}). Using default {}.",
+                       mapDefault.channelIdleCloseSec, CHANNEL_IDLE_CLOSE_SEC_MAX, DEFAULT_MAP_OPS.channelIdleCloseSec);
+            mapDefault.channelIdleCloseSec = DEFAULT_MAP_OPS.channelIdleCloseSec;
+        }
 
         // 맵 표로 옮겨 간 옛 키 — 남아 있어도 해는 없지만(표가 이긴다) INI 를 고친 사람이 "왜 안 바뀌지"가 되지 않게 알린다.
         //   [MapN] 의 Width·Height 는 맵 번호를 알아야 찾으므로 MapOpsOf 가 본다.
@@ -277,6 +289,13 @@ struct ServerConfig
         MapOps ops;
         ops.sectorSize           = _ini.GetInt(section, "SectorSize", mapDefault.sectorSize);
         ops.maxPlayersPerChannel = _ini.GetInt(section, "MaxPlayersPerChannel", mapDefault.maxPlayersPerChannel);
+        ops.channelIdleCloseSec  = _ini.GetInt(section, "ChannelIdleCloseSec", mapDefault.channelIdleCloseSec);
+        if (ops.channelIdleCloseSec < 0 || ops.channelIdleCloseSec > CHANNEL_IDLE_CLOSE_SEC_MAX)
+        {
+            SLOG_ERROR("[ServerConfig] [{}] ChannelIdleCloseSec({}) out of range (0~{}). Using [MapDefault] {}.",
+                       section, ops.channelIdleCloseSec, CHANNEL_IDLE_CLOSE_SEC_MAX, mapDefault.channelIdleCloseSec);
+            ops.channelIdleCloseSec = mapDefault.channelIdleCloseSec;
+        }
         return ops;
     }
 
@@ -379,8 +398,8 @@ private:
             SLOG_INFO("  CoreIso     : off (GameCore 미설정)");
         SLOG_INFO("  DB          : {}:{} db={} user={} workers={} save={}s qmax={}",
                   dbHost, dbPort, dbDatabase, dbUser, dbWorkers, dbSavePeriodSec, dbQueueMax);
-        SLOG_INFO("  MapDefault  : sector {} · channel cap {} (맵 목록·크기는 MapTable.csv)",
-                  mapDefault.sectorSize, mapDefault.maxPlayersPerChannel);
+        SLOG_INFO("  MapDefault  : sector {} · channel cap {} · empty channel close {}s (0=off) (맵 목록·크기는 MapTable.csv)",
+                  mapDefault.sectorSize, mapDefault.maxPlayersPerChannel, mapDefault.channelIdleCloseSec);
         SLOG_INFO("  Speed       : player {} (칸/초, 0=기본 — 25~50 무작위)", playerSpeed);
         SLOG_INFO("  Zone        : enter code ttl {}s · dev enter {} · dev admin {}",
                   enterCodeTtlSec, allowDevEnter ? "on" : "off", allowDevAdmin ? "on" : "off");

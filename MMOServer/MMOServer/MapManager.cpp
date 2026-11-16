@@ -27,6 +27,19 @@ CZone* CChannelTable::Create(int32_t channelIndex)
     return ptr;
 }
 
+CZone* CChannelTable::CreateLowestFree()
+{
+    // 1 부터 비어 있는 가장 작은 번호 — 채널이 생겼다 지워지기를 되풀이하므로 단조 증가로는 상한에 닿는다(헤더 주석).
+    //   훑기는 지금 채널 수 + 1 번 안에 끝난다(그 안에 빈 번호가 반드시 있다). 만드는 건 방 포털 · 일반 맵 채널이 다 찼을 때뿐이라 드물다
+    //   (11-16 CRoomMap::CreateRoom 에서 옮겨 옴 — 일반 맵 동적 채널도 같이 쓰게)
+    for (int32_t channelIndex = 1; channelIndex < CMapManager::CHANNELS_PER_MAP; ++channelIndex)
+    {
+        if (_channels.find(channelIndex) == _channels.end())
+            return Create(channelIndex);
+    }
+    return nullptr;   // 번호가 다 찼다
+}
+
 CZone* CChannelTable::Find(int32_t channelIndex)
 {
     auto it = _channels.find(channelIndex);
@@ -68,7 +81,7 @@ CZone* CFieldMap::FindOrCreateChannel(bool isAdmin)
     if (base != nullptr && !IsChannelFull(base, isAdmin))
         return base;
 
-    // 나머지 동적 채널 탐색 — 빈 채널도 여기서 다시 쓰인다(지우지 않으므로 채널 수가 몰릴 때의 최대로 묶인다)
+    // 나머지 동적 채널 탐색 — 유예 중인 빈 채널도 여기서 다시 쓰인다(그러면 사람이 들어와 지우기 판정이 처음부터 다시 — CloseIdleChannels)
     CZone* open = _table.FindIf([&](int32_t channelIndex, CZone* zone)
     {
         return channelIndex != 0 && !IsChannelFull(zone, isAdmin);
@@ -76,9 +89,27 @@ CZone* CFieldMap::FindOrCreateChannel(bool isAdmin)
     if (open != nullptr)
         return open;
 
-    // 모든 채널이 가득 참 — 동적 채널 생성
-    int32_t newChannelIndex = _nextChannelIndex++;
-    return _table.Create(newChannelIndex);
+    // 모든 채널이 가득 참 — 동적 채널 생성. 지운 번호를 다시 쓴다(1 부터 빈 번호 — 헤더 CChannelTable::CreateLowestFree)
+    return _table.CreateLowestFree();
+}
+
+void CFieldMap::CloseIdleChannels(uint64_t nowFrame, const std::function<void(CZone*)>& onBeforeErase)
+{
+    const int32_t graceFrames = _table.GetConfig().channelIdleCloseFrames;
+    if (graceFrames <= 0)
+        return;   // 0 = 안 지움(INI ChannelIdleCloseSec=0) — 10-27~11-16 동작
+
+    // ① 확인 기록 먼저 — 확인 사이에 들어왔다 나간 사람도 「이번 확인에서 봤다」로 친다(CZone::NoteOccupancy).
+    //   ② 와 따로 도는 까닭: 기록은 채널 0 · 사람 있는 채널에도 남겨야 하고, 지우기 판정은 지울 후보만 본다 — 한 술어에 섞으면 술어가 상태를 바꾼다
+    _table.ForEachZone([nowFrame](CZone* zone) { zone->NoteOccupancy(nowFrame); });
+
+    // ② 지우기 — 채널 0 은 안 지운다(기본 채널 · 자동 배정이 먼저 본다). 사람 0 이고 마지막으로 본 확인에서 유예 이상
+    //   (방금 ① 에서 본 채널은 차이가 0 이라 안 걸린다 — 유예 > 0)
+    _table.EraseIf([&](int32_t channelIndex, CZone* zone)
+    {
+        return channelIndex != 0 && zone->GetPlayerCount() == 0
+            && nowFrame - zone->GetLastOccupiedFrame() >= static_cast<uint64_t>(graceFrames);
+    }, onBeforeErase);
 }
 
 bool CFieldMap::IsChannelFull(const CZone* zone, bool isAdmin) const
@@ -101,12 +132,8 @@ CZone* CRoomMap::CreateRoom()
 {
     // 1 부터 비어 있는 가장 작은 번호 — 방은 생겼다 지워지기를 되풀이하므로 단조 증가로는 상한에 닿는다(헤더 [일반 맵과 다른 점]).
     //   훑기는 열린 방 수 + 1 번 안에 끝난다(그 안에 빈 번호가 반드시 있다). 방을 만드는 건 파티장이 포털을 쓸 때뿐이라 드물다
-    for (int32_t channelIndex = 1; channelIndex < CMapManager::CHANNELS_PER_MAP; ++channelIndex)
-    {
-        if (_table.Find(channelIndex) == nullptr)
-            return _table.Create(channelIndex);
-    }
-    return nullptr;   // 번호가 다 찼다 — 게임 서버가 「모든 채널 가득 참」으로 거절한다
+    //   (11-16 훑기는 CChannelTable::CreateLowestFree 로 옮겼다 — 일반 맵 동적 채널도 같이 쓴다)
+    return _table.CreateLowestFree();   // nullptr = 번호가 다 찼다 — 게임 서버가 「모든 채널 가득 참」으로 거절한다
 }
 
 void CRoomMap::CloseEmptyRooms(const std::function<void(CZone*)>& onBeforeErase)
@@ -121,8 +148,8 @@ void CRoomMap::CloseEmptyRooms(const std::function<void(CZone*)>& onBeforeErase)
 
 bool CMapManager::RegisterMap(const MapConfig& config)
 {
-    // 설정 유효성 검증
-    if (config.maxPlayersPerChannel <= 0)
+    // 설정 유효성 검증 — 유예는 0(안 지움) 이상(설정 읽기가 범위를 맞춰 넣는다 · 음수면 부르는 쪽 잘못)
+    if (config.maxPlayersPerChannel <= 0 || config.channelIdleCloseFrames < 0)
         return false;
 
     // ※ 「맵이 패킷 좌표 양자화 값(uint16)에 담기는 크기인가」는 여기서 안 본다 — 와이어 사정이라 패킷을 아는
@@ -293,10 +320,24 @@ void CMapManager::CloseEmptyRooms(const std::function<void(CZone*)>& onBeforeEra
     //   (전에는 캐시 빼기용으로 조건을 한 벌 더 들고 있었다 — 10-06, 아키텍처 전수검사 5번).
     //   순서 — 조회표에서 먼저 빼고 콜백: 콜백이 하는 일(CGameServer::OnErasingZone — 땅 아이템 세기 · 지속 효과 목록에서 빼기 · 방 닫힘 세기)은
     //   zone 포인터와 그 번호로만 하고 GetZone 을 안 거치므로 무관하다. 존 객체는 콜백이 끝난 뒤 지워진다.
-    //   일반 표는 안 훑는다 — 일반 맵 채널은 비어도 안 지운다(CFieldMap [책임] ★)
+    //   일반 표는 안 훑는다 — 일반 맵 채널은 유예 뒤 아래 CloseIdleChannels 가 지운다(CFieldMap [책임] ★)
     for (auto& entry : _roomMaps)
     {
         entry.second.CloseEmptyRooms([&](CZone* zone)
+        {
+            _zoneCache.erase(zone->GetZoneId());
+            if (onBeforeErase)
+                onBeforeErase(zone);
+        });
+    }
+}
+
+void CMapManager::CloseIdleChannels(uint64_t nowFrame, const std::function<void(CZone*)>& onBeforeErase)
+{
+    // 판정은 CFieldMap 한 곳 — 조회표 빼기 · 콜백 이어 부르기 · 순서는 위 CloseEmptyRooms 와 같다(같은 까닭)
+    for (auto& entry : _fieldMaps)
+    {
+        entry.second.CloseIdleChannels(nowFrame, [&](CZone* zone)
         {
             _zoneCache.erase(zone->GetZoneId());
             if (onBeforeErase)
