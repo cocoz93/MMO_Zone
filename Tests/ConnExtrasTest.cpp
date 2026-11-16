@@ -4,6 +4,9 @@
 //     none = 듣는 포트가 하나도 없는 서버 — 붙기(ConnectTo)만
 //     a    = 듣기는 모두 AddListener(포트 0 = OS 가 고름) — 주소 · 끊긴 까닭 · 거절
 //     b    = 보낸 뒤 끊기 — 링에 64KB 가까이 쌓인 채 불러도 끝까지 받고 FIN 으로 끝남
+//     c    = 살아 있음 확인 켬 · 붙기 한도 · 작은 링(받기 4,096 · 보내기 2,048)
+//     d    = 받기 링이 자르기 부품 최대를 못 담으면 Start 가 false
+//     e    = 큰 링(4MB) 보낸 뒤 끊기 — 커널이 다 못 받아 보내기가 걸린 채로 부른다
 //   상대는 시험이 직접 연 맨 소켓이다(받는 쪽 · 거는 쪽 둘 다).
 //   외부 라이브러리 없음, 실패하면 종료 값 1.
 #include "TestHelp.h"   // WinSock2 — Windows.h 보다 먼저 와야 해서 맨 앞
@@ -14,6 +17,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <chrono>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -29,6 +33,13 @@
 #include <set>
 #include <sstream>
 #include <sys/select.h>
+#endif
+
+#ifndef TCP_KEEPIDLE
+#define TCP_KEEPIDLE 3      // 윈도우 ws2ipdef.h 의 TCP_KEEPALIVE(초) — 헤더 판에 따라 이 이름이 없을 수 있다
+#endif
+#ifndef TCP_KEEPINTVL
+#define TCP_KEEPINTVL 17
 #endif
 
 void SignalProcessShutdown() {}   // 코어가 부르는 종료 알림 — 시험에는 기다리는 쪽이 없다
@@ -318,6 +329,105 @@ namespace
 #endif
     }
 
+    // 이 프로세스가 쥔 소켓 가운데 이쪽 포트 · 상대 포트가 맞는 것 — 서버가 쥔 세션 소켓의 옵션을 시험이 직접 읽으려고. 없으면 INVALID_SOCKET
+    //   윈도우는 소켓도 프로세스 핸들이라 작은 핸들 값을 차례로 물어본다(소켓이 아니면 getsockname 이 실패) · 리눅스는 /proc/self/fd
+    SOCKET FindOwnSocket(uint16_t localPort, uint16_t peerPort)
+    {
+        auto matches = [&](SOCKET s)
+        {
+            sockaddr_in a{};
+            socklen_t len = sizeof(a);
+            if (getsockname(s, reinterpret_cast<sockaddr*>(&a), &len) != 0 || ntohs(a.sin_port) != localPort)
+                return false;
+            sockaddr_in b{};
+            len = sizeof(b);
+            return getpeername(s, reinterpret_cast<sockaddr*>(&b), &len) == 0 && ntohs(b.sin_port) == peerPort;
+        };
+#ifdef _WIN32
+        for (uintptr_t h = 4; h < 0x10000; h += 4)
+            if (matches(static_cast<SOCKET>(h)))
+                return static_cast<SOCKET>(h);
+        return INVALID_SOCKET;
+#else
+        DIR* dir = opendir("/proc/self/fd");
+        if (dir == nullptr)
+            return INVALID_SOCKET;
+        SOCKET found = INVALID_SOCKET;
+        while (dirent* e = readdir(dir))
+        {
+            const int fd = std::atoi(e->d_name);
+            if (fd > 2 && matches(fd))
+            {
+                found = fd;
+                break;
+            }
+        }
+        closedir(dir);
+        return found;
+#endif
+    }
+
+    // 소켓 옵션 하나(int) — 못 읽으면 -1
+    //   윈도우는 참거짓 옵션(SO_KEEPALIVE 등)을 1바이트만 쓰고 길이 1 을 돌려준다 — 그때는 그 1바이트를 읽는다
+    int SockOptInt(SOCKET s, int level, int name)
+    {
+        unsigned char bytes[sizeof(int)] = {};
+        socklen_t len = sizeof(bytes);
+        if (getsockopt(s, level, name, reinterpret_cast<char*>(bytes), &len) != 0)
+            return -1;
+        if (len == 1)
+            return bytes[0];
+        int v = 0;
+        std::memcpy(&v, bytes, sizeof(v));
+        return v;
+    }
+
+    // 묶기만 하고 안 듣는 포트 — 붙으면 거절이 온다
+    SOCKET BindOnly(uint16_t& port)
+    {
+        SOCKET s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (s == INVALID_SOCKET)
+            return INVALID_SOCKET;
+        sockaddr_in a{};
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = LoopbackNet();
+        if (::bind(s, reinterpret_cast<sockaddr*>(&a), sizeof(a)) != 0)
+        {
+            Platform::CloseSocket(s);
+            return INVALID_SOCKET;
+        }
+        port = LocalPort(s);
+        return s;
+    }
+
+    long long ElapsedMs(std::chrono::steady_clock::time_point from)
+    {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - from).count();
+    }
+
+    size_t CountFrom(CRecordingSink* sink, int64_t sessionId)
+    {
+        size_t n = 0;
+        for (const auto& r : sink->Received())
+            if (r.first == sessionId)
+                ++n;
+        return n;
+    }
+
+    // 직렬화 버퍼 한 통(전체 길이 머리 + 몸)을 RequestSendMsg 로 — 링 길(SendOverflow 의 다른 자리)을 보려고
+    bool SendMsg(CIOCPServer& server, int64_t sessionId, const std::string& body, SendFlush flush)
+    {
+        CSerialBuffer* msg = CSerialBuffer::Alloc();
+        MsgHeader header;
+        header.size = static_cast<uint16_t>(sizeof(MsgHeader) + body.size());
+        header.type = static_cast<MsgType>(3000);
+        std::memcpy(msg->GetWriteBufferPtr(), &header, sizeof(header));
+        msg->MoveWritePos(static_cast<int>(sizeof(header)));
+        std::memcpy(msg->GetWriteBufferPtr(), body.data(), body.size());
+        msg->MoveWritePos(static_cast<int>(body.size()));
+        return server.RequestSendMsg(sessionId, msg, flush);   // ref 하나를 넘긴다(실패해도 거기서 돌려준다)
+    }
+
     // ── 판 none — 듣는 포트가 없는 서버. 붙기만 한다 ──
     void CaseNone()
     {
@@ -426,6 +536,14 @@ namespace
         Check(c0.info.sessionId != 0 && !c0.info.outbound && c0.info.tag == 0
               && c0.info.peerIp == lo && c0.info.peerPort == LocalPort(c0.sock) && c0.info.localPort == port0,
               "a · ② 받은 접속(구분 값 0) — 주소 · 구분 값");
+
+        // ── ④ 끔(기본) — 켠 수 0 · 서버가 쥔 받은 소켓의 SO_KEEPALIVE 0 ──
+        {
+            const SOCKET serverSide = FindOwnSocket(static_cast<uint16_t>(portIn), LocalPort(c1.sock));
+            const int ka = (serverSide != INVALID_SOCKET) ? SockOptInt(serverSide, SOL_SOCKET, SO_KEEPALIVE) : -9;
+            Check(server.GetKeepAliveOnCount() == 0 && ka == 0,
+                  "a · ④ 살아 있음 확인 끔(기본) — 켠 수 " + std::to_string(server.GetKeepAliveOnCount()) + " · 서버 쪽 소켓 SO_KEEPALIVE " + std::to_string(ka));
+        }
 
         uint16_t lport = 0;
         SOCKET l = RawListen(lport);
@@ -680,6 +798,169 @@ namespace
         Check(sink->Disconnected().size() == 2, "b · ③ 끊김 알림 2 (" + std::to_string(sink->Disconnected().size()) + ")");
         server.ShutdownServer();
     }
+
+    // ── 판 c — 살아 있음 확인 켬 · 붙기 한도 · 작은 링 ──
+    void CaseC()
+    {
+        CMonitorManager monitor;
+        auto sinkOwned = std::make_unique<CRecordingSink>();
+        CRecordingSink* sink = sinkOwned.get();
+
+        CIOCPServer server(0, MAX_CLIENTS, "ConnExtrasTest", monitor, 2, 2, 2, 0, 1);
+        Check(server.AddListener("127.0.0.1", 0, TAG_IN), "c · AddListener 127.0.0.1:0");
+        Check(server.SetIdleTimeoutSec(0), "c · 쉬는 접속 끊기 끔");
+        Check(!server.SetKeepAlive(1000, 0), "c · ④ 한쪽만 0 이면 false");
+        Check(server.SetKeepAlive(30000, 5000), "c · ④ 살아 있음 확인 30초 · 5초(받은 접속만)");
+        Check(!server.SetSessionBufferSizes(0, 2048), "c · ⑦ 0 이면 false");
+        Check(server.SetSessionBufferSizes(4096, 2048), "c · ⑦ 받기 4,096 · 보내기 2,048");
+        Check(server.SetRecvSink(std::move(sinkOwned)), "c · SetRecvSink");
+        if (!server.Start())
+        {
+            Check(false, "c · Start");
+            return;
+        }
+        Check(!server.SetKeepAlive(1000, 1000) && !server.SetSessionBufferSizes(8192, 8192), "c · Start 뒤 설정은 false");
+        const int port = server.GetListenerPort(0);
+
+        // ── ④ 받은 접속 둘 — 켠 수 2 · 서버 쪽 소켓 옵션 ──
+        Opened k1 = OpenAccepted(sink, port);
+        Opened k2 = OpenAccepted(sink, port);
+        Check(k1.info.sessionId != 0 && k2.info.sessionId != 0 && server.GetKeepAliveOnCount() == 2,
+              "c · ④ 받은 접속 2 → 켠 수 " + std::to_string(server.GetKeepAliveOnCount()));
+        const SOCKET k1Server = (k1.sock != INVALID_SOCKET) ? FindOwnSocket(static_cast<uint16_t>(port), LocalPort(k1.sock)) : INVALID_SOCKET;
+        const int kaOn = (k1Server != INVALID_SOCKET) ? SockOptInt(k1Server, SOL_SOCKET, SO_KEEPALIVE) : -9;
+        Check(kaOn == 1, "c · ④ 서버 쪽 소켓 SO_KEEPALIVE " + std::to_string(kaOn));
+        const int kaIdle = (k1Server != INVALID_SOCKET) ? SockOptInt(k1Server, IPPROTO_TCP, TCP_KEEPIDLE) : -9;
+        const int kaGap = (k1Server != INVALID_SOCKET) ? SockOptInt(k1Server, IPPROTO_TCP, TCP_KEEPINTVL) : -9;
+        Check(kaIdle == 30 && kaGap == 5,
+              "c · ④ 서버 쪽 소켓 값 — 쉬는 초 " + std::to_string(kaIdle) + " · 간격 초 " + std::to_string(kaGap) + " (기대 30 · 5)");
+
+        // ── ⑤ 붙기 한도 ──
+        uint16_t lport = 0;
+        SOCKET l = RawListen(lport);
+        const auto t0 = std::chrono::steady_clock::now();
+        const int64_t out1 = server.ConnectTo("127.0.0.1", lport, TAG_OUT, 1000);
+        const long long okMs = ElapsedMs(t0);
+        SOCKET p1 = AcceptWithin(l, 2000);
+        Check(out1 != 0 && p1 != INVALID_SOCKET && okMs < 1000, "c · ⑤ 듣는 주소 · 한도 1초 → 붙음 (" + std::to_string(okMs) + "ms)");
+        Check(p1 != INVALID_SOCKET && SendAll(p1, Packet(77, "hello")), "c · ⑤ 상대가 보냄");
+        TestHelp::WaitUntil([&] { return CountFrom(sink, out1) >= 1; }, 3000);
+        Check(out1 != 0 && CountFrom(sink, out1) == 1, "c · ⑤ 한도 길로 붙은 세션이 받음");
+        Check(server.GetKeepAliveOnCount() == 2, "c · ④ 건 접속은 안 켬(outboundToo 끔) — 켠 수 " + std::to_string(server.GetKeepAliveOnCount()));
+        const SOCKET outServer = (p1 != INVALID_SOCKET) ? FindOwnSocket(PeerPort(p1), lport) : INVALID_SOCKET;
+        const int outKa = (outServer != INVALID_SOCKET) ? SockOptInt(outServer, SOL_SOCKET, SO_KEEPALIVE) : -9;
+        Check(outKa == 0, "c · ④ 건 접속 소켓 SO_KEEPALIVE " + std::to_string(outKa));
+
+        // 답 없는 주소 — 문서용 주소 TEST-NET-1(RFC 5737). 아무도 답하지 않는 망을 전제로 한다(바로 거절이 오는 망이면 시간 칸이 깨진다)
+        const auto t1 = std::chrono::steady_clock::now();
+        const int64_t out2 = server.ConnectTo("192.0.2.1", 9, TAG_OUT, 300);
+        const long long holeMs = ElapsedMs(t1);
+        Check(out2 == 0 && holeMs >= 250 && holeMs < 1500, "c · ⑤ 답 없는 주소 · 한도 300ms → 0 (" + std::to_string(holeMs) + "ms)");
+
+        // 닫힌 포트(묶기만 하고 안 들음) — 한도 안에 0
+        uint16_t closedPort = 0;
+        SOCKET bound = BindOnly(closedPort);
+        const auto t2 = std::chrono::steady_clock::now();
+        const int64_t out3 = server.ConnectTo("127.0.0.1", closedPort, TAG_OUT, 300);
+        const long long refusedMs = ElapsedMs(t2);
+        Check(bound != INVALID_SOCKET && out3 == 0 && refusedMs < 1500, "c · ⑤ 닫힌 포트 · 한도 300ms → 0 (" + std::to_string(refusedMs) + "ms)");
+
+        // ── ⑦ 작은 링 ──
+        // 받기 4,096 — 자르기 부품 최대(1,458) 메시지 둘을 한 번에 보내도 받는다
+        Opened r1 = OpenAccepted(sink, port);
+        const std::string big(LENGTH_FRAME_MAX_SIZE - sizeof(MsgHeader), 'r');
+        Check(r1.info.sessionId != 0 && SendAll(r1.sock, Packet(78, big) + Packet(79, big)), "c · ⑦ 최대 메시지 둘(2,916 바이트)을 한 번에 보냄");
+        TestHelp::WaitUntil([&] { return CountFrom(sink, r1.info.sessionId) >= 2; }, 3000);
+        Check(CountFrom(sink, r1.info.sessionId) == 2, "c · ⑦ 받기 링 4,096 으로 둘 다 받음 (" + std::to_string(CountFrom(sink, r1.info.sessionId)) + ")");
+        // 보내기 2,048 — 링은 2,047 까지 담는다. 1,408 바이트 하나는 들어가고 둘째는 넘친다(틱 끝 보내기라 링에 머문다)
+        const std::string body(1404, 's');
+        const bool first = SendMsg(server, r1.info.sessionId, body, SendFlush::Deferred);
+        const bool second = SendMsg(server, r1.info.sessionId, body, SendFlush::Deferred);
+#if USE_RIO_TRANSPORT
+        // RIO 는 링 크기 설정을 안 쓴다 — 세션 버퍼는 슬랩 상수(65,536)가 정한다(`Transport_Rio.cpp` 첫 세션 알림). 그래서 둘 다 들어가고 안 끊긴다
+        Check(first && second, std::string("c · ⑦ RIO — 보내기 링 설정 안 씀 · 1,408 바이트 둘 다 들어감 (둘째 ") + (second ? "들어감" : "넘침") + ")");
+#else
+        Check(first && !second, std::string("c · ⑦ 보내기 링 2,048 — 1,408 바이트 첫째 ") + (first ? "들어감" : "실패") + " · 둘째 " + (second ? "들어감" : "넘침"));
+        TestHelp::WaitUntil([&] { SinkDisconnected x; return sink->FindDisconnect(r1.info.sessionId, x); }, 3000);
+        SinkDisconnected d;
+        const bool found = sink->FindDisconnect(r1.info.sessionId, d);
+        Check(found && d.reason == DisconnectReason::SendOverflow,
+              std::string("c · ⑦ 넘친 접속은 끊김 · 까닭 SendOverflow (") + (found ? ReasonName(d.reason) : "끊김 알림 없음") + ")");
+#endif
+
+        for (SOCKET s : { k1.sock, k2.sock, r1.sock, p1, l, bound })
+            if (s != INVALID_SOCKET)
+                Platform::CloseSocket(s);
+        server.ShutdownServer();
+    }
+
+    // ── 판 d — 받기 링이 자르기 부품 최대를 못 담으면 Start 가 false ──
+    void CaseD()
+    {
+        CMonitorManager monitor;
+        CIOCPServer server(0, MAX_CLIENTS, "ConnExtrasTest", monitor, 2, 2, 2, 0, 1);
+        Check(server.AddListener("127.0.0.1", 0, TAG_IN), "d · AddListener 127.0.0.1:0");
+        Check(server.SetSessionBufferSizes(LENGTH_FRAME_MAX_SIZE, 65535), "d · ⑦ 받기 링 = 자르기 부품 최대(1,458)");
+        const bool started = server.Start();
+        Check(!started, "d · ⑦ Start false — 링은 크기 − 1 까지 담아 최대 메시지가 안 들어간다");
+        if (started)
+            server.ShutdownServer();
+    }
+
+    // ── 판 e — 큰 링 보낸 뒤 끊기 ──
+    //   안 읽는 상대 몫으로 커널이 받아 두는 양은 윈도우 수십 KB · 리눅스 수 MB 다(루프백 실측) — 판 b 의 60,000 은 커널이 다 받아
+    //   「다 빠질 때까지 기다림」을 빼도 안 걸린다. 3MB 를 넣어 보내기가 걸린 채로 부르게 한다
+    void CaseE()
+    {
+        CMonitorManager monitor;
+        auto sinkOwned = std::make_unique<CRecordingSink>();
+        CRecordingSink* sink = sinkOwned.get();
+
+        CIOCPServer server(0, MAX_CLIENTS, "ConnExtrasTest", monitor, 2, 2, 2, 0, 1);
+        Check(server.AddListener("127.0.0.1", 0, TAG_IN), "e · AddListener 127.0.0.1:0");
+        Check(server.SetIdleTimeoutSec(0), "e · 쉬는 접속 끊기 끔");
+        Check(server.SetSessionBufferSizes(65535, 4 * 1024 * 1024), "e · ⑦ 보내기 링 4MB");
+        Check(server.SetRecvSink(std::move(sinkOwned)), "e · SetRecvSink");
+        if (!server.Start())
+        {
+            Check(false, "e · Start");
+            return;
+        }
+        const int port = server.GetListenerPort(0);
+
+        SOCKET c = ConnectSmallRecv(port, 4096);
+        SinkConnected ci{};
+        const uint16_t cport = (c != INVALID_SOCKET) ? LocalPort(c) : 0;
+        TestHelp::WaitUntil([&] { return sink->FindByPeerPort(cport, ci); }, 3000);
+        Check(c != INVALID_SOCKET && ci.sessionId != 0, "e · 접속(받기 버퍼 4,096)");
+        std::string payload(3000000, '\0');
+        for (size_t i = 0; i < payload.size(); ++i)
+            payload[i] = static_cast<char>((i * 131 + (i >> 16)) & 0xFF);
+#if USE_RIO_TRANSPORT
+        // RIO 는 링 크기 설정을 안 쓴다(슬랩 65,536) — 3MB 는 못 담고, 그보다 작은 양은 커널이 다 받아 「다 빠질 때까지 기다림」을 못 건드린다.
+        //   그래서 RIO 에서는 설정이 안 먹는 것만 본다. 다 빠질 때까지 기다림은 IOCP · 리눅스 판 e 가 본다
+        Check(!server.RequestSendRaw(ci.sessionId, payload.data(), static_cast<int>(payload.size())),
+              "e · RIO — 보내기 링 4MB 설정 안 씀 · 3,000,000 바이트는 슬랩(65,536)에 안 들어감");
+        Platform::CloseSocket(c);
+        server.ShutdownServer();
+#else
+        Check(server.RequestSendRaw(ci.sessionId, payload.data(), static_cast<int>(payload.size())), "e · ③ 링에 3,000,000 바이트 넣음");
+        Check(server.RequestDisconnectAfterSend(ci.sessionId), "e · ③ 보낸 뒤 끊기 부름");
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        int lastRc = 1;
+        const std::string got = ReadToEnd(c, 20000, lastRc);
+        Check(got.size() == payload.size() && got == payload,
+              "e · ③ 끝까지 받음 — " + std::to_string(got.size()) + " / " + std::to_string(payload.size()) + " 바이트 · 내용 같음 " + (got == payload ? "예" : "아니오"));
+        Check(lastRc == 0, std::string("e · ③ 끝이 FIN (") + (lastRc == 0 ? "FIN" : lastRc < 0 ? "실패" : "시한") + ")");
+        TestHelp::WaitUntil([&] { return !sink->Disconnected().empty(); }, 3000);
+        SinkDisconnected d;
+        const bool found = sink->FindDisconnect(ci.sessionId, d);
+        Check(found && d.reason == DisconnectReason::AfterSend,
+              std::string("e · ③ 끊긴 까닭 AfterSend (") + (found ? ReasonName(d.reason) : "없음") + ")");
+        Platform::CloseSocket(c);
+        server.ShutdownServer();
+#endif
+    }
 }
 
 int main(int argc, char** argv)
@@ -693,9 +974,15 @@ int main(int argc, char** argv)
             CaseA();
         else if (which == "b")
             CaseB();
+        else if (which == "c")
+            CaseC();
+        else if (which == "d")
+            CaseD();
+        else if (which == "e")
+            CaseE();
         else
         {
-            std::printf("모르는 판 '%s' — none · a · b\n", which.c_str());
+            std::printf("모르는 판 '%s' — none · a · b · c · d · e\n", which.c_str());
             return 2;
         }
         return TestHelp::Finish(("conn_extras_test " + which).c_str());
@@ -714,7 +1001,7 @@ int main(int argc, char** argv)
     if (selfLen > 0)
         self.assign(selfBuf, static_cast<size_t>(selfLen));
 #endif
-    const char* cases[] = { "none", "a", "b" };
+    const char* cases[] = { "none", "a", "b", "c", "d", "e" };
     for (const char* c : cases)
     {
         const std::string cmd = std::string("\"") + self + "\" " + c;
